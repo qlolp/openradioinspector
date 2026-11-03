@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openradioinspector"
+version = "0.1.0"
+description = "Открытая реализация комплекса ПО для исследования радиочастотного спектра и измерения параметров ВЧ-излучений"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = [
+    "radio",
+    "spectrum",
+    "monitoring",
+    "ITU-R",
+    "signal-detection",
+    "measurements",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Telecommunications Industry",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: Russian",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Communications :: Ham Radio",
+]
+dependencies = ["numpy>=1.21"]
+
+[project.optional-dependencies]
+# Графики и отчёты: PNG/vector-вывод диаграмм без веб-интерфейса.
+plot = ["matplotlib>=3.5"]
+# Аппаратные драйверы.
+soapy = ["SoapySDR>=0.8"]
+rtl = ["pyrtlsdr>=0.1"]
+# Разбор кадров 802.11.
+wifi = ["scapy>=2.5"]
+# Всё необязательное сразу.
+all = [
+    "matplotlib>=3.5",
+    "SoapySDR>=0.8",
+    "pyrtlsdr>=0.1",
+    "scapy>=2.5",
+]
+
+[project.scripts]
+radioinspector = "radioinspector.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/qlolp/openradioinspector"
+Documentation = "https://github.com/qlolp/openradioinspector/tree/main/docs"
+Issues = "https://github.com/qlolp/openradioinspector/issues"
+
+[tool.setuptools.packages.find]
+include = ["radioinspector*"]
+
+[tool.setuptools.package-data]
+"radioinspector.web" = ["static/*"]

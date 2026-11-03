@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Тестовые и временные данные
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Данные измерений и базы панорам (*.pan) — не подлежат хранению в репозитории
+*.pan
+*.pan-wal
+*.pan-shm
+data/
+out/
+*.cef
+*.sigmf-meta
+*.csv
+
+# Инструменты ОС
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

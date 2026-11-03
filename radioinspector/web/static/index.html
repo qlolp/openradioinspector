@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenRadioInspector — контроль радиочастотного спектра</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>OpenRadioInspector</h1>
+  <div class="meta">
+    <span id="dbname">база данных не загружена</span>
+    <span id="panocount">панорам: 0</span>
+    <span id="conn" class="off">соединение: нет</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel spectrum">
+    <h2>Спектральная характеристика</h2>
+    <div class="toolbar">
+      <label><input type="checkbox" id="show-max" checked> максимумы</label>
+      <label><input type="checkbox" id="show-min"> минимумы</label>
+      <label><input type="checkbox" id="show-avg"> усреднённые</label>
+      <label><input type="checkbox" id="show-threshold" checked> линия порога</label>
+      <label>порог <input type="range" id="thr-offset" min="-30" max="30" step="0.5" value="0"> <span id="thr-value">0.0</span> дБ</label>
+      <button id="apply-threshold">Применить порог</button>
+    </div>
+    <canvas id="spectrum" width="1100" height="320"></canvas>
+    <div class="legend">
+      <span class="k current">текущие значения</span>
+      <span class="k max">максимумы</span>
+      <span class="k min">минимумы</span>
+      <span class="k avg">усреднённые</span>
+      <span class="k thr">порог</span>
+    </div>
+  </section>
+
+  <section class="panel waterfall">
+    <h2>Спектрограмма (время — частота)</h2>
+    <canvas id="waterfall" width="1100" height="220"></canvas>
+  </section>
+
+  <section class="panel signals">
+    <h2>Сигналы, превысившие линию порога</h2>
+    <table id="signal-table">
+      <thead>
+        <tr>
+          <th>№</th><th>Частота, МГц</th><th>Полоса, кГц</th>
+          <th>Обнаружений</th><th>Мощность над порогом, Вт</th><th>Первое обнаружение</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel measure">
+    <h2>Измерение параметров сигнала</h2>
+    <div class="toolbar">
+      <label>от <input type="number" id="m-start" step="0.001" value="0"> МГц</label>
+      <label>до <input type="number" id="m-stop" step="0.001" value="0"> МГц</label>
+      <button id="do-measure">Измерить</button>
+      <span id="measure-note" class="note"></span>
+    </div>
+    <div id="measure-result" class="results"></div>
+  </section>
+
+  <section class="panel occupancy">
+    <h2>Оценка загрузки диапазона</h2>
+    <div class="toolbar">
+      <label>порог <input type="number" id="occ-threshold" step="1" value=""> дБ</label>
+      <button id="do-occupancy">Пересчитать</button>
+      <span id="occ-note" class="note"></span>
+    </div>
+    <div id="occ-result" class="results"></div>
+  </section>
+
+  <section class="panel map">
+    <h2>Точки измерений</h2>
+    <canvas id="map" width="1100" height="300"></canvas>
+    <div class="note" id="map-note"></div>
+  </section>
+</main>
+
+<footer>
+  <p>OpenRadioInspector — открытая реализация комплекса программ радиоконтроля.
+     Программное обеспечение не является аттестованным средством измерений.</p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
