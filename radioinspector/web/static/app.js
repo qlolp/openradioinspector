@@ -345,14 +345,23 @@ async function runOccupancy() {
   try {
     const response = await fetch(`/api/occupancy${query}`);
     const data = await response.json();
-    renderOccupancy(data);
+    let efficiency = null;
+    try {
+      const effResponse = await fetch(`/api/efficiency${query}`);
+      if (effResponse.ok) {
+        efficiency = await effResponse.json();
+      }
+    } catch (err) {
+      efficiency = null;
+    }
+    renderOccupancy(data, efficiency);
     $("occ-note").textContent = "";
   } catch (err) {
     $("occ-note").textContent = `Ошибка запроса: ${err}`;
   }
 }
 
-function renderOccupancy(data) {
+function renderOccupancy(data, efficiency) {
   const box = $("occ-result");
   box.innerHTML = "";
   if (!data || !data.channel_count) {
@@ -379,6 +388,16 @@ function renderOccupancy(data) {
         : "—",
     },
   ];
+  if (efficiency && efficiency.measurements) {
+    cards.push({
+      label: "Эффективность использования диапазона",
+      value: (efficiency.efficiency * 100).toFixed(2) + " %",
+    });
+    cards.push({
+      label: "Превышений порога (n / N)",
+      value: `${efficiency.exceedances} / ${efficiency.measurements}`,
+    });
+  }
   for (const card of cards) {
     const div = document.createElement("div");
     div.className = "result-card";

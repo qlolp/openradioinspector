@@ -31,9 +31,10 @@ from urllib.parse import parse_qs, urlparse
 
 from ..assignments import AssignmentDatabase
 from ..jsonio import dumps as json_dumps
+from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
 from ..measurements import measure_signal
-from ..occupancy import occupancy_from_store
+from ..occupancy import efficiency_from_store, occupancy_from_store
 from ..panorama import PanoramaLibrary, PanoramaStore
 from ..signals import SignalList
 from ..threshold import ThresholdLine
@@ -195,14 +196,14 @@ class ApplicationState:
         payload["points"] = points
         return payload
 
-    def measurements(self, start_hz: float, stop_hz: float) -> dict:
+    def measurements(self, start_hz: float, stop_hz: float, norm_hz: Optional[float] = None) -> dict:
         if self.store is None:
             return {}
         latest = self.store.latest()
         if latest is None:
             return {}
         trace = latest.trace.slice(start_hz, stop_hz)
-        return measure_signal(trace)
+        return measure_signal(trace, norm_hz=norm_hz)
 
     def occupancy(self, threshold_db: Optional[float] = None) -> dict:
         """Оценка загрузки диапазона по сохранённой базе данных панорам."""
@@ -211,6 +212,14 @@ class ApplicationState:
         if threshold_db is None:
             threshold_db = self.threshold_level()
         return occupancy_from_store(self.store, threshold_db).as_dict()
+
+    def efficiency(self, threshold_db: Optional[float] = None) -> dict:
+        """Эффективность использования диапазона: доля моментов наблюдения."""
+        if self.store is None:
+            return {}
+        if threshold_db is None:
+            threshold_db = self.threshold_level()
+        return efficiency_from_store(self.store, threshold_db).as_dict()
 
     def threshold_level(self) -> float:
         """Уровень линии порога, дБ; при её отсутствии — 2/3 шкалы."""
@@ -306,10 +315,20 @@ class Handler(BaseHTTPRequestHandler):
             threshold = float(raw) if raw not in (None, "") else None
             self._send_json(self.state.occupancy(threshold))
             return
+        if route == "/api/efficiency":
+            raw = query.get("threshold", [None])[0]
+            threshold = float(raw) if raw not in (None, "") else None
+            self._send_json(self.state.efficiency(threshold))
+            return
+        if route == "/api/keywords":
+            self._send_json({"keywords": CATALOG, "count": len(CATALOG)})
+            return
         if route == "/api/measure":
             start = float(query.get("start", ["0"])[0])
             stop = float(query.get("stop", ["0"])[0])
-            self._send_json(self.state.measurements(start, stop))
+            raw_norm = query.get("norm", [None])[0]
+            norm = float(raw_norm) if raw_norm not in (None, "") else None
+            self._send_json(self.state.measurements(start, stop, norm))
             return
         if route == "/api/stream":
             self._stream_events()

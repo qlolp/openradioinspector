@@ -38,13 +38,20 @@ from .devices.registry import open_instrument
 from .devices.base import SweepConfig
 from .export import export_cef, export_panoramas_csv, export_signals_csv, export_trace_csv
 from .jsonio import dumps as json_dumps
-from .geoloc import Bearing, MeasurementPoint, build_coverage_map, triangulate_bearings
+from .keywords import CATALOG, keyword_group
+from .geoloc import (
+    Bearing,
+    MeasurementPoint,
+    build_coverage_map,
+    triangulate_bearings,
+)
 from .interference import detect_interference
 from .measurements import measure_signal
-from .occupancy import occupancy_from_store
+from .occupancy import efficiency_from_store, occupancy_from_store
 from .panorama import PanoramaLibrary, PanoramaStore, ScanSettings
 from .reporting import DEFAULT_TEMPLATE, ProtocolTemplate, build_context
 from .signals import SignalList
+from .tasks import TaskBook
 from .threshold import ThresholdLine
 from .trace import Trace
 from .units import convert
@@ -195,6 +202,13 @@ def cmd_occupancy(args: argparse.Namespace) -> int:
             store, args.threshold, start_hz=args.start, stop_hz=args.stop
         )
     payload = result.as_dict()
+    efficiency = None
+    if args.efficiency:
+        with PanoramaStore(args.database) as store:
+            efficiency = efficiency_from_store(
+                store, args.threshold, start_hz=args.start, stop_hz=args.stop
+            )
+        payload["band_efficiency"] = efficiency.as_dict()
     if args.json:
         _print_json(payload)
     else:
@@ -202,6 +216,23 @@ def cmd_occupancy(args: argparse.Namespace) -> int:
         print(f"Порог: {result.threshold_db:.1f} дБ")
         print(f"Каналов: {result.channel_count}, занято: {result.occupied_channels}")
         print(f"Загрузка диапазона: {result.band_occupancy * 100:.2f} %")
+        if efficiency is not None:
+            print(
+                f"Эффективность использования диапазона: "
+                f"{efficiency.efficiency * 100:.2f} % "
+                f"(n={efficiency.exceedances}, N={efficiency.measurements})"
+            )
+            if efficiency.observation_time_s:
+                print(
+                    f"Время наблюдения: {efficiency.observation_time_s:.0f} с, "
+                    f"интервал между измерениями: средний "
+                    f"{efficiency.mean_interval_s:.3f} с, минимальный "
+                    f"{efficiency.min_interval_s:.3f} с, максимальный "
+                    f"{efficiency.max_interval_s:.3f} с"
+                )
+            if args.verbose:
+                print()
+                print(efficiency.summary())
     if args.output:
         Path(args.output).write_text(json_dumps(payload, indent=2), encoding="utf-8")
     return 0
@@ -232,6 +263,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
             beta=args.beta,
             n_db=args.n_db,
             field_method=args.method,
+            norm_hz=args.norm,
         )
     if args.json:
         _print_json(result)
@@ -402,6 +434,43 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_keywords(args: argparse.Namespace) -> int:
+    """Словарь ключевых слов шаблонов протоколов измерений."""
+    if args.json:
+        _print_json({"keywords": CATALOG})
+        return 0
+    groups: dict[str, list[str]] = {}
+    for key in sorted(CATALOG):
+        groups.setdefault(keyword_group(key), []).append(key)
+    for group, keys in groups.items():
+        print(f"\n{group} ({len(keys)})")
+        for key in keys:
+            print(f"  {key:<24} {CATALOG[key]}")
+    print(f"\nВсего ключевых слов: {len(CATALOG)}")
+    return 0
+
+
+def cmd_tasks(args: argparse.Namespace) -> int:
+    """База данных планирования: перечень заданий и состояние очереди."""
+    book = TaskBook(args.database).load()
+    if args.json:
+        _print_json({"tasks": [task.as_dict() for task in book.tasks]})
+        return 0
+    if not book.tasks:
+        print("База данных планирования пуста")
+        return 0
+    print(f"Заданий: {len(book.tasks)}, в очереди: {len(book.queue())}")
+    for task in book.tasks:
+        start = task.start_at.strftime("%d.%m.%Y %H:%M") if task.start_at else "—"
+        line = f"{task.name:<24} {task.status:<24} старт {start}"
+        if task.outcome:
+            line += f"  [{task.outcome_kind()}: {task.outcome}]"
+        print(line)
+        for message in task.validate():
+            print(f"    ! {message}")
+    return 0
+
+
 def cmd_devices(args: argparse.Namespace) -> int:
     """Перечень поддерживаемых средств измерений."""
     from .devices.registry import describe_devices
@@ -455,6 +524,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start", type=float)
     p.add_argument("--stop", type=float)
     p.add_argument("--output")
+    p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="вывести сводку наблюдения в формате исходного комплекса",
+    )
+    p.add_argument(
+        "--efficiency",
+        action="store_true",
+        help="дополнительно вычислить эффективность использования диапазона "
+        "(доля моментов наблюдения с превышением порога)",
+    )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_occupancy)
 
@@ -466,6 +546,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--n-db", type=float, default=30.0)
     p.add_argument(
         "--method", default="median", choices=["median", "mean", "max"]
+    )
+    p.add_argument(
+        "--norm",
+        type=float,
+        help="норма на контрольную полосу занимаемых частот, Гц: "
+        "для проверки соответствия норме с допуском 10 %%",
     )
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_measure)
@@ -530,6 +616,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, default=8770)
     p.add_argument("--database")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser(
+        "keywords", help="словарь ключевых слов шаблонов протоколов измерений"
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_keywords)
+
+    p = sub.add_parser("tasks", help="база данных планирования заданий")
+    p.add_argument("--database", required=True)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_tasks)
 
     p = sub.add_parser("devices", help="перечень поддерживаемого оборудования")
     p.set_defaults(func=cmd_devices)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openradioinspector"
-version = "0.1.0"
+version = "0.2.0"
 description = "Открытая реализация комплекса ПО для исследования радиочастотного спектра и измерения параметров ВЧ-излучений"
 readme = "README.md"
 requires-python = ">=3.10"

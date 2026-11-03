@@ -166,15 +166,29 @@ class TestOccupiedBandwidthBeta2(unittest.TestCase):
 
 class TestBandwidthAtLevel(unittest.TestCase):
     def test_gaussian_at_minus_6db(self):
-        # Гауссов импульс: ширина на уровне −6 дБ равна удвоенной сигма.
+        # Гауссов импульс: ширина на уровне −6 дБ.
+        # Уровень задан как −20 − 20·log10(2)·(f/σ)², поэтому уровень падает
+        # на 6 дБ при |f| = σ·√(6 / (20·log10 2)).
         sigma = 10.0
         freqs = np.linspace(-60, 60, 2401)
-        levels = -20.0 - 20.0 * np.log10(2) * (freqs / sigma) ** 2
+        levels = -20.0 - 20.0 * np.log10(2.0) * (freqs / sigma) ** 2
         trace = Trace(freqs, levels)
 
         result = bandwidth_at_level(trace, n_db=6.0)
-        expected = 2.0 * sigma * np.sqrt(2.0 * np.log(2.0))
-        self.assertAlmostEqual(result.bandwidth_hz, expected, delta=200.0)
+        expected = 2.0 * sigma * math.sqrt(6.0 / (20.0 * math.log10(2.0)))
+        self.assertAlmostEqual(result.bandwidth_hz, expected, delta=0.5)
+
+    def test_signal_inside_view_has_own_bandwidth(self):
+        # Сигнал в середине полосы обзора: границы полосы должны
+        # определяться переходом уровня, а не краями обзора.
+        freqs = np.linspace(100e6, 100.4e6, 401)
+        levels = np.full(freqs.size, -100.0)
+        levels[(freqs >= 100.15e6) & (freqs <= 100.25e6)] = -30.0
+        trace = Trace(freqs, levels)
+
+        result = bandwidth_at_level(trace, n_db=30.0)
+        self.assertAlmostEqual(result.bandwidth_hz, 100e3, delta=2e3)
+        self.assertLess(result.bandwidth_hz, trace.span)
 
     def test_flat_signal_spans_view(self):
         freqs = np.arange(0, 101) * 1000.0
@@ -182,6 +196,17 @@ class TestBandwidthAtLevel(unittest.TestCase):
         trace = Trace(freqs, levels)
         result = bandwidth_at_level(trace, n_db=10.0)
         self.assertAlmostEqual(result.bandwidth_hz, 100e3, delta=1.0)
+
+    def test_sloped_edge_is_interpolated(self):
+        # Линейный спад уровня от −30 до −60 дБ: переход −60 дБ находится
+        # ровно в середине спада.
+        freqs = np.linspace(0.0, 1e6, 1001)
+        levels = np.full(freqs.size, -100.0)
+        levels[400:601] = np.linspace(-30.0, -60.0, 201)
+        trace = Trace(freqs, levels)
+
+        result = bandwidth_at_level(trace, n_db=30.0)
+        self.assertAlmostEqual(result.bandwidth_hz, 200e3, delta=2e3)
 
     def test_rejects_non_positive_level(self):
         trace = make_trace([1, 2], [-10, -10])

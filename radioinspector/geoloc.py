@@ -477,3 +477,222 @@ def select_bearing_points(
         chosen.append(best)
         remaining.remove(best)
     return chosen
+
+
+# ---------------------------------------------------------------------------
+# Радиовидимость и антенный компас
+# ---------------------------------------------------------------------------
+
+#: Коэффициент радиогоризонта при нормальной атмосферной рефракции.
+#: Соответствует эффективному радиусу Земли 4/3 (k ≈ 1,33): R ≈ 4,12·(√H + √h) км.
+RADIO_HORIZON_COEFFICIENT = 4.12
+
+#: Коэффициент геометрического горизонта без учёта рефракции (k = 1).
+GEOMETRIC_HORIZON_COEFFICIENT = 3.57
+
+
+def radio_horizon_km(
+    transmitter_height_m: float,
+    receiver_height_m: float,
+    refraction: bool = True,
+) -> float:
+    """Дальность прямой радиовидимости между двумя антеннами, км.
+
+    Формула радиовидимости исходного комплекса:
+    ``Rм = 4,12 · (H^0,5 + h^0,5)``, где ``Н`` — высота передающей антенны,
+    ``h`` — высота приёмной антенны (в метрах).
+
+    Коэффициент 4,12 соответствует нормальной атмосферной рефракции
+    (эффективный радиус Земли 4/3). Без учёта рефракции коэффициент
+    равен 3,57 — это геометрический горизонт.
+    """
+    coefficient = RADIO_HORIZON_COEFFICIENT if refraction else GEOMETRIC_HORIZON_COEFFICIENT
+    return coefficient * (
+        math.sqrt(max(0.0, transmitter_height_m))
+        + math.sqrt(max(0.0, receiver_height_m))
+    )
+
+
+def link_budget_range_km(
+    frequency_hz: float,
+    transmitter_power_kw: float,
+    transmitter_gain_db: float = 0.0,
+    receiver_gain_db: float = 0.0,
+    receiver_sensitivity_dbm: float = -100.0,
+) -> float:
+    """Дальность прямой связи по бюджу линии, км.
+
+    Параметры мощности и усиления задаются так же, как в географическом
+    фильтре исходного комплекса: мощность передатчика — в дБкВт, коэффициент
+    усиления передающей антенны — в дБ.
+    """
+    if frequency_hz <= 0 or transmitter_power_kw <= 0:
+        return 0.0
+    power_dbm = 10.0 * math.log10(transmitter_power_kw) + 30.0
+    frequency_mhz = frequency_hz / 1e6
+    budget = (
+        power_dbm
+        + transmitter_gain_db
+        + receiver_gain_db
+        - receiver_sensitivity_dbm
+        - 32.44
+        - 20.0 * math.log10(frequency_mhz)
+    )
+    if budget <= 0:
+        return 0.0
+    return 10.0 ** (budget / 20.0)
+
+
+def visibility_radius_km(
+    frequency_hz: float,
+    transmitter_height_m: float,
+    receiver_height_m: float,
+    transmitter_power_kw: float,
+    transmitter_gain_db: float = 0.0,
+    receiver_sensitivity_dbuv_per_m: float = 0.0,
+    receiver_gain_db: float = 0.0,
+    receiver_impedance_ohm: float = 50.0,
+    refraction: bool = True,
+) -> float:
+    """Дальность, на которой приёмник с заданной чувствительностью примет сигнал.
+
+    Расчёт ограничивается двумя факторами: радиовидимостью (кривизна Земли)
+    и затуханием сигнала в свободном пространстве. Исходный комплекс
+    использует эту величину для географического фильтра и для построения
+    лучей на карте: «прорисовываются лучи равные расстоянию, на которое
+    работает РЭС с учётом параметров приёмника».
+    """
+    horizon = radio_horizon_km(transmitter_height_m, receiver_height_m, refraction)
+
+    # Чувствительность в дБмкВ/м переводится в дБм через сопротивление.
+    sensitivity_dbm = receiver_sensitivity_dbuv_per_m - 107.0 + 10.0 * math.log10(
+        max(1e-9, receiver_impedance_ohm)
+    )
+    budget = link_budget_range_km(
+        frequency_hz,
+        transmitter_power_kw,
+        transmitter_gain_db,
+        receiver_gain_db,
+        sensitivity_dbm,
+    )
+    if budget <= 0:
+        return horizon
+    return min(horizon, budget)
+
+
+@dataclass
+class AntennaCompassResult:
+    """Результат обработки круговой диаграммы, снятой антенным компасом.
+
+    Антенный компас исходного комплекса вращает направленную антенну на
+    360° и одновременно измеряет уровень сигнала. Результаты отображаются
+    на карте ломаной линией вокруг точки измерения, расстояние от точки до
+    узлов которой пропорционально уровню сигнала; направление на источник
+    выводится по минимумам и максимумам полученной фигуры.
+    """
+
+    azimuths_deg: list[float]
+    levels_db: list[float]
+    max_azimuth_deg: float
+    max_level_db: float
+    null_azimuths_deg: list[float]
+    front_back_ratio_db: float = float("nan")
+    warnings: list[str] = field(default_factory=list)
+
+    def candidate_bearings_deg(self) -> list[float]:
+        """Возможные направления на источник, градусы.
+
+        Для направленной антенны направление совпадает с азимутом максимума.
+        Для ненаправленной антенны направление определяется по минимуму
+        диаграммы и имеет две неоднозначные составляющие, отстоящие от него
+        на 90°.
+        """
+        if not self.null_azimuths_deg:
+            return [self.max_azimuth_deg % 360.0]
+        result: list[float] = []
+        for null in self.null_azimuths_deg:
+            for offset in (-90.0, 90.0):
+                value = (null + offset) % 360.0
+                if all(abs(value - item) > 1e-6 for item in result):
+                    result.append(value)
+        return result
+
+    def as_dict(self) -> dict:
+        return {
+            "azimuths_deg": list(self.azimuths_deg),
+            "levels_db": list(self.levels_db),
+            "max_azimuth_deg": self.max_azimuth_deg,
+            "max_level_db": self.max_level_db,
+            "null_azimuths_deg": list(self.null_azimuths_deg),
+            "front_back_ratio_db": self.front_back_ratio_db,
+            "candidate_bearings_deg": self.candidate_bearings_deg(),
+            "warnings": list(self.warnings),
+        }
+
+
+def antenna_compass(
+    azimuths_deg: Sequence[float],
+    levels_db: Sequence[float],
+    tolerance_db: float = 1.0,
+) -> AntennaCompassResult:
+    """Обработка круговой диаграммы, снятой антенным компасом.
+
+    Параметры
+    ----------
+    azimuths_deg:
+        Азимуты, под которыми измерен уровень сигнала, градусы.
+    levels_db:
+        Уровни сигнала, соответствующие азимутам, дБ.
+    tolerance_db:
+        Допуск, в пределах которого отсчёты считаются относящимися к одному
+        экстремуму диаграммы.
+    """
+    azimuths = [float(value) % 360.0 for value in azimuths_deg]
+    levels = [float(value) for value in levels_db]
+    warnings: list[str] = []
+
+    if len(azimuths) < 3 or len(azimuths) != len(levels):
+        raise ValueError(
+            "Для обработки антенного компаса необходимо не менее трёх отсчётов "
+            "с одинаковой длиной списков азимутов и уровней"
+        )
+
+    max_index = int(np.argmax(levels))
+    max_azimuth = azimuths[max_index]
+    max_level = levels[max_index]
+
+    nulls: list[float] = []
+    for index in range(len(levels)):
+        if levels[index] <= min(levels) + tolerance_db:
+            nulls.append(azimuths[index])
+
+    # Сжатие соседних отсчётов в группы.
+    grouped: list[float] = []
+    for value in sorted(nulls):
+        if not grouped or value - grouped[-1] > tolerance_db * 2.0:
+            grouped.append(value)
+    nulls = grouped
+
+    opposite = (max_azimuth + 180.0) % 360.0
+    back_level = min(
+        (level for azimuth, level in zip(azimuths, levels)
+         if abs(((azimuth - opposite + 180.0) % 360.0) - 180.0) <= 15.0),
+        default=float("nan"),
+    )
+    front_back = max_level - back_level if np.isfinite(back_level) else float("nan")
+
+    if not nulls:
+        warnings.append(
+            "Минимум диаграммы не выявлен — направление на источник определено "
+            "только по максимуму"
+        )
+
+    return AntennaCompassResult(
+        azimuths_deg=azimuths,
+        levels_db=levels,
+        max_azimuth_deg=max_azimuth,
+        max_level_db=max_level,
+        null_azimuths_deg=nulls,
+        front_back_ratio_db=front_back,
+        warnings=warnings,
+    )

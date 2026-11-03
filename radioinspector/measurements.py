@@ -256,15 +256,25 @@ def bandwidth_at_level(
 
     1. В массиве находится точка с максимальным уровнем ``Umax``.
     2. Рассчитывается порог ``Uпорог = Umax − N``.
-    3. Перебором влево от ``Umax`` находится индекс ``n``, для которого
-       ``U(n) < Uпорог`` и ``U(n−1) > Uпорог``; уточнение частоты границы
-       выполняется кусочно-линейной интерполяцией в линейных величинах.
-    4. Аналогично определяется правая граница.
+    3. Перебором влево от ``Umax`` находится ближайшая точка ``n`` вне полосы
+       сигнала, для которой ``U(n) < Uпорог``; частота левой границы ``Fл``
+       уточняется кусочно-линейной интерполяцией между ``n`` и ``n+1``
+       (в линейных величинах) — то есть решается уравнение ``y = Uпорог``.
+    4. Аналогично определяется правая граница: ближайшая справа точка ``n``
+       вне полосы сигнала, интерполяция между ``n−1`` и ``n``.
     5. Результат равен ``Fп − Fл``.
+
+    Замечание об индексации. В исходном описании алгоритма условие перехода
+    записано как ``U(n) < Uпорог`` и ``U(n−1) > Uпорог``, что соответствует
+    массиву, упорядоченному по убыванию частоты. В настоящей реализации
+    частоты возрастают, поэтому для левой границы используется пара ``(n, n+1)``,
+    а для правой — ``(n−1, n)``. Смысл перехода — ближайшая к сигналу точка
+    вне полосы — сохраняется в обоих случаях.
 
     Нормативная база: ГОСТ 30318-95 (ширину полосы нормируют на уровне
     минус 30 дБ; контрольные уровни внеполосных излучений — −40, −50 и
-    −60 дБ), нормы ГКРЧ 19-02-21.
+    −60 дБ), Нормы ГКРЧ 19-21 (контрольная ширина полосы частот на уровне
+    минус 30 дБ).
     """
     if trace.size < 2:
         raise ValueError("Для измерения полосы необходимо не менее двух точек")
@@ -283,31 +293,47 @@ def bandwidth_at_level(
     lin = _db_to_mw(levels)
     thr_lin = _db_to_mw(np.array([threshold]))[0]
 
-    # Левая граница.
+    # Левая граница: ближайшая слева от Umax точка вне полосы сигнала.
+    # Переход между ней и следующей точкой (внутри полосы) уточняется
+    # кусочно-линейной интерполяцией.
     f_left = float(freqs[0])
+    left_found = False
     for i in range(imax, 0, -1):
-        if levels[i] < threshold and levels[i - 1] >= threshold:
+        if levels[i] < threshold:
             f_left = _interpolate_crossing(
-                float(freqs[i]), float(lin[i]), float(freqs[i - 1]), float(lin[i - 1]), thr_lin
+                float(freqs[i]),
+                float(lin[i]),
+                float(freqs[i + 1]),
+                float(lin[i + 1]),
+                thr_lin,
             )
+            left_found = True
             break
-    else:
-        f_left = float(freqs[0])
-        if levels[imax] >= threshold and imax == 0:
-            warnings.append("Сигнал занимает всю полосу обзора — граница не найдена")
+    if not left_found:
+        warnings.append(
+            "Сигнал не отделён от левого края полосы обзора — левая граница "
+            "принята равной частоте начала обзора"
+        )
 
-    # Правая граница.
+    # Правая граница: ближайшая справа от Umax точка вне полосы сигнала.
     f_right = float(freqs[-1])
+    right_found = False
     for i in range(imax, freqs.size - 1):
-        if levels[i] < threshold and levels[i + 1] >= threshold:
+        if levels[i] < threshold:
             f_right = _interpolate_crossing(
-                float(freqs[i]), float(lin[i]), float(freqs[i + 1]), float(lin[i + 1]), thr_lin
+                float(freqs[i]),
+                float(lin[i]),
+                float(freqs[i - 1]),
+                float(lin[i - 1]),
+                thr_lin,
             )
+            right_found = True
             break
-    else:
-        f_right = float(freqs[-1])
-        if levels[imax] >= threshold and imax == freqs.size - 1:
-            warnings.append("Сигнал занимает всю полосу обзора — граница не найдена")
+    if not right_found:
+        warnings.append(
+            "Сигнал не отделён от правого края полосы обзора — правая граница "
+            "принята равной частоте конца обзора"
+        )
 
     bandwidth = max(f_right - f_left, 0.0)
 
@@ -334,9 +360,178 @@ def bandwidth_at_level(
 
 
 # --------------------------------------------------------------------------
-# 3. Напряжённость электрического поля
+# 2a. Контрольная полоса занимаемых частот и сравнение с нормой
 # --------------------------------------------------------------------------
 
+#: Уровень, на котором измеряется контрольная ширина полосы частот, дБ.
+CONTROL_BANDWIDTH_LEVEL_DB = 30.0
+
+#: Допуск при сравнении измеренной контрольной полосы с нормой, доля.
+CONTROL_BANDWIDTH_TOLERANCE = 0.10
+
+#: Допустимое превышение уровня шумов над измеренным уровнем сигнала, дБ.
+NOISE_MARGIN_DB = 10.0
+
+
+@dataclass
+class ControlBandwidthResult:
+    """Контрольная ширина полосы частот и результат её сравнения с нормой.
+
+    Нормативная база: Нормы ГКРЧ 19-21 «Нормы на ширину полосы радиочастот и
+    внеполосные излучения радиопередатчиков гражданского применения» (п. 4.5,
+    5.1.3). Контрольная ширина полосы измеряется на уровне −30 дБ; ширина
+    полосы по уровням −40, −50 и −60 дБ относительно нулевого уровня
+    контролирует внеполосовые излучения.
+    """
+
+    bandwidth_hz: float
+    level_db: float
+    norm_hz: float | None = None
+    tolerance: float = CONTROL_BANDWIDTH_TOLERANCE
+    verdict: str = ""
+    norm_with_tolerance_hz: float | None = None
+    warnings: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "bandwidth_hz": self.bandwidth_hz,
+            "level_db": self.level_db,
+            "norm_hz": self.norm_hz,
+            "tolerance": self.tolerance,
+            "verdict": self.verdict,
+            "norm_with_tolerance_hz": self.norm_with_tolerance_hz,
+            "warnings": list(self.warnings),
+        }
+
+
+def control_bandwidth(
+    trace: Trace,
+    norm_hz: float | None = None,
+    level_db: float = CONTROL_BANDWIDTH_LEVEL_DB,
+    tolerance: float = CONTROL_BANDWIDTH_TOLERANCE,
+    frequency_uncertainty_hz: float = 0.0,
+) -> ControlBandwidthResult:
+    """Измерение контрольной ширины полосы частот и сравнение с нормой.
+
+    Параметры
+    ----------
+    trace:
+        Спектральная трасса сигнала.
+    norm_hz:
+        Норма на контрольную полосу частот, Гц. При ``None`` норма не
+        задаётся и вердикт не формируется.
+    level_db:
+        Уровень отсчёта, дБ. По Нормам ГКРЧ 19-21 контрольная ширина полосы
+        измеряется на уровне −30 дБ.
+    tolerance:
+        Допуск при сравнении с нормой, доля. Исходный комплекс применяет
+        допуск 10 %: норма, увеличенная на 10 %, используется как верхняя
+        граница при проверке.
+    """
+    measured = bandwidth_at_level(
+        trace, n_db=level_db, frequency_uncertainty_hz=frequency_uncertainty_hz
+    )
+    warnings = list(measured.warnings)
+
+    verdict = ""
+    norm_with_tolerance = None
+    if norm_hz is not None and norm_hz > 0:
+        norm_with_tolerance = norm_hz * (1.0 + tolerance)
+        if measured.bandwidth_hz <= norm_with_tolerance:
+            verdict = "норма"
+        else:
+            verdict = "не норма"
+
+    # Условие применимости методики: уровень шумов должен быть ниже
+    # измеренного уровня сигнала не менее чем на 10 дБ.
+    snr_db = _estimate_snr_db(trace)
+    if np.isfinite(snr_db) and snr_db < NOISE_MARGIN_DB:
+        warnings.append(
+            f"Отношение сигнал/шум {snr_db:.1f} дБ меньше требуемых "
+            f"{NOISE_MARGIN_DB:.0f} дБ — условия методики контроля не выполнены"
+        )
+
+    return ControlBandwidthResult(
+        bandwidth_hz=measured.bandwidth_hz,
+        level_db=level_db,
+        norm_hz=norm_hz,
+        tolerance=tolerance,
+        verdict=verdict,
+        norm_with_tolerance_hz=norm_with_tolerance,
+        warnings=warnings,
+    )
+
+
+# --------------------------------------------------------------------------
+# 2b. Комплексная оценка центральной частоты
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class ComplexFrequencyResult:
+    """Комплексная оценка центральной частоты сигнала.
+
+    Исходный комплекс определяет комплексную оценку как среднее между
+    оценкой частоты методом поиска центра тяжести спектра сигнала и серединой
+    полосы занимаемых частот по уровню −30 дБ (по уровню −N дБ, если N < 30 дБ).
+    """
+
+    value_hz: float
+    centroid_hz: float
+    midpoint_hz: float
+    bandwidth_hz: float
+    method: str = "среднее между центром тяжести и серединой полосы −30 дБ"
+    warnings: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "value_hz": self.value_hz,
+            "centroid_hz": self.centroid_hz,
+            "midpoint_hz": self.midpoint_hz,
+            "bandwidth_hz": self.bandwidth_hz,
+            "method": self.method,
+            "warnings": list(self.warnings),
+        }
+
+
+def complex_center_frequency(
+    trace: Trace,
+    n_db: float = CONTROL_BANDWIDTH_LEVEL_DB,
+    frequency_uncertainty_hz: float = 0.0,
+) -> ComplexFrequencyResult:
+    """Комплексная оценка центральной частоты сигнала."""
+    centroid = center_frequency_centroid(
+        trace, frequency_uncertainty_hz=frequency_uncertainty_hz
+    )
+    level = max(n_db, CONTROL_BANDWIDTH_LEVEL_DB) if n_db < CONTROL_BANDWIDTH_LEVEL_DB else n_db
+    bandwidth = bandwidth_at_level(
+        trace, n_db=level, frequency_uncertainty_hz=frequency_uncertainty_hz
+    )
+    warnings = list(centroid.warnings) + list(bandwidth.warnings)
+
+    centroid_hz = float(centroid.value)
+    midpoint_hz = float(bandwidth.center_hz)
+    if not np.isfinite(centroid_hz):
+        warnings.append(
+            "Оценка методом центра тяжести недоступна — используется середина "
+            "полосы занимаемых частот"
+        )
+        value = midpoint_hz
+    else:
+        value = 0.5 * (centroid_hz + midpoint_hz)
+
+    return ComplexFrequencyResult(
+        value_hz=value,
+        centroid_hz=centroid_hz,
+        midpoint_hz=midpoint_hz,
+        bandwidth_hz=float(bandwidth.bandwidth_hz),
+        warnings=warnings,
+    )
+
+
+# --------------------------------------------------------------------------
+# 3. Напряжённость электрического поля
+# --------------------------------------------------------------------------
 def field_strength(
     traces: Sequence[Trace] | Trace,
     method: str = "median",
@@ -585,11 +780,14 @@ def measure_signal(
     calibration_db: float = 0.0,
     frequency_uncertainty_hz: float = 0.0,
     level_uncertainty_db: float = 0.0,
+    norm_hz: float | None = None,
 ) -> dict:
     """Выполняет полный набор измерений параметров отдельного сигнала.
 
     Возвращает словарь с результатами измерения полосы методом β/2, полосы
-    по уровню −N дБ, напряжённости поля и оценки центральной частоты.
+    по уровню −N дБ, контрольной полосы занимаемых частот с сравнением с
+    нормой, напряжённости поля, оценки центральной частоты и комплексной
+    оценки центральной частоты.
     """
     result: dict = {"trace_points": trace.size}
     result["occupied_bandwidth_beta2"] = occupied_bandwidth_beta2(
@@ -597,6 +795,12 @@ def measure_signal(
     ).as_dict()
     result["bandwidth_at_level"] = bandwidth_at_level(
         trace, n_db=n_db, frequency_uncertainty_hz=frequency_uncertainty_hz
+    ).as_dict()
+    result["control_bandwidth"] = control_bandwidth(
+        trace,
+        norm_hz=norm_hz,
+        level_db=CONTROL_BANDWIDTH_LEVEL_DB,
+        frequency_uncertainty_hz=frequency_uncertainty_hz,
     ).as_dict()
     result["field_strength"] = field_strength(
         trace,
@@ -606,5 +810,10 @@ def measure_signal(
     ).as_dict()
     result["center_frequency_centroid"] = center_frequency_centroid(
         trace, frequency_uncertainty_hz=frequency_uncertainty_hz
+    ).as_dict()
+    result["center_frequency_complex"] = complex_center_frequency(
+        trace,
+        n_db=n_db,
+        frequency_uncertainty_hz=frequency_uncertainty_hz,
     ).as_dict()
     return result

@@ -5,9 +5,23 @@
 определённую директорию; при формировании отчёта программа выбирает требуемую
 форму документа и подставляет измеренные значения.
 
-Модуль реализует тот же механизм: шаблон — текстовый файл с полями вида
-``{{ключ}}``; при заполнении значения подставляются в порядке их первого
-появления в шаблоне. Незаполненные поля заменяются на ``н/д`` (нет данных).
+Модуль реализует тот же механизм в двух синтаксисах.
+
+``{{ключ}}``
+    Синтаксис OpenRadioInspector. Значение подставляется в порядке первого
+    появления в шаблоне; незаполненное поле заменяется на ``н/д`` (нет данных).
+
+``#КлючевоеСлово#``
+    Синтаксис исходного комплекса, воспроизведённый дословно: ключевое слово
+    состоит из латинских символов, цифр и ``_``, обрамлено символами ``#``,
+    регистр значим. Если результата нет, ключевое слово удаляется и на его
+    место вставляется пустая строка.
+
+Для таблиц результатов применяются маркеры ``#D1#`` … ``#1D#``,
+``#D2#`` … ``#2D#`` и ``#D3#`` … ``#3D#``: между ними размещается шаблон
+строки, который повторяется для каждой записи измерений.
+
+Полный словарь ключевых слов — в модуле :mod:`radioinspector.keywords`.
 """
 
 from __future__ import annotations
@@ -18,11 +32,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-#: Шаблон подстановки значения.
+from .keywords import CATALOG, KEYWORD_RE, TABLE_MARKERS
+
+#: Шаблон подстановки значения (синтаксис OpenRadioInspector).
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}")
 
 #: Значение, подставляемое вместо отсутствующих данных.
 MISSING = "н/д"
+
+#: Шаблон блока таблицы: маркер начала, содержимое, маркер окончания.
+TABLE_RE = re.compile(
+    r"#(" + "|".join(TABLE_MARKERS) + r")#(?P<body>.*?)#("
+    + "|".join(TABLE_MARKERS.values())
+    + r")#",
+    re.DOTALL,
+)
 
 
 @dataclass
@@ -40,22 +64,76 @@ class ReportContext:
         return self
 
     def render(self, template: str) -> str:
-        """Подстановка значений в шаблон."""
+        """Подстановка значений в шаблон (оба синтаксиса)."""
         def _replace(match: re.Match) -> str:
             key = match.group(1)
             if key in self.values and self.values[key] is not None:
                 return str(self.values[key])
             return MISSING
 
-        return PLACEHOLDER_RE.sub(_replace, template)
+        text = PLACEHOLDER_RE.sub(_replace, template)
+        return self.render_keywords(text)
+
+    def render_keywords(self, template: str) -> str:
+        """Подстановка значений по синтаксису ``#КлючевоеСлово#``.
+
+        Отсутствующие значения заменяются пустой строкой — как в исходном
+        комплексе, где ключевое слово без результата удаляется из отчёта.
+        """
+
+        def _replace(match: re.Match) -> str:
+            key = match.group(1)
+            value = self.values.get(key)
+            if value is None:
+                return ""
+            return str(value)
+
+        return KEYWORD_RE.sub(_replace, template)
 
     def missing_keys(self, template: str) -> list[str]:
         """Перечень ключей шаблона, для которых нет значения."""
+        keys: list[str] = []
+        for key in PLACEHOLDER_RE.findall(template) + KEYWORD_RE.findall(template):
+            if key not in keys:
+                keys.append(key)
         return [
             key
-            for key in PLACEHOLDER_RE.findall(template)
+            for key in keys
             if key not in self.values or self.values[key] is None
         ]
+
+
+def render_template(
+    template: str,
+    context: ReportContext,
+    tables: Optional[Mapping[str, list]] = None,
+) -> str:
+    """Подстановка значений и разворачивание таблиц в шаблон протокола.
+
+    Параметр ``tables`` задаёт записи для маркеров ``#D1#``, ``#D2#`` и
+    ``#D3#``: между маркерами размещается шаблон строки, который повторяется
+    для каждой записи. Если записей нет, блок таблицы удаляется целиком.
+    """
+    tables = tables or {}
+
+    def _table(match: re.Match) -> str:
+        start = match.group(1)
+        body = match.group("body")
+        rows = tables.get(start) or []
+        if not rows:
+            return ""
+        rendered = []
+        for row in rows:
+            merged = dict(context.values)
+            merged.update(row)
+            rendered.append(
+                ReportContext(values=merged).render_keywords(body).rstrip("\n")
+            )
+        return "\n".join(rendered)
+
+    text = TABLE_RE.sub(_table, template)
+    return context.render(text)
+
 
 
 class ProtocolTemplate:
@@ -81,10 +159,17 @@ class ProtocolTemplate:
     def keys(self) -> list[str]:
         """Перечень ключей шаблона в порядке первого появления."""
         seen: list[str] = []
-        for key in PLACEHOLDER_RE.findall(self.template):
+        for key in PLACEHOLDER_RE.findall(self.template) + KEYWORD_RE.findall(
+            self.template
+        ):
             if key not in seen:
                 seen.append(key)
         return seen
+
+    def unknown_keys(self) -> list[str]:
+        """Ключи шаблона, отсутствующие в словаре исходного комплекса."""
+        return [key for key in self.keys() if key not in CATALOG]
+
 
 
 class ProtocolLibrary:
