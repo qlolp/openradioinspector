@@ -1,0 +1,4 @@
+[AutoRun]
+icon=SetupRadioInspectorLight.exe,0
+label=RadioInspector Light
+open=SetupRadioInspectorLight.exe
