@@ -39,6 +39,10 @@ public enum TraceClock {
             .replacingOccurrences(of: "-", with: "")
             .replacingOccurrences(of: ":", with: "")
     }
+
+    public static func sessionFilename(instrument: String, date: Date = Date()) -> String {
+        "\(instrument)-\(fileToken(date))-\(UUID().uuidString).trassa.json"
+    }
 }
 
 public struct ArSweep: Codable, Equatable, Sendable {
@@ -138,7 +142,12 @@ public struct UltraTraceDocument: Codable, Equatable, Sendable {
     public var scanLayoutConfirmed: Bool
     public var sweeps: [UltraSweep]
 
-    public init(version: String, sweeps: [UltraSweep]) {
+    public init(
+        version: String,
+        sweeps: [UltraSweep],
+        terminatorConfirmed: Bool = true,
+        scanLayoutConfirmed: Bool = true
+    ) {
         self.format = "dvoynoy-obzor-trassa-1"
         self.instrument = "tinySA Ultra"
         self.scan = UltraSessionScript.scanText
@@ -149,8 +158,8 @@ public struct UltraTraceDocument: Codable, Equatable, Sendable {
         self.version = version
         self.levelUnit = "dBm"
         self.terminator = "CR"
-        self.terminatorConfirmed = false
-        self.scanLayoutConfirmed = false
+        self.terminatorConfirmed = terminatorConfirmed
+        self.scanLayoutConfirmed = scanLayoutConfirmed
         self.sweeps = sweeps
     }
 

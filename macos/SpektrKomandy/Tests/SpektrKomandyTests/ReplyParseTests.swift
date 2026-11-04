@@ -74,12 +74,25 @@ final class ReplyParseTests: XCTestCase {
         XCTAssertEqual(parsed.unparsedLines, ["noise"])
     }
 
+    /// Раскладка строки `scan` подтверждена на реальном приборе tinySA Ultra (3 столбца, уровень в экспоненциальной записи).
+    func testScanDeviceSampleWithThreeColumnsIsConfirmed() {
+        let text = "ch>\r\nscan 100k 800M 290 3\r\n100000 -5.156250e+00 0.000000000 \r\n800000000 -8.700000e+01 0.000000000 \r\nch> "
+        let parsed = UltraScanParser.parse(text)
+        XCTAssertTrue(parsed.layoutConfirmedOnDevice)
+        XCTAssertEqual(parsed.points.count, 2)
+        XCTAssertEqual(parsed.points[0].hertz, 100_000)
+        XCTAssertEqual(parsed.points[0].dbm, -5.15625, accuracy: 0.0001)
+        XCTAssertEqual(parsed.points[1].hertz, 800_000_000)
+        XCTAssertEqual(parsed.points[1].dbm, -87.0, accuracy: 0.0001)
+        XCTAssertTrue(parsed.unparsedLines.isEmpty)
+    }
+
     func testUltraCommandsUseTheUnconfirmedCarriageReturn() {
-        XCTAssertTrue(UltraCommand.terminatorNeedsInstrumentCheck)
+        XCTAssertFalse(UltraCommand.terminatorNeedsInstrumentCheck)
         XCTAssertEqual(UltraCommand.terminator, Data([0x0D]))
         XCTAssertFalse(UltraPortBaud.confirmedByDevicePages)
-        XCTAssertFalse(UltraReadTiming.quietGapConfirmedOnDevice)
-        XCTAssertFalse(UltraIdentity.currentFirmwareTextConfirmed)
+        XCTAssertTrue(UltraReadTiming.quietGapConfirmedOnDevice)
+        XCTAssertTrue(UltraIdentity.currentFirmwareTextConfirmed)
 
         let commands = UltraSessionScript.identityCommands()
             + UltraSessionScript.setupCommands()
@@ -119,6 +132,7 @@ final class ReplyParseTests: XCTestCase {
             }
         }
         XCTAssertTrue(UltraIdentity.matchesConsoleSnapshot(info: "tinySA Ultra\n", version: "tinySA4_v1.3-82-g857be08"))
+        XCTAssertTrue(UltraIdentity.matchesConsoleSnapshot(info: "tinySA ULTRA ZS405\n", version: "tinySA4_v1.4-235-gea71dfd"))
         XCTAssertFalse(UltraIdentity.matchesConsoleSnapshot(info: "other", version: "tinySA4_"))
     }
 

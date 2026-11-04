@@ -28,7 +28,13 @@ final class UltraModel: ObservableObject {
     @Published var waterfall = WaterfallHistory()
     @Published var waterfallRevision = 0
 
-    private var port: InstrumentPort?
+    private let makePort: () -> any InstrumentConnection
+    private var port: (any InstrumentConnection)?
+
+    init(makePort: @escaping () -> any InstrumentConnection = { InstrumentPort() }) {
+        self.makePort = makePort
+    }
+
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
     private var stopRequested = false
@@ -45,10 +51,22 @@ final class UltraModel: ObservableObject {
 
     func refreshPorts() {
         knownPorts = SerialPort.availablePaths()
+        if portPath.isEmpty {
+            if let modem = knownPorts.first(where: { $0.contains("usbmodem") }) {
+                portPath = modem
+            } else if let first = knownPorts.first {
+                portPath = first
+            }
+        }
     }
 
     func connect() {
         errorText = nil
+        identityMatches = false
+        forceDespiteIdentity = false
+        infoText = "—"
+        versionText = "—"
+        userNumber = "—"
         let path = portPath
         connecting = true
         connectTask?.cancel()
@@ -99,51 +117,81 @@ final class UltraModel: ObservableObject {
         maximum = []
         rows = []
         waterfall = WaterfallHistory()
-        waterfallRevision += 1
+        waterfallRevision = 0
+        live = "Запуск свипа…"
         scanTask?.cancel()
-        let version = versionText
+        let activePort = port
+        let versionSnapshot = versionText
         scanTask = Task { @MainActor in
-            await self.runOverview(threshold: level, version: version)
+            defer { self.scanning = false }
+            await self.runOverview(port: activePort, threshold: level, version: versionSnapshot)
+            await self.refreshConnectionState()
         }
     }
 
     func stopOverview() {
         stopRequested = true
+        let scan = scanTask
         scanTask?.cancel()
+        Task { @MainActor in
+            await scan?.value
+            self.scanning = false
+            self.live = "Обзор остановлен"
+            await self.refreshConnectionState()
+        }
     }
 
     private func openAndIdentify(path: String) async {
-        let opened = InstrumentPort()
+        status = "Подключение…"
+        if let port {
+            await port.close()
+            self.port = nil
+        }
+        let target = makePort()
         do {
-            try await opened.open(path: path, baud: UltraPortBaud.termiosPlaceholder)
-            port = opened
+            try await target.open(path: path, baud: UltraPortBaud.termiosPlaceholder)
+            self.port = target
+            let info = try await transact(
+                target,
+                UltraCommand(text: UltraSessionScript.infoText),
+                maximum: UltraReadTiming.setupMaximumSeconds
+            )
+            let version = try await transact(
+                target,
+                UltraCommand(text: UltraSessionScript.versionText),
+                maximum: UltraReadTiming.setupMaximumSeconds
+            )
+            let deviceId = try await transact(
+                target,
+                UltraCommand(text: UltraSessionScript.userNumberText),
+                maximum: UltraReadTiming.setupMaximumSeconds
+            )
+            infoText = clipReply(info, limit: 120)
+            versionText = clipReply(version, limit: 120)
+            userNumber = clipReply(deviceId, limit: 80)
+            identityMatches = UltraIdentity.matchesConsoleSnapshot(info: info, version: version)
             connected = true
-            status = "Порт открыт"
-            let info = try await transact(opened, UltraCommand(text: UltraSessionScript.infoText), maximum: UltraReadTiming.setupMaximumSeconds)
-            let version = try await transact(opened, UltraCommand(text: UltraSessionScript.versionText), maximum: UltraReadTiming.setupMaximumSeconds)
-            let number = try await transact(opened, UltraCommand(text: UltraSessionScript.userNumberText), maximum: UltraReadTiming.setupMaximumSeconds)
-            infoText = info.trimmingCharacters(in: .whitespacesAndNewlines)
-            versionText = version.trimmingCharacters(in: .whitespacesAndNewlines)
-            userNumber = number.trimmingCharacters(in: .whitespacesAndNewlines)
-            identityMatches = UltraIdentity.matchesConsoleSnapshot(info: infoText, version: versionText)
-            if identityMatches {
-                status = "Сеанс открыт"
-            } else {
-                status = "Текст info или version отличается от снимка консоли. Сырой ответ ниже."
-            }
+            status = "Сеанс открыт"
+            note("tinySA Ultra подключен (\(path))")
         } catch is CancellationError {
-            return
+            await target.close()
+            self.port = nil
+            connected = false
+            status = "Подключение отменено"
         } catch {
-            if port == nil {
-                connected = false
-                status = "Не подключён"
-            }
+            await target.close()
+            self.port = nil
+            connected = false
+            status = "Ошибка подключения"
             errorText = describeSession(error)
         }
     }
 
-    private func runOverview(threshold: Double, version: String) async {
-        defer { scanning = false }
+    private func runOverview(
+        port: (any InstrumentConnection)?,
+        threshold: Double,
+        version: String
+    ) async {
         guard let port else {
             errorText = SessionProblem.notConnected.errorDescription
             return
@@ -154,7 +202,9 @@ final class UltraModel: ObservableObject {
                 _ = try await transact(port, command, maximum: UltraReadTiming.setupMaximumSeconds)
             }
             let folder = try tracesFolder()
-            let fileURL = folder.appendingPathComponent("tinysa-\(TraceClock.fileToken(Date())).trassa.json")
+            let fileURL = folder.appendingPathComponent(
+                TraceClock.sessionFilename(instrument: "tinysa", date: Date())
+            )
             tracePath = fileURL.path
             var envelope = TraceEnvelope()
             var found: [Exceedance] = []
@@ -203,7 +253,11 @@ final class UltraModel: ObservableObject {
         }
     }
 
-    private func transact(_ port: InstrumentPort, _ command: UltraCommand, maximum: TimeInterval) async throws -> String {
+    private func transact(
+        _ port: any InstrumentConnection,
+        _ command: UltraCommand,
+        maximum: TimeInterval
+    ) async throws -> String {
         try await port.send(command.frame())
         let reply = try await port.readUntilQuiet(
             quiet: UltraReadTiming.quietSeconds,
@@ -215,6 +269,15 @@ final class UltraModel: ObservableObject {
             throw SessionProblem.emptyDeviceReply(command.text)
         }
         return reply
+    }
+
+    private func refreshConnectionState() async {
+        if let port, !(await port.isOpen) {
+            self.port = nil
+            connected = false
+            status = "Отключён"
+            errorText = SessionProblem.incompleteReply("Порт был закрыт из-за прерванного ответа").errorDescription
+        }
     }
 
     private func note(_ line: String) {

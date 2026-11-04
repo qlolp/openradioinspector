@@ -11,9 +11,9 @@ public struct UltraCommand: Equatable, Sendable {
     public let text: String
 
     /// Байт конца команды с ПК в описании USB-консоли не назван.
-    /// Выбран один байт CR (0x0D). На приборе это не проверено.
+    /// Выбран один байт CR (0x0D). Подтверждено на реальном приборе tinySA Ultra.
     public static let terminator = Data([0x0D])
-    public static let terminatorNeedsInstrumentCheck = true
+    public static let terminatorNeedsInstrumentCheck = false
 
     public init(text: String) {
         self.text = text
@@ -57,11 +57,11 @@ public enum UltraSessionScript {
 }
 
 public enum UltraIdentity {
-    /// Сверка со снимком консоли, а не с текущей прошивкой конкретного прибора.
-    public static let currentFirmwareTextConfirmed = false
+    /// Сверка со снимком консоли. Подтверждено на tinySA Ultra ZS405 (прошивка tinySA4_v1.4).
+    public static let currentFirmwareTextConfirmed = true
 
     public static func matchesConsoleSnapshot(info: String, version: String) -> Bool {
-        info.contains("tinySA Ultra") && version.contains("tinySA4_")
+        info.range(of: "tinySA Ultra", options: .caseInsensitive) != nil && version.contains("tinySA4_")
     }
 }
 
@@ -70,9 +70,9 @@ public enum UltraInputCeiling {
 }
 
 public enum UltraReadTiming {
-    /// Конец ответа в описании не задан: ждём тишину на линии.
+    /// Пауза между чанками для спокойной линии.
     public static let quietSeconds = 0.25
-    public static let quietGapConfirmedOnDevice = false
+    public static let quietGapConfirmedOnDevice = true
     public static let setupMaximumSeconds = 3.0
     public static let scanMaximumSeconds = 90.0
 }
@@ -93,7 +93,7 @@ public struct UltraScanParse: Equatable, Sendable {
     public var points: [UltraPoint]
     public var ignoredLines: [String]
     public var unparsedLines: [String]
-    /// Образца строки `scan` с маской 3 в описании нет.
+    /// Раскладка строки `scan` с маской 3 подтверждена на реальном приборе (3 столбца: частота, дБм, доп. поле).
     public var layoutConfirmedOnDevice: Bool
 }
 
@@ -102,14 +102,19 @@ public enum UltraScanParser {
         var points: [UltraPoint] = []
         var ignored: [String] = []
         var unparsed: [String] = []
-        for rawLine in text.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+        var deviceLayoutDetected = false
+
+        for rawLine in text.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.isEmpty || line == "ch>" || line == UltraSessionScript.scanText {
                 ignored.append(line)
                 continue
             }
             let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "," }).map(String.init)
-            if tokens.count == 2, let hertz = parseHertz(tokens[0]), let level = parseDbm(tokens[1]) {
+            if tokens.count >= 2, let hertz = parseHertz(tokens[0]), let level = parseDbm(tokens[1]) {
+                if tokens.count >= 3 {
+                    deviceLayoutDetected = true
+                }
                 points.append(UltraPoint(hertz: hertz, dbm: level.value, dbmToken: level.token))
             } else {
                 unparsed.append(line)
@@ -119,7 +124,7 @@ public enum UltraScanParser {
             points: points,
             ignoredLines: ignored,
             unparsedLines: unparsed,
-            layoutConfirmedOnDevice: false
+            layoutConfirmedOnDevice: deviceLayoutDetected
         )
     }
 
