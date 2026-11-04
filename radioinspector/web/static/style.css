@@ -84,7 +84,7 @@ main {
 
 .toolbar label { display: inline-flex; align-items: center; gap: 6px; }
 
-button {
+button, a.button {
   background: #22303f;
   color: var(--text);
   border: 1px solid #31445a;
@@ -92,9 +92,11 @@ button {
   padding: 5px 12px;
   cursor: pointer;
   font-size: 12px;
+  text-decoration: none;
+  display: inline-block;
 }
 
-button:hover { background: #2c3d50; }
+button:hover, a.button:hover { background: #2c3d50; }
 
 input[type="number"] {
   width: 92px;
@@ -159,7 +161,10 @@ th:nth-child(6), td:nth-child(6) { text-align: left; }
 
 th { color: var(--muted); font-weight: 600; }
 
-td.matched { color: var(--min); font-weight: 600; }
+td.matched, tr.matched td { color: var(--min); font-weight: 600; }
+
+tr.task-error td:nth-child(2) { color: var(--thr); }
+tr.task-warning td:nth-child(2) { color: #7eb6ff; }
 
 .results {
   display: grid;

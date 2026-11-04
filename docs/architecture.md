@@ -51,17 +51,16 @@
 | `panorama.py` | База данных панорам (SQLite) | `trace` |
 | `signals.py` | Обнаружение и реестр сигналов | `threshold`, `trace` |
 | `occupancy.py` | Загрузка диапазона, эффективность использования | `panorama`, `trace` |
-| `reporting.py` | Протоколы измерений | `keywords` |
+| `reporting.py` | Протоколы измерений, запись DOCX | `keywords`, `measurements` |
+| `scheduler.py` | Планировщик заданий по времени | `tasks` |
 | `cli.py` | Командный интерфейс — точка входа | все прикладные модули |
 
 Подпакеты: `devices/` (драйверы приборов), `export/` (форматы обмена),
 `web/` (веб-сервер и клиентская часть).
 
-Зависимости между модулями строго односторонние: прикладные модули
-(`measurements`, `threshold`, `interference`, `panorama`, `signals`,
-`occupancy`, `reporting`) знают только о `trace`, `keywords` и, для
-`occupancy`, о `panorama`. `devices`, `export` и `web` знают о прикладных
-модулях, но не вызывают друг друга.
+Зависимости между модулями односторонние. `reporting` читает результаты
+`measurements`. `scheduler` читает модель `tasks`. `devices`, `export` и
+`web` знают о прикладных модулях, но не вызывают друг друга.
 
 ## Модель данных
 

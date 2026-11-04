@@ -8,6 +8,8 @@ const state = {
   waterfall: null,
   selection: null,
   version: -1,
+  coverage: null,
+  tasks: null,
 };
 
 const COLORS = {
@@ -232,26 +234,21 @@ function drawWaterfall() {
   ctx.fillText(`${lo.toFixed(0)} дБ`, 6, h - 6);
 }
 
+function mapMode() {
+  const selected = document.querySelector('input[name="map-mode"]:checked');
+  return selected ? selected.value : "points";
+}
+
+function levelColor(t, alpha) {
+  const red = Math.round(60 + t * 195);
+  const green = Math.round(160 - t * 110);
+  const blue = Math.round(255 - t * 190);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+}
+
 /* ------------------------------------------------------------------ карта */
 
-function drawMap() {
-  const canvas = $("map");
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-
-  const data = state.data;
-  const points = (data && data.points) || [];
-  const note = $("map-note");
-  if (!points.length) {
-    ctx.fillStyle = COLORS.text;
-    ctx.font = "13px sans-serif";
-    ctx.fillText("Нет измерений с географическими координатами", 12, 24);
-    note.textContent = "";
-    return;
-  }
-
+function drawPoints(ctx, w, h, points, note) {
   let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
   let lo = Infinity, hi = -Infinity;
   for (const p of points) {
@@ -274,7 +271,7 @@ function drawMap() {
     const y = h - pad - ((p.latitude - latMin) / spanLat) * (h - 2 * pad);
     const t = (p.level_db - lo) / (hi - lo || 1);
     const r = 4 + t * 5;
-    ctx.fillStyle = `rgba(${Math.round(60 + t * 195)}, ${Math.round(160 - t * 110)}, ${Math.round(255 - t * 190)}, 0.85)`;
+    ctx.fillStyle = levelColor(t, 0.85);
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -286,6 +283,73 @@ function drawMap() {
   ctx.fillText(`${lonMin.toFixed(5)} … ${lonMax.toFixed(5)} в.д.`, w - 190, h - 8);
   ctx.fillText(`уровень ${lo.toFixed(0)}…${hi.toFixed(0)} дБ`, pad, 16);
   note.textContent = `Точек измерений: ${points.length}`;
+}
+
+function drawCoverage(ctx, w, h, geo, note) {
+  const features = (geo && geo.features) || [];
+  if (!features.length) {
+    ctx.fillStyle = COLORS.text;
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Нет данных для карты покрытия", 12, 24);
+    note.textContent = "";
+    return;
+  }
+  let rows = 1;
+  let cols = 1;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const feature of features) {
+    const props = feature.properties || {};
+    rows = Math.max(rows, (props.row || 0) + 1);
+    cols = Math.max(cols, (props.col || 0) + 1);
+    if (typeof props.level_db === "number" && isFinite(props.level_db)) {
+      lo = Math.min(lo, props.level_db);
+      hi = Math.max(hi, props.level_db);
+    }
+  }
+  const pad = 24;
+  const cellW = (w - 2 * pad) / cols;
+  const cellH = (h - 2 * pad) / rows;
+  for (const feature of features) {
+    const props = feature.properties || {};
+    const t = (props.level_db - lo) / (hi - lo || 1);
+    const x = pad + (props.col || 0) * cellW;
+    const y = h - pad - ((props.row || 0) + 1) * cellH;
+    const measured = (props.sample_count || 0) > 0;
+    ctx.fillStyle = levelColor(isFinite(t) ? t : 0, measured ? 0.9 : 0.4);
+    ctx.fillRect(x, y, Math.ceil(cellW), Math.ceil(cellH));
+  }
+  ctx.strokeStyle = COLORS.grid;
+  ctx.strokeRect(pad, pad, w - 2 * pad, h - 2 * pad);
+  ctx.fillStyle = COLORS.text;
+  ctx.font = "10px sans-serif";
+  ctx.fillText(`покрытие ${lo.toFixed(0)}…${hi.toFixed(0)} дБ`, pad, 16);
+  note.textContent = `Ячеек карты покрытия: ${features.length}. Север сверху.`;
+}
+
+function drawMap() {
+  const canvas = $("map");
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const note = $("map-note");
+  if (mapMode() === "coverage") {
+    drawCoverage(ctx, w, h, state.coverage, note);
+    return;
+  }
+
+  const data = state.data;
+  const points = (data && data.points) || [];
+  if (!points.length) {
+    ctx.fillStyle = COLORS.text;
+    ctx.font = "13px sans-serif";
+    ctx.fillText("Нет измерений с географическими координатами", 12, 24);
+    note.textContent = "";
+    return;
+  }
+  drawPoints(ctx, w, h, points, note);
 }
 
 /* ---------------------------------------------------------------- таблица */
@@ -319,15 +383,20 @@ function renderSignals() {
 async function runMeasurement() {
   const start = parseFloat($("m-start").value) * 1e6;
   const stop = parseFloat($("m-stop").value) * 1e6;
+  const normKhz = $("m-norm").value;
   const box = $("measure-result");
   box.innerHTML = "";
   if (!isFinite(start) || !isFinite(stop) || start >= stop) {
     $("measure-note").textContent = "Укажите корректные границы поддиапазона, МГц";
     return;
   }
+  let query = `start=${start}&stop=${stop}`;
+  if (normKhz !== "" && isFinite(parseFloat(normKhz))) {
+    query += `&norm=${parseFloat(normKhz) * 1e3}`;
+  }
   $("measure-note").textContent = "Выполняется измерение…";
   try {
-    const response = await fetch(`/api/measure?start=${start}&stop=${stop}`);
+    const response = await fetch(`/api/measure?${query}`);
     const data = await response.json();
     renderMeasurements(data);
     $("measure-note").textContent = "";
@@ -432,6 +501,14 @@ function renderMeasurements(data) {
       warn: (data.bandwidth_at_level.warnings || []).join("; "),
     },
     {
+      label: "Контрольная полоса (−30 дБ)",
+      value:
+        data.control_bandwidth && isFinite(data.control_bandwidth.bandwidth_hz)
+          ? (data.control_bandwidth.bandwidth_hz / 1e3).toFixed(3) + " кГц"
+          : "—",
+      warn: controlNote(data.control_bandwidth),
+    },
+    {
       label: "Напряжённость поля",
       value:
         typeof data.field_strength.value === "number" &&
@@ -448,6 +525,15 @@ function renderMeasurements(data) {
           ? (data.center_frequency_centroid.value / 1e6).toFixed(6) + " МГц"
           : "—",
       warn: (data.center_frequency_centroid.warnings || []).join("; "),
+    },
+    {
+      label: "Комплексная оценка центральной частоты",
+      value:
+        data.center_frequency_complex &&
+        isFinite(data.center_frequency_complex.value_hz)
+          ? (data.center_frequency_complex.value_hz / 1e6).toFixed(6) + " МГц"
+          : "—",
+      warn: (data.center_frequency_complex && data.center_frequency_complex.warnings || []).join("; "),
     },
   ];
   for (const card of cards) {
@@ -468,6 +554,72 @@ function renderMeasurements(data) {
       div.appendChild(warn);
     }
     box.appendChild(div);
+  }
+}
+
+function controlNote(result) {
+  if (!result) return "";
+  const parts = [];
+  if (result.verdict) parts.push(result.verdict);
+  if (result.warnings && result.warnings.length) parts.push(result.warnings.join("; "));
+  return parts.join(". ");
+}
+
+function renderTasks() {
+  const tbody = $("task-table").querySelector("tbody");
+  const note = $("tasks-note");
+  tbody.innerHTML = "";
+  const payload = state.tasks;
+  if (!payload || !payload.configured) {
+    note.textContent = "Планировщик не подключён. Запустите serve с параметром --tasks.";
+    return;
+  }
+  const tasks = payload.tasks || [];
+  note.textContent = tasks.length ? `Заданий: ${tasks.length}` : "База планирования пуста";
+  tasks.forEach((task) => {
+    const tr = document.createElement("tr");
+    if (task.outcome && task.outcome.indexOf("авар") >= 0) tr.className = "task-error";
+    else if (task.outcome && (task.outcome.indexOf("не найден") >= 0 || task.outcome.indexOf("истекло") >= 0)) {
+      tr.className = "task-error";
+    } else if (task.outcome && task.outcome.indexOf("принудительно") >= 0) {
+      tr.className = "task-warning";
+    }
+    const cells = [
+      task.name || "—",
+      task.status || "—",
+      fmtTime(task.start_at),
+      task.duration_s ? String(task.duration_s) : "—",
+      task.outcome || "—",
+    ];
+    cells.forEach((value) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadTasks() {
+  try {
+    const response = await fetch("/api/tasks");
+    if (!response.ok) return;
+    state.tasks = await response.json();
+    renderTasks();
+  } catch (err) {
+    $("tasks-note").textContent = "Не удалось прочитать задания";
+  }
+}
+
+async function loadCoverage() {
+  if (mapMode() !== "coverage") return;
+  try {
+    const response = await fetch("/api/coverage?rows=18&cols=28");
+    if (!response.ok) return;
+    state.coverage = await response.json();
+    drawMap();
+  } catch (err) {
+    $("map-note").textContent = "Не удалось построить карту покрытия";
   }
 }
 
@@ -493,6 +645,8 @@ function applyState(data) {
   drawWaterfall();
   drawMap();
   renderSignals();
+  loadCoverage();
+  loadTasks();
 }
 
 async function refresh() {
@@ -572,6 +726,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("do-measure").addEventListener("click", runMeasurement);
   $("do-occupancy").addEventListener("click", runOccupancy);
+  $("tick-tasks").addEventListener("click", async () => {
+    try {
+      const response = await fetch("/api/tasks/tick", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) {
+        $("tasks-note").textContent = payload.error || "Планировщик не подключён";
+        return;
+      }
+      state.tasks = payload;
+      renderTasks();
+      const count = (payload.changes || []).length;
+      $("tasks-note").textContent = count
+        ? `Переходов: ${count}`
+        : "Изменений нет";
+    } catch (err) {
+      $("tasks-note").textContent = "Не удалось продвинуть очередь";
+    }
+  });
+  document.querySelectorAll('input[name="map-mode"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (mapMode() === "coverage") loadCoverage();
+      else drawMap();
+    });
+  });
 
   $("thr-offset").addEventListener("input", (event) => {
     $("thr-value").textContent = parseFloat(event.target.value).toFixed(1);

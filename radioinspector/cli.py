@@ -27,6 +27,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -49,9 +50,10 @@ from .interference import detect_interference
 from .measurements import measure_signal
 from .occupancy import efficiency_from_store, occupancy_from_store
 from .panorama import PanoramaLibrary, PanoramaStore, ScanSettings
-from .reporting import DEFAULT_TEMPLATE, ProtocolTemplate, build_context
+from .reporting import render_protocol, write_docx
+from .scheduler import TaskScheduler
 from .signals import SignalList
-from .tasks import TaskBook
+from .tasks import ControlTask, TaskBook
 from .threshold import ThresholdLine
 from .trace import Trace
 from .units import convert
@@ -376,30 +378,31 @@ def cmd_df(args: argparse.Namespace) -> int:
 def cmd_report(args: argparse.Namespace) -> int:
     """Формирование протокола измерений."""
     with PanoramaStore(args.database) as store:
-        record = store.latest()
-        trace = record.trace if record else None
-        measurements = measure_signal(trace) if trace is not None else {}
         signals = []
         signal_file = Path(args.database).with_name("signals.json")
         if signal_file.exists():
             signals = SignalList.load(signal_file).to_rows()
-        context = build_context(
-            measurements=measurements,
-            store=store,
+        text = render_protocol(
+            store,
             signals=signals,
             operator=args.operator,
             place=args.place,
+            template_path=args.template,
         )
 
-    if args.template:
-        template = ProtocolTemplate.from_file(args.template)
-    else:
-        template = ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Стандартный протокол")
-
-    text = template.render(context)
     if args.output:
-        Path(args.output).write_text(text, encoding="utf-8")
-        print(f"Протокол сохранён: {args.output}")
+        output = Path(args.output)
+        fmt = args.format
+        if not fmt:
+            fmt = "docx" if output.suffix.lower() == ".docx" else "md"
+        if fmt == "docx":
+            write_docx(output, text)
+        elif fmt == "md":
+            output.write_text(text, encoding="utf-8")
+        else:
+            print(f"Неизвестный формат протокола: {fmt}", file=sys.stderr)
+            return 1
+        print(f"Протокол сохранён: {output}")
     else:
         print(text)
     return 0
@@ -430,7 +433,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     """Запуск веб-интерфейса."""
     from .web.server import serve
 
-    serve(host=args.host, port=args.port, database=args.database)
+    serve(host=args.host, port=args.port, database=args.database, tasks=args.tasks)
     return 0
 
 
@@ -450,9 +453,83 @@ def cmd_keywords(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_moment(text: str) -> datetime:
+    """Разбор времени запуска задания: ISO-8601 или слово ``now``."""
+    if text.strip().lower() == "now":
+        return datetime.now(timezone.utc)
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def _print_transitions(changes) -> None:
+    if not changes:
+        print("Изменений нет")
+        return
+    for change in changes:
+        line = f"{change.action}: {change.name} → {change.status}"
+        if change.outcome:
+            line += f" ({change.outcome})"
+        if change.note:
+            line += f" — {change.note}"
+        print(line)
+
+
 def cmd_tasks(args: argparse.Namespace) -> int:
-    """База данных планирования: перечень заданий и состояние очереди."""
+    """База данных планирования: задания и продвижение очереди по времени."""
     book = TaskBook(args.database).load()
+    changed = False
+
+    if args.add:
+        if book.get(args.add) is not None:
+            print(f"Задание «{args.add}» уже есть", file=sys.stderr)
+            return 1
+        task = ControlTask(
+            name=args.add,
+            purpose=args.purpose or "",
+            operator=args.operator or "",
+            place=args.place or "",
+            task_file=args.file,
+            panorama_file=args.panorama,
+            start_at=_parse_moment(args.start) if args.start else None,
+            duration_s=args.duration or 0.0,
+        )
+        if task.can_queue():
+            task.enqueue()
+        book.add(task)
+        changed = True
+        print(f"Задание «{task.name}»: {task.status}")
+
+    if args.enqueue:
+        task = book.get(args.enqueue)
+        if task is None:
+            print(f"Задание «{args.enqueue}» не найдено", file=sys.stderr)
+            return 1
+        task.enqueue()
+        changed = True
+        print(f"Задание «{task.name}» поставлено в очередь")
+
+    if changed and not args.tick and not args.watch:
+        book.save()
+        return 0
+
+    if args.tick or args.watch:
+        if changed:
+            book.save()
+        scheduler = TaskScheduler(book, interval_s=args.interval)
+        if args.tick:
+            _print_transitions(scheduler.tick())
+        if args.watch:
+            print("Планировщик запущен. Остановка — Ctrl+C")
+            try:
+                while True:
+                    _print_transitions(scheduler.tick())
+                    time.sleep(scheduler.interval_s)
+            except KeyboardInterrupt:
+                print("\nПланировщик остановлен")
+        return 0
+
     if args.json:
         _print_json({"tasks": [task.as_dict() for task in book.tasks]})
         return 0
@@ -593,6 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--database", required=True)
     p.add_argument("--template")
     p.add_argument("--output")
+    p.add_argument("--format", choices=["md", "docx"], default=None)
     p.add_argument("--operator", default="")
     p.add_argument("--place", default="")
     p.set_defaults(func=cmd_report)
@@ -615,6 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8770)
     p.add_argument("--database")
+    p.add_argument("--tasks", help="файл базы планирования заданий")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser(
@@ -626,6 +705,18 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("tasks", help="база данных планирования заданий")
     p.add_argument("--database", required=True)
     p.add_argument("--json", action="store_true")
+    p.add_argument("--add", help="создать задание с указанным названием")
+    p.add_argument("--enqueue", help="поставить существующее задание в очередь")
+    p.add_argument("--tick", action="store_true", help="один проход планировщика")
+    p.add_argument("--watch", action="store_true", help="запустить планировщик")
+    p.add_argument("--interval", type=float, default=1.0, help="период проверки, с")
+    p.add_argument("--start", help="время запуска, ISO-8601 или now")
+    p.add_argument("--duration", type=float, default=0.0, help="длительность, с")
+    p.add_argument("--file", help="файл задания на сканирование")
+    p.add_argument("--panorama", help="файл базы панорам")
+    p.add_argument("--purpose", default="")
+    p.add_argument("--operator", default="")
+    p.add_argument("--place", default="")
     p.set_defaults(func=cmd_tasks)
 
     p = sub.add_parser("devices", help="перечень поддерживаемого оборудования")

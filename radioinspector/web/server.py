@@ -36,7 +36,10 @@ from ..geoloc import MeasurementPoint, build_coverage_map
 from ..measurements import measure_signal
 from ..occupancy import efficiency_from_store, occupancy_from_store
 from ..panorama import PanoramaLibrary, PanoramaStore
+from ..reporting import docx_bytes, render_protocol
+from ..scheduler import TaskScheduler
 from ..signals import SignalList
+from ..tasks import TaskBook
 from ..threshold import ThresholdLine
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -45,12 +48,19 @@ STATIC_DIR = Path(__file__).parent / "static"
 class ApplicationState:
     """Состояние веб-приложения: текущая база данных и список сигналов."""
 
-    def __init__(self, database: Optional[str] = None, library: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        database: Optional[str] = None,
+        library: Optional[str] = None,
+        tasks: Optional[str] = None,
+    ) -> None:
         self.database = database
         self.library = library
+        self.tasks_path = tasks
         self.store: Optional[PanoramaStore] = None
         self.signals = SignalList()
         self.threshold: Optional[ThresholdLine] = None
+        self.task_book: Optional[TaskBook] = TaskBook(tasks).load() if tasks else None
         self._subscribers: list[threading.Event] = []
         self._lock = threading.Lock()
         self._version = 0
@@ -246,6 +256,36 @@ class ApplicationState:
             return {}
         return build_coverage_map(points, rows=rows, cols=cols).to_geojson()
 
+    def protocol_text(self, operator: str = "", place: str = "") -> str:
+        """Текст протокола по открытой базе панорам."""
+        if self.store is None:
+            raise ValueError("база данных не загружена")
+        return render_protocol(
+            self.store,
+            signals=self.signals.to_rows(),
+            operator=operator,
+            place=place,
+        )
+
+    def task_rows(self) -> dict:
+        """Состояние базы планирования для веб-интерфейса."""
+        if self.task_book is None:
+            return {"configured": False, "tasks": []}
+        return {
+            "configured": True,
+            "tasks": [task.as_dict() for task in self.task_book.tasks],
+        }
+
+    def tick_tasks(self) -> dict:
+        """Один проход планировщика."""
+        if self.task_book is None:
+            raise ValueError("планировщик не подключён")
+        with self._lock:
+            changes = TaskScheduler(self.task_book).tick()
+        payload = self.task_rows()
+        payload["changes"] = [change.as_dict() for change in changes]
+        return payload
+
 
 class Handler(BaseHTTPRequestHandler):
     """Обработчик HTTP-запросов веб-интерфейса."""
@@ -330,6 +370,12 @@ class Handler(BaseHTTPRequestHandler):
             norm = float(raw_norm) if raw_norm not in (None, "") else None
             self._send_json(self.state.measurements(start, stop, norm))
             return
+        if route == "/api/report":
+            self._send_report(query)
+            return
+        if route == "/api/tasks":
+            self._send_json(self.state.task_rows())
+            return
         if route == "/api/stream":
             self._stream_events()
             return
@@ -356,8 +402,6 @@ class Handler(BaseHTTPRequestHandler):
             if "offset_db" in payload:
                 line = line.shifted(float(payload["offset_db"]))
             if "levels" in payload and "frequencies" in payload:
-                import numpy as np
-
                 line = ThresholdLine(
                     np.asarray(payload["frequencies"], dtype=float),
                     np.asarray(payload["levels"], dtype=float),
@@ -382,6 +426,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 400)
                 return
             self._send_json({"ok": True, "version": self.state.version})
+            return
+
+        if route == "/api/tasks/tick":
+            try:
+                self._send_json(self.state.tick_tasks())
+            except ValueError as exc:
+                self._send_json({"ok": False, "error": str(exc)}, 400)
             return
 
         self.send_error(404, "Not found")
@@ -413,20 +464,53 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.state.unsubscribe(event)
 
+    def _send_bytes(self, body: bytes, content_type: str, filename: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_report(self, query: dict) -> None:
+        fmt = query.get("format", ["md"])[0]
+        operator = query.get("operator", [""])[0]
+        place = query.get("place", [""])[0]
+        try:
+            text = self.state.protocol_text(operator, place)
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, 400)
+            return
+        if fmt == "md":
+            self._send_bytes(text.encode("utf-8"), "text/markdown; charset=utf-8", "protocol.md")
+            return
+        if fmt == "docx":
+            self._send_bytes(
+                docx_bytes(text),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "protocol.docx",
+            )
+            return
+        self._send_json({"ok": False, "error": f"неизвестный формат: {fmt}"}, 400)
+
 
 def serve(
     host: str = "127.0.0.1",
     port: int = 8770,
     database: Optional[str] = None,
     library: Optional[str] = None,
+    tasks: Optional[str] = None,
 ) -> None:
     """Запуск веб-интерфейса."""
-    state = ApplicationState(database=database, library=library)
+    state = ApplicationState(database=database, library=library, tasks=tasks)
     handler = type("BoundHandler", (Handler,), {"state": state})
     httpd = ThreadingHTTPServer((host, port), handler)
     print(f"Веб-интерфейс: http://{host}:{port}")
     if database:
         print(f"База данных: {database}")
+    if tasks:
+        print(f"Планирование: {tasks}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

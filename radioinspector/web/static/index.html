@@ -60,7 +60,10 @@
     <div class="toolbar">
       <label>от <input type="number" id="m-start" step="0.001" value="0"> МГц</label>
       <label>до <input type="number" id="m-stop" step="0.001" value="0"> МГц</label>
-      <button id="do-measure">Измерить</button>
+      <label>норма <input type="number" id="m-norm" step="0.1" value=""> кГц</label>
+      <button id="do-measure" type="button">Измерить</button>
+      <a class="button" href="/api/report?format=md">Протокол Markdown</a>
+      <a class="button" href="/api/report?format=docx">Протокол DOCX</a>
       <span id="measure-note" class="note"></span>
     </div>
     <div id="measure-result" class="results"></div>
@@ -77,9 +80,30 @@
   </section>
 
   <section class="panel map">
-    <h2>Точки измерений</h2>
+    <h2>Точки измерений и карта покрытия</h2>
+    <div class="toolbar">
+      <label><input type="radio" name="map-mode" value="points" checked> точки</label>
+      <label><input type="radio" name="map-mode" value="coverage"> покрытие</label>
+    </div>
     <canvas id="map" width="1100" height="300"></canvas>
     <div class="note" id="map-note"></div>
+  </section>
+
+  <section class="panel tasks">
+    <h2>Плановые задания</h2>
+    <div class="toolbar">
+      <button id="tick-tasks" type="button">Продвинуть очередь</button>
+      <span id="tasks-note" class="note"></span>
+    </div>
+    <table id="task-table">
+      <thead>
+        <tr>
+          <th>Название</th><th>Статус</th><th>Старт</th>
+          <th>Длительность, с</th><th>Исход</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </section>
 </main>
 
