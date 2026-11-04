@@ -93,9 +93,9 @@ python3 -m radioinspector <команда> [параметры]
 | `assignments` | база данных частотных присвоений (импорт/экспорт CSV) |
 | `coverage` | карта распределения напряжённости поля (GeoJSON) |
 | `df` | амплитудная пеленгация и триангуляция |
-| `report` | формирование протокола измерений |
+| `report` | формирование протокола измерений (Markdown или DOCX) |
 | `keywords` | справочник ключевых слов шаблонов протоколов (317 наименований) |
-| `tasks` | состояние базы данных планирования заданий |
+| `tasks` | база планирования: список, постановка в очередь, проход по времени (`--tick`, `--watch`) |
 | `export` | выгрузка данных в CEF или CSV |
 | `convert` | преобразование величин между единицами измерения |
 | `serve` | запуск веб-интерфейса |
@@ -118,6 +118,11 @@ python3 -m radioinspector measure --database /tmp/oridemo/<файл>.pan \
 # Выгрузка в формате CEF (ITU-R SM.1809)
 python3 -m radioinspector export --database /tmp/oridemo/<файл>.pan \
     --format cef --output /tmp/oridemo/out.cef
+
+# Протокол в DOCX и один проход планировщика
+python3 -m radioinspector report --database /tmp/oridemo/<файл>.pan \
+    --output /tmp/oridemo/protocol.docx
+python3 -m radioinspector tasks --database /tmp/oridemo/tasks.json --tick
 ```
 
 ---
@@ -126,7 +131,7 @@ python3 -m radioinspector export --database /tmp/oridemo/<файл>.pan \
 
 ```bash
 python3 -m radioinspector serve --host 127.0.0.1 --port 8770 \
-    --database /path/to/<файл>.pan
+    --database /path/to/<файл>.pan --tasks /path/to/tasks.json
 ```
 
 REST API:
@@ -139,6 +144,9 @@ REST API:
 | `GET` | `/api/efficiency?threshold=` | эффективность использования диапазона |
 | `GET` | `/api/keywords` | словарь ключевых слов протоколов |
 | `GET` | `/api/measure?start=&stop=&norm=` | измерение параметров сигнала |
+| `GET` | `/api/report?format=md\|docx` | протокол измерений |
+| `GET` | `/api/tasks` | база планирования заданий |
+| `POST` | `/api/tasks/tick` | один проход планировщика |
 | `GET` | `/api/coverage?rows=&cols=` | карта покрытия (GeoJSON) |
 | `GET` | `/api/stream` | поток событий (SSE) |
 | `POST` | `/api/threshold` | изменение уровня линии порога |
@@ -164,7 +172,8 @@ radioinspector/
 ├── interference.py  выявление помех
 ├── wifi.py          разбор кадров 802.11
 ├── audio.py         демодуляция и звуковой контроль
-├── reporting.py     протоколы измерений
+├── reporting.py     протоколы измерений, в том числе DOCX
+├── scheduler.py     планировщик заданий по времени
 ├── keywords.py      словарь 317 ключевых слов протоколов
 ├── tasks.py         плановые задания и профиль контроля фиксированных частот
 ├── cli.py           командный интерфейс

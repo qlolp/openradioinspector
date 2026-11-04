@@ -27,12 +27,16 @@
 from __future__ import annotations
 
 import re
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Mapping, Optional
+from xml.sax.saxutils import escape
 
 from .keywords import CATALOG, KEYWORD_RE, TABLE_MARKERS
+from .measurements import measure_signal
 
 #: Шаблон подстановки значения (синтаксис OpenRadioInspector).
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z0-9_.]+)\s*\}\}")
@@ -237,6 +241,17 @@ def build_context(
         cf = measurements.get("center_frequency_centroid") or {}
         if cf:
             context.set("center_frequency_mhz", cf.get("value", 0.0) / 1e6)
+        control = measurements.get("control_bandwidth") or {}
+        if control:
+            bandwidth = control.get("bandwidth_hz") or 0.0
+            context.set("control_bandwidth_khz", bandwidth / 1e3)
+            context.set("control_bandwidth_verdict", control.get("verdict") or "")
+        complex_fc = measurements.get("center_frequency_complex") or {}
+        if complex_fc:
+            context.set(
+                "center_frequency_complex_mhz",
+                (complex_fc.get("value_hz") or 0.0) / 1e6,
+            )
 
     if signals is not None:
         context.set("signal_count", len(signals))
@@ -253,6 +268,124 @@ def build_context(
     if extra:
         context.update(extra)
     return context
+
+
+def render_protocol(
+    store,
+    signals: Optional[list] = None,
+    operator: str = "",
+    place: str = "",
+    template_path: str | Path | None = None,
+    norm_hz: float | None = None,
+) -> str:
+    """Собирает текст протокола по текущей базе панорам."""
+    measurements: dict = {}
+    record = store.latest()
+    if record is not None and record.trace.size:
+        measurements = measure_signal(record.trace, norm_hz=norm_hz)
+    context = build_context(
+        measurements=measurements,
+        store=store,
+        signals=list(signals or []),
+        operator=operator,
+        place=place,
+    )
+    if template_path:
+        template = ProtocolTemplate.from_file(template_path)
+    else:
+        template = ProtocolTemplate(
+            "protocol", DEFAULT_TEMPLATE, "Стандартный протокол"
+        )
+    return template.render(context)
+
+
+def docx_bytes(text: str, title: str = "Протокол измерений") -> bytes:
+    """Собирает DOCX в памяти."""
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _DOCX_CONTENT_TYPES)
+        archive.writestr("_rels/.rels", _DOCX_RELS)
+        archive.writestr("docProps/core.xml", _core_xml(title, stamp))
+        archive.writestr("word/document.xml", _document_xml(text))
+    return buffer.getvalue()
+
+
+def write_docx(path: str | Path, text: str, title: str = "Протокол измерений") -> Path:
+    """Записывает текстовый протокол в файл DOCX.
+
+    Документ состоит из абзацев. Строки, начинающиеся с ``#``, становятся
+    полужирными заголовками. Исходные шаблоны ``.doc`` комплекса не
+    читаются: подстановка выполняется до записи, в текстовом протоколе.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(docx_bytes(text, title))
+    return path
+
+
+def _paragraphs(text: str) -> list[tuple[str, bool]]:
+    lines = text.splitlines() or [""]
+    paragraphs: list[tuple[str, bool]] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            paragraphs.append((stripped.lstrip("#").strip(), True))
+        else:
+            paragraphs.append((line, False))
+    return paragraphs
+
+
+def _document_xml(text: str) -> str:
+    body: list[str] = []
+    for line, heading in _paragraphs(text):
+        content = escape(line)
+        if heading:
+            run = f"<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">{content}</w:t></w:r>"
+        else:
+            run = f"<w:r><w:t xml:space=\"preserve\">{content}</w:t></w:r>"
+        body.append(f"<w:p>{run}</w:p>")
+    joined = "".join(body)
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+        f"<w:body>{joined}"
+        "<w:sectPr>"
+        "<w:pgSz w:w=\"11906\" w:h=\"16838\"/>"
+        "<w:pgMar w:top=\"1134\" w:right=\"1134\" w:bottom=\"1134\" w:left=\"1134\"/>"
+        "</w:sectPr></w:body></w:document>"
+    )
+
+
+def _core_xml(title: str, stamp: str) -> str:
+    safe_title = escape(title)
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<cp:coreProperties"
+        " xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\""
+        " xmlns:dc=\"http://purl.org/dc/elements/1.1/\">"
+        f"<dc:title>{safe_title}</dc:title>"
+        "<dc:creator>OpenRadioInspector</dc:creator>"
+        f"<dcterms:created xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:type=\"dcterms:W3CDTF\">{stamp}</dcterms:created>"
+        "</cp:coreProperties>"
+    )
+
+
+_DOCX_CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>
+"""
+
+_DOCX_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+</Relationships>
+"""
 
 
 DEFAULT_TEMPLATE = """# ПРОТОКОЛ измерений параметров радиоизлучений
@@ -280,9 +413,14 @@ DEFAULT_TEMPLATE = """# ПРОТОКОЛ измерений параметров
 
 Ширина полосы по уровню −N дБ: {{bandwidth_ndb_khz}} кГц
 
+Контрольная ширина полосы (−30 дБ): {{control_bandwidth_khz}} кГц
+Вердикт сверки с нормой: {{control_bandwidth_verdict}}
+
 Напряжённость поля: {{field_strength_db}} дБ
 
 Оценка центральной частоты: {{center_frequency_mhz}} МГц
+
+Комплексная оценка центральной частоты: {{center_frequency_complex_mhz}} МГц
 
 ## Обнаруженные сигналы
 

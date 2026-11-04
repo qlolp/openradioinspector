@@ -13,8 +13,8 @@
 контролируемой частоте.
 
 Модуль реализует модель задания, машину состояний и правила проверки
-профиля. Планировщик с таймером и сетевой протокол удалённого контроля
-комплексов в объём модуля не входят — см. ``docs/feature-map.md``.
+профиля. Переходы по времени выполняет :mod:`radioinspector.scheduler`.
+Сетевой протокол удалённого контроля комплексов сюда не входит.
 """
 
 from __future__ import annotations
@@ -59,13 +59,29 @@ TASK_STATUSES = (
 #: Дополнительные статусы ошибки — выделяются красным цветом.
 OUTCOME_FILE_NOT_FOUND = "файл задания (на сканирование частот) не найден"
 OUTCOME_APPLICATION_CRASH = "аварийное завершение приложения"
+OUTCOME_WINDOW_MISSED = "окно выполнения истекло до запуска"
 
 #: Дополнительные статусы предупреждения — выделяются синим цветом.
 OUTCOME_STOPPED_BY_OPERATOR = "принудительно завершено оператором"
 OUTCOME_STOPPED_BY_TASK = "принудительно завершено другой задачей"
 
-ERROR_OUTCOMES = (OUTCOME_FILE_NOT_FOUND, OUTCOME_APPLICATION_CRASH)
+ERROR_OUTCOMES = (
+    OUTCOME_FILE_NOT_FOUND,
+    OUTCOME_APPLICATION_CRASH,
+    OUTCOME_WINDOW_MISSED,
+)
 WARNING_OUTCOMES = (OUTCOME_STOPPED_BY_OPERATOR, OUTCOME_STOPPED_BY_TASK)
+
+
+def as_utc(moment: datetime) -> datetime:
+    """Приводит метку времени к UTC.
+
+    Метки без часового пояса считаются уже записанными в UTC: так их
+    сохраняет база планирования и так их сравнивает планировщик.
+    """
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
@@ -278,8 +294,8 @@ class ControlTask:
         """Наступило ли время выполнения задания."""
         if self.status != STATUS_QUEUED or self.start_at is None:
             return False
-        moment = moment or datetime.now(timezone.utc)
-        return moment >= self.start_at
+        moment = as_utc(moment or datetime.now(timezone.utc))
+        return moment >= as_utc(self.start_at)
 
     def outcome_kind(self) -> str:
         """Категория дополнительного статуса: «ошибка», «предупреждение» или пусто."""

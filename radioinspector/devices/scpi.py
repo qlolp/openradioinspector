@@ -25,6 +25,7 @@ import numpy as np
 
 from ..trace import Trace
 from .base import Instrument, InstrumentError, InstrumentInfo, SweepConfig
+from .registry import profile_from_idn
 
 #: Разбор блока данных прибора: ``<prefix> <count> <comma separated values>``.
 _CURVE_RE = re.compile(r"([A-Za-z0-9_]+)\s+(\d+)\s*,?\s*(.*)", re.DOTALL)
@@ -103,10 +104,12 @@ class ScpiInstrument(Instrument):
         port: int = 5025,
         timeout_s: float = 10.0,
         connection: Optional[ScpiConnection] = None,
+        profile: str = "",
     ) -> None:
         self.host = host
         self.port = port
         self.timeout_s = timeout_s
+        self.profile = profile
         self._conn = connection or ScpiConnection(host, port, timeout_s)
         self._info = InstrumentInfo(interface=f"tcp:{host}:{port}")
         self._connected = False
@@ -125,6 +128,8 @@ class ScpiInstrument(Instrument):
             firmware=parts[3] if len(parts) > 3 else "",
             interface=f"tcp:{self.host}:{self.port}",
         )
+        if not self.profile:
+            self.profile = profile_from_idn(self._info.idn)
         return self._info
 
     def disconnect(self) -> None:
