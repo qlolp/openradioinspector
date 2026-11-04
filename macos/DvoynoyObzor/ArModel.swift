@@ -32,6 +32,8 @@ final class ArModel: ObservableObject {
     @Published var minimum: [PlotPoint] = []
     @Published var maximum: [PlotPoint] = []
     @Published var rows: [Exceedance] = []
+    @Published var waterfall = WaterfallHistory()
+    @Published var waterfallRevision = 0
 
     private var port: InstrumentPort?
     private var connectTask: Task<Void, Never>?
@@ -141,6 +143,8 @@ final class ArModel: ObservableObject {
         minimum = []
         maximum = []
         rows = []
+        waterfall = WaterfallHistory()
+        waterfallRevision += 1
         scanTask?.cancel()
         scanTask = Task { @MainActor in
             await self.runScan(request)
@@ -273,6 +277,8 @@ final class ArModel: ObservableObject {
                     live = "\(index + 1) из \(request.grid.count) · \(FrequencyText.formatMHzRussian(from10Hz: units)) МГц · свип \(sweepIndex)"
                 }
                 envelope.absorb(bins)
+                waterfall.absorb(bins)
+                waterfallRevision += 1
                 found = ExceedanceList.update(existing: found, bins: bins, threshold: request.threshold)
                 stored.append(ArSweep(time: TraceClock.stamp(Date()), frequenciesMHz: frequencies, levels: levels))
                 minimum = plot10Hz(envelope.minimumSeries())
