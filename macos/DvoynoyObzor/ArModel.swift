@@ -35,7 +35,12 @@ final class ArModel: ObservableObject {
     @Published var waterfall = WaterfallHistory()
     @Published var waterfallRevision = 0
 
-    private var port: InstrumentPort?
+    private let makePort: () -> any InstrumentConnection
+    private var port: (any InstrumentConnection)?
+
+    init(makePort: @escaping () -> any InstrumentConnection = { InstrumentPort() }) {
+        self.makePort = makePort
+    }
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
     private var tuneTask: Task<Void, Never>?
@@ -172,7 +177,7 @@ final class ArModel: ObservableObject {
     }
 
     private func openAndIdentify(path: String, baud: Int) async {
-        let opened = InstrumentPort()
+        let opened = makePort()
         do {
             try await opened.open(path: path, baud: baud)
             port = opened
@@ -221,6 +226,7 @@ final class ArModel: ObservableObject {
                 connected = false
                 status = "Не подключён"
             }
+            await refreshConnectionState()
             errorText = describeSession(error)
         }
     }
@@ -236,7 +242,7 @@ final class ArModel: ObservableObject {
             try await sendChecked(port, ArDv1CommandFactory.analogMode(request.mode).frame(), label: "режим")
             try await sendChecked(port, ArDv1CommandFactory.step(request.step).frame(), label: "шаг")
             let folder = try tracesFolder()
-            let fileURL = folder.appendingPathComponent("ardv1-\(TraceClock.fileToken(Date())).trassa.json")
+            let fileURL = folder.appendingPathComponent(TraceClock.sessionFilename(instrument: "ardv1"))
             tracePath = fileURL.path
             var envelope = TraceEnvelope()
             var found: [Exceedance] = []
@@ -301,6 +307,7 @@ final class ArModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
+            await refreshConnectionState()
             errorText = describeSession(error)
         }
     }
@@ -322,12 +329,13 @@ final class ArModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
+            await refreshConnectionState()
             errorText = describeSession(error)
             scanning = false
         }
     }
 
-    private func sendChecked(_ port: InstrumentPort, _ frame: Data, label: String) async throws {
+    private func sendChecked(_ port: any InstrumentConnection, _ frame: Data, label: String) async throws {
         try await port.send(frame)
         let reply = try await port.readLine(timeout: 1.5, label: label)
         note("\(label) \(clipReply(reply, limit: 160))")
@@ -337,7 +345,7 @@ final class ArModel: ObservableObject {
     }
 
     private func exchange(
-        _ port: InstrumentPort,
+        _ port: any InstrumentConnection,
         _ frame: Data,
         label: String,
         accept: (String) throws -> Void
@@ -346,6 +354,14 @@ final class ArModel: ObservableObject {
         let reply = try await port.readLine(timeout: 1.5, label: label)
         note("\(label) \(clipReply(reply, limit: 160))")
         try accept(reply)
+    }
+
+    private func refreshConnectionState() async {
+        if let port, !(await port.isOpen) {
+            self.port = nil
+            connected = false
+            status = "Не подключён"
+        }
     }
 
     private func note(_ line: String) {

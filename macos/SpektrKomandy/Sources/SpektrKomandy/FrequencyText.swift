@@ -20,9 +20,11 @@ public enum FrequencyText {
             guard let raw = parseDigits(digits) else { return nil }
             fraction = raw * powerOfTen(5 - digits.count)
         }
-        let units = whole * tenHertzPerMegahertz + fraction
-        if units < 0 { return nil }
-        return units
+        let scaled = whole.multipliedReportingOverflow(by: tenHertzPerMegahertz)
+        guard !scaled.overflow else { return nil }
+        let units = scaled.partialValue.addingReportingOverflow(fraction)
+        guard !units.overflow else { return nil }
+        return units.partialValue
     }
 
     public static func arFrequencyAllowed(_ units: Int64) -> Bool {
