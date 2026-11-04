@@ -25,6 +25,8 @@ final class UltraModel: ObservableObject {
     @Published var minimum: [PlotPoint] = []
     @Published var maximum: [PlotPoint] = []
     @Published var rows: [Exceedance] = []
+    @Published var waterfall = WaterfallHistory()
+    @Published var waterfallRevision = 0
 
     private var port: InstrumentPort?
     private var connectTask: Task<Void, Never>?
@@ -96,6 +98,8 @@ final class UltraModel: ObservableObject {
         minimum = []
         maximum = []
         rows = []
+        waterfall = WaterfallHistory()
+        waterfallRevision += 1
         scanTask?.cancel()
         let version = versionText
         scanTask = Task { @MainActor in
@@ -169,6 +173,8 @@ final class UltraModel: ObservableObject {
                 }
                 let bins = parsed.points.map { LevelBin(frequency: $0.hertz, level: $0.dbm) }
                 envelope.absorb(bins)
+                waterfall.absorb(bins)
+                waterfallRevision += 1
                 found = ExceedanceList.update(existing: found, bins: bins, threshold: threshold)
                 stored.append(
                     UltraSweep(
