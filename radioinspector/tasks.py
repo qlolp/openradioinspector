@@ -184,6 +184,255 @@ class FrequencyControlProfile:
 
 
 # ---------------------------------------------------------------------------
+# Справочники задания
+# ---------------------------------------------------------------------------
+
+
+def _parse_moment(value: Optional[str]) -> Optional[datetime]:
+    """Разбор момента времени из строки ISO 8601."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+@dataclass
+class TaskReference:
+    """Запись справочника планового задания.
+
+    Исходный комплекс хранит справочники вида задания, цели, РКП, отдела,
+    группы ПА, основания и носителя в отдельных таблицах базы планирования;
+    каждая запись справочника имеет собственный идентификатор, выдаваемый
+    генератором базы.
+    """
+
+    reference_id: int
+    name: str
+    code: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "reference_id": self.reference_id,
+            "name": self.name,
+            "code": self.code,
+        }
+
+
+class ReferenceBook:
+    """Набор справочников планового задания.
+
+    Идентификаторы выдаются по порядку добавления — так же, как генераторы
+    базы планирования в исходном комплексе.
+    """
+
+    def __init__(self) -> None:
+        self._items: dict[str, list[TaskReference]] = {}
+
+    def add(self, kind: str, name: str, code: str = "") -> TaskReference:
+        items = self._items.setdefault(kind, [])
+        item = TaskReference(len(items) + 1, name, code)
+        items.append(item)
+        return item
+
+    def get(self, kind: str, reference_id: int) -> Optional[TaskReference]:
+        for item in self._items.get(kind, []):
+            if item.reference_id == reference_id:
+                return item
+        return None
+
+    def name_of(self, kind: str, reference_id: Optional[int]) -> str:
+        """Наименование записи справочника по идентификатору."""
+        if not reference_id:
+            return ""
+        item = self.get(kind, reference_id)
+        return item.name if item else ""
+
+    def list(self, kind: str) -> list[TaskReference]:
+        return list(self._items.get(kind, []))
+
+    def as_dict(self) -> dict:
+        return {
+            kind: [item.as_dict() for item in items]
+            for kind, items in self._items.items()
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ReferenceBook":
+        book = cls()
+        for kind, items in data.items():
+            for raw in items:
+                book.add(kind, raw.get("name", ""), raw.get("code", ""))
+        return book
+
+
+#: Виды справочников базы планирования.
+REFERENCE_KINDS = (
+    "task_type",     # вид задания
+    "purpose",       # цель
+    "rkp",           # радиоконтрольное предприятие
+    "department",    # отдел
+    "group_pa",      # группа подразделения
+    "basis",         # основание
+    "carrier",       # носитель результатов
+)
+
+
+# ---------------------------------------------------------------------------
+# Список фиксированных частот и действия над обнаруженными сигналами
+# ---------------------------------------------------------------------------
+
+#: Действие: измерить параметры сигнала при обнаружении на контролируемой частоте.
+ACTION_MEASURE_SIGNAL = "measure_signal"
+
+#: Действие: только зафиксировать факт превышения линии порога.
+ACTION_DETECT_ONLY = "detect_only"
+
+#: Действие: записать фонограмму демодулированного аудиосигнала.
+ACTION_RECORD_PHONOGRAM = "record_phonogram"
+
+#: Действия, доступные на контролируемой частоте.
+FREQUENCY_ACTIONS = (ACTION_DETECT_ONLY, ACTION_MEASURE_SIGNAL, ACTION_RECORD_PHONOGRAM)
+
+
+@dataclass
+class FixedFrequency:
+    """Контролируемая частота с условиями выполнения измерений.
+
+    Соответствует записи списка фиксированных частот: частота, полоса
+    сигнала, профиль сканирования, действие при обнаружении и примечание.
+    """
+
+    frequency_hz: float
+    bandwidth_hz: float = 0.0
+    action: str = ACTION_DETECT_ONLY
+    profile: Optional[FrequencyControlProfile] = None
+    comment: str = ""
+    from_assignment: bool = False
+
+    def validate(self) -> list[str]:
+        """Замечания к записи списка частот."""
+        warnings: list[str] = []
+        if self.frequency_hz <= 0:
+            warnings.append(f"Частота {self.frequency_hz} Гц недопустима")
+        if self.action not in FREQUENCY_ACTIONS:
+            warnings.append(
+                f"Неизвестное действие «{self.action}» — допустимы: "
+                + ", ".join(FREQUENCY_ACTIONS)
+            )
+        if self.profile is not None:
+            for message in self.profile.validate():
+                warnings.append(f"Частота {self.frequency_hz:g} Гц: {message}")
+        return warnings
+
+    def as_dict(self) -> dict:
+        return {
+            "frequency_hz": self.frequency_hz,
+            "bandwidth_hz": self.bandwidth_hz,
+            "action": self.action,
+            "comment": self.comment,
+            "from_assignment": self.from_assignment,
+            "profile": self.profile.as_dict() if self.profile else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FixedFrequency":
+        profile = data.get("profile")
+        return cls(
+            frequency_hz=float(data.get("frequency_hz", 0.0)),
+            bandwidth_hz=float(data.get("bandwidth_hz", 0.0)),
+            action=data.get("action", ACTION_DETECT_ONLY),
+            profile=FrequencyControlProfile.from_dict(profile) if profile else None,
+            comment=data.get("comment", ""),
+            from_assignment=bool(data.get("from_assignment", False)),
+        )
+
+
+class FixedFrequencyList:
+    """Задание на контроль фиксированных частот.
+
+    Второй уровень трёхуровневой модели выполнения измерений: оператор
+    составляет список контролируемых частот и задаёт для каждой условие
+    действия при обнаружении сигнала. Отлаженное задание сохраняется в файл
+    и затем запускается планировщиком (третий уровень) либо вручную.
+    """
+
+    FORMAT = "openradioinspector-fixed-frequency-list"
+    VERSION = 1
+
+    def __init__(self, name: str = "") -> None:
+        self.name = name
+        self.frequencies: list[FixedFrequency] = []
+
+    def add(self, item: FixedFrequency) -> FixedFrequency:
+        self.frequencies.append(item)
+        return item
+
+    def extend(self, items) -> None:
+        for item in items:
+            self.add(item)
+
+    def find(self, frequency_hz: float, tolerance_hz: float = 0.0) -> Optional[FixedFrequency]:
+        """Запись списка для частоты с учётом допуска."""
+        for item in self.frequencies:
+            if abs(item.frequency_hz - frequency_hz) <= tolerance_hz:
+                return item
+        return None
+
+    def validate(self) -> list[str]:
+        """Замечания ко всему списку частот."""
+        warnings: list[str] = []
+        seen: set[float] = set()
+        for item in self.frequencies:
+            for message in item.validate():
+                warnings.append(message)
+            if item.frequency_hz in seen:
+                warnings.append(
+                    f"Частота {item.frequency_hz:g} Гц задана в списке повторно"
+                )
+            seen.add(item.frequency_hz)
+        if not self.frequencies:
+            warnings.append("Список контролируемых частот пуст")
+        return warnings
+
+    def measurement_frequencies(self) -> list[FixedFrequency]:
+        """Частоты, на которых при обнаружении измеряются параметры сигнала."""
+        return [
+            item
+            for item in self.frequencies
+            if item.action == ACTION_MEASURE_SIGNAL
+        ]
+
+    def as_dict(self) -> dict:
+        return {
+            "format": self.FORMAT,
+            "version": self.VERSION,
+            "name": self.name,
+            "frequencies": [item.as_dict() for item in self.frequencies],
+        }
+
+    def save(self, path: str | Path) -> Path:
+        """Сохранение задания в файл."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(self.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return target
+
+    @classmethod
+    def load(cls, path: str | Path) -> "FixedFrequencyList":
+        """Загрузка задания из файла."""
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        result = cls(payload.get("name", ""))
+        result.frequencies = [
+            FixedFrequency.from_dict(item) for item in payload.get("frequencies", [])
+        ]
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Плановое задание
 # ---------------------------------------------------------------------------
 
@@ -196,6 +445,11 @@ class ControlTask:
     основание выполнения, кто и где выполняет), даты, времени и длительности
     выполнения и задания на выполнение измерений — файла задания на
     контроль фиксированных частот или файла панорам.
+
+    Состав полей повторяет запись базы данных планирования: справочные
+    величины вида задания, цели, предприятия, отдела, группы, основания и
+    носителя хранятся идентификаторами справочников, служебные даты и
+    результаты — отдельными полями.
     """
 
     name: str
@@ -214,6 +468,39 @@ class ControlTask:
     created_by: str = ""
     completed_cycles: int = 0
     profiles: list[FrequencyControlProfile] = field(default_factory=list)
+
+    # -- справочные поля базы планирования ---------------------------------
+    task_type_id: Optional[int] = None
+    purpose_id: Optional[int] = None
+    rkp_id: Optional[int] = None
+    department_id: Optional[int] = None
+    group_pa_id: Optional[int] = None
+    basis_id: Optional[int] = None
+    carrier_id: Optional[int] = None
+
+    # -- служебные даты и операции ------------------------------------------
+    created_at: Optional[datetime] = None
+    prepared_at: Optional[datetime] = None
+    real_started_at: Optional[datetime] = None
+    real_stopped_at: Optional[datetime] = None
+    break_at: Optional[datetime] = None
+    break_reason: str = ""
+    created_by_operator: str = ""
+    prepared_by_operator: str = ""
+
+    # -- состав и результаты ------------------------------------------------
+    device_names: list[str] = field(default_factory=list)
+    device_ids: list[str] = field(default_factory=list)
+    observers: list[str] = field(default_factory=list)
+    extra_info: str = ""
+    result_code: str = ""
+    result_text: str = ""
+    process_position: str = ""
+    mobility: str = ""
+    next_times: list[datetime] = field(default_factory=list)
+    attachments: list[str] = field(default_factory=list)
+    protocol_file: str = ""
+    sleep_interval_s: float = 0.0
 
     # -- состояние ---------------------------------------------------------
 
@@ -307,6 +594,39 @@ class ControlTask:
             "created_by": self.created_by,
             "completed_cycles": self.completed_cycles,
             "profiles": [profile.as_dict() for profile in self.profiles],
+            "task_type_id": self.task_type_id,
+            "purpose_id": self.purpose_id,
+            "rkp_id": self.rkp_id,
+            "department_id": self.department_id,
+            "group_pa_id": self.group_pa_id,
+            "basis_id": self.basis_id,
+            "carrier_id": self.carrier_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "prepared_at": self.prepared_at.isoformat() if self.prepared_at else None,
+            "real_started_at": (
+                self.real_started_at.isoformat() if self.real_started_at else None
+            ),
+            "real_stopped_at": (
+                self.real_stopped_at.isoformat() if self.real_stopped_at else None
+            ),
+            "break_at": self.break_at.isoformat() if self.break_at else None,
+            "break_reason": self.break_reason,
+            "created_by_operator": self.created_by_operator,
+            "prepared_by_operator": self.prepared_by_operator,
+            "device_names": list(self.device_names),
+            "device_ids": list(self.device_ids),
+            "observers": list(self.observers),
+            "extra_info": self.extra_info,
+            "result_code": self.result_code,
+            "result_text": self.result_text,
+            "process_position": self.process_position,
+            "mobility": self.mobility,
+            "next_times": [
+                moment.isoformat() for moment in self.next_times
+            ],
+            "attachments": list(self.attachments),
+            "protocol_file": self.protocol_file,
+            "sleep_interval_s": self.sleep_interval_s,
         }
 
     @classmethod
@@ -328,6 +648,39 @@ class ControlTask:
             outcome=data.get("outcome", ""),
             created_by=data.get("created_by", ""),
             completed_cycles=int(data.get("completed_cycles", 0)),
+            task_type_id=data.get("task_type_id"),
+            purpose_id=data.get("purpose_id"),
+            rkp_id=data.get("rkp_id"),
+            department_id=data.get("department_id"),
+            group_pa_id=data.get("group_pa_id"),
+            basis_id=data.get("basis_id"),
+            carrier_id=data.get("carrier_id"),
+            created_at=_parse_moment(data.get("created_at")),
+            prepared_at=_parse_moment(data.get("prepared_at")),
+            real_started_at=_parse_moment(data.get("real_started_at")),
+            real_stopped_at=_parse_moment(data.get("real_stopped_at")),
+            break_at=_parse_moment(data.get("break_at")),
+            break_reason=data.get("break_reason", ""),
+            created_by_operator=data.get("created_by_operator", ""),
+            prepared_by_operator=data.get("prepared_by_operator", ""),
+            device_names=list(data.get("device_names", [])),
+            device_ids=list(data.get("device_ids", [])),
+            observers=list(data.get("observers", [])),
+            extra_info=data.get("extra_info", ""),
+            result_code=data.get("result_code", ""),
+            result_text=data.get("result_text", ""),
+            process_position=data.get("process_position", ""),
+            mobility=data.get("mobility", ""),
+            next_times=[
+                moment
+                for moment in (
+                    _parse_moment(item) for item in data.get("next_times", [])
+                )
+                if moment is not None
+            ],
+            attachments=list(data.get("attachments", [])),
+            protocol_file=data.get("protocol_file", ""),
+            sleep_interval_s=float(data.get("sleep_interval_s", 0.0)),
         )
         task.profiles = [
             FrequencyControlProfile.from_dict(item) for item in data.get("profiles", [])

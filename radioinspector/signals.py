@@ -90,6 +90,7 @@ class SignalRecord:
     assignment_id: Optional[int] = None
     level_db: float = float("nan")
     average_power_over_threshold_w: float = 0.0
+    cycles: int = 0
 
     @property
     def event_count(self) -> int:
@@ -99,8 +100,18 @@ class SignalRecord:
     def detection_periodicity(self) -> str:
         """Периодичность обнаружения: «число превышений / число циклов»."""
         if not self.events:
-            return "0/0"
-        return f"{len(self.events)}/?"
+            return f"0/{self.cycles}"
+        return f"{len(self.events)}/{self.cycles}"
+
+    @property
+    def is_cut_spectrum(self) -> bool:
+        """Признак изрезанности спектра сигнала.
+
+        Если линия порога пересекает спектр одного сигнала несколько раз, за
+        один цикл сканирования регистрируется несколько узкополосных сигналов
+        и число обнаружений превышает число циклов сканирования.
+        """
+        return self.cycles > 0 and len(self.events) > self.cycles
 
     def lower_edge_hz(self) -> float:
         return self.frequency_hz - self.bandwidth_hz / 2.0
@@ -121,6 +132,8 @@ class SignalRecord:
             "detection_periodicity": self.detection_periodicity,
             "power_over_threshold_w": self.average_power_over_threshold_w,
             "event_count": self.event_count,
+            "cycles": self.cycles,
+            "cut_spectrum": self.is_cut_spectrum,
             "fixed": self.fixed,
             "from_assignment": self.from_assignment,
         }
@@ -131,6 +144,7 @@ class SignalList:
 
     def __init__(self) -> None:
         self._records: list[SignalRecord] = []
+        self.cycles = 0
 
     def __len__(self) -> int:
         return len(self._records)
@@ -183,6 +197,8 @@ class SignalList:
         timestamp = timestamp or datetime.now(timezone.utc)
         touched: list[SignalRecord] = []
         step = trace.step or 0.0
+        self.cycles += 1
+        cycle = self.cycles
 
         for interval in exceeded_intervals(trace, line):
             f_start, f_stop = interval
@@ -223,10 +239,12 @@ class SignalList:
                     events=[event],
                     level_db=level,
                     average_power_over_threshold_w=excess_w,
+                    cycles=cycle,
                 )
                 self._records.append(record)
             else:
                 record.events.append(event)
+                record.cycles = cycle
                 if not record.fixed:
                     # Частота и полоса уточняются по всем событиям сигнала.
                     total = len(record.events)
@@ -327,6 +345,7 @@ class SignalList:
         payload = {
             "format": "openradioinspector-signal-list",
             "version": 1,
+            "cycles": self.cycles,
             "signals": [
                 {
                     **record.as_row(),
@@ -356,6 +375,7 @@ class SignalList:
                 assignment_id=item.get("assignment_id"),
                 level_db=item.get("level_db", float("nan")),
                 average_power_over_threshold_w=item.get("power_over_threshold_w", 0.0),
+                cycles=int(item.get("cycles", 0)),
             )
             for event in item.get("events", []):
                 record.events.append(
@@ -368,6 +388,16 @@ class SignalList:
                     )
                 )
             result._records.append(record)
+        if "cycles" in payload:
+            result.cycles = int(payload["cycles"])
+        else:
+            # Файл создан до появления счётчика циклов: принимаем, что за один
+            # цикл сигнал обнаруживается не более одного раза.
+            result.cycles = max(
+                (len(record.events) for record in result._records), default=0
+            )
+            for record in result._records:
+                record.cycles = result.cycles
         return result
 
     def add_event(

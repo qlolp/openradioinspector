@@ -471,6 +471,79 @@ def cmd_tasks(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_freqs(args: argparse.Namespace) -> int:
+    """Задание на контроль фиксированных частот.
+
+    Второй уровень трёхуровневой модели выполнения измерений: перечень
+    контролируемых частот и условие действия при обнаружении сигнала.
+    """
+    from .tasks import ACTION_DETECT_ONLY, FixedFrequency, FixedFrequencyList
+
+    path = Path(args.file)
+    task = FixedFrequencyList.load(path) if path.exists() else FixedFrequencyList()
+    if args.name:
+        task.name = args.name
+
+    if args.add is not None:
+        task.add(
+            FixedFrequency(
+                frequency_hz=float(args.add),
+                action=args.action or ACTION_DETECT_ONLY,
+                comment=args.comment or "",
+            )
+        )
+
+    warnings = task.validate()
+    duplicates = [message for message in warnings if "повторно" in message]
+    if duplicates:
+        for message in duplicates:
+            print(f"! {message}")
+        return 1
+
+    if args.add is not None:
+        task.save(path)
+
+    if args.json:
+        _print_json(task.as_dict())
+        return 0
+
+    print(f"Задание: {task.name or path.name}")
+    print(f"Контролируемых частот: {len(task.frequencies)}")
+    for item in task.frequencies:
+        line = f"  {item.frequency_hz / 1e6:>10.6f} МГц  {item.action}"
+        if item.bandwidth_hz:
+            line += f"  полоса {item.bandwidth_hz / 1e3:.1f} кГц"
+        if item.comment:
+            line += f"  {item.comment}"
+        print(line)
+    for message in warnings:
+        print(f"    ! {message}")
+    return 0
+
+
+def cmd_iq(args: argparse.Namespace) -> int:
+    """Расчёт требований к IQ-данным для анализа цифровых сигналов."""
+    from .iq import format_plan, plan_iq_analysis, requirements_for
+
+    names = [item.strip() for item in (args.standards or "").split(",") if item.strip()]
+    requirements = requirements_for(names)
+    if not requirements:
+        print("Требования к IQ не заданы: укажите стандарты через --standards")
+        return 1
+
+    plan = plan_iq_analysis(
+        requirements,
+        sample_rate_hz=float(args.rate),
+        memory_words=float(args.memory),
+        resample=not args.no_resample,
+    )
+    if args.json:
+        _print_json(plan.as_dict())
+    else:
+        print(format_plan(plan))
+    return 0 if plan.possible else 1
+
+
 def cmd_devices(args: argparse.Namespace) -> int:
     """Перечень поддерживаемых средств измерений."""
     from .devices.registry import describe_devices
@@ -627,6 +700,38 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--database", required=True)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_tasks)
+
+    p = sub.add_parser(
+        "freqs", help="задание на контроль фиксированных частот"
+    )
+    p.add_argument("file", help="файл задания на контроль фиксированных частот")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--name", help="наименование задания")
+    p.add_argument("--add", type=float, help="добавить частоту, Гц")
+    p.add_argument(
+        "--action",
+        help="действие при обнаружении: detect_only, measure_signal, record_phonogram",
+    )
+    p.add_argument("--comment", help="примечание к частоте")
+    p.set_defaults(func=cmd_freqs)
+
+    p = sub.add_parser(
+        "iq", help="требования к IQ-данным для анализа цифровых сигналов"
+    )
+    p.add_argument(
+        "--standards",
+        default="",
+        help="перечень стандартов через запятую: DECT, GSM, TETRA, APCO25, DMR, AnalogTV",
+    )
+    p.add_argument("--rate", default="2000000", help="частота дискретизации прибора, Гц")
+    p.add_argument("--memory", default="0", help="объём памяти прибора для IQ, слов")
+    p.add_argument(
+        "--no-resample",
+        action="store_true",
+        help="не выполнять ресемплинг к требуемой частоте дискретизации",
+    )
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_iq)
 
     p = sub.add_parser("devices", help="перечень поддерживаемого оборудования")
     p.set_defaults(func=cmd_devices)

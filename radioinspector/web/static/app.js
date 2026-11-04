@@ -297,10 +297,16 @@ function renderSignals() {
   signals.forEach((s, index) => {
     const tr = document.createElement("tr");
     if (s.from_assignment) tr.className = "matched";
+    // Изрезанный спектр: обнаружений больше, чем циклов сканирования.
+    if (s.cut_spectrum) {
+      tr.classList.add("cut");
+      tr.title = "Изрезанный спектр: число обнаружений больше числа циклов сканирования";
+    }
     const cells = [
       String(index + 1),
       (s.frequency_hz / 1e6).toFixed(6),
       (s.bandwidth_hz / 1e3).toFixed(2),
+      s.detection_periodicity || `${s.event_count}/?`,
       String(s.event_count),
       s.power_over_threshold_w.toExponential(3),
       fmtTime(s.first_seen),

@@ -96,6 +96,8 @@ python3 -m radioinspector <команда> [параметры]
 | `report` | формирование протокола измерений |
 | `keywords` | справочник ключевых слов шаблонов протоколов (317 наименований) |
 | `tasks` | состояние базы данных планирования заданий |
+| `freqs` | задание на контроль фиксированных частот (список частот и действие при обнаружении) |
+| `iq` | расчёт требований к IQ-данным для анализа цифровых сигналов |
 | `export` | выгрузка данных в CEF или CSV |
 | `convert` | преобразование величин между единицами измерения |
 | `serve` | запуск веб-интерфейса |
@@ -118,6 +120,14 @@ python3 -m radioinspector measure --database /tmp/oridemo/<файл>.pan \
 # Выгрузка в формате CEF (ITU-R SM.1809)
 python3 -m radioinspector export --database /tmp/oridemo/<файл>.pan \
     --format cef --output /tmp/oridemo/out.cef
+
+# Задание на контроль фиксированных частот с измерением параметров при обнаружении
+python3 -m radioinspector freqs /tmp/oridemo/list.json --add 101e6 \
+    --action measure_signal
+
+# Требования к IQ: что можно проанализировать на приборе с 523 776 словами памяти
+python3 -m radioinspector iq --standards DECT,GSM,TETRA,APCO25,DMR \
+    --rate 2000000 --memory 523776
 ```
 
 ---
@@ -184,7 +194,9 @@ radioinspector/
   оригинала модулям и фактический статус реализации;
 * [`docs/standards.md`](docs/standards.md) — нормативная база;
 * [`docs/devices.md`](docs/devices.md) — поддерживаемое оборудование;
-* [`docs/limits.md`](docs/limits.md) — ограничения и отличия от оригинала.
+* [`docs/limits.md`](docs/limits.md) — ограничения и отличия от оригинала;
+* [`docs/capabilities-light-32314.md`](docs/capabilities-light-32314.md) —
+  инвентарь возможностей дистрибутива RadioInspector Light 32314.
 
 ---
 
