@@ -6,6 +6,15 @@ final class SerialPort {
     private var fd: Int32 = -1
     private var stash = Data()
 
+    init() {}
+
+    // Takes ownership; used by socket-based transport regression tests.
+    init(ownedDescriptor: Int32) { fd = ownedDescriptor }
+
+    var isOpen: Bool { fd >= 0 }
+
+    deinit { close() }
+
     static func availablePaths() -> [String] {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: "/dev") else {
             return []
@@ -65,6 +74,7 @@ final class SerialPort {
     }
 
     func send(_ data: Data) throws {
+        try Task.checkCancellation()
         if fd < 0 {
             throw SessionProblem.notConnected
         }
@@ -73,12 +83,13 @@ final class SerialPort {
     }
 
     func readLine(timeout: TimeInterval, label: String) throws -> String {
+        // A sent command owns its reply even after cancellation. Drain it before reuse.
+        var complete = false
+        defer { if !complete { close() } }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
             if let line = takeLine() {
+                complete = true
                 return line
             }
             let wait = min(0.2, max(0.01, deadline.timeIntervalSinceNow))
@@ -88,6 +99,7 @@ final class SerialPort {
             }
         }
         if let line = takeLine() {
+            complete = true
             return line
         }
         if stash.isEmpty {
@@ -99,17 +111,18 @@ final class SerialPort {
     }
 
     func readUntilQuiet(quiet: TimeInterval, maximum: TimeInterval, label: String) throws -> String {
+        // An incomplete transaction invalidates the port instead of reusing late bytes.
+        var complete = false
+        defer { if !complete { close() } }
         let deadline = Date().addingTimeInterval(maximum)
         var lastByte = Date()
         var received = false
         while Date() < deadline {
-            if Task.isCancelled {
-                throw CancellationError()
-            }
             let wait = min(quiet, max(0.01, deadline.timeIntervalSinceNow))
             let chunk = try readOnce(maxLength: 4096, timeout: wait)
             if chunk.isEmpty {
                 if received, Date().timeIntervalSince(lastByte) >= quiet {
+                    complete = true
                     break
                 }
                 continue
@@ -122,6 +135,9 @@ final class SerialPort {
         stash.removeAll()
         if data.isEmpty {
             throw SessionProblem.timedOut(label)
+        }
+        guard complete else {
+            throw SessionProblem.incompleteReply(String(decoding: data, as: UTF8.self))
         }
         return String(decoding: data, as: UTF8.self)
     }
@@ -223,8 +239,23 @@ final class SerialPort {
     }
 }
 
-actor InstrumentPort {
-    private let serial = SerialPort()
+protocol InstrumentConnection: Actor {
+    var isOpen: Bool { get async }
+    func open(path: String, baud: Int) async throws
+    func close() async
+    func send(_ data: Data) async throws
+    func readLine(timeout: TimeInterval, label: String) async throws -> String
+    func readUntilQuiet(quiet: TimeInterval, maximum: TimeInterval, label: String) async throws -> String
+}
+
+actor InstrumentPort: InstrumentConnection {
+    private let serial: SerialPort
+
+    init() { serial = SerialPort() }
+
+    init(ownedDescriptor: Int32) { serial = SerialPort(ownedDescriptor: ownedDescriptor) }
+
+    var isOpen: Bool { serial.isOpen }
 
     func open(path: String, baud: Int) throws {
         try serial.open(path: path, baud: baud)

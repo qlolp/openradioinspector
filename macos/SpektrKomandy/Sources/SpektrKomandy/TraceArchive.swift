@@ -34,6 +34,10 @@ public enum TraceClock {
         return String(repeating: "0", count: 4 - text.count) + text
     }
 
+    public static func sessionFilename(instrument: String, date: Date = Date()) -> String {
+        "\(instrument)-\(fileToken(date))-\(UUID().uuidString).trassa.json"
+    }
+
     public static func fileToken(_ date: Date) -> String {
         stamp(date)
             .replacingOccurrences(of: "-", with: "")

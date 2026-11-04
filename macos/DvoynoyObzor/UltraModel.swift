@@ -28,7 +28,12 @@ final class UltraModel: ObservableObject {
     @Published var waterfall = WaterfallHistory()
     @Published var waterfallRevision = 0
 
-    private var port: InstrumentPort?
+    private let makePort: () -> any InstrumentConnection
+    private var port: (any InstrumentConnection)?
+
+    init(makePort: @escaping () -> any InstrumentConnection = { InstrumentPort() }) {
+        self.makePort = makePort
+    }
     private var connectTask: Task<Void, Never>?
     private var scanTask: Task<Void, Never>?
     private var stopRequested = false
@@ -49,6 +54,11 @@ final class UltraModel: ObservableObject {
 
     func connect() {
         errorText = nil
+        identityMatches = false
+        forceDespiteIdentity = false
+        infoText = "—"
+        versionText = "—"
+        userNumber = "—"
         let path = portPath
         connecting = true
         connectTask?.cancel()
@@ -113,7 +123,7 @@ final class UltraModel: ObservableObject {
     }
 
     private func openAndIdentify(path: String) async {
-        let opened = InstrumentPort()
+        let opened = makePort()
         do {
             try await opened.open(path: path, baud: UltraPortBaud.termiosPlaceholder)
             port = opened
@@ -131,14 +141,14 @@ final class UltraModel: ObservableObject {
             } else {
                 status = "Текст info или version отличается от снимка консоли. Сырой ответ ниже."
             }
-        } catch is CancellationError {
-            return
         } catch {
-            if port == nil {
-                connected = false
-                status = "Не подключён"
+            await opened.close()
+            port = nil
+            connected = false
+            status = "Не подключён"
+            if !(error is CancellationError) {
+                errorText = describeSession(error)
             }
-            errorText = describeSession(error)
         }
     }
 
@@ -154,7 +164,7 @@ final class UltraModel: ObservableObject {
                 _ = try await transact(port, command, maximum: UltraReadTiming.setupMaximumSeconds)
             }
             let folder = try tracesFolder()
-            let fileURL = folder.appendingPathComponent("tinysa-\(TraceClock.fileToken(Date())).trassa.json")
+            let fileURL = folder.appendingPathComponent(TraceClock.sessionFilename(instrument: "tinysa"))
             tracePath = fileURL.path
             var envelope = TraceEnvelope()
             var found: [Exceedance] = []
@@ -199,11 +209,12 @@ final class UltraModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
+            await refreshConnectionState()
             errorText = describeSession(error)
         }
     }
 
-    private func transact(_ port: InstrumentPort, _ command: UltraCommand, maximum: TimeInterval) async throws -> String {
+    private func transact(_ port: any InstrumentConnection, _ command: UltraCommand, maximum: TimeInterval) async throws -> String {
         try await port.send(command.frame())
         let reply = try await port.readUntilQuiet(
             quiet: UltraReadTiming.quietSeconds,
@@ -215,6 +226,14 @@ final class UltraModel: ObservableObject {
             throw SessionProblem.emptyDeviceReply(command.text)
         }
         return reply
+    }
+
+    private func refreshConnectionState() async {
+        if let port, !(await port.isOpen) {
+            self.port = nil
+            connected = false
+            status = "Не подключён"
+        }
     }
 
     private func note(_ line: String) {

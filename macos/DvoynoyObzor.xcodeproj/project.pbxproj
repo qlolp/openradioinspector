@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>archiveVersion</key>
-	<integer>1</integer>
+	<string>1</string>
 	<key>classes</key>
 	<dict/>
 	<key>objectVersion</key>
-	<integer>56</integer>
+	<string>56</string>
 	<key>objects</key>
 	<dict>
 		<key>A10000000000000000000001</key>
@@ -38,7 +38,7 @@
 			<key>developmentRegion</key>
 			<string>ru</string>
 			<key>hasScannedForEncodings</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>knownRegions</key>
 			<array>
 				<string>ru</string>
@@ -116,7 +116,7 @@
 			<key>explicitFileType</key>
 			<string>wrapper.application</string>
 			<key>includeInIndex</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>path</key>
 			<string>DvoynoyObzor.app</string>
 			<key>sourceTree</key>
@@ -314,7 +314,7 @@
 			<key>isa</key>
 			<string>PBXSourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>A10000000000000000000060</string>
@@ -329,31 +329,31 @@
 				<string>A10000000000000000000069</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>A10000000000000000000007</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXFrameworksBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array>
 				<string>A10000000000000000000012</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>A10000000000000000000008</key>
 		<dict>
 			<key>isa</key>
 			<string>PBXResourcesBuildPhase</string>
 			<key>buildActionMask</key>
-			<integer>2147483647</integer>
+			<string>2147483647</string>
 			<key>files</key>
 			<array/>
 			<key>runOnlyForDeploymentPostprocessing</key>
-			<integer>0</integer>
+			<string>0</string>
 		</dict>
 		<key>A10000000000000000000010</key>
 		<dict>
@@ -592,7 +592,7 @@
 				<string>A1000000000000000000000D</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
@@ -606,7 +606,7 @@
 				<string>A1000000000000000000000F</string>
 			</array>
 			<key>defaultConfigurationIsVisible</key>
-			<integer>0</integer>
+			<string>0</string>
 			<key>defaultConfigurationName</key>
 			<string>Release</string>
 		</dict>
