@@ -115,6 +115,15 @@ struct UltraPane: View {
                     }
                     .padding(4)
                 }
+                GroupBox("Водопад") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
+                        Text("Строка — один ответ scan, свежая сверху. Шкала подстраивается под видимые строки.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(4)
+                }
                 GroupBox("Превышения") {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Частота — середина интервала, ширина — от первого до последнего пересечения порога. Выбор строки ставит приёмник на эту частоту и не останавливает анализатор.")
