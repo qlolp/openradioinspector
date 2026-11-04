@@ -222,6 +222,7 @@
 			<string>SerialPort.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
+		</dict>
 		<key>A10000000000000000000065</key>
 		<dict>
 			<key>isa</key>
@@ -442,7 +443,7 @@
 		<key>A1000000000000000000000D</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</key>
+			<string>XCBuildConfiguration</string>
 			<key>buildSettings</key>
 			<dict>
 				<key>ALWAYS_SEARCH_USER_PATHS</key>
@@ -478,7 +479,7 @@
 		<key>A1000000000000000000000E</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</key>
+			<string>XCBuildConfiguration</string>
 			<key>buildSettings</key>
 			<dict>
 				<key>CODE_SIGN_IDENTITY</key>
@@ -486,7 +487,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Manual</string>
 				<key>CODE_SIGNING_ALLOWED</key>
-				<key>YES</string>
+				<string>YES</string>
 				<key>CODE_SIGNING_REQUIRED</key>
 				<string>NO</string>
 				<key>COMBINE_HIDPI_IMAGES</key>
@@ -532,7 +533,7 @@
 		<key>A1000000000000000000000F</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</key>
+			<string>XCBuildConfiguration</string>
 			<key>buildSettings</key>
 			<dict>
 				<key>CODE_SIGN_IDENTITY</key>
