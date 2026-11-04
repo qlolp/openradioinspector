@@ -89,6 +89,7 @@
 				<string>A10000000000000000000026</string>
 				<string>A10000000000000000000027</string>
 				<string>A10000000000000000000028</string>
+				<string>A10000000000000000000029</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -221,7 +222,6 @@
 			<string>SerialPort.swift</string>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
-		</dict>
 		<key>A10000000000000000000065</key>
 		<dict>
 			<key>isa</key>
@@ -283,6 +283,24 @@
 			<key>fileRef</key>
 			<string>A10000000000000000000028</string>
 		</dict>
+		<key>A10000000000000000000029</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>WaterfallView.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A10000000000000000000069</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A10000000000000000000029</string>
+		</dict>
 		<key>A10000000000000000000012</key>
 		<dict>
 			<key>isa</key>
@@ -307,6 +325,7 @@
 				<string>A10000000000000000000066</string>
 				<string>A10000000000000000000067</string>
 				<string>A10000000000000000000068</string>
+				<string>A10000000000000000000069</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<integer>0</integer>
@@ -423,7 +442,7 @@
 		<key>A1000000000000000000000D</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</string>
+			<string>XCBuildConfiguration</key>
 			<key>buildSettings</key>
 			<dict>
 				<key>ALWAYS_SEARCH_USER_PATHS</key>
@@ -459,7 +478,7 @@
 		<key>A1000000000000000000000E</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</string>
+			<string>XCBuildConfiguration</key>
 			<key>buildSettings</key>
 			<dict>
 				<key>CODE_SIGN_IDENTITY</key>
@@ -467,7 +486,7 @@
 				<key>CODE_SIGN_STYLE</key>
 				<string>Manual</string>
 				<key>CODE_SIGNING_ALLOWED</key>
-				<string>YES</string>
+				<key>YES</string>
 				<key>CODE_SIGNING_REQUIRED</key>
 				<string>NO</string>
 				<key>COMBINE_HIDPI_IMAGES</key>
@@ -493,7 +512,7 @@
 				<key>MACOSX_DEPLOYMENT_TARGET</key>
 				<string>14.0</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.1</string>
+				<string>0.2</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>local.dvoynoyobzor</string>
 				<key>PRODUCT_NAME</key>
@@ -513,7 +532,7 @@
 		<key>A1000000000000000000000F</key>
 		<dict>
 			<key>isa</key>
-			<string>XCBuildConfiguration</string>
+			<string>XCBuildConfiguration</key>
 			<key>buildSettings</key>
 			<dict>
 				<key>CODE_SIGN_IDENTITY</key>
@@ -547,7 +566,7 @@
 				<key>MACOSX_DEPLOYMENT_TARGET</key>
 				<string>14.0</string>
 				<key>MARKETING_VERSION</key>
-				<string>0.1</string>
+				<string>0.2</string>
 				<key>PRODUCT_BUNDLE_IDENTIFIER</key>
 				<string>local.dvoynoyobzor</string>
 				<key>PRODUCT_NAME</key>
