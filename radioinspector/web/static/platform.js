@@ -44,6 +44,7 @@
     candidateScore: byId("candidate-score"), candidateUnit: byId("candidate-unit"),
     candidateCancel: byId("candidate-cancel"), candidateList: byId("candidate-list"),
     investigationFilter: byId("investigation-filter"), handoffForm: byId("handoff-form"),
+    dispatchNext: byId("dispatch-next"), nextInvestigation: byId("next-investigation"),
     handoffCandidate: byId("handoff-candidate"), handoffLabel: byId("handoff-label"),
     handoffTarget: byId("handoff-target"), handoffFrequency: byId("handoff-frequency"),
     handoffPriority: byId("handoff-priority"), handoffMode: byId("handoff-mode"),
@@ -54,7 +55,7 @@
 
   const state = {
     sessions: [], sessionId: null, session: null, workers: [],
-    candidates: [], investigations: [], events: [], sweeps: [],
+    candidates: [], investigations: [], nextInvestigation: null, events: [], sweeps: [],
     spectrumStreamId: null, capabilities: null, health: null,
     refreshRunning: false, refreshQueued: false, actionPending: false,
     noticeTimer: null, refreshTimer: null, eventSource: null,
@@ -379,6 +380,16 @@
   }
 
   function renderInvestigations() {
+    const next = state.nextInvestigation;
+    dom.dispatchNext.disabled = !next || !runningSession() || state.actionPending;
+    if (next) {
+      const receiver = streamById(next.target_stream_id);
+      dom.nextInvestigation.textContent = `Следующее по приоритету: ${formatHz(next.target_frequency_hz)} · приоритет ${next.priority} · ${receiver?.device || next.target_stream_id} · ${next.mode || "режим не изменять"}. Перестройка начнётся только после подтверждения.`;
+      dom.dispatchNext.textContent = `Подтвердить ${formatHz(next.target_frequency_hz)}`;
+    } else {
+      dom.nextInvestigation.textContent = "Ожидающих исследований нет. Ядро не запускает handoff автоматически.";
+      dom.dispatchNext.textContent = "Подтвердить и запустить следующее";
+    }
     const filter = dom.investigationFilter.value;
     const investigations = state.investigations.filter((item) => !filter || item.state === filter);
     if (!investigations.length) {
@@ -649,6 +660,7 @@
       state.workers = [];
       state.candidates = [];
       state.investigations = [];
+      state.nextInvestigation = null;
       state.events = [];
       state.sweeps = [];
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
@@ -661,6 +673,7 @@
 
     if (!selected) {
       state.spectrumStreamId = null;
+      state.nextInvestigation = null;
       return;
     }
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
@@ -677,10 +690,11 @@
       api(`/sessions/${encode(sessionId)}/workers`),
       api(`/sessions/${encode(sessionId)}/candidates`),
       api(`/sessions/${encode(sessionId)}/investigations`),
+      api(`/sessions/${encode(sessionId)}/investigations/next`),
       api(`/events/history?after=${Math.max(0, health.last_event_id - 200)}&limit=200`),
       measurementsPath ? api(`/sessions/${encode(sessionId)}${measurementsPath}`) : Promise.resolve([]),
     ];
-    const [workers, candidates, investigations, events, sweeps] = await Promise.all(requests);
+    const [workers, candidates, investigations, nextInvestigation, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
       return;
@@ -688,6 +702,7 @@
     state.workers = workers;
     state.candidates = candidates;
     state.investigations = investigations;
+    state.nextInvestigation = nextInvestigation;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
   }
@@ -946,6 +961,21 @@
   dom.handoffTarget.addEventListener("change", () => {
     const stream = streamById(dom.handoffTarget.value);
     dom.handoffMode.value = workerById(stream?.id)?.current?.mode || stream?.settings.mode || "";
+  });
+  dom.dispatchNext.addEventListener("click", () => {
+    const next = state.nextInvestigation;
+    if (!next) return;
+    withAction(async () => {
+      const investigation = await api(sessionPath("/investigations/start-next"), {
+        method: "POST",
+        body: { investigation_id: next.id, confirm: true },
+      });
+      if (investigation.state === "failed") {
+        notify(`Запуск завершился сбоем: ${investigation.error}`, "error");
+      } else {
+        notify(`Подтверждённое исследование ${investigation.id} переведено в прослушивание.`, "listening");
+      }
+    });
   });
 
   dom.deviceList.addEventListener("click", (event) => {
