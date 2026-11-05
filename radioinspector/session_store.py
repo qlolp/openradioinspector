@@ -342,52 +342,79 @@ class SQLiteSessionStore:
     def record_sweep(
         self, sweep: Sweep, *, event: Optional[SessionEvent] = None
     ) -> None:
-        data = to_primitive(sweep)
-        with self._lock, self._connection:
-            self._connection.execute(
-                """
-                INSERT INTO sweeps (
-                    id, session_id, stream_id, started_at, ended_at,
-                    frequencies_json, levels_json, level_unit, settings_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    data["id"], data["session_id"], data["stream_id"],
-                    _archive_time(sweep.interval.started_at),
-                    _archive_time(sweep.interval.ended_at),
-                    _json(data["frequencies_hz"]), _json(data["levels"]),
-                    data["level_unit"], _json(data["settings"]),
-                ),
-            )
+        self.record_sweeps([sweep], events=[event] if event is not None else [])
 
-            if event is not None:
+    def record_sweeps(
+        self, sweeps: list[Sweep], *, events: list[SessionEvent] | tuple[SessionEvent, ...] = ()
+    ) -> None:
+        """Записывает пакет свипов и их события одной транзакцией."""
+        if len(sweeps) != len(events):
+            raise ValueError("Число свипов и событий пакета должно совпадать")
+        with self._lock, self._connection:
+            for sweep in sweeps:
+                self._insert_sweep(sweep)
+            for event in events:
                 self._insert_event(event)
+
+    def _insert_sweep(self, sweep: Sweep) -> None:
+        data = to_primitive(sweep)
+        self._connection.execute(
+            """
+            INSERT INTO sweeps (
+                id, session_id, stream_id, started_at, ended_at,
+                frequencies_json, levels_json, level_unit, settings_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data["id"], data["session_id"], data["stream_id"],
+                _archive_time(sweep.interval.started_at),
+                _archive_time(sweep.interval.ended_at),
+                _json(data["frequencies_hz"]), _json(data["levels"]),
+                data["level_unit"], _json(data["settings"]),
+            ),
+        )
 
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None
     ) -> None:
-        data = to_primitive(observation)
-        with self._lock, self._connection:
-            self._connection.execute(
-                """
-                INSERT INTO observations (
-                    id, session_id, stream_id, started_at, ended_at, frequency_hz,
-                    mode, level, level_unit, squelch_open, decoded_mode, audio_uri,
-                    metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    data["id"], data["session_id"], data["stream_id"],
-                    _archive_time(observation.interval.started_at),
-                    _archive_time(observation.interval.ended_at),
-                    data["frequency_hz"], data["mode"], data["level"],
-                    data["level_unit"], data["squelch_open"], data["decoded_mode"],
-                    data["audio_uri"], _json(data["metadata"]),
-                ),
-            )
+        self.record_observations(
+            [observation], events=[event] if event is not None else []
+        )
 
-            if event is not None:
+    def record_observations(
+        self,
+        observations: list[ReceiverObservation],
+        *,
+        events: list[SessionEvent] | tuple[SessionEvent, ...] = (),
+    ) -> None:
+        """Записывает пакет наблюдений и их события одной транзакцией."""
+        if len(observations) != len(events):
+            raise ValueError("Число наблюдений и событий пакета должно совпадать")
+        with self._lock, self._connection:
+            for observation in observations:
+                self._insert_observation(observation)
+            for event in events:
                 self._insert_event(event)
+
+    def _insert_observation(self, observation: ReceiverObservation) -> None:
+        data = to_primitive(observation)
+        self._connection.execute(
+            """
+            INSERT INTO observations (
+                id, session_id, stream_id, started_at, ended_at, frequency_hz,
+                mode, level, level_unit, squelch_open, decoded_mode, audio_uri,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data["id"], data["session_id"], data["stream_id"],
+                _archive_time(observation.interval.started_at),
+                _archive_time(observation.interval.ended_at),
+                data["frequency_hz"], data["mode"], data["level"],
+                data["level_unit"], data["squelch_open"], data["decoded_mode"],
+                data["audio_uri"], _json(data["metadata"]),
+            ),
+        )
 
     @staticmethod
     def _filters(session_id: str, stream_id: Optional[str]) -> tuple[str, list[Any]]:
