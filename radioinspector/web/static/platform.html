@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%2307131c'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%2360e4ef' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23ffd36e'/%3E%3C/svg%3E">
+  <title>OpenRadioInspector — узел наблюдения</title>
+  <link rel="stylesheet" href="/static/platform.css">
+  <script src="/static/platform.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">К рабочей области</a>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="16"></circle>
+        <circle cx="20" cy="20" r="9"></circle>
+        <path d="M20 20 33 11M20 4v4M4 20h4M20 32v4"></path>
+        <circle class="brand-dot" cx="20" cy="20" r="2"></circle>
+      </svg>
+      <div>
+        <strong>OPENRADIOINSPECTOR</strong>
+        <span>УЗЕЛ НАБЛЮДЕНИЯ · API V1</span>
+      </div>
+    </div>
+    <nav class="topnav" aria-label="Основная навигация">
+      <a href="/">Архив панорам</a>
+      <a href="/api/v1/capabilities">Capabilities</a>
+    </nav>
+    <div class="connection-cluster">
+      <span id="sse-status" class="status-badge" data-tone="muted"><span class="status-dot"></span>SSE подключение</span>
+      <span id="health-summary" class="header-readout">служба проверяется</span>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+  <main id="workspace" class="console-grid">
+    <aside class="column left-column" aria-label="Сеанс и приборы">
+      <section class="panel session-panel" aria-labelledby="session-heading">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">01 / КОНТУР</span>
+            <h1 id="session-heading">Сеанс наблюдения</h1>
+          </div>
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Обновить все данные" title="Обновить все данные">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>
+          </button>
+        </div>
+        <label class="field-label" for="session-select">Активный архив</label>
+        <select id="session-select" aria-describedby="session-empty"></select>
+        <p id="session-empty" class="empty-note">Запрашиваю сеансы ядра…</p>
+        <div id="session-meta" class="session-meta"></div>
+        <div class="button-grid">
+          <button id="session-start" type="button" class="button primary" disabled>Запустить сеанс</button>
+          <button id="session-stop" type="button" class="button danger-quiet" disabled>Остановить сеанс</button>
+          <button id="workers-start" type="button" class="button" disabled>Запустить приборы</button>
+          <button id="workers-stop" type="button" class="button" disabled>Остановить приборы</button>
+        </div>
+      </section>
+
+      <section class="panel devices-panel" aria-labelledby="devices-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">02 / ПОТОКИ</span>
+            <h2 id="devices-heading">Независимые приборы</h2>
+          </div>
+          <span id="device-count" class="count-label">0</span>
+        </div>
+        <div id="device-list" class="device-list">
+          <p class="empty-state">Потоки появятся после выбора сеанса.</p>
+        </div>
+      </section>
+    </aside>
+
+    <section class="column center-column" aria-label="Спектр и события">
+      <section class="panel spectrum-panel" aria-labelledby="spectrum-heading">
+        <div class="section-heading spectrum-heading">
+          <div>
+            <span class="section-index">03 / ШИРОКИЙ ОБЗОР</span>
+            <h2 id="spectrum-heading">Спектр и водопад</h2>
+          </div>
+          <div class="spectrum-actions">
+            <label class="sr-only" for="spectrum-stream">Поток спектрального обзора</label>
+            <select id="spectrum-stream"></select>
+            <button id="mark-peak" class="button primary" type="button" disabled>Зафиксировать пик</button>
+          </div>
+        </div>
+        <div class="scope-frame">
+          <div class="scope-ruler" aria-hidden="true"><span>АМПЛИТУДА</span><span>ВРЕМЯ ИЗМЕРЕНИЯ → ЧАСТОТА</span></div>
+          <canvas id="spectrum-canvas" width="960" height="330" role="img" aria-label="Последний спектральный свип">Ваш браузер не поддерживает canvas.</canvas>
+          <div id="spectrum-empty" class="canvas-empty">Нет свипов выбранного потока. Запустите исполнитель или примите измерение через API.</div>
+        </div>
+        <dl class="measurement-strip">
+          <div><dt>Диапазон</dt><dd id="range-readout">—</dd></div>
+          <div><dt>Пик</dt><dd id="peak-readout">—</dd></div>
+          <div><dt>Точек</dt><dd id="points-readout">—</dd></div>
+          <div><dt>Начало UTC</dt><dd id="time-readout">—</dd></div>
+        </dl>
+        <div class="waterfall-heading">
+          <h3>История уровней · до 40 свипов</h3>
+          <span id="waterfall-scale">ожидание данных</span>
+        </div>
+        <canvas id="waterfall-canvas" width="960" height="190" role="img" aria-label="Водопад последних спектральных свипов">Ваш браузер не поддерживает canvas.</canvas>
+      </section>
+
+      <section class="panel events-panel" aria-labelledby="events-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">04 / АРХИВ</span>
+            <h2 id="events-heading">События сеанса</h2>
+          </div>
+          <span class="live-label"><span class="status-dot"></span>COMMIT → SSE</span>
+        </div>
+        <ol id="event-list" class="event-list">
+          <li class="empty-state">События появятся после операций сеанса.</li>
+        </ol>
+      </section>
+    </section>
+
+    <aside class="column right-column" aria-label="Кандидаты и исследования">
+      <section class="panel candidates-panel" aria-labelledby="candidates-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">05 / ОБНАРУЖЕНИЕ</span>
+            <h2 id="candidates-heading">Кандидаты</h2>
+          </div>
+          <select id="candidate-filter" aria-label="Фильтр кандидатов">
+            <option value="">Все состояния</option>
+            <option value="new">Новые</option>
+            <option value="queued">В очереди</option>
+            <option value="investigating">Исследуются</option>
+            <option value="resolved">Завершены</option>
+            <option value="dismissed">Отклонены</option>
+          </select>
+        </div>
+        <details id="candidate-editor" class="editor">
+          <summary>Новый кандидат по измерению</summary>
+          <form id="candidate-form">
+            <label class="field-label" for="candidate-source">Исходный поток</label>
+            <select id="candidate-source" required></select>
+            <div class="form-grid">
+              <label>Начало UTC<input id="candidate-started" type="text" required placeholder="2026-11-05T10:00:00Z"></label>
+              <label>Окончание UTC<input id="candidate-ended" type="text" required placeholder="2026-11-05T10:00:01Z"></label>
+              <label>Центр, Гц<input id="candidate-frequency" type="number" min="0" step="1" required></label>
+              <label>Полоса, Гц<input id="candidate-bandwidth" type="number" min="0" step="1"></label>
+              <label>Пик<input id="candidate-level" type="number" step="any"></label>
+              <label>Оценка<input id="candidate-score" type="number" step="any"></label>
+            </div>
+            <p class="unit-lock">Единица потока: <strong id="candidate-unit">—</strong>. Автоматического пересчёта нет.</p>
+            <div class="form-actions">
+              <button type="submit" class="button primary">Создать кандидата</button>
+              <button id="candidate-cancel" type="button" class="button">Скрыть</button>
+            </div>
+          </form>
+        </details>
+        <details id="detection-editor" class="editor automatic-editor">
+          <summary>Автоматическое обнаружение · по умолчанию выключено</summary>
+          <form id="detection-form">
+            <p id="detection-status" class="automatic-runtime" role="status" aria-live="polite">Политика запрашивается у ядра…</p>
+            <p class="unit-lock">Обрабатываются только новые sweeps после включения и только исходные dBm. Старый архив повторно не анализируется. Кандидаты создаются без постановки исследований в очередь. Политика действует до перезапуска процесса.</p>
+            <div class="form-grid">
+              <label>Период проверки, с<input id="detection-interval" type="number" min="0.1" max="3600" step="0.1" value="1" required></label>
+              <label>Порог, dBm<input id="detection-threshold" type="number" min="-300" max="100" step="any" value="-70" required></label>
+              <label>Dedup, Гц<input id="detection-dedup" type="number" min="1" max="10000000000" step="1" value="100000" required></label>
+              <label>Cooldown, с<input id="detection-cooldown" type="number" min="0" max="86400" step="0.1" value="60" required></label>
+              <label>Максимум за sweep<input id="detection-max" type="number" min="1" max="100" step="1" value="10" required></label>
+            </div>
+            <label class="field-label" for="detection-stream">Поток спектрального обзора</label>
+            <select id="detection-stream"><option value="">Все потоки spectrum_analyzer с dBm</option></select>
+            <div class="form-actions">
+              <button id="detection-enable" type="submit" class="button primary" disabled>Включить обнаружение</button>
+              <button id="detection-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
+            </div>
+          </form>
+        </details>
+        <div id="candidate-list" class="record-list">
+          <p class="empty-state">Кандидатов нет. Зафиксируйте пик реального свипа или создайте запись вручную.</p>
+        </div>
+      </section>
+
+      <section class="panel investigations-panel" aria-labelledby="investigations-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">06 / HANDOFF</span>
+            <h2 id="investigations-heading">Очередь исследований</h2>
+          </div>
+          <select id="investigation-filter" aria-label="Фильтр исследований">
+            <option value="">Вся очередь и история</option>
+            <option value="queued">Ожидают</option>
+            <option value="tuning">Настройка</option>
+            <option value="listening">Прослушивание</option>
+            <option value="completed">Завершены</option>
+            <option value="failed">Сбои</option>
+            <option value="cancelled">Отменены</option>
+          </select>
+        </div>
+        <div class="dispatch-bar">
+          <p id="next-investigation">Ядро проверяет приоритетную очередь…</p>
+          <button id="dispatch-next" class="button primary" type="button" disabled>Подтвердить и запустить следующее</button>
+        </div>
+        <details id="automatic-editor" class="editor automatic-editor">
+          <summary>Автоматический handoff · по умолчанию выключен</summary>
+          <form id="automatic-form">
+            <p id="automatic-status" class="automatic-runtime" role="status" aria-live="polite">Политика запрашивается у ядра…</p>
+            <p class="unit-lock">Политика действует только в текущем процессе. После перезапуска требуется новое явное включение. Эта политика не обнаруживает кандидатов и не завершает исследования; обнаружение настраивается отдельно. Выключение политики не отменяет уже активное исследование.</p>
+            <div class="form-grid">
+              <label>Период проверки, с<input id="automatic-interval" type="number" min="0.1" max="3600" step="0.1" value="1" required></label>
+              <label>Минимальный приоритет<input id="automatic-priority" type="number" min="0" max="1000000" step="1" value="0" required></label>
+              <label>Сбоев до отключения<input id="automatic-failures" type="number" min="1" max="100" step="1" value="3" required></label>
+              <label>Задержка повтора, с<input id="automatic-retry" type="number" min="0.1" max="86400" step="0.1" value="30" required></label>
+            </div>
+            <label class="field-label" for="automatic-receiver">Допустимый receiver</label>
+            <select id="automatic-receiver"><option value="">Любой receiver сеанса</option></select>
+            <div class="form-actions">
+              <button id="automatic-enable" type="submit" class="button primary" disabled>Включить с указанной политикой</button>
+              <button id="automatic-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
+            </div>
+          </form>
+        </details>
+        <form id="handoff-form" class="editor handoff-editor" hidden>
+          <input id="handoff-candidate" type="hidden">
+          <p class="editor-title">Ручной handoff <strong id="handoff-label"></strong></p>
+          <label class="field-label" for="handoff-target">Receiver того же сеанса</label>
+          <select id="handoff-target" required></select>
+          <div class="form-grid">
+            <label>Частота, Гц<input id="handoff-frequency" type="number" min="0" step="1" required></label>
+            <label>Приоритет<input id="handoff-priority" type="number" min="0" step="1" value="0" required></label>
+            <label>Режим<input id="handoff-mode" type="text" placeholder="FM, DMR…"></label>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="button primary">Поставить в очередь</button>
+            <button id="handoff-cancel" type="button" class="button">Отменить выбор</button>
+          </div>
+        </form>
+        <div id="investigation-list" class="record-list">
+          <p class="empty-state">Очередь пуста. Выберите кандидата и назначьте receiver.</p>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <p><strong>Программный контур.</strong> Управление физическими приборами не заявляется: фактический признак <span id="hardware-capability">hardware_control=…</span>. Значения dBm и s_meter_count не смешиваются.</p>
+    <p id="storage-capability">Режим архива проверяется…</p>
+  </footer>
+</body>
+</html>

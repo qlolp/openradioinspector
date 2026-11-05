@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import queue
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,9 +28,20 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
+from ..automatic_detection import AutomaticCandidateDetector
+from ..automatic_handoff import AutomaticHandoffScheduler
+from ..contracts import api_payload
+from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
+from ..session_service import (
+    CandidateNotFoundError,
+    InvestigationNotFoundError,
+    SessionNotFoundError,
+    SessionService,
+)
+from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
@@ -252,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
 
     server_version = "OpenRadioInspector"
     state: ApplicationState
+    sessions: SessionService
+    workers: DeviceWorkerManager
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
@@ -265,7 +279,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Обновление страницы может отменить ожидающий ответ без сбоя API.
+            pass
+
+    def _send_api_error(self, status: int, code: str, message: str) -> None:
+        self._send_json(
+            {
+                "contract": "openradioinspector-platform",
+                "contract_version": 1,
+                "error": {"code": code, "message": message},
+            },
+            status,
+        )
 
     def _send_file(self, path: Path) -> None:
         if not path.exists():
@@ -277,7 +305,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -296,8 +327,15 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         query = parse_qs(parsed.query)
 
+        if route.startswith("/api/v1/"):
+            self._api_v1_get(route, query)
+            return
+
         if route in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html")
+            return
+        if route in ("/platform", "/platform.html"):
+            self._send_file(STATIC_DIR / "platform.html")
             return
         if route == "/api/state":
             self._send_json(self.state.snapshot())
@@ -348,6 +386,10 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         payload = self._read_json()
 
+        if route.startswith("/api/v1/"):
+            self._api_v1_post(route, payload)
+            return
+
         if route == "/api/threshold":
             line = self.state.threshold
             if line is None:
@@ -386,6 +428,333 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_error(404, "Not found")
 
+    # -- общий API платформы, версия 1 --------------------------------------
+
+    def _api_v1_get(self, route: str, query: dict) -> None:
+        try:
+            if route == "/api/v1/health":
+                self._send_json(api_payload(self.sessions.health()))
+                return
+            if route == "/api/v1/capabilities":
+                capabilities = self.sessions.capabilities()
+                capabilities["features"].update(self.workers.capabilities())
+                self._send_json(api_payload(capabilities))
+                return
+            if route == "/api/v1/sessions":
+                self._send_json(api_payload(self.sessions.list_sessions()))
+                return
+            if route == "/api/v1/workers":
+                self._send_json(api_payload(self.workers.list_workers()))
+                return
+            if route == "/api/v1/events/history":
+                after = int(query.get("after", ["0"])[0])
+                limit = min(int(query.get("limit", ["100"])[0]), 1000)
+                self._send_json(
+                    api_payload(self.sessions.events(after=after, limit=limit))
+                )
+                return
+            if route == "/api/v1/events":
+                raw_after = self.headers.get("Last-Event-ID") or query.get(
+                    "after", ["0"]
+                )[0]
+                self._stream_session_events(int(raw_after))
+                return
+            parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                state = query.get("state", [None])[0]
+                if parts[4] == "candidates":
+                    result = self.sessions.list_candidates(parts[3], state=state)
+                else:
+                    result = self.sessions.list_investigations(parts[3], state=state)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "next"
+            ):
+                self._send_json(api_payload(self.sessions.next_investigation(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                if parts[4] == "candidates":
+                    result = self.sessions.get_candidate(parts[3], parts[5])
+                else:
+                    result = self.sessions.get_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                self._send_json(api_payload(self.automatic_handoff.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                self._send_json(api_payload(self.automatic_detection.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "workers"
+            ):
+                self._send_json(api_payload(self.workers.list_workers(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("sweeps", "observations")
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                limit = int(query.get("limit", ["100"])[0])
+                if parts[4] == "sweeps":
+                    measurements = self.sessions.list_sweeps(
+                        parts[3], stream_id=stream_id, limit=limit
+                    )
+                else:
+                    measurements = self.sessions.list_observations(
+                        parts[3], stream_id=stream_id, limit=limit
+                    )
+                self._send_json(api_payload(measurements))
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "sessions"]:
+                self._send_json(api_payload(self.sessions.get_session(parts[3])))
+                return
+            self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except SessionNotFoundError as exc:
+            self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
+        except (TypeError, ValueError) as exc:
+            self._send_api_error(400, "invalid_request", str(exc))
+
+    def _api_v1_post(self, route: str, payload: dict) -> None:
+        try:
+            if route == "/api/v1/sessions":
+                session = self.sessions.create_session(payload)
+                self._send_json(api_payload(session), 201)
+                return
+            parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                result = self.automatic_handoff.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                result = self.automatic_detection.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+            ):
+                candidate = self.sessions.create_candidate(parts[3], payload)
+                self._send_json(api_payload(candidate), 201)
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+                and parts[6] in ("investigations", "dismiss")
+            ):
+                if parts[6] == "investigations":
+                    result = self.sessions.enqueue_investigation(
+                        parts[3], parts[5], payload
+                    )
+                    self._send_json(api_payload(result), 201)
+                else:
+                    result = self.sessions.dismiss_candidate(parts[3], parts[5])
+                    self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "start-next"
+            ):
+                if payload.get("confirm") is not True:
+                    raise ValueError(
+                        "Полуавтоматический handoff требует явного confirm=true"
+                    )
+                result = self.sessions.start_next_investigation(
+                    parts[3], payload["investigation_id"], tune=self.workers.tune
+                )
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[6] in ("start", "complete", "fail", "cancel")
+            ):
+                if parts[6] == "start":
+                    result = self.sessions.start_investigation(
+                        parts[3], parts[5], tune=self.workers.tune
+                    )
+                elif parts[6] == "complete":
+                    result = self.sessions.complete_investigation(parts[3], parts[5])
+                elif parts[6] == "fail":
+                    result = self.sessions.fail_investigation(
+                        parts[3], parts[5], payload.get("error")
+                    )
+                else:
+                    result = self.sessions.cancel_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "workers"
+                and parts[5] in ("start", "stop")
+            ):
+                if parts[5] == "start":
+                    result = self.workers.start_session(parts[3])
+                else:
+                    result = self.workers.stop_session(parts[3])
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+                and parts[6] in ("start", "stop", "tune")
+            ):
+                if parts[6] == "start":
+                    result = self.workers.start_stream(parts[3], parts[5])
+                elif parts[6] == "stop":
+                    result = self.workers.stop_stream(parts[3], parts[5])
+                else:
+                    result = self.workers.tune(parts[3], parts[5], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("sweeps", "observations")
+            ):
+                measurement = dict(payload)
+                supplied_session = measurement.get("session_id")
+                if supplied_session is not None and supplied_session != parts[3]:
+                    raise ValueError("session_id в теле не совпадает с маршрутом")
+                measurement["session_id"] = parts[3]
+                if parts[4] == "sweeps":
+                    result = self.sessions.ingest_sweep(measurement)
+                else:
+                    result = self.sessions.ingest_observation(measurement)
+                self._send_json(api_payload(result), 201)
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("start", "stop")
+            ):
+                if parts[4] == "start":
+                    session = self.sessions.start_session(parts[3])
+                else:
+                    self.workers.stop_session(parts[3])
+                    session = self.sessions.stop_session(parts[3])
+                self._send_json(api_payload(session))
+                return
+            self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except SessionNotFoundError as exc:
+            self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
+        except KeyError as exc:
+            self._send_api_error(400, "missing_field", f"Отсутствует поле: {exc.args[0]}")
+        except UnsupportedAdapterError as exc:
+            self._send_api_error(400, "unsupported_adapter", str(exc))
+        except WorkerError as exc:
+            self._send_api_error(400, "worker_error", str(exc))
+        except (TypeError, ValueError) as exc:
+            self._send_api_error(400, "invalid_request", str(exc))
+
+    def _stream_session_events(self, after: int = 0) -> None:
+        """SSE с монотонным id и повторной выдачей после Last-Event-ID."""
+        if after < 0:
+            raise ValueError("Last-Event-ID должен быть неотрицательным")
+        subscriber_id, events = self.sessions.subscribe(after=after)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    event = events.get(timeout=15.0)
+                except queue.Empty:
+                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+                    continue
+                data = json_dumps(api_payload(event))
+                frame = (
+                    f"id: {event.sequence}\n"
+                    f"event: {event.event_type}\n"
+                    f"data: {data}\n\n"
+                )
+                self.wfile.write(frame.encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            self.sessions.unsubscribe(subscriber_id)
+
     def _stream_events(self) -> None:
         """Потоковая выдача состояния по протоколу Server-Sent Events."""
         self.send_response(200)
@@ -414,22 +783,85 @@ class Handler(BaseHTTPRequestHandler):
             self.state.unsubscribe(event)
 
 
+def create_server(
+    host: str = "127.0.0.1",
+    port: int = 8770,
+    database: Optional[str] = None,
+    library: Optional[str] = None,
+    sessions: Optional[SessionService] = None,
+    session_database: Optional[str] = None,
+    workers: Optional[DeviceWorkerManager] = None,
+    automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
+    automatic_detection: Optional[AutomaticCandidateDetector] = None,
+) -> ThreadingHTTPServer:
+    """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
+    if sessions is not None and session_database is not None:
+        raise ValueError("Передайте либо sessions, либо session_database, но не оба")
+    state = ApplicationState(database=database, library=library)
+    if sessions is not None:
+        session_service = sessions
+    elif session_database:
+        session_service = SessionService(store=SQLiteSessionStore(session_database))
+    else:
+        session_service = SessionService()
+    if workers is not None and workers.sessions is not session_service:
+        raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
+    worker_manager = workers or DeviceWorkerManager(session_service)
+    if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
+        raise ValueError("AutomaticHandoffScheduler должен использовать тот же SessionService")
+    automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
+        session_service, tune=worker_manager.tune
+    )
+    if automatic_detection is not None and automatic_detection.sessions is not session_service:
+        raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
+    detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
+    handler = type(
+        "BoundHandler",
+        (Handler,),
+        {
+            "state": state,
+            "sessions": session_service,
+            "workers": worker_manager,
+            "automatic_handoff": automatic_scheduler,
+            "automatic_detection": detection_scheduler,
+        },
+    )
+    httpd = ThreadingHTTPServer((host, port), handler)
+    httpd.daemon_threads = True
+    httpd.session_service = session_service
+    httpd.worker_manager = worker_manager
+    httpd.automatic_handoff = automatic_scheduler
+    httpd.automatic_detection = detection_scheduler
+    return httpd
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 8770,
     database: Optional[str] = None,
     library: Optional[str] = None,
+    session_database: Optional[str] = None,
 ) -> None:
     """Запуск веб-интерфейса."""
-    state = ApplicationState(database=database, library=library)
-    handler = type("BoundHandler", (Handler,), {"state": state})
-    httpd = ThreadingHTTPServer((host, port), handler)
+    httpd = create_server(
+        host=host,
+        port=port,
+        database=database,
+        library=library,
+        session_database=session_database,
+    )
     print(f"Веб-интерфейс: http://{host}:{port}")
     if database:
-        print(f"База данных: {database}")
+        print(f"База данных панорам: {database}")
+    if session_database:
+        print(f"Архив сеансов: {session_database}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.automatic_detection.close()
+        httpd.automatic_handoff.close()
+        httpd.worker_manager.close()
         httpd.server_close()
+        httpd.session_service.close()

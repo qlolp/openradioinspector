@@ -1,0 +1,978 @@
+"""Служба совместных сеансов, событий и исходных измерений.
+
+SQLite-архив подключается через ``SQLiteSessionStore``. Без него служба сохраняет
+прежний memory-only режим, а ``capabilities`` честно сообщает выбранный режим.
+"""
+
+from __future__ import annotations
+
+import copy
+import queue
+import sqlite3
+import threading
+from collections import deque
+from datetime import datetime
+from typing import Any, Callable, Optional
+
+from .contracts import (
+    API_VERSION,
+    CONTRACT_VERSION,
+    Candidate,
+    CandidateState,
+    DeviceRole,
+    DeviceState,
+    Investigation,
+    InvestigationState,
+    MonitoringSession,
+    ReceiverObservation,
+    SessionEvent,
+    SessionState,
+    Sweep,
+    new_id,
+    to_primitive,
+    utc_now,
+)
+from .session_store import SQLiteSessionStore
+
+
+class SessionNotFoundError(KeyError):
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+        super().__init__(f"Сеанс не найден: {session_id}")
+
+
+class CandidateNotFoundError(KeyError):
+    def __init__(self, candidate_id: str) -> None:
+        self.candidate_id = candidate_id
+        super().__init__(f"Кандидат не найден: {candidate_id}")
+
+
+class InvestigationNotFoundError(KeyError):
+    def __init__(self, investigation_id: str) -> None:
+        self.investigation_id = investigation_id
+        super().__init__(f"Исследование не найдено: {investigation_id}")
+
+
+OPEN_INVESTIGATION_STATES = frozenset(
+    {
+        InvestigationState.QUEUED,
+        InvestigationState.TUNING,
+        InvestigationState.LISTENING,
+        InvestigationState.DECODING,
+    }
+)
+RUNTIME_INVESTIGATION_STATES = OPEN_INVESTIGATION_STATES - {InvestigationState.QUEUED}
+
+
+class SessionService:
+    """Потокобезопасный реестр сеансов, измерений и журнала событий."""
+
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+        history_limit: int = 1000,
+        subscriber_queue_size: int = 100,
+        store: Optional[SQLiteSessionStore] = None,
+    ) -> None:
+        if history_limit < 1 or subscriber_queue_size < 1:
+            raise ValueError("Размеры журнала и очереди должны быть положительными")
+        self._clock = clock
+        self._history_limit = history_limit
+        self._subscriber_queue_size = subscriber_queue_size
+        self._store = store
+        self._sessions: dict[str, MonitoringSession] = {}
+        self._events: deque[SessionEvent] = deque(maxlen=history_limit)
+        self._sweeps: list[Sweep] = []
+        self._observations: list[ReceiverObservation] = []
+        self._candidates: dict[str, Candidate] = {}
+        self._investigations: dict[str, Investigation] = {}
+        self._investigation_sessions: dict[str, str] = {}
+        self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
+        self._sequence = 0
+        self._subscriber_sequence = 0
+        self._lock = threading.RLock()
+        if store is not None:
+            restored = store.load_sessions()
+            for session in restored:
+                runtime_state_changed = False
+                for stream in session.streams:
+                    if stream.state is not DeviceState.DISCONNECTED:
+                        # Потоки ОС не переживают перезапуск процесса. Сеанс и
+                        # измерения восстанавливаются, но исполнители не запускаются
+                        # автоматически и не должны выглядеть работающими.
+                        stream.state = DeviceState.DISCONNECTED
+                        runtime_state_changed = True
+                if runtime_state_changed:
+                    store.save_session(session)
+            self._sessions = {item.id: item for item in restored}
+            self._candidates = {item.id: item for item in store.load_candidates()}
+            for session_id, investigation in store.load_investigations():
+                candidate = self._candidates.get(investigation.candidate_id)
+                if candidate is None or candidate.session_id != session_id:
+                    raise ValueError(
+                        f"Архив исследования {investigation.id} нарушает связь с кандидатом"
+                    )
+                self._investigations[investigation.id] = investigation
+                self._investigation_sessions[investigation.id] = session_id
+            events = store.load_events(limit=history_limit)
+            self._events.extend(events)
+            self._sequence = events[-1].sequence if events else 0
+            for investigation_id, session_id in list(self._investigation_sessions.items()):
+                current = self._investigations[investigation_id]
+                if current.state not in RUNTIME_INVESTIGATION_STATES:
+                    continue
+                # Команда прибору и поток прослушивания не переживают процесс.
+                # Сохраняем прерывание, а не имитируем продолжение исследования.
+                investigation = copy.deepcopy(current)
+                candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+                investigation.state = InvestigationState.FAILED
+                investigation.ended_at = self._clock()
+                investigation.error = "Исследование прервано перезапуском службы"
+                candidate.state = CandidateState.QUEUED
+                event = self._make_event_locked(
+                    "investigation.interrupted",
+                    session_id=session_id,
+                    payload=self._investigation_payload(investigation, candidate),
+                )
+                store.save_investigation(investigation, candidate=candidate, event=event)
+                self._investigations[investigation.id] = investigation
+                self._candidates[candidate.id] = candidate
+                self._publish_event_locked(event)
+
+    def capabilities(self) -> dict[str, Any]:
+        """Фактические возможности текущего экземпляра без обещаний будущих функций."""
+        persistent = self._store is not None
+        return {
+            "api_version": API_VERSION,
+            "contract_version": CONTRACT_VERSION,
+            "hardware_ownership": "core",
+            "session_storage": "sqlite" if persistent else "memory",
+            "persistent_archive": persistent,
+            "clients": ["raspberry-pi-webui", "windows-gui", "macos-swiftui"],
+            "features": {
+                "monitoring_sessions": True,
+                "independent_device_streams": True,
+                "session_lifecycle": True,
+                "session_event_history": True,
+                "sse_replay": True,
+                "session_recovery": persistent,
+                "measurement_ingest": True,
+                "measurement_archive": True,
+                "candidate_investigations": True,
+                "manual_investigation_handoff": True,
+                "semi_automatic_handoff": True,
+                "automatic_handoff": True,
+                "automatic_handoff_opt_in_required": True,
+                "automatic_handoff_policy_persistent": False,
+                "automatic_candidate_detection": True,
+                "automatic_candidate_detection_opt_in_required": True,
+                "automatic_candidate_detection_policy_persistent": False,
+                "automatic_investigation_completion": False,
+                "hardware_control": False,
+            },
+        }
+
+    def health(self) -> dict[str, Any]:
+        with self._lock:
+            running = sum(
+                item.state.value == "running" for item in self._sessions.values()
+            )
+            return {
+                "status": "ok",
+                "api_version": API_VERSION,
+                "contract_version": CONTRACT_VERSION,
+                "sessions": len(self._sessions),
+                "running_sessions": running,
+                "candidates": len(self._candidates),
+                "queued_investigations": sum(
+                    item.state is InvestigationState.QUEUED
+                    for item in self._investigations.values()
+                ),
+                "active_investigations": sum(
+                    item.state in RUNTIME_INVESTIGATION_STATES
+                    for item in self._investigations.values()
+                ),
+                "last_event_id": self._sequence,
+            }
+
+    def create_session(self, payload: dict[str, Any]) -> MonitoringSession:
+        if not isinstance(payload, dict):
+            raise TypeError("Тело запроса должно быть JSON-объектом")
+        if payload.get("state", "draft") != "draft":
+            raise ValueError("Новый сеанс должен иметь состояние draft")
+        for field in ("created_at", "started_at", "ended_at"):
+            if payload.get(field) is not None:
+                raise ValueError(f"{field} назначается службой жизненного цикла")
+        creation = dict(payload)
+        creation["created_at"] = to_primitive(self._clock())
+        session = MonitoringSession.from_dict(creation)
+        with self._lock:
+            if session.id in self._sessions:
+                raise ValueError(f"Сеанс уже существует: {session.id}")
+            existing_ids = {
+                stream.id for item in self._sessions.values() for stream in item.streams
+            }
+            for stream in session.streams:
+                if stream.id in existing_ids:
+                    raise ValueError(f"Поток уже принадлежит другому сеансу: {stream.id}")
+            event = self._make_event_locked(
+                "session.created",
+                session_id=session.id,
+                payload={"session": to_primitive(session)},
+            )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session.id] = session
+            self._publish_event_locked(event)
+            return copy.deepcopy(session)
+
+    def list_sessions(self) -> list[MonitoringSession]:
+        with self._lock:
+            items = sorted(
+                self._sessions.values(), key=lambda item: (item.created_at, item.id)
+            )
+            return copy.deepcopy(items)
+
+    def get_session(self, session_id: str) -> MonitoringSession:
+        with self._lock:
+            return copy.deepcopy(self._get_locked(session_id))
+
+    def start_session(
+        self, session_id: str, *, at: Optional[datetime] = None
+    ) -> MonitoringSession:
+        with self._lock:
+            session = copy.deepcopy(self._get_locked(session_id))
+            session.start(at or self._clock())
+            return self._save_transition_locked(session, "session.started")
+
+    def stop_session(
+        self, session_id: str, *, at: Optional[datetime] = None
+    ) -> MonitoringSession:
+        with self._lock:
+            session = copy.deepcopy(self._get_locked(session_id))
+            ended_at = at or self._clock()
+            session.stop(ended_at)
+            stopped = self._save_transition_locked(session, "session.stopped")
+            for investigation_id, owner_id in list(self._investigation_sessions.items()):
+                if owner_id != session_id:
+                    continue
+                current = self._investigations[investigation_id]
+                if current.state not in OPEN_INVESTIGATION_STATES:
+                    continue
+                investigation = copy.deepcopy(current)
+                candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+                investigation.state = InvestigationState.CANCELLED
+                investigation.ended_at = ended_at
+                investigation.error = None
+                candidate.state = CandidateState.QUEUED
+                self._save_investigation_locked(
+                    session_id, investigation, candidate, "investigation.cancelled"
+                )
+            return stopped
+
+    def _save_transition_locked(
+        self, session: MonitoringSession, event_type: str
+    ) -> MonitoringSession:
+        event = self._make_event_locked(
+            event_type, session_id=session.id, payload={"session": to_primitive(session)}
+        )
+        if self._store is not None:
+            self._store.save_session(session, event=event)
+        self._sessions[session.id] = session
+        self._publish_event_locked(event)
+        return copy.deepcopy(session)
+
+    def set_stream_state(
+        self, session_id: str, stream_id: str, state: DeviceState | str
+    ) -> MonitoringSession:
+        """Сохраняет фактическое состояние потока и публикует его изменение."""
+        state = DeviceState(state)
+        with self._lock:
+            current = self._get_locked(session_id)
+            stream = next((item for item in current.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            if stream.state is state:
+                return copy.deepcopy(current)
+            session = copy.deepcopy(current)
+            stream = next(item for item in session.streams if item.id == stream_id)
+            stream.state = state
+            event = self._make_event_locked(
+                "device.state",
+                session_id=session_id,
+                payload={"stream_id": stream_id, "state": state.value},
+            )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session_id] = session
+            self._publish_event_locked(event)
+            return copy.deepcopy(session)
+
+    def ingest_sweep(self, payload: dict[str, Any] | Sweep) -> Sweep:
+        sweep = payload if isinstance(payload, Sweep) else Sweep.from_dict(payload)
+        with self._lock:
+            self._validate_measurement_locked(
+                sweep.session_id, sweep.stream_id, sweep.level_unit
+            )
+            if self._store is None and any(item.id == sweep.id for item in self._sweeps):
+                raise ValueError(f"Свип уже существует: {sweep.id}")
+            event = self._make_event_locked(
+                "sweep.received",
+                session_id=sweep.session_id,
+                payload={"sweep": to_primitive(sweep)},
+            )
+            try:
+                if self._store is not None:
+                    self._store.record_sweep(sweep, event=event)
+                else:
+                    self._sweeps.append(copy.deepcopy(sweep))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"Свип уже существует или нарушает связи: {sweep.id}") from exc
+            self._publish_event_locked(event)
+            return copy.deepcopy(sweep)
+
+    def ingest_observation(
+        self, payload: dict[str, Any] | ReceiverObservation
+    ) -> ReceiverObservation:
+        observation = (
+            payload
+            if isinstance(payload, ReceiverObservation)
+            else ReceiverObservation.from_dict(payload)
+        )
+        with self._lock:
+            self._validate_measurement_locked(
+                observation.session_id, observation.stream_id, observation.level_unit
+            )
+            if self._store is None and any(
+                item.id == observation.id for item in self._observations
+            ):
+                raise ValueError(f"Наблюдение уже существует: {observation.id}")
+            event = self._make_event_locked(
+                "observation.received",
+                session_id=observation.session_id,
+                payload={"observation": to_primitive(observation)},
+            )
+            try:
+                if self._store is not None:
+                    self._store.record_observation(observation, event=event)
+                else:
+                    self._observations.append(copy.deepcopy(observation))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Наблюдение уже существует или нарушает связи: {observation.id}"
+                ) from exc
+            self._publish_event_locked(event)
+            return copy.deepcopy(observation)
+
+    @staticmethod
+    def _limit(limit: int) -> int:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit должен быть целым от 1 до 1000")
+        return limit
+
+    def list_sweeps(
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+    ) -> list[Sweep]:
+        limit = self._limit(limit)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                return self._store.list_sweeps(session_id, stream_id=stream_id, limit=limit)
+            selected = [
+                item for item in self._sweeps
+                if item.session_id == session_id
+                and (stream_id is None or item.stream_id == stream_id)
+            ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
+            return copy.deepcopy(selected[-limit:])
+
+    def list_observations(
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+    ) -> list[ReceiverObservation]:
+        limit = self._limit(limit)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                return self._store.list_observations(
+                    session_id, stream_id=stream_id, limit=limit
+                )
+            selected = [
+                item for item in self._observations
+                if item.session_id == session_id
+                and (stream_id is None or item.stream_id == stream_id)
+            ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
+            return copy.deepcopy(selected[-limit:])
+
+    def _validate_stream_query_locked(
+        self, session_id: str, stream_id: Optional[str]
+    ) -> None:
+        session = self._get_locked(session_id)
+        if stream_id is not None and not any(
+            item.id == stream_id for item in session.streams
+        ):
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+
+    def _validate_measurement_locked(
+        self, session_id: str, stream_id: str, level_unit: str
+    ) -> None:
+        session = self._get_locked(session_id)
+        stream = next((item for item in session.streams if item.id == stream_id), None)
+        if stream is None:
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+        if stream.level_unit != level_unit:
+            raise ValueError(
+                f"Единица измерения {level_unit!r} не совпадает с потоком "
+                f"{stream.level_unit!r}; автоматическое преобразование запрещено"
+            )
+
+    def create_candidate(
+        self, session_id: str, payload: dict[str, Any] | Candidate
+    ) -> Candidate:
+        """Создаёт кандидата в исходных единицах его приборного потока."""
+        if isinstance(payload, Candidate):
+            candidate = copy.deepcopy(payload)
+            if candidate.state is not CandidateState.NEW:
+                raise ValueError("Новый кандидат должен иметь состояние new")
+        else:
+            if not isinstance(payload, dict):
+                raise TypeError("Тело запроса должно быть JSON-объектом")
+            if payload.get("state", "new") != "new":
+                raise ValueError("Новый кандидат должен иметь состояние new")
+            supplied_session = payload.get("session_id")
+            if supplied_session is not None and supplied_session != session_id:
+                raise ValueError("session_id в теле не совпадает с маршрутом")
+            creation = dict(payload)
+            creation["session_id"] = session_id
+            creation["state"] = "new"
+            candidate = Candidate.from_dict(creation)
+        if candidate.session_id != session_id:
+            raise ValueError("Кандидат принадлежит другому сеансу")
+        with self._lock:
+            self._validate_measurement_locked(
+                session_id, candidate.source_stream_id, candidate.level_unit
+            )
+            if candidate.id in self._candidates:
+                raise ValueError(f"Кандидат уже существует: {candidate.id}")
+            event = self._make_event_locked(
+                "candidate.created",
+                session_id=session_id,
+                payload={"candidate": to_primitive(candidate)},
+            )
+            try:
+                if self._store is not None:
+                    self._store.save_candidate(candidate, event=event)
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Кандидат уже существует или нарушает связи: {candidate.id}"
+                ) from exc
+            self._candidates[candidate.id] = candidate
+            self._publish_event_locked(event)
+            return copy.deepcopy(candidate)
+
+    def list_candidates(
+        self, session_id: str, *, state: CandidateState | str | None = None
+    ) -> list[Candidate]:
+        selected_state = CandidateState(state) if state is not None else None
+        with self._lock:
+            self._get_locked(session_id)
+            items = [
+                item for item in self._candidates.values()
+                if item.session_id == session_id
+                and (selected_state is None or item.state is selected_state)
+            ]
+            items.sort(key=lambda item: (item.interval.started_at, item.id))
+            return copy.deepcopy(items)
+
+    def get_candidate(self, session_id: str, candidate_id: str) -> Candidate:
+        with self._lock:
+            return copy.deepcopy(self._get_candidate_locked(session_id, candidate_id))
+
+    def dismiss_candidate(self, session_id: str, candidate_id: str) -> Candidate:
+        with self._lock:
+            current = self._get_candidate_locked(session_id, candidate_id)
+            if current.state not in (CandidateState.NEW, CandidateState.QUEUED):
+                raise ValueError(
+                    f"Нельзя отклонить кандидата из состояния {current.state.value}"
+                )
+            if any(
+                item.candidate_id == candidate_id and item.state in OPEN_INVESTIGATION_STATES
+                for item in self._investigations.values()
+            ):
+                raise ValueError("Сначала завершите или отмените открытое исследование")
+            candidate = copy.deepcopy(current)
+            candidate.state = CandidateState.DISMISSED
+            return self._save_candidate_locked(candidate, "candidate.dismissed")
+
+    def enqueue_investigation(
+        self, session_id: str, candidate_id: str, payload: dict[str, Any]
+    ) -> Investigation:
+        if not isinstance(payload, dict):
+            raise TypeError("Тело запроса должно быть JSON-объектом")
+        for field in (
+            "state", "created_at", "started_at", "ended_at",
+            "result_observation_ids", "error",
+        ):
+            if payload.get(field) is not None:
+                raise ValueError(f"{field} назначается службой жизненного цикла")
+        with self._lock:
+            session = self._get_locked(session_id)
+            current = self._get_candidate_locked(session_id, candidate_id)
+            if current.state not in (CandidateState.NEW, CandidateState.QUEUED):
+                raise ValueError(
+                    f"Нельзя поставить кандидата из состояния {current.state.value}"
+                )
+            if any(
+                item.candidate_id == candidate_id and item.state in OPEN_INVESTIGATION_STATES
+                for item in self._investigations.values()
+            ):
+                raise ValueError("Для кандидата уже существует открытое исследование")
+            target_stream_id = str(payload["target_stream_id"])
+            target = next(
+                (item for item in session.streams if item.id == target_stream_id), None
+            )
+            if target is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {target_stream_id}")
+            if target.role is not DeviceRole.RECEIVER:
+                raise ValueError("Исследование может настраивать только поток receiver")
+            investigation = Investigation(
+                id=str(payload.get("id") or new_id()),
+                candidate_id=candidate_id,
+                target_stream_id=target_stream_id,
+                target_frequency_hz=payload.get(
+                    "target_frequency_hz", current.center_frequency_hz
+                ),
+                priority=payload.get("priority", 0),
+                mode=payload.get("mode"),
+                created_at=self._clock(),
+            )
+            if investigation.id in self._investigations:
+                raise ValueError(f"Исследование уже существует: {investigation.id}")
+            candidate = copy.deepcopy(current)
+            candidate.state = CandidateState.QUEUED
+            event = self._make_event_locked(
+                "investigation.queued",
+                session_id=session_id,
+                payload=self._investigation_payload(investigation, candidate),
+            )
+            try:
+                if self._store is not None:
+                    self._store.save_investigation(
+                        investigation, candidate=candidate, event=event
+                    )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Исследование уже существует или нарушает связи: {investigation.id}"
+                ) from exc
+            self._investigations[investigation.id] = investigation
+            self._investigation_sessions[investigation.id] = session_id
+            self._candidates[candidate.id] = candidate
+            self._publish_event_locked(event)
+            return copy.deepcopy(investigation)
+
+    def list_investigations(
+        self, session_id: str, *, state: InvestigationState | str | None = None
+    ) -> list[Investigation]:
+        selected_state = InvestigationState(state) if state is not None else None
+        with self._lock:
+            self._get_locked(session_id)
+            items = [
+                item for item in self._investigations.values()
+                if self._investigation_sessions[item.id] == session_id
+                and (selected_state is None or item.state is selected_state)
+            ]
+            items.sort(
+                key=lambda item: (
+                    item.state is not InvestigationState.QUEUED,
+                    -item.priority if item.state is InvestigationState.QUEUED else 0,
+                    item.created_at,
+                    item.id,
+                )
+            )
+            return copy.deepcopy(items)
+
+    def get_investigation(self, session_id: str, investigation_id: str) -> Investigation:
+        with self._lock:
+            return copy.deepcopy(
+                self._get_investigation_locked(session_id, investigation_id)
+            )
+
+    def next_investigation(self, session_id: str) -> Optional[Investigation]:
+        """Возвращает рекомендуемое исследование без изменения очереди."""
+        with self._lock:
+            self._get_locked(session_id)
+            return copy.deepcopy(self._next_investigation_locked(session_id))
+
+    def _next_investigation_locked(self, session_id: str) -> Optional[Investigation]:
+        queued = [
+            item for item in self._investigations.values()
+            if self._investigation_sessions[item.id] == session_id
+            and item.state is InvestigationState.QUEUED
+        ]
+        queued.sort(key=lambda item: (-item.priority, item.created_at, item.id))
+        return queued[0] if queued else None
+
+    def start_next_investigation(
+        self,
+        session_id: str,
+        investigation_id: str,
+        *,
+        tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+    ) -> Investigation:
+        """Запускает подтверждённую оператором рекомендацию, если очередь не изменилась."""
+        if not isinstance(investigation_id, str) or not investigation_id.strip():
+            raise ValueError("Для подтверждения требуется investigation_id")
+        return self._start_investigation(
+            session_id, investigation_id, tune=tune, require_next=True
+        )
+
+    def start_investigation(
+        self,
+        session_id: str,
+        investigation_id: str,
+        *,
+        tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+    ) -> Investigation:
+        """Выполняет ручной handoff, не удерживая общий lock на время tune."""
+        return self._start_investigation(session_id, investigation_id, tune=tune)
+
+    def _start_investigation(
+        self,
+        session_id: str,
+        investigation_id: str,
+        *,
+        tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+        require_next: bool = False,
+    ) -> Investigation:
+        with self._lock:
+            session = self._get_locked(session_id)
+            if session.state is not SessionState.RUNNING:
+                raise ValueError("Сначала запустите сеанс мониторинга")
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.state is not InvestigationState.QUEUED:
+                raise ValueError(
+                    f"Нельзя запустить исследование из состояния {current.state.value}"
+                )
+            if require_next:
+                recommended = self._next_investigation_locked(session_id)
+                if recommended is None:
+                    raise ValueError("Очередь исследований пуста")
+                if recommended.id != investigation_id:
+                    raise ValueError(
+                        "Очередь изменилась: запросите и подтвердите актуальное "
+                        "следующее исследование"
+                    )
+            if any(
+                item.id != investigation_id
+                and self._investigation_sessions[item.id] == session_id
+                and item.target_stream_id == current.target_stream_id
+                and item.state in RUNTIME_INVESTIGATION_STATES
+                for item in self._investigations.values()
+            ):
+                raise ValueError("Выбранный receiver уже выполняет другое исследование")
+            candidate = copy.deepcopy(self._candidates[current.candidate_id])
+            investigation = copy.deepcopy(current)
+            investigation.state = InvestigationState.TUNING
+            investigation.started_at = self._clock()
+            investigation.ended_at = None
+            investigation.error = None
+            self._save_investigation_locked(
+                session_id, investigation, candidate, "investigation.tuning"
+            )
+            tune_payload = {"frequency_hz": investigation.target_frequency_hz}
+            if investigation.mode is not None:
+                tune_payload["mode"] = investigation.mode
+            target_stream_id = investigation.target_stream_id
+
+        try:
+            tune(session_id, target_stream_id, tune_payload)
+        except Exception as exc:
+            with self._lock:
+                current = self._get_investigation_locked(session_id, investigation_id)
+                if current.state is not InvestigationState.TUNING:
+                    return copy.deepcopy(current)
+                investigation = copy.deepcopy(current)
+                candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+                investigation.state = InvestigationState.FAILED
+                investigation.ended_at = self._clock()
+                investigation.error = str(exc) or type(exc).__name__
+                candidate.state = CandidateState.QUEUED
+                return self._save_investigation_locked(
+                    session_id, investigation, candidate, "investigation.failed"
+                )
+
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.state is not InvestigationState.TUNING:
+                # Отмена во время команды не отменяет уже выполненную перестройку
+                # прибора и не должна быть перезаписана состоянием listening.
+                return copy.deepcopy(current)
+            investigation = copy.deepcopy(current)
+            candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+            investigation.state = InvestigationState.LISTENING
+            candidate.state = CandidateState.INVESTIGATING
+            return self._save_investigation_locked(
+                session_id, investigation, candidate, "investigation.listening"
+            )
+
+    def complete_investigation(
+        self, session_id: str, investigation_id: str
+    ) -> Investigation:
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.state not in (
+                InvestigationState.LISTENING, InvestigationState.DECODING
+            ):
+                raise ValueError(
+                    f"Нельзя завершить исследование из состояния {current.state.value}"
+                )
+            if current.started_at is None:
+                raise ValueError("У активного исследования отсутствует started_at")
+            if self._store is not None:
+                observation_ids = self._store.matching_observation_ids(
+                    session_id, current.target_stream_id,
+                    current.target_frequency_hz, current.started_at,
+                )
+            else:
+                matches = [
+                    item for item in self._observations
+                    if item.session_id == session_id
+                    and item.stream_id == current.target_stream_id
+                    and item.frequency_hz == current.target_frequency_hz
+                    and item.interval.started_at >= current.started_at
+                ]
+                matches.sort(key=lambda item: (item.interval.started_at, item.id))
+                observation_ids = tuple(item.id for item in matches)
+            if not observation_ids:
+                raise ValueError(
+                    "Нет наблюдений целевого потока на выбранной частоте после начала исследования"
+                )
+            investigation = copy.deepcopy(current)
+            candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+            investigation.state = InvestigationState.COMPLETED
+            investigation.ended_at = self._clock()
+            investigation.result_observation_ids = observation_ids
+            investigation.error = None
+            candidate.state = CandidateState.RESOLVED
+            return self._save_investigation_locked(
+                session_id, investigation, candidate, "investigation.completed"
+            )
+
+    def fail_investigation(
+        self, session_id: str, investigation_id: str, error: str
+    ) -> Investigation:
+        if not isinstance(error, str) or not error.strip():
+            raise ValueError("Для сбоя исследования требуется непустое описание error")
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.state not in OPEN_INVESTIGATION_STATES:
+                raise ValueError(
+                    f"Нельзя завершить сбоем состояние {current.state.value}"
+                )
+            investigation = copy.deepcopy(current)
+            candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+            investigation.state = InvestigationState.FAILED
+            investigation.ended_at = self._clock()
+            investigation.error = error.strip()
+            candidate.state = CandidateState.QUEUED
+            return self._save_investigation_locked(
+                session_id, investigation, candidate, "investigation.failed"
+            )
+
+    def cancel_investigation(
+        self, session_id: str, investigation_id: str
+    ) -> Investigation:
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.state not in OPEN_INVESTIGATION_STATES:
+                raise ValueError(
+                    f"Нельзя отменить исследование из состояния {current.state.value}"
+                )
+            investigation = copy.deepcopy(current)
+            candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
+            investigation.state = InvestigationState.CANCELLED
+            investigation.ended_at = self._clock()
+            investigation.error = None
+            candidate.state = CandidateState.QUEUED
+            return self._save_investigation_locked(
+                session_id, investigation, candidate, "investigation.cancelled"
+            )
+
+    def _get_candidate_locked(self, session_id: str, candidate_id: str) -> Candidate:
+        self._get_locked(session_id)
+        candidate = self._candidates.get(candidate_id)
+        if candidate is None or candidate.session_id != session_id:
+            raise CandidateNotFoundError(candidate_id)
+        return candidate
+
+    def _get_investigation_locked(
+        self, session_id: str, investigation_id: str
+    ) -> Investigation:
+        self._get_locked(session_id)
+        investigation = self._investigations.get(investigation_id)
+        if (
+            investigation is None
+            or self._investigation_sessions.get(investigation_id) != session_id
+        ):
+            raise InvestigationNotFoundError(investigation_id)
+        return investigation
+
+    @staticmethod
+    def _investigation_payload(
+        investigation: Investigation, candidate: Candidate
+    ) -> dict[str, Any]:
+        return {
+            "investigation": to_primitive(investigation),
+            "candidate": to_primitive(candidate),
+        }
+
+    def _save_candidate_locked(
+        self, candidate: Candidate, event_type: str
+    ) -> Candidate:
+        event = self._make_event_locked(
+            event_type,
+            session_id=candidate.session_id,
+            payload={"candidate": to_primitive(candidate)},
+        )
+        if self._store is not None:
+            self._store.save_candidate(candidate, event=event)
+        self._candidates[candidate.id] = candidate
+        self._publish_event_locked(event)
+        return copy.deepcopy(candidate)
+
+    def _save_investigation_locked(
+        self,
+        session_id: str,
+        investigation: Investigation,
+        candidate: Candidate,
+        event_type: str,
+    ) -> Investigation:
+        event = self._make_event_locked(
+            event_type,
+            session_id=session_id,
+            payload=self._investigation_payload(investigation, candidate),
+        )
+        if self._store is not None:
+            self._store.save_investigation(
+                investigation, candidate=candidate, event=event
+            )
+        self._investigations[investigation.id] = investigation
+        self._investigation_sessions[investigation.id] = session_id
+        self._candidates[candidate.id] = candidate
+        self._publish_event_locked(event)
+        return copy.deepcopy(investigation)
+
+    def publish(
+        self,
+        event_type: str,
+        *,
+        session_id: Optional[str] = None,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> SessionEvent:
+        """Публикует служебное событие приборных исполнителей и адаптеров."""
+        with self._lock:
+            if session_id is not None:
+                self._get_locked(session_id)
+            return self._append_event_locked(
+                event_type, session_id=session_id, payload=payload or {}
+            )
+
+    def events(self, *, after: int = 0, limit: int = 100) -> list[SessionEvent]:
+        if after < 0 or limit < 1:
+            raise ValueError("after должен быть неотрицательным, limit — положительным")
+        with self._lock:
+            if self._store is not None:
+                return self._store.events(after=after, limit=limit)
+            selected = [item for item in self._events if item.sequence > after]
+            return copy.deepcopy(selected[:limit])
+
+    def subscribe(self, *, after: int = 0) -> tuple[int, queue.Queue[SessionEvent]]:
+        """Создаёт подписку без окна потери между историей и живыми событиями."""
+        if after < 0:
+            raise ValueError("after должен быть неотрицательным")
+        subscriber: queue.Queue[SessionEvent] = queue.Queue(
+            maxsize=max(self._subscriber_queue_size, self._history_limit)
+        )
+        with self._lock:
+            for event in self._events:
+                if event.sequence > after:
+                    subscriber.put_nowait(copy.deepcopy(event))
+            self._subscriber_sequence += 1
+            subscriber_id = self._subscriber_sequence
+            self._subscribers[subscriber_id] = subscriber
+        return subscriber_id, subscriber
+
+    def unsubscribe(self, subscriber_id: int) -> None:
+        with self._lock:
+            self._subscribers.pop(subscriber_id, None)
+
+    def close(self) -> None:
+        with self._lock:
+            if self._store is not None:
+                self._store.close()
+
+    def _get_locked(self, session_id: str) -> MonitoringSession:
+        try:
+            return self._sessions[session_id]
+        except KeyError as exc:
+            raise SessionNotFoundError(session_id) from exc
+
+    def _append_event_locked(
+        self,
+        event_type: str,
+        *,
+        session_id: Optional[str],
+        payload: dict[str, Any],
+    ) -> SessionEvent:
+        event = self._make_event_locked(
+            event_type, session_id=session_id, payload=payload
+        )
+        if self._store is not None:
+            self._store.append_event(event)
+        return self._publish_event_locked(event)
+
+    def _make_event_locked(
+        self,
+        event_type: str,
+        *,
+        session_id: Optional[str],
+        payload: dict[str, Any],
+    ) -> SessionEvent:
+        return SessionEvent(
+            sequence=self._sequence + 1,
+            event_type=event_type,
+            occurred_at=self._clock(),
+            session_id=session_id,
+            payload=copy.deepcopy(payload),
+        )
+
+    def _publish_event_locked(self, event: SessionEvent) -> SessionEvent:
+        """Обновляет replay и подписчиков только после успешного commit архива."""
+        self._sequence = event.sequence
+        self._events.append(event)
+        for subscriber in self._subscribers.values():
+            self._offer(subscriber, event)
+        return copy.deepcopy(event)
+
+    @staticmethod
+    def _offer(
+        subscriber: queue.Queue[SessionEvent], event: SessionEvent
+    ) -> None:
+        """Не блокирует приборный поток, если клиент читает SSE слишком медленно."""
+        try:
+            subscriber.put_nowait(copy.deepcopy(event))
+            return
+        except queue.Full:
+            pass
+        try:
+            subscriber.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            subscriber.put_nowait(copy.deepcopy(event))
+        except queue.Full:
+            # Единственный потребитель мог освободить место между операциями;
+            # повторное переполнение означает, что событие допустимо пропустить
+            # для этого клиента. Полная история остаётся доступна через replay.
+            pass
