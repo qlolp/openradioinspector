@@ -46,6 +46,15 @@ struct ContentView: View {
                         .disabled(!model.connected || model.busy)
                 }
                 HStack {
+                    TextField("Порт tinySA, например /dev/cu.usbmodem…", text: $model.serialTinyPort)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Порт AR-DV1, например /dev/cu.serial…", text: $model.serialReceiverPort)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Новый serial") { model.createSerialSession() }
+                        .disabled(!model.connected || model.busy || model.serialTinyPort.isEmpty || model.serialReceiverPort.isEmpty)
+                    Text("стенд не проверен").font(.caption).foregroundStyle(.secondary)
+                }
+                HStack {
                     Button("Запустить сеанс") { model.startSession() }
                         .disabled(model.session == nil || model.busy)
                     Button("Остановить сеанс") { model.stopSession() }
@@ -124,6 +133,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var handoffReceiverStreamID = ""
     @Published var handoffMaximumFailures = "3"
     @Published var handoffRetryDelay = "30"
+    @Published var serialTinyPort = ""
+    @Published var serialReceiverPort = ""
 
     private var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
@@ -215,6 +226,29 @@ final class RemoteDualModel: ObservableObject {
                 selectedSessionID = created.id
                 clearMeasurements()
                 status = simulated ? "Создан сеанс с явно выбранными симуляторами" : "Создан draft без hardware_control"
+                await refresh()
+            } catch {
+                errorText = describeSession(error)
+            }
+            busy = false
+        }
+    }
+
+    func createSerialSession() {
+        guard let client else { return }
+        let spectrumPort = serialTinyPort
+        let receiverPort = serialReceiverPort
+        busy = true
+        Task {
+            do {
+                let created = try await client.createSerialSession(
+                    name: "Двойной обзор · serial",
+                    tinySAPort: spectrumPort, ardv1Port: receiverPort
+                )
+                sessions = try await client.listSessions()
+                selectedSessionID = created.id
+                clearMeasurements()
+                status = "Создан serial-профиль; аппаратный стенд не проверен"
                 await refresh()
             } catch {
                 errorText = describeSession(error)
@@ -712,7 +746,7 @@ struct RemoteUltraPane: View {
                     } else {
                         ForEach(model.rows.prefix(30)) { row in
                             Button {
-                                model.tune(frequencyHz: row.center)
+                                model.tune(frequencyHz: row.center
                             } label: {
                                 HStack {
                                     Text(String(format: "%.6f МГц", Double(row.center) / 1_000_000))

@@ -70,7 +70,7 @@ final class PlatformWorkflowTests: XCTestCase {
     }
 
     func testCandidateAndQueueKeepRawUnitsAndIntegerHertz() async throws {
-        let client = try client { request in
+        let workflowClient = try client { request in
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             if request.url!.absoluteString.hasSuffix("/candidates") {
                 XCTAssertEqual(body["source_stream_id"] as? String, "tiny/1")
@@ -81,7 +81,7 @@ final class PlatformWorkflowTests: XCTestCase {
                 XCTAssertNil(body["bandwidth_hz"])
                 return (self.response(request.url!), self.envelope(self.candidateJSON))
             }
-            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/candidates/c%2F1/investigations"))
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/candidates/c%2F1/investigations")
             XCTAssertEqual(body["target_stream_id"] as? String, "ar/1")
             XCTAssertEqual(body["target_frequency_hz"] as? Int, 433075000)
             XCTAssertEqual(body["priority"] as? Int, 5)
@@ -90,7 +90,7 @@ final class PlatformWorkflowTests: XCTestCase {
         let interval = PlatformInterval(
             startedAt: "2026-01-01T00:00:00Z", endedAt: "2026-01-01T00:00:01Z"
         )
-        let candidate = try await client.createCandidate(
+        let candidate = try await workflowClient.createCandidate(
             sessionID: "s/1",
             draft: PlatformCandidateDraft(
                 sourceStreamId: "tiny/1", interval: interval, centerFrequencyHz: 433075000,
@@ -99,7 +99,7 @@ final class PlatformWorkflowTests: XCTestCase {
         )
         XCTAssertEqual(candidate.peakLevel, -42.5)
         XCTAssertEqual(candidate.levelUnit, "dBm")
-        let investigation = try await client.enqueueInvestigation(
+        let investigation = try await workflowClient.enqueueInvestigation(
             sessionID: "s/1", candidateID: candidate.id,
             draft: PlatformInvestigationDraft(
                 targetStreamId: "ar/1", targetFrequencyHz: 433075000, mode: "DMR", priority: 5
@@ -107,6 +107,36 @@ final class PlatformWorkflowTests: XCTestCase {
         )
         XCTAssertEqual(investigation.targetFrequencyHz, 433075000)
         XCTAssertEqual(investigation.priority, 5)
+
+        let serialClient = try client { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let streams = body["streams"] as! [[String: Any]]
+            XCTAssertEqual(streams[0]["port"] as? String, "/dev/cu.usbmodem1")
+            XCTAssertEqual(streams[1]["port"] as? String, "/dev/cu.serial2")
+            let analyzer = streams[0]["settings"] as! [String: Any]
+            let receiver = streams[1]["settings"] as! [String: Any]
+            XCTAssertEqual(analyzer["adapter"] as? String, "tinysa-serial")
+            XCTAssertEqual(analyzer["start_hz"] as? Int, 88_000_000)
+            XCTAssertEqual(analyzer["stop_hz"] as? Int, 108_000_000)
+            XCTAssertEqual(analyzer["points"] as? Int, 201)
+            XCTAssertEqual(receiver["adapter"] as? String, "ardv1-serial")
+            XCTAssertEqual(receiver["frequency_hz"] as? Int, 145_500_000)
+            let session = """
+            {"id":"serial/session","name":"Двойной обзор · serial","state":"draft","streams":[]}
+            """
+            return (self.response(request.url!), self.envelope(session))
+        }
+        let serialSession = try await serialClient.createSerialSession(
+            name: " Двойной обзор · serial ",
+            tinySAPort: "/dev/cu.usbmodem1", ardv1Port: "/dev/cu.serial2"
+        )
+        XCTAssertEqual(serialSession.id, "serial/session")
+        await assertPlatformError(try await serialClient.createSerialSession(
+            name: "bad", tinySAPort: "/dev/same", ardv1Port: "/dev/same"
+        ))
+        await assertPlatformError(try await serialClient.createSerialSession(
+            name: "bad", tinySAPort: "sim://tinysa", ardv1Port: "/dev/other"
+        ))
     }
 
     func testStartNextConfirmationAndMinimalIndependentDisable() async throws {

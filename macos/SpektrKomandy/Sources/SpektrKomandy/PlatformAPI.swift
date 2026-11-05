@@ -212,13 +212,37 @@ private struct SessionDraft: Encodable {
     let streams: [StreamDraft]
 }
 
+private enum PlatformSettingValue: Encodable,
+    ExpressibleByStringLiteral, ExpressibleByIntegerLiteral,
+    ExpressibleByFloatLiteral, ExpressibleByBooleanLiteral {
+    case string(String)
+    case integer(Int)
+    case double(Double)
+    case bool(Bool)
+
+    init(stringLiteral value: String) { self = .string(value) }
+    init(integerLiteral value: Int) { self = .integer(value) }
+    init(floatLiteral value: Double) { self = .double(value) }
+    init(booleanLiteral value: Bool) { self = .bool(value) }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value): try container.encode(value)
+        case .integer(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .bool(let value): try container.encode(value)
+        }
+    }
+}
+
 private struct StreamDraft: Encodable {
     let device: String
     let role: String
     let levelUnit: String
     let port: String?
     let capabilities: [String]
-    let settings: [String: String]?
+    let settings: [String: PlatformSettingValue]?
 }
 
 public final class PlatformClient {
@@ -259,6 +283,52 @@ public final class PlatformClient {
             port: simulated ? "sim://ardv1" : nil,
             capabilities: ["tune", "audio", "hardware_decode"],
             settings: simulated ? ["adapter": "ardv1-sim"] : nil
+        )
+        return try await post("/sessions", body: SessionDraft(name: trimmed, streams: [analyzer, receiver]))
+    }
+
+    public func createSerialSession(
+        name: String, tinySAPort: String, ardv1Port: String
+    ) async throws -> PlatformSession {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let spectrumPort = tinySAPort.trimmingCharacters(in: .whitespacesAndNewlines)
+        let receiverPort = ardv1Port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw PlatformError.invalidCommand("Название сеанса не должно быть пустым")
+        }
+        guard !spectrumPort.isEmpty, !receiverPort.isEmpty else {
+            throw PlatformError.invalidCommand("Оба последовательных порта должны быть указаны")
+        }
+        guard spectrumPort != receiverPort else {
+            throw PlatformError.invalidCommand("Порты tinySA и AR-DV1 должны различаться")
+        }
+        guard !spectrumPort.hasPrefix("sim://"), !receiverPort.hasPrefix("sim://") else {
+            throw PlatformError.invalidCommand("Serial-профиль не должен использовать sim://")
+        }
+        let analyzer = StreamDraft(
+            device: "tinySA Ultra", role: "spectrum_analyzer", levelUnit: "dBm",
+            port: spectrumPort,
+            capabilities: ["sweep", "waterfall"],
+            settings: [
+                "adapter": "tinysa-serial",
+                "start_hz": 88_000_000,
+                "stop_hz": 108_000_000,
+                "points": 201,
+                "rbw_hz": 10_000,
+                "period_s": 0.25,
+            ]
+        )
+        let receiver = StreamDraft(
+            device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
+            port: receiverPort,
+            capabilities: ["tune", "audio", "hardware_decode"],
+            settings: [
+                "adapter": "ardv1-serial",
+                "frequency_hz": 145_500_000,
+                "mode": "FM",
+                "squelch": 10,
+                "period_s": 0.25,
+            ]
         )
         return try await post("/sessions", body: SessionDraft(name: trimmed, streams: [analyzer, receiver]))
     }
