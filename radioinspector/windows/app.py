@@ -264,7 +264,7 @@ class WindowsApp:
         )
         self.investigation_complete.pack(side="left", padx=(6, 0))
         self.investigation_cancel = ttk.Button(
-            investigation_actions, text="Отменить",
+            investigation_actions, text="Отмена",
             command=lambda: self._investigation_action("cancel"),
         )
         self.investigation_cancel.pack(side="left", padx=(6, 0))
@@ -776,24 +776,32 @@ class WindowsApp:
         )
         for row, (name, label) in enumerate(labels):
             self._form_entry(frame, row, label, variables[name])
-        simulated_var = self.tk.BooleanVar(value=True)
-        self.ttk.Checkbutton(
+        adapter_var = self.tk.StringVar(value="simulators")
+        self.ttk.Label(frame, text="Тип workers").grid(row=7, column=0, sticky="w", pady=4)
+        self.ttk.Combobox(
             frame,
-            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
-            variable=simulated_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+            textvariable=adapter_var,
+            values=("draft", "simulators", "serial"),
+            state="readonly",
+        ).grid(row=7, column=1, sticky="ew", pady=4)
+        self.ttk.Label(
+            frame,
+            text="draft — только профили; simulators — программный стенд; serial — явные serial-адаптеры, стенд не проверен.",
+            wraplength=520,
+        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
         self.ttk.Label(
             frame,
             text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
             wraplength=520,
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=4)
         client = self.client
 
         def submit() -> None:
             try:
                 payload = session_payload(
                     **{name: variable.get() for name, variable in variables.items()},
-                    simulated=bool(simulated_var.get()),
+                    simulated=adapter_var.get() == "simulators",
+                    serial=adapter_var.get() == "serial",
                 )
             except (TypeError, ValueError) as exc:
                 error_var.set(str(exc))
@@ -805,9 +813,9 @@ class WindowsApp:
                 on_success=self._use_created_session,
             )
 
-        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self._form_buttons(window, frame, 10, "Создать сеанс", submit)
         self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
-            row=10, column=0, columnspan=2, sticky="ew", pady=4
+            row=11, column=0, columnspan=2, sticky="ew", pady=4
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:
