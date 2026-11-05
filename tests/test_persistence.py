@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from radioinspector.contracts import TimeInterval, to_primitive
+from radioinspector.session_analytics import analytics_summary
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
 from radioinspector.web.server import create_server
@@ -283,6 +284,79 @@ class BatchIngestTests(unittest.TestCase):
                     restored.close()
 
 
+class AnalyticsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.temporary.name) / "analytics.sqlite")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def populate(self, service: SessionService):
+        session = service.create_session(session_payload())
+        spectrum_id, receiver_id = session.streams[0].id, session.streams[1].id
+        for number in (1, 0, 2):
+            service.ingest_sweep(sweep_payload(session.id, spectrum_id, number))
+        for number, squelch in ((1, False), (0, True), (2, None)):
+            payload = observation_payload(session.id, receiver_id, number)
+            payload["squelch_open"] = squelch
+            service.ingest_observation(payload)
+        return session, spectrum_id, receiver_id
+
+    def assert_summary(self, summary: dict, session_id: str, receiver_id: str) -> None:
+        self.assertEqual(summary["session_id"], session_id)
+        self.assertTrue(summary["archive_wide"])
+        sweeps = summary["sweeps"]
+        self.assertEqual(sweeps["count"], 3)
+        self.assertEqual(sweeps["level_units"], ["dBm"])
+        self.assertEqual(sweeps["first_started_at"], "2026-11-04T20:00:00Z")
+        self.assertEqual(sweeps["last_started_at"], "2026-11-04T20:00:02Z")
+        self.assertEqual(sweeps["latest"]["id"], "sweep-2")
+        self.assertEqual(
+            sweeps["latest_peak"],
+            {
+                "sweep_id": "sweep-2",
+                "frequency_hz": 100_100_002,
+                "level": -42.0,
+                "level_unit": "dBm",
+            },
+        )
+        observations = summary["observations"]
+        self.assertEqual(observations["count"], 3)
+        self.assertEqual(observations["level_units"], ["s_meter_count"])
+        self.assertEqual(observations["latest"]["id"], "observation-2")
+        self.assertEqual(observations["squelch_known"], 2)
+        self.assertEqual(observations["squelch_open"], 1)
+        self.assertEqual(observations["squelch_open_ratio"], 0.5)
+        self.assertEqual(receiver_id, observations["latest"]["stream_id"])
+
+    def test_memory_and_sqlite_archive_wide_summary(self) -> None:
+        for persistent in (False, True):
+            with self.subTest(persistent=persistent):
+                store = SQLiteSessionStore(self.path) if persistent else None
+                service = SessionService(store=store)
+                session, spectrum_id, receiver_id = self.populate(service)
+                self.assert_summary(
+                    analytics_summary(service, session.id), session.id, receiver_id
+                )
+                filtered = analytics_summary(
+                    service, session.id, stream_id=receiver_id
+                )
+                self.assertEqual(filtered["stream_id"], receiver_id)
+                self.assertEqual(filtered["sweeps"]["count"], 0)
+                self.assertIsNone(filtered["sweeps"]["latest_peak"])
+                self.assertEqual(filtered["observations"]["count"], 3)
+                service.close()
+                if persistent:
+                    restored = SessionService(store=SQLiteSessionStore(self.path))
+                    try:
+                        self.assert_summary(
+                            analytics_summary(restored, session.id), session.id, receiver_id
+                        )
+                    finally:
+                        restored.close()
+
+
 class PersistentHttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -403,6 +477,42 @@ class PersistentHttpApiTests(unittest.TestCase):
         status, error = self.request("GET", "/api/v1/sessions/missing/sweeps")
         self.assertEqual(status, 404)
         self.assertEqual(error["error"]["code"], "session_not_found")
+
+    def test_http_archive_analytics_summary(self) -> None:
+        session_id, spectrum_id, receiver_id = self.create_session()
+        status, response = self.request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/sweeps/batch",
+            {"items": [sweep_payload(session_id, spectrum_id, number) for number in range(2)]},
+        )
+        self.assertEqual(status, 201)
+        status, response = self.request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/observations/batch",
+            {"items": [observation_payload(session_id, receiver_id)]},
+        )
+        self.assertEqual(status, 201)
+        status, capabilities = self.request("GET", "/api/v1/capabilities")
+        self.assertEqual(status, 200)
+        self.assertTrue(capabilities["data"]["features"]["session_analytics"])
+        self.assertTrue(capabilities["data"]["features"]["session_analytics_archive_wide"])
+        status, summary = self.request(
+            "GET", f"/api/v1/sessions/{session_id}/analytics/summary"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(summary["data"]["sweeps"]["count"], 2)
+        self.assertEqual(summary["data"]["sweeps"]["latest_peak"]["level_unit"], "dBm")
+        self.assertEqual(summary["data"]["observations"]["squelch_open_ratio"], 1.0)
+        status, filtered = self.request(
+            "GET",
+            f"/api/v1/sessions/{session_id}/analytics/summary?stream_id={receiver_id}",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(filtered["data"]["sweeps"]["count"], 0)
+        self.assertEqual(filtered["data"]["observations"]["count"], 1)
+        status, missing = self.request("GET", "/api/v1/sessions/missing/analytics/summary")
+        self.assertEqual(status, 404)
+        self.assertEqual(missing["error"]["code"], "session_not_found")
 
     def test_http_batch_ingest_and_restart(self) -> None:
         session_id, spectrum_id, receiver_id = self.create_session()
