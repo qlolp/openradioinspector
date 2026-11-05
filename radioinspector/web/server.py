@@ -33,7 +33,12 @@ from urllib.parse import parse_qs, unquote, urlparse
 from ..assignments import AssignmentDatabase
 from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
-from ..session_service import SessionNotFoundError, SessionService
+from ..session_service import (
+    CandidateNotFoundError,
+    InvestigationNotFoundError,
+    SessionNotFoundError,
+    SessionService,
+)
 from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -447,6 +452,35 @@ class Handler(BaseHTTPRequestHandler):
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
             if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                state = query.get("state", [None])[0]
+                if parts[4] == "candidates":
+                    result = self.sessions.list_candidates(parts[3], state=state)
+                else:
+                    result = self.sessions.list_investigations(parts[3], state=state)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                if parts[4] == "candidates":
+                    result = self.sessions.get_candidate(parts[3], parts[5])
+                else:
+                    result = self.sessions.get_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
+            if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "workers"
@@ -476,6 +510,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
         except (TypeError, ValueError) as exc:
             self._send_api_error(400, "invalid_request", str(exc))
 
@@ -489,6 +527,55 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+            ):
+                candidate = self.sessions.create_candidate(parts[3], payload)
+                self._send_json(api_payload(candidate), 201)
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+                and parts[6] in ("investigations", "dismiss")
+            ):
+                if parts[6] == "investigations":
+                    result = self.sessions.enqueue_investigation(
+                        parts[3], parts[5], payload
+                    )
+                    self._send_json(api_payload(result), 201)
+                else:
+                    result = self.sessions.dismiss_candidate(parts[3], parts[5])
+                    self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[6] in ("start", "complete", "fail", "cancel")
+            ):
+                if parts[6] == "start":
+                    result = self.sessions.start_investigation(
+                        parts[3], parts[5], tune=self.workers.tune
+                    )
+                elif parts[6] == "complete":
+                    result = self.sessions.complete_investigation(parts[3], parts[5])
+                elif parts[6] == "fail":
+                    result = self.sessions.fail_investigation(
+                        parts[3], parts[5], payload.get("error")
+                    )
+                else:
+                    result = self.sessions.cancel_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -546,6 +633,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
         except KeyError as exc:
             self._send_api_error(400, "missing_field", f"Отсутствует поле: {exc.args[0]}")
         except UnsupportedAdapterError as exc:
