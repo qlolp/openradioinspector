@@ -60,6 +60,7 @@ find "CD Ligtht 32314" -name InspectorRT.exe
 | 6. Модель данных | `firebird_meta.py` | `--db <файл базы>` |
 | 7. Лицензирование | `strings_extract.py` | `--grep Guardant` |
 | 8. Что осталось неразобранным | `msi_tables.py` | `--streams`, `--strings` |
+| 9. Тексты справки `.hlp` | `hlp_reader.py` | `python3 tools/analysis/hlp_reader.py файл.hlp` |
 
 ## Проверка самих инструментов
 
@@ -70,3 +71,17 @@ find "CD Ligtht 32314" -name InspectorRT.exe
 ```bash
 python3 -m unittest tests.test_analysis_tools -v
 ```
+
+## Разбор справки `.hlp`
+
+`hlp_reader.py` читает файлы справки WinHelp: заголовок файла, внутренний
+каталог в виде B+-дерева, блоки тем `|TOPIC` с распаковкой HLP-LZ77 и таблицу
+фраз `|Phrases`, после чего выдаёт заголовки и тексты тем.
+
+```bash
+python3 tools/analysis/hlp_reader.py "CD Ligtht 32314/Program Files/32314/data/OFFLINE"/*/*/*.hlp
+python3 tools/analysis/hlp_reader.py файл.hlp --json
+```
+
+Формат описан в документации X-Ways «Windows Help File Format» (то же
+описание использует программа helpdeco).

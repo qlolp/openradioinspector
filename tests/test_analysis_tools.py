@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools" / "analysis"))
 
 from firebird_meta import classify, identifiers  # noqa: E402
+from hlp_reader import HlpError, decompress_lz77, read_hlp  # noqa: E402
 from msi_tables import CompoundFile  # noqa: E402
 from pe_resources import PEFile, find_forms, parse_dfm  # noqa: E402
 from strings_extract import ascii_strings, utf16_strings  # noqa: E402
@@ -134,6 +135,65 @@ class TestRealDistribution(unittest.TestCase):
         names = identifiers(db)
         self.assertIn("TASKPLAN", names)
         self.assertIn("GEN_TASKTYPEID", names)
+
+
+class TestHlpDecompression(unittest.TestCase):
+    """Распаковка HLP-LZ77."""
+
+    def test_literals_are_emitted_as_is(self):
+        # Управляющий байт 0x00: все восемь бит — литералы.
+        compressed = bytes([0x00]) + b"ABCDEFGH"
+        self.assertEqual(decompress_lz77(compressed, 64), b"ABCDEFGH")
+
+    def test_match_copies_from_ring_buffer(self):
+        # 0b00000010: бит 0 — литерал 'A', бит 1 — ссылка.
+        # Ссылка: pos = 0, len = 3 → копируются три байта назад от текущей позиции.
+        compressed = bytes([0b00000010, 0x41, 0x00, 0x00])
+        self.assertEqual(decompress_lz77(compressed, 64), b"AAAA")
+
+    def test_limit_is_respected(self):
+        compressed = bytes([0b11111111, 0x41, 0x42, 0x00, 0x00])
+        self.assertLessEqual(len(decompress_lz77(compressed, 3)), 3)
+
+    def test_non_hlp_file_is_reported(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "broken.hlp"
+            path.write_bytes(b"NOTAHLP" + b"\x00" * 64)
+            hlp = read_hlp(path)
+        self.assertEqual(hlp.topics, [])
+        self.assertTrue(hlp.errors)
+
+
+@unittest.skipUnless(locate_distribution(), "коммерческий диск отсутствует в рабочей копии")
+class TestRealHelpFiles(unittest.TestCase):
+    """Разбор настоящих файлов справки."""
+
+    def setUp(self) -> None:
+        self.root = locate_distribution()
+
+    def test_help_file_is_parsed(self):
+        hlp = next(self.root.rglob("InspectorRT.hlp"), None)
+        if hlp is None:
+            self.skipTest("InspectorRT.hlp не найден")
+        parsed = read_hlp(hlp)
+        self.assertEqual(parsed.errors, [])
+        self.assertGreater(parsed.topic_count, 10)
+        joined = "\n".join(topic.text for topic in parsed.topics)
+        self.assertIn("InspectorRT", joined)
+        self.assertIn("эталонной панорамой", joined)
+
+    def test_all_help_files_are_readable(self):
+        files = sorted(self.root.rglob("*.hlp"))
+        if not files:
+            self.skipTest("файлы справки не найдены")
+        total = 0
+        for path in files:
+            parsed = read_hlp(path)
+            self.assertEqual(parsed.errors, [], f"{path.name}: {parsed.errors}")
+            total += parsed.topic_count
+        self.assertGreater(total, 300)
 
 
 if __name__ == "__main__":
