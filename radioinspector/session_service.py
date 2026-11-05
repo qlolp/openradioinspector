@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 from .contracts import (
     API_VERSION,
     CONTRACT_VERSION,
+    DeviceState,
     MonitoringSession,
     ReceiverObservation,
     SessionEvent,
@@ -60,6 +61,17 @@ class SessionService:
         self._lock = threading.RLock()
         if store is not None:
             restored = store.load_sessions()
+            for session in restored:
+                runtime_state_changed = False
+                for stream in session.streams:
+                    if stream.state is not DeviceState.DISCONNECTED:
+                        # Потоки ОС не переживают перезапуск процесса. Сеанс и
+                        # измерения восстанавливаются, но исполнители не запускаются
+                        # автоматически и не должны выглядеть работающими.
+                        stream.state = DeviceState.DISCONNECTED
+                        runtime_state_changed = True
+                if runtime_state_changed:
+                    store.save_session(session)
             self._sessions = {item.id: item for item in restored}
             events = store.load_events(limit=history_limit)
             self._events.extend(events)
@@ -106,18 +118,32 @@ class SessionService:
     def create_session(self, payload: dict[str, Any]) -> MonitoringSession:
         if not isinstance(payload, dict):
             raise TypeError("Тело запроса должно быть JSON-объектом")
-        session = MonitoringSession.from_dict(payload)
+        if payload.get("state", "draft") != "draft":
+            raise ValueError("Новый сеанс должен иметь состояние draft")
+        for field in ("created_at", "started_at", "ended_at"):
+            if payload.get(field) is not None:
+                raise ValueError(f"{field} назначается службой жизненного цикла")
+        creation = dict(payload)
+        creation["created_at"] = to_primitive(self._clock())
+        session = MonitoringSession.from_dict(creation)
         with self._lock:
             if session.id in self._sessions:
                 raise ValueError(f"Сеанс уже существует: {session.id}")
-            if self._store is not None:
-                self._store.save_session(session)
-            self._sessions[session.id] = session
-            self._append_event_locked(
+            existing_ids = {
+                stream.id for item in self._sessions.values() for stream in item.streams
+            }
+            for stream in session.streams:
+                if stream.id in existing_ids:
+                    raise ValueError(f"Поток уже принадлежит другому сеансу: {stream.id}")
+            event = self._make_event_locked(
                 "session.created",
                 session_id=session.id,
                 payload={"session": to_primitive(session)},
             )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session.id] = session
+            self._publish_event_locked(event)
             return copy.deepcopy(session)
 
     def list_sessions(self) -> list[MonitoringSession]:
@@ -135,40 +161,54 @@ class SessionService:
         self, session_id: str, *, at: Optional[datetime] = None
     ) -> MonitoringSession:
         with self._lock:
-            session = self._get_locked(session_id)
-            previous = copy.deepcopy(session)
+            session = copy.deepcopy(self._get_locked(session_id))
             session.start(at or self._clock())
-            try:
-                if self._store is not None:
-                    self._store.save_session(session)
-                self._append_event_locked(
-                    "session.started",
-                    session_id=session.id,
-                    payload={"session": to_primitive(session)},
-                )
-            except Exception:
-                self._sessions[session_id] = previous
-                raise
-            return copy.deepcopy(session)
+            return self._save_transition_locked(session, "session.started")
 
     def stop_session(
         self, session_id: str, *, at: Optional[datetime] = None
     ) -> MonitoringSession:
         with self._lock:
-            session = self._get_locked(session_id)
-            previous = copy.deepcopy(session)
+            session = copy.deepcopy(self._get_locked(session_id))
             session.stop(at or self._clock())
-            try:
-                if self._store is not None:
-                    self._store.save_session(session)
-                self._append_event_locked(
-                    "session.stopped",
-                    session_id=session.id,
-                    payload={"session": to_primitive(session)},
-                )
-            except Exception:
-                self._sessions[session_id] = previous
-                raise
+            return self._save_transition_locked(session, "session.stopped")
+
+    def _save_transition_locked(
+        self, session: MonitoringSession, event_type: str
+    ) -> MonitoringSession:
+        event = self._make_event_locked(
+            event_type, session_id=session.id, payload={"session": to_primitive(session)}
+        )
+        if self._store is not None:
+            self._store.save_session(session, event=event)
+        self._sessions[session.id] = session
+        self._publish_event_locked(event)
+        return copy.deepcopy(session)
+
+    def set_stream_state(
+        self, session_id: str, stream_id: str, state: DeviceState | str
+    ) -> MonitoringSession:
+        """Сохраняет фактическое состояние потока и публикует его изменение."""
+        state = DeviceState(state)
+        with self._lock:
+            current = self._get_locked(session_id)
+            stream = next((item for item in current.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            if stream.state is state:
+                return copy.deepcopy(current)
+            session = copy.deepcopy(current)
+            stream = next(item for item in session.streams if item.id == stream_id)
+            stream.state = state
+            event = self._make_event_locked(
+                "device.state",
+                session_id=session_id,
+                payload={"stream_id": stream_id, "state": state.value},
+            )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session_id] = session
+            self._publish_event_locked(event)
             return copy.deepcopy(session)
 
     def ingest_sweep(self, payload: dict[str, Any] | Sweep) -> Sweep:
@@ -179,18 +219,19 @@ class SessionService:
             )
             if self._store is None and any(item.id == sweep.id for item in self._sweeps):
                 raise ValueError(f"Свип уже существует: {sweep.id}")
-            try:
-                if self._store is not None:
-                    self._store.record_sweep(sweep)
-                else:
-                    self._sweeps.append(copy.deepcopy(sweep))
-            except sqlite3.IntegrityError as exc:
-                raise ValueError(f"Свип уже существует или нарушает связи: {sweep.id}") from exc
-            self._append_event_locked(
+            event = self._make_event_locked(
                 "sweep.received",
                 session_id=sweep.session_id,
                 payload={"sweep": to_primitive(sweep)},
             )
+            try:
+                if self._store is not None:
+                    self._store.record_sweep(sweep, event=event)
+                else:
+                    self._sweeps.append(copy.deepcopy(sweep))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"Свип уже существует или нарушает связи: {sweep.id}") from exc
+            self._publish_event_locked(event)
             return copy.deepcopy(sweep)
 
     def ingest_observation(
@@ -209,20 +250,21 @@ class SessionService:
                 item.id == observation.id for item in self._observations
             ):
                 raise ValueError(f"Наблюдение уже существует: {observation.id}")
+            event = self._make_event_locked(
+                "observation.received",
+                session_id=observation.session_id,
+                payload={"observation": to_primitive(observation)},
+            )
             try:
                 if self._store is not None:
-                    self._store.record_observation(observation)
+                    self._store.record_observation(observation, event=event)
                 else:
                     self._observations.append(copy.deepcopy(observation))
             except sqlite3.IntegrityError as exc:
                 raise ValueError(
                     f"Наблюдение уже существует или нарушает связи: {observation.id}"
                 ) from exc
-            self._append_event_locked(
-                "observation.received",
-                session_id=observation.session_id,
-                payload={"observation": to_primitive(observation)},
-            )
+            self._publish_event_locked(event)
             return copy.deepcopy(observation)
 
     @staticmethod
@@ -244,6 +286,7 @@ class SessionService:
                 if item.session_id == session_id
                 and (stream_id is None or item.stream_id == stream_id)
             ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
             return copy.deepcopy(selected[-limit:])
 
     def list_observations(
@@ -261,6 +304,7 @@ class SessionService:
                 if item.session_id == session_id
                 and (stream_id is None or item.stream_id == stream_id)
             ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
             return copy.deepcopy(selected[-limit:])
 
     def _validate_stream_query_locked(
@@ -292,7 +336,7 @@ class SessionService:
         session_id: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> SessionEvent:
-        """Публикует событие следующих слоёв: кандидатов и состояния приборов."""
+        """Публикует служебное событие приборных исполнителей и адаптеров."""
         with self._lock:
             if session_id is not None:
                 self._get_locked(session_id)
@@ -347,15 +391,30 @@ class SessionService:
         session_id: Optional[str],
         payload: dict[str, Any],
     ) -> SessionEvent:
-        event = SessionEvent(
+        event = self._make_event_locked(
+            event_type, session_id=session_id, payload=payload
+        )
+        if self._store is not None:
+            self._store.append_event(event)
+        return self._publish_event_locked(event)
+
+    def _make_event_locked(
+        self,
+        event_type: str,
+        *,
+        session_id: Optional[str],
+        payload: dict[str, Any],
+    ) -> SessionEvent:
+        return SessionEvent(
             sequence=self._sequence + 1,
             event_type=event_type,
             occurred_at=self._clock(),
             session_id=session_id,
             payload=copy.deepcopy(payload),
         )
-        if self._store is not None:
-            self._store.append_event(event)
+
+    def _publish_event_locked(self, event: SessionEvent) -> SessionEvent:
+        """Обновляет replay и подписчиков только после успешного commit архива."""
         self._sequence = event.sequence
         self._events.append(event)
         for subscriber in self._subscribers.values():

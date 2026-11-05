@@ -28,10 +28,11 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
 from ..contracts import api_payload
+from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
 from ..session_service import SessionNotFoundError, SessionService
 from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
@@ -257,6 +258,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "OpenRadioInspector"
     state: ApplicationState
     sessions: SessionService
+    workers: DeviceWorkerManager
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
@@ -417,10 +419,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.health()))
                 return
             if route == "/api/v1/capabilities":
-                self._send_json(api_payload(self.sessions.capabilities()))
+                capabilities = self.sessions.capabilities()
+                capabilities["features"].update(self.workers.capabilities())
+                self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/sessions":
                 self._send_json(api_payload(self.sessions.list_sessions()))
+                return
+            if route == "/api/v1/workers":
+                self._send_json(api_payload(self.workers.list_workers()))
                 return
             if route == "/api/v1/events/history":
                 after = int(query.get("after", ["0"])[0])
@@ -436,6 +443,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_session_events(int(raw_after))
                 return
             parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "workers"
+            ):
+                self._send_json(api_payload(self.workers.list_workers(parts[3])))
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -469,6 +486,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(session), 201)
                 return
             parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "workers"
+                and parts[5] in ("start", "stop")
+            ):
+                if parts[5] == "start":
+                    result = self.workers.start_session(parts[3])
+                else:
+                    result = self.workers.stop_session(parts[3])
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+                and parts[6] in ("start", "stop", "tune")
+            ):
+                if parts[6] == "start":
+                    result = self.workers.start_stream(parts[3], parts[5])
+                elif parts[6] == "stop":
+                    result = self.workers.stop_stream(parts[3], parts[5])
+                else:
+                    result = self.workers.tune(parts[3], parts[5], payload)
+                self._send_json(api_payload(result))
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -493,6 +539,7 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[4] == "start":
                     session = self.sessions.start_session(parts[3])
                 else:
+                    self.workers.stop_session(parts[3])
                     session = self.sessions.stop_session(parts[3])
                 self._send_json(api_payload(session))
                 return
@@ -501,6 +548,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
         except KeyError as exc:
             self._send_api_error(400, "missing_field", f"Отсутствует поле: {exc.args[0]}")
+        except UnsupportedAdapterError as exc:
+            self._send_api_error(400, "unsupported_adapter", str(exc))
+        except WorkerError as exc:
+            self._send_api_error(400, "worker_error", str(exc))
         except (TypeError, ValueError) as exc:
             self._send_api_error(400, "invalid_request", str(exc))
 
@@ -571,6 +622,7 @@ def create_server(
     library: Optional[str] = None,
     sessions: Optional[SessionService] = None,
     session_database: Optional[str] = None,
+    workers: Optional[DeviceWorkerManager] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -582,13 +634,18 @@ def create_server(
         session_service = SessionService(store=SQLiteSessionStore(session_database))
     else:
         session_service = SessionService()
+    if workers is not None and workers.sessions is not session_service:
+        raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
+    worker_manager = workers or DeviceWorkerManager(session_service)
     handler = type(
         "BoundHandler",
         (Handler,),
-        {"state": state, "sessions": session_service},
+        {"state": state, "sessions": session_service, "workers": worker_manager},
     )
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
+    httpd.session_service = session_service
+    httpd.worker_manager = worker_manager
     return httpd
 
 
@@ -617,4 +674,6 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.worker_manager.close()
         httpd.server_close()
+        httpd.session_service.close()
