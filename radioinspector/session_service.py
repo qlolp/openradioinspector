@@ -62,6 +62,7 @@ OPEN_INVESTIGATION_STATES = frozenset(
     }
 )
 RUNTIME_INVESTIGATION_STATES = OPEN_INVESTIGATION_STATES - {InvestigationState.QUEUED}
+MAX_MEASUREMENT_BATCH = 100
 
 
 class SessionService:
@@ -159,6 +160,9 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "measurement_batch_ingest": True,
+                "measurement_batch_atomic": True,
+                "measurement_batch_limit": MAX_MEASUREMENT_BATCH,
                 "candidate_investigations": True,
                 "manual_investigation_handoff": True,
                 "semi_automatic_handoff": True,
@@ -364,6 +368,97 @@ class SessionService:
                 ) from exc
             self._publish_event_locked(event)
             return copy.deepcopy(observation)
+
+    @staticmethod
+    def _batch_payloads(payloads: Any) -> list[Any]:
+        if not isinstance(payloads, list):
+            raise TypeError("Пакет измерений должен быть JSON-массивом")
+        if not 1 <= len(payloads) <= MAX_MEASUREMENT_BATCH:
+            raise ValueError(
+                f"Пакет должен содержать от 1 до {MAX_MEASUREMENT_BATCH} измерений"
+            )
+        return payloads
+
+    def ingest_sweeps(self, payloads: list[dict[str, Any] | Sweep]) -> list[Sweep]:
+        """Атомарно принимает пакет свипов и публикует события после commit."""
+        items = self._batch_payloads(payloads)
+        sweeps = [item if isinstance(item, Sweep) else Sweep.from_dict(item) for item in items]
+        with self._lock:
+            batch_ids: set[str] = set()
+            for sweep in sweeps:
+                self._validate_measurement_locked(
+                    sweep.session_id, sweep.stream_id, sweep.level_unit
+                )
+                if sweep.id in batch_ids:
+                    raise ValueError(f"Дубликат ID внутри пакета: {sweep.id}")
+                batch_ids.add(sweep.id)
+                if self._store is None and any(item.id == sweep.id for item in self._sweeps):
+                    raise ValueError(f"Свип уже существует: {sweep.id}")
+            events = [
+                SessionEvent(
+                    sequence=self._sequence + offset,
+                    event_type="sweep.received",
+                    occurred_at=self._clock(),
+                    session_id=sweep.session_id,
+                    payload={"sweep": to_primitive(sweep)},
+                )
+                for offset, sweep in enumerate(sweeps, start=1)
+            ]
+            try:
+                if self._store is not None:
+                    self._store.record_sweeps(sweeps, events=events)
+                else:
+                    self._sweeps.extend(copy.deepcopy(sweeps))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Пакет свипов содержит дубликат или нарушает связи") from exc
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(sweeps)
+
+    def ingest_observations(
+        self, payloads: list[dict[str, Any] | ReceiverObservation]
+    ) -> list[ReceiverObservation]:
+        """Атомарно принимает пакет наблюдений и публикует события после commit."""
+        items = self._batch_payloads(payloads)
+        observations = [
+            item if isinstance(item, ReceiverObservation) else ReceiverObservation.from_dict(item)
+            for item in items
+        ]
+        with self._lock:
+            batch_ids: set[str] = set()
+            for observation in observations:
+                self._validate_measurement_locked(
+                    observation.session_id, observation.stream_id, observation.level_unit
+                )
+                if observation.id in batch_ids:
+                    raise ValueError(f"Дубликат ID внутри пакета: {observation.id}")
+                batch_ids.add(observation.id)
+                if self._store is None and any(
+                    item.id == observation.id for item in self._observations
+                ):
+                    raise ValueError(f"Наблюдение уже существует: {observation.id}")
+            events = [
+                SessionEvent(
+                    sequence=self._sequence + offset,
+                    event_type="observation.received",
+                    occurred_at=self._clock(),
+                    session_id=observation.session_id,
+                    payload={"observation": to_primitive(observation)},
+                )
+                for offset, observation in enumerate(observations, start=1)
+            ]
+            try:
+                if self._store is not None:
+                    self._store.record_observations(observations, events=events)
+                else:
+                    self._observations.extend(copy.deepcopy(observations))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    "Пакет наблюдений содержит дубликат или нарушает связи"
+                ) from exc
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(observations)
 
     @staticmethod
     def _limit(limit: int) -> int:

@@ -33,8 +33,10 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/stop` | Остановка одного исполнителя |
 | `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/tune` | Команда перестройки приёмника через его очередь |
 | `POST` | `/api/v1/sessions/{id}/sweeps` | Приём спектрального свипа |
+| `POST` | `/api/v1/sessions/{id}/sweeps/batch` | Атомарный приём пакета свипов |
 | `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
+| `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
 | `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
@@ -266,6 +268,37 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps \
 ```
 
 Успешный приём возвращает HTTP 201 и событие `sweep.received` или `observation.received` в SSE. Выборка возвращает последние `limit` записей по времени начала измерения в хронологическом порядке (при равном времени — по ID), независимо от порядка поступления; допустимы значения от 1 до 1000. SQLite и режим памяти учитывают микросекунды одинаково. Старые архивные строки без дробной части секунды сортируются корректно без переписывания измерений.
+
+### Атомарная пакетная запись
+
+`POST /api/v1/sessions/{id}/sweeps/batch` и `POST /api/v1/sessions/{id}/observations/batch` принимают от 1 до 100 элементов одного типа в поле `items`. Каждый элемент имеет тот же контракт, что одиночный POST. Поле `session_id` внутри элемента можно опустить; если оно задано, то обязано совпадать с маршрутом. Один поток и исходная единица проверяются для каждого элемента независимо, автоматического пересчёта уровней нет.
+
+```bash
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "items": [
+      {
+        "id": "sweep-1",
+        "stream_id": "TINYSA_STREAM_ID",
+        "interval": {"started_at":"2026-11-05T10:00:00Z","ended_at":"2026-11-05T10:00:01Z"},
+        "frequencies_hz": [100000000,100100000],
+        "levels": [-80.5,-42.0],
+        "level_unit": "dBm"
+      },
+      {
+        "id": "sweep-2",
+        "stream_id": "TINYSA_STREAM_ID",
+        "interval": {"started_at":"2026-11-05T10:00:01Z","ended_at":"2026-11-05T10:00:02Z"},
+        "frequencies_hz": [100000000,100100000],
+        "levels": [-81.0,-43.0],
+        "level_unit": "dBm"
+      }
+    ]
+  }'
+```
+
+Успешный ответ имеет HTTP 201 и `data={"items":[...],"count":2}`. Порядок элементов сохраняется. Для каждого измерения создаётся своё обычное событие `sweep.received` или `observation.received` с монотонной последовательностью. В SQLite весь пакет и все его события записываются одной транзакцией; replay и SSE обновляются только после commit. Ошибка любого элемента, дубликат ID внутри пакета или конфликт с архивом отклоняет весь пакет: частичные измерения и события не сохраняются. Memory-only режим применяет ту же проверку «всё или ничего» до изменения списков. Capabilities сообщают `measurement_batch_ingest=true`, `measurement_batch_atomic=true` и `measurement_batch_limit=100`.
 
 ## Кандидаты и режимы handoff
 
