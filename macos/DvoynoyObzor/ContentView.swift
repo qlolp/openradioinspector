@@ -61,12 +61,15 @@ struct ContentView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             Divider()
-            HSplitView {
-                RemoteArPane(model: model).frame(minWidth: 460)
-                RemoteUltraPane(model: model).frame(minWidth: 460)
+            VSplitView {
+                HSplitView {
+                    RemoteArPane(model: model).frame(minWidth: 460)
+                    RemoteUltraPane(model: model).frame(minWidth: 460)
+                }
+                RemoteWorkflowPane(model: model).frame(minHeight: 280)
             }
         }
-        .frame(minWidth: 980, minHeight: 700)
+        .frame(minWidth: 980, minHeight: 860)
         .background(WindowCloseObserver {
             // Закрытие UI не останавливает измерения и не закрывает приборы ядра.
             model.disconnect()
@@ -100,15 +103,42 @@ final class RemoteDualModel: ObservableObject {
     @Published var waterfallRevision = 0
     @Published var latestObservation: PlatformObservation?
     @Published var live = "Данные ядра ещё не получены"
+    @Published var candidates: [PlatformCandidate] = []
+    @Published var investigations: [PlatformInvestigation] = []
+    @Published var nextInvestigation: PlatformInvestigation?
+    @Published var selectedCandidateID = ""
+    @Published var selectedInvestigationID = ""
+    @Published var investigationPriority = "0"
+    @Published var failureReason = ""
+    @Published var automaticHandoffStatus: PlatformAutomaticStatus?
+    @Published var automaticDetectionStatus: PlatformAutomaticStatus?
+    @Published var detectionInterval = "1"
+    @Published var detectionStreamID = ""
+    @Published var detectionThreshold = "-70"
+    @Published var detectionDedupBandwidth = "100000"
+    @Published var detectionCooldown = "60"
+    @Published var detectionMaximumCandidates = "10"
+    @Published var handoffInterval = "1"
+    @Published var handoffMinimumPriority = "0"
+    @Published var handoffReceiverStreamID = ""
+    @Published var handoffMaximumFailures = "3"
+    @Published var handoffRetryDelay = "30"
 
     private var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
     private var generation = 0
     private var absorbedSweepIDs: Set<String> = []
+    private var policyFormsInitialized = false
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
     var thresholdDbm: Double? { parseUserNumber(threshold) }
+    var selectedCandidate: PlatformCandidate? {
+        candidates.first(where: { $0.id == selectedCandidateID })
+    }
+    var selectedInvestigation: PlatformInvestigation? {
+        investigations.first(where: { $0.id == selectedInvestigationID })
+    }
 
     func worker(for streamID: String?) -> PlatformWorker? {
         guard let streamID else { return nil }
@@ -166,6 +196,7 @@ final class RemoteDualModel: ObservableObject {
         guard id != selectedSessionID else { return }
         generation += 1
         selectedSessionID = id
+        busy = false
         clearMeasurements()
         Task { await refresh() }
     }
@@ -201,6 +232,7 @@ final class RemoteDualModel: ObservableObject {
             session = snapshot.session
             workers = snapshot.workers
             applyMeasurements(snapshot)
+            applyWorkflow(snapshot)
             errorText = nil
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
@@ -247,6 +279,181 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
+    func createCandidateFromLatestPeak() {
+        do {
+            guard let analyzer, analyzer.isDbmAnalyzer,
+                  let sweep = latestSweep, sweep.streamId == analyzer.id, sweep.levelUnit == "dBm",
+                  let index = sweep.levels.indices.max(by: { sweep.levels[$0] < sweep.levels[$1] }) else {
+                throw PlatformError.invalidCommand("Нет фактического dBm sweep для создания кандидата")
+            }
+            let draft = try PlatformCandidateDraft(
+                sourceStreamId: analyzer.id, interval: sweep.interval,
+                centerFrequencyHz: sweep.frequenciesHz[index],
+                peakLevel: sweep.levels[index], levelUnit: sweep.levelUnit,
+                observationIds: [sweep.id]
+            )
+            perform { try await $0.createCandidate(sessionID: $1, draft: draft) }
+        } catch {
+            errorText = describeSession(error)
+        }
+    }
+
+    func enqueueSelectedCandidate() {
+        do {
+            guard let selectedCandidate else {
+                throw PlatformError.invalidCommand("Выберите кандидата")
+            }
+            guard let receiver, receiver.isReceiver else {
+                throw PlatformError.invalidCommand("Для исследования нужен receiver сеанса")
+            }
+            let priority = try integerField(investigationPriority, "Приоритет", 0...1_000_000)
+            let draft = try PlatformInvestigationDraft(
+                targetStreamId: receiver.id,
+                targetFrequencyHz: selectedCandidate.centerFrequencyHz,
+                mode: mode, priority: priority
+            )
+            let candidateID = selectedCandidate.id
+            perform {
+                try await $0.enqueueInvestigation(sessionID: $1, candidateID: candidateID, draft: draft)
+            }
+        } catch {
+            errorText = describeSession(error)
+        }
+    }
+
+    func dismissSelectedCandidate() {
+        guard let selectedCandidate else {
+            errorText = "Выберите кандидата"
+            return
+        }
+        let id = selectedCandidate.id
+        perform { try await $0.dismissCandidate(sessionID: $1, candidateID: id) }
+    }
+
+    func startSelectedInvestigation() {
+        guard let selectedInvestigation else {
+            errorText = "Выберите исследование"
+            return
+        }
+        let id = selectedInvestigation.id
+        perform { try await $0.startInvestigation(sessionID: $1, investigationID: id) }
+    }
+
+    func startNextInvestigation() {
+        guard let nextInvestigation else {
+            errorText = "Очередь исследований пуста"
+            return
+        }
+        let id = nextInvestigation.id
+        perform { try await $0.startNextInvestigation(sessionID: $1, investigationID: id, confirm: true) }
+    }
+
+    func completeSelectedInvestigation() {
+        guard let selectedInvestigation else {
+            errorText = "Выберите исследование"
+            return
+        }
+        let id = selectedInvestigation.id
+        perform { try await $0.completeInvestigation(sessionID: $1, investigationID: id) }
+    }
+
+    func failSelectedInvestigation() {
+        guard let selectedInvestigation else {
+            errorText = "Выберите исследование"
+            return
+        }
+        let id = selectedInvestigation.id
+        let reason = failureReason
+        perform { try await $0.failInvestigation(sessionID: $1, investigationID: id, error: reason) }
+    }
+
+    func cancelSelectedInvestigation() {
+        guard let selectedInvestigation else {
+            errorText = "Выберите исследование"
+            return
+        }
+        let id = selectedInvestigation.id
+        perform { try await $0.cancelInvestigation(sessionID: $1, investigationID: id) }
+    }
+
+    func saveAutomaticDetection() {
+        configureAutomaticDetection(enabled: automaticDetectionStatus?.policy.enabled ?? false)
+    }
+
+    func enableAutomaticDetection() {
+        configureAutomaticDetection(enabled: true)
+    }
+
+    func disableAutomaticDetection() {
+        perform { try await $0.disableAutomaticDetection(sessionID: $1) }
+    }
+
+    func saveAutomaticHandoff() {
+        configureAutomaticHandoff(enabled: automaticHandoffStatus?.policy.enabled ?? false)
+    }
+
+    func enableAutomaticHandoff() {
+        configureAutomaticHandoff(enabled: true)
+    }
+
+    func disableAutomaticHandoff() {
+        perform { try await $0.disableAutomaticHandoff(sessionID: $1) }
+    }
+
+    private func configureAutomaticDetection(enabled: Bool) {
+        do {
+            let draft = try PlatformDetectionPolicyDraft(
+                enabled: enabled,
+                intervalSeconds: try numberField(detectionInterval, "Период обнаружения", 0.1...3600.0),
+                streamId: detectionStreamID,
+                thresholdDbm: try numberField(detectionThreshold, "Порог dBm", -300.0...100.0),
+                dedupBandwidthHz: try int64Field(detectionDedupBandwidth, "Полоса dedup", 1...10_000_000_000),
+                cooldownSeconds: try numberField(detectionCooldown, "Cooldown", 0.0...86400.0),
+                maxCandidatesPerSweep: try integerField(detectionMaximumCandidates, "Максимум кандидатов", 1...100)
+            )
+            perform { try await $0.configureAutomaticDetection(sessionID: $1, draft: draft) }
+        } catch {
+            errorText = describeSession(error)
+        }
+    }
+
+    private func configureAutomaticHandoff(enabled: Bool) {
+        do {
+            let draft = try PlatformHandoffPolicyDraft(
+                enabled: enabled,
+                intervalSeconds: try numberField(handoffInterval, "Период handoff", 0.1...3600.0),
+                minimumPriority: try integerField(handoffMinimumPriority, "Минимальный приоритет", 0...1_000_000),
+                receiverStreamId: handoffReceiverStreamID,
+                maxConsecutiveFailures: try integerField(handoffMaximumFailures, "Сбоев до отключения", 1...100),
+                retryDelaySeconds: try numberField(handoffRetryDelay, "Задержка повтора", 0.1...86400.0)
+            )
+            perform { try await $0.configureAutomaticHandoff(sessionID: $1, draft: draft) }
+        } catch {
+            errorText = describeSession(error)
+        }
+    }
+
+    private func integerField(_ text: String, _ label: String, _ range: ClosedRange<Int>) throws -> Int {
+        guard let value = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)), range.contains(value) else {
+            throw PlatformError.invalidCommand("\(label): требуется целое в диапазоне \(range.lowerBound)…\(range.upperBound)")
+        }
+        return value
+    }
+
+    private func int64Field(_ text: String, _ label: String, _ range: ClosedRange<Int64>) throws -> Int64 {
+        guard let value = Int64(text.trimmingCharacters(in: .whitespacesAndNewlines)), range.contains(value) else {
+            throw PlatformError.invalidCommand("\(label): требуется целое в диапазоне \(range.lowerBound)…\(range.upperBound)")
+        }
+        return value
+    }
+
+    private func numberField(_ text: String, _ label: String, _ range: ClosedRange<Double>) throws -> Double {
+        guard let value = parseUserNumber(text), value.isFinite, range.contains(value) else {
+            throw PlatformError.invalidCommand("\(label): требуется конечное число в диапазоне \(range.lowerBound)…\(range.upperBound)")
+        }
+        return value
+    }
+
     private var latestSweep: PlatformSweep?
 
     private func performSessionAction(
@@ -267,14 +474,18 @@ final class RemoteDualModel: ObservableObject {
     ) {
         guard let client, !selectedSessionID.isEmpty else { return }
         let id = selectedSessionID
+        let requestGeneration = generation
         busy = true
         Task {
             do {
                 _ = try await operation(client, id)
+                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
                 await refresh()
             } catch {
+                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
                 errorText = describeSession(error)
             }
+            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
             busy = false
         }
     }
@@ -301,6 +512,52 @@ final class RemoteDualModel: ObservableObject {
         rows = []
         waterfall = WaterfallHistory()
         waterfallRevision += 1
+        candidates = []
+        investigations = []
+        nextInvestigation = nil
+        selectedCandidateID = ""
+        selectedInvestigationID = ""
+        automaticHandoffStatus = nil
+        automaticDetectionStatus = nil
+        policyFormsInitialized = false
+    }
+
+    private func applyWorkflow(_ snapshot: PlatformSnapshot) {
+        candidates = snapshot.candidates
+        investigations = snapshot.investigations
+        nextInvestigation = snapshot.nextInvestigation
+        automaticHandoffStatus = snapshot.automaticHandoff
+        automaticDetectionStatus = snapshot.automaticDetection
+        if !candidates.contains(where: { $0.id == selectedCandidateID }) {
+            selectedCandidateID = candidates.first(where: { $0.state == "new" })?.id ?? candidates.first?.id ?? ""
+        }
+        if !investigations.contains(where: { $0.id == selectedInvestigationID }) {
+            selectedInvestigationID = investigations.first(where: {
+                ["queued", "tuning", "listening", "decoding"].contains($0.state)
+            })?.id ?? investigations.first?.id ?? ""
+        }
+        loadPolicyFormsIfNeeded()
+    }
+
+    private func loadPolicyFormsIfNeeded() {
+        guard !policyFormsInitialized,
+              automaticHandoffStatus != nil, automaticDetectionStatus != nil else { return }
+        if let policy = automaticDetectionStatus?.policy {
+            detectionInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
+            detectionStreamID = policy.streamId ?? analyzer?.id ?? ""
+            detectionThreshold = policy.thresholdDbm.map { String(describing: $0) } ?? "-70"
+            detectionDedupBandwidth = policy.dedupBandwidthHz.map { String($0) } ?? "100000"
+            detectionCooldown = policy.cooldownSeconds.map { String(describing: $0) } ?? "60"
+            detectionMaximumCandidates = policy.maxCandidatesPerSweep.map { String($0) } ?? "10"
+        }
+        if let policy = automaticHandoffStatus?.policy {
+            handoffInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
+            handoffMinimumPriority = policy.minimumPriority.map { String($0) } ?? "0"
+            handoffReceiverStreamID = policy.receiverStreamId ?? receiver?.id ?? ""
+            handoffMaximumFailures = policy.maxConsecutiveFailures.map { String($0) } ?? "3"
+            handoffRetryDelay = policy.retryDelaySeconds.map { String(describing: $0) } ?? "30"
+        }
+        policyFormsInitialized = true
     }
 
     private func applyMeasurements(_ snapshot: PlatformSnapshot) {
