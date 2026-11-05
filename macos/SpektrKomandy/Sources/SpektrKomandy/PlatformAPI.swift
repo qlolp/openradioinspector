@@ -122,6 +122,10 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     public let levels: [Double]
     public let levelUnit: String
 
+    private enum CodingKeys: String, CodingKey {
+        case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)

@@ -13,6 +13,11 @@ public struct PlatformCandidate: Decodable, Identifiable, Equatable {
     public let observationIds: [String]
     public let state: String
 
+    private enum CodingKeys: String, CodingKey {
+        case id, sessionId, sourceStreamId, interval, centerFrequencyHz
+        case bandwidthHz, peakLevel, levelUnit, score, observationIds, state
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
@@ -49,6 +54,11 @@ public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
     public let endedAt: String?
     public let resultObservationIds: [String]
     public let error: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, candidateId, targetStreamId, targetFrequencyHz, state, priority, mode
+        case createdAt, startedAt, endedAt, resultObservationIds, error
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
