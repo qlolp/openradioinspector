@@ -10,7 +10,13 @@ from typing import Any, Callable, Optional
 
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
-from .workflows import candidate_payload, investigation_payload, session_payload
+from .workflows import (
+    automatic_detection_payload,
+    automatic_handoff_payload,
+    candidate_payload,
+    investigation_payload,
+    session_payload,
+)
 
 
 def session_label(session: dict[str, Any]) -> str:
@@ -171,6 +177,22 @@ class WindowsApp:
         self.handoff_var = self.tk.StringVar(value="Handoff: состояние не получено")
         ttk.Label(policies, textvariable=self.detection_var, wraplength=550).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         ttk.Label(policies, textvariable=self.handoff_var, wraplength=550).grid(row=0, column=1, sticky="ew")
+        self.detection_policy_button = ttk.Button(
+            policies,
+            text="Настроить обнаружение…",
+            command=lambda: self._open_policy_form("detection"),
+        )
+        self.detection_policy_button.grid(
+            row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0)
+        )
+        self.handoff_policy_button = ttk.Button(
+            policies,
+            text="Настроить handoff…",
+            command=lambda: self._open_policy_form("handoff"),
+        )
+        self.handoff_policy_button.grid(
+            row=1, column=1, sticky="w", pady=(6, 0)
+        )
 
         notebook = ttk.Notebook(outer)
         notebook.grid(row=4, column=0, sticky="nsew", pady=(8, 0))
@@ -1024,6 +1046,200 @@ class WindowsApp:
             operation = lambda: method(session_id, investigation_id)
         self._submit_action(descriptions[action], operation)
 
+    def _open_policy_form(self, kind: str) -> None:
+        if not self._require_session():
+            return
+        if kind not in ("detection", "handoff"):
+            raise ValueError(f"Неизвестная автоматическая политика: {kind}")
+        detection = kind == "detection"
+        status = (
+            self.snapshot.automatic_detection
+            if detection
+            else self.snapshot.automatic_handoff
+        ) or {}
+        policy = dict(status.get("policy") or {})
+        defaults = (
+            {
+                "interval_seconds": 1.0,
+                "stream_id": None,
+                "threshold_dbm": -70.0,
+                "dedup_bandwidth_hz": 100000,
+                "cooldown_seconds": 60.0,
+                "max_candidates_per_sweep": 10,
+            }
+            if detection
+            else {
+                "interval_seconds": 1.0,
+                "minimum_priority": 0,
+                "receiver_stream_id": None,
+                "max_consecutive_failures": 3,
+                "retry_delay_seconds": 30.0,
+            }
+        )
+        values = {**defaults, **policy}
+        title = (
+            "Автоматическое обнаружение кандидатов"
+            if detection
+            else "Автоматический handoff"
+        )
+        window, frame, error_var = self._new_form(title)
+        fields = (
+            (
+                ("interval_seconds", "Период проверки, с"),
+                ("threshold_dbm", "Порог, исходные dBm"),
+                ("dedup_bandwidth_hz", "Полоса dedup, Гц"),
+                ("cooldown_seconds", "Cooldown, с"),
+                ("max_candidates_per_sweep", "Максимум кандидатов за sweep"),
+            )
+            if detection
+            else (
+                ("interval_seconds", "Период проверки, с"),
+                ("minimum_priority", "Минимальный приоритет"),
+                ("max_consecutive_failures", "Сбоев до отключения"),
+                ("retry_delay_seconds", "Задержка повтора, с"),
+            )
+        )
+        variables = {
+            name: self.tk.StringVar(value=str(values.get(name, "")))
+            for name, _label in fields
+        }
+        for row, (name, label) in enumerate(fields):
+            self._form_entry(frame, row, label, variables[name])
+        row = len(fields)
+        stream_key = "stream_id" if detection else "receiver_stream_id"
+        stream_var = self.tk.StringVar(value=str(values.get(stream_key) or ""))
+        role = "spectrum_analyzer" if detection else "receiver"
+        streams = [
+            item
+            for item in (self.snapshot.session or {}).get("streams", [])
+            if item.get("role") == role
+            and (not detection or item.get("level_unit") == "dBm")
+        ]
+        self.ttk.Label(
+            frame,
+            text="Поток (пусто — любой подходящий)",
+        ).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.ttk.Combobox(
+            frame,
+            textvariable=stream_var,
+            values=[""] + [str(item["id"]) for item in streams],
+            state="readonly",
+        ).grid(row=row, column=1, sticky="ew", pady=4)
+        row += 1
+        note = (
+            "Только новые dBm sweeps. Создаются кандидаты new; очередь, handoff и s_meter_count не изменяются."
+            if detection
+            else "Запускаются только подходящие queued-исследования. Detector и complete/fail/cancel не вызываются."
+        )
+        self.ttk.Label(frame, text=note, wraplength=560).grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=6
+        )
+        row += 1
+        self.ttk.Label(
+            frame,
+            text="Runtime-only: после перезапуска сервера требуется новое явное включение.",
+            wraplength=560,
+        ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        client = self.client
+        session_id = self.session_id
+        method = (
+            client.configure_automatic_detection
+            if detection
+            else client.configure_automatic_handoff
+        )
+
+        def make_payload(enabled: bool) -> dict[str, Any]:
+            parameters = {
+                name: variable.get() for name, variable in variables.items()
+            }
+            parameters[stream_key] = stream_var.get()
+            builder = (
+                automatic_detection_payload
+                if detection
+                else automatic_handoff_payload
+            )
+            return builder(enabled=enabled, **parameters)
+
+        def submit(enabled: bool) -> None:
+            if enabled and (self.snapshot.session or {}).get("state") != "running":
+                error_var.set(
+                    "Автоматическую политику можно включить только в работающем сеансе."
+                )
+                return
+            try:
+                payload = make_payload(enabled)
+            except (TypeError, ValueError) as exc:
+                error_var.set(str(exc))
+                return
+            self._destroy_form(window)
+            name = "обнаружения" if detection else "handoff"
+            description = (
+                f"Явное включение {name}"
+                if enabled
+                else f"Сохранение выключенной политики {name}"
+            )
+            self._submit_action(
+                description,
+                lambda: method(session_id, payload),
+            )
+
+        row += 1
+        buttons = self.ttk.Frame(frame)
+        buttons.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(10, 4))
+        enabled = bool(policy.get("enabled"))
+        if enabled:
+            self.ttk.Button(
+                buttons,
+                text="Сохранить включённой",
+                command=lambda: submit(True),
+            ).pack(side="left")
+            self.ttk.Button(
+                buttons,
+                text="Выключить",
+                command=lambda: (
+                    self._destroy_form(window),
+                    self._disable_policy(kind),
+                ),
+            ).pack(side="left", padx=(8, 0))
+        else:
+            self.ttk.Button(
+                buttons,
+                text="Сохранить выключенной",
+                command=lambda: submit(False),
+            ).pack(side="left")
+            self.ttk.Button(
+                buttons,
+                text="Включить явно",
+                command=lambda: submit(True),
+            ).pack(side="left", padx=(8, 0))
+        self.ttk.Button(
+            buttons,
+            text="Отмена",
+            command=lambda: self._destroy_form(window),
+        ).pack(side="left", padx=(8, 0))
+        row += 1
+        self.ttk.Label(
+            frame, textvariable=error_var, foreground="#b3261e", wraplength=560
+        ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4)
+
+    def _disable_policy(self, kind: str) -> None:
+        if not self._require_session():
+            return
+        if kind not in ("detection", "handoff"):
+            raise ValueError(f"Неизвестная автоматическая политика: {kind}")
+        client = self.client
+        session_id = self.session_id
+        method = (
+            client.configure_automatic_detection
+            if kind == "detection"
+            else client.configure_automatic_handoff
+        )
+        name = "обнаружения" if kind == "detection" else "handoff"
+        self._submit_action(
+            f"Выключение {name}; другая политика не изменяется",
+            lambda: method(session_id, {"enabled": False}),
+        )
+
     def _session_action(self, action: str) -> None:
         if not self._require_session():
             return
@@ -1095,6 +1311,8 @@ class WindowsApp:
         for name in ("session_start", "session_stop", "workers_start", "workers_stop"):
             set_state(name, selected)
         set_state("session_create", connected)
+        set_state("detection_policy_button", selected)
+        set_state("handoff_policy_button", selected)
         stream_selected = selected and self.selected_stream_id() is not None
         for name in ("stream_start", "stream_stop"):
             set_state(name, stream_selected)

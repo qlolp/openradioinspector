@@ -22,7 +22,11 @@ from radioinspector.windows.client import (
     validate_tune,
 )
 from radioinspector.web.server import create_server
-from radioinspector.windows.workflows import session_payload as windows_session_payload
+from radioinspector.windows.workflows import (
+    automatic_detection_payload,
+    automatic_handoff_payload,
+    session_payload as windows_session_payload,
+)
 from tests.test_device_workers import simulated_session_payload, wait_until
 from tests.test_persistence import measurement_interval
 
@@ -407,6 +411,58 @@ class WindowsClientIntegrationTests(unittest.TestCase):
             self.client.get_session("created/windows")["name"],
             "Создано Windows-клиентом",
         )
+
+    def test_policy_editing_has_independent_opt_in_and_encoded_session_id(self) -> None:
+        self.client.start_session(self.session.id)
+        detection = automatic_detection_payload(
+            enabled=True,
+            interval_seconds=0.5,
+            stream_id=self.tinysa_id,
+            threshold_dbm=-65,
+            dedup_bandwidth_hz=125000,
+            cooldown_seconds=10,
+            max_candidates_per_sweep=4,
+        )
+        detection_status = self.client.configure_automatic_detection(
+            self.session.id, detection
+        )
+        self.assertTrue(detection_status["policy"]["enabled"])
+        self.assertEqual(detection_status["policy"]["stream_id"], self.tinysa_id)
+        self.assertFalse(
+            self.client.automatic_handoff(self.session.id)["policy"]["enabled"]
+        )
+
+        handoff = automatic_handoff_payload(
+            enabled=True,
+            interval_seconds=0.5,
+            minimum_priority=5,
+            receiver_stream_id=self.receiver_id,
+            max_consecutive_failures=2,
+            retry_delay_seconds=10,
+        )
+        handoff_status = self.client.configure_automatic_handoff(
+            self.session.id, handoff
+        )
+        self.assertTrue(handoff_status["policy"]["enabled"])
+        self.assertEqual(handoff_status["policy"]["minimum_priority"], 5)
+        self.assertTrue(
+            self.client.automatic_detection(self.session.id)["policy"]["enabled"]
+        )
+
+        disabled_detection = self.client.configure_automatic_detection(
+            self.session.id, {"enabled": False}
+        )
+        self.assertFalse(disabled_detection["policy"]["enabled"])
+        self.assertEqual(disabled_detection["policy"]["threshold_dbm"], -65.0)
+        self.assertTrue(
+            self.client.automatic_handoff(self.session.id)["policy"]["enabled"]
+        )
+        disabled_handoff = self.client.configure_automatic_handoff(
+            self.session.id, {"enabled": False}
+        )
+        self.assertFalse(disabled_handoff["policy"]["enabled"])
+        self.assertEqual(disabled_handoff["policy"]["receiver_stream_id"], self.receiver_id)
+        self.client.stop_session(self.session.id)
 
     def test_candidate_queue_confirmed_handoff_and_real_completion(self) -> None:
         self.client.start_session(self.session.id)
