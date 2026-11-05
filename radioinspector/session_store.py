@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .contracts import (
+    Candidate,
+    Investigation,
     MonitoringSession,
     ReceiverObservation,
     SessionEvent,
@@ -24,7 +26,7 @@ from .contracts import (
     to_primitive,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _json(value: Any) -> str:
@@ -139,6 +141,46 @@ class SQLiteSessionStore:
             );
             CREATE INDEX IF NOT EXISTS events_session_sequence
                 ON events(session_id, sequence);
+            CREATE TABLE IF NOT EXISTS candidates (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                source_stream_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                center_frequency_hz INTEGER NOT NULL,
+                bandwidth_hz INTEGER,
+                peak_level REAL,
+                level_unit TEXT NOT NULL,
+                score REAL,
+                observation_ids_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                UNIQUE (id, session_id),
+                FOREIGN KEY (source_stream_id, session_id)
+                    REFERENCES streams(id, session_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS candidates_session_state
+                ON candidates(session_id, state, started_at, id);
+            CREATE TABLE IF NOT EXISTS investigations (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
+                target_stream_id TEXT NOT NULL,
+                target_frequency_hz INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                priority INTEGER NOT NULL,
+                mode TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                ended_at TEXT,
+                result_observation_ids_json TEXT NOT NULL,
+                error TEXT,
+                FOREIGN KEY (candidate_id, session_id)
+                    REFERENCES candidates(id, session_id) ON DELETE CASCADE,
+                FOREIGN KEY (target_stream_id, session_id)
+                    REFERENCES streams(id, session_id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS investigations_session_queue
+                ON investigations(session_id, state, priority DESC, created_at, id);
             """
         )
 
@@ -252,7 +294,7 @@ class SQLiteSessionStore:
             self._insert_event(event)
 
     def _insert_event(self, event: SessionEvent) -> None:
-        """Insert inside the caller's transaction; never commit independently."""
+        """Вставляет событие в транзакции вызывающего метода без отдельного commit."""
         data = to_primitive(event)
         self._connection.execute(
             """
@@ -428,6 +470,179 @@ class SQLiteSessionStore:
                         "audio_uri": row["audio_uri"],
                         "metadata": _object(row["metadata_json"]),
                     }
+                )
+                for row in rows
+            ]
+
+    def matching_observation_ids(
+        self,
+        session_id: str,
+        stream_id: str,
+        frequency_hz: int,
+        started_at: datetime,
+    ) -> tuple[str, ...]:
+        """ID всех наблюдений цели от начала исследования без скрытого limit."""
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT id, started_at FROM observations
+                WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
+                """,
+                (session_id, stream_id, frequency_hz),
+            ).fetchall()
+        selected = [row for row in rows if parse_time(row["started_at"]) >= started_at]
+        selected.sort(key=lambda row: (parse_time(row["started_at"]), row["id"]))
+        return tuple(row["id"] for row in selected)
+
+    def save_candidate(
+        self, candidate: Candidate, *, event: Optional[SessionEvent] = None
+    ) -> None:
+        """Сохраняет кандидата и его событие в одной транзакции."""
+        with self._lock, self._connection:
+            self._upsert_candidate(candidate)
+            if event is not None:
+                self._insert_event(event)
+
+    def _upsert_candidate(self, candidate: Candidate) -> None:
+        data = to_primitive(candidate)
+        owner = self._connection.execute(
+            "SELECT session_id FROM candidates WHERE id = ?", (candidate.id,)
+        ).fetchone()
+        if owner is not None and owner["session_id"] != candidate.session_id:
+            raise ValueError(f"Кандидат уже принадлежит другому сеансу: {candidate.id}")
+        self._connection.execute(
+            """
+            INSERT INTO candidates (
+                id, session_id, source_stream_id, started_at, ended_at,
+                center_frequency_hz, bandwidth_hz, peak_level, level_unit, score,
+                observation_ids_json, state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at,
+                center_frequency_hz = excluded.center_frequency_hz,
+                bandwidth_hz = excluded.bandwidth_hz,
+                peak_level = excluded.peak_level,
+                level_unit = excluded.level_unit,
+                score = excluded.score,
+                observation_ids_json = excluded.observation_ids_json,
+                state = excluded.state
+            """,
+            (
+                data["id"], data["session_id"], data["source_stream_id"],
+                _archive_time(candidate.interval.started_at),
+                _archive_time(candidate.interval.ended_at),
+                data["center_frequency_hz"], data["bandwidth_hz"], data["peak_level"],
+                data["level_unit"], data["score"], _json(data["observation_ids"]),
+                data["state"],
+            ),
+        )
+
+    def save_investigation(
+        self,
+        investigation: Investigation,
+        *,
+        candidate: Candidate,
+        event: Optional[SessionEvent] = None,
+    ) -> None:
+        """Атомарно сохраняет исследование, состояние кандидата и событие."""
+        if investigation.candidate_id != candidate.id:
+            raise ValueError("Исследование ссылается на другого кандидата")
+        with self._lock, self._connection:
+            owner = self._connection.execute(
+                "SELECT session_id FROM investigations WHERE id = ?", (investigation.id,)
+            ).fetchone()
+            if owner is not None and owner["session_id"] != candidate.session_id:
+                raise ValueError(
+                    f"Исследование уже принадлежит другому сеансу: {investigation.id}"
+                )
+            self._upsert_candidate(candidate)
+            data = to_primitive(investigation)
+            self._connection.execute(
+                """
+                INSERT INTO investigations (
+                    id, session_id, candidate_id, target_stream_id,
+                    target_frequency_hz, state, priority, mode, created_at,
+                    started_at, ended_at, result_observation_ids_json, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    target_frequency_hz = excluded.target_frequency_hz,
+                    state = excluded.state,
+                    priority = excluded.priority,
+                    mode = excluded.mode,
+                    started_at = excluded.started_at,
+                    ended_at = excluded.ended_at,
+                    result_observation_ids_json = excluded.result_observation_ids_json,
+                    error = excluded.error
+                """,
+                (
+                    data["id"], candidate.session_id, data["candidate_id"],
+                    data["target_stream_id"], data["target_frequency_hz"], data["state"],
+                    data["priority"], data["mode"], _archive_time(investigation.created_at),
+                    _archive_time(investigation.started_at)
+                    if investigation.started_at is not None else None,
+                    _archive_time(investigation.ended_at)
+                    if investigation.ended_at is not None else None,
+                    _json(data["result_observation_ids"]), data["error"],
+                ),
+            )
+            if event is not None:
+                self._insert_event(event)
+
+    @staticmethod
+    def _candidate(row: sqlite3.Row) -> Candidate:
+        return Candidate.from_dict(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "source_stream_id": row["source_stream_id"],
+                "interval": {
+                    "started_at": row["started_at"], "ended_at": row["ended_at"]
+                },
+                "center_frequency_hz": row["center_frequency_hz"],
+                "bandwidth_hz": row["bandwidth_hz"],
+                "peak_level": row["peak_level"],
+                "level_unit": row["level_unit"],
+                "score": row["score"],
+                "observation_ids": json.loads(row["observation_ids_json"]),
+                "state": row["state"],
+            }
+        )
+
+    def load_candidates(self) -> list[Candidate]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM candidates ORDER BY started_at, id"
+            ).fetchall()
+            return [self._candidate(row) for row in rows]
+
+    def load_investigations(self) -> list[tuple[str, Investigation]]:
+        """Возвращает ``(session_id, investigation)``: модель не дублирует session_id."""
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM investigations ORDER BY created_at, id"
+            ).fetchall()
+            return [
+                (
+                    row["session_id"],
+                    Investigation.from_dict(
+                        {
+                            "id": row["id"],
+                            "candidate_id": row["candidate_id"],
+                            "target_stream_id": row["target_stream_id"],
+                            "target_frequency_hz": row["target_frequency_hz"],
+                            "state": row["state"],
+                            "priority": row["priority"],
+                            "mode": row["mode"],
+                            "created_at": row["created_at"],
+                            "started_at": row["started_at"],
+                            "ended_at": row["ended_at"],
+                            "result_observation_ids": json.loads(
+                                row["result_observation_ids_json"]
+                            ),
+                            "error": row["error"],
+                        }
+                    ),
                 )
                 for row in rows
             ]
