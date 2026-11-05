@@ -22,6 +22,7 @@ from radioinspector.windows.client import (
     validate_tune,
 )
 from radioinspector.web.server import create_server
+from radioinspector.windows.workflows import session_payload as windows_session_payload
 from tests.test_device_workers import simulated_session_payload, wait_until
 from tests.test_persistence import measurement_interval
 
@@ -339,6 +340,7 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.assertEqual(len(snapshot.investigations), 1)
         self.assertEqual(snapshot.investigations[0]["id"], investigation.id)
         self.assertEqual(snapshot.investigations[0]["state"], "queued")
+        self.assertEqual(snapshot.next_investigation["id"], investigation.id)
         self.assertFalse(self.workers()[self.receiver_id]["alive"])
 
     def test_spectrum_snapshot_returns_real_dbm_sweeps_with_encoded_stream_id(self) -> None:
@@ -379,6 +381,136 @@ class WindowsClientIntegrationTests(unittest.TestCase):
             self.client.list_sweeps(self.session.id, self.tinysa_id, limit=0)
         with self.assertRaises(ValueError):
             self.client.snapshot(spectrum_stream_id=self.tinysa_id)
+        self.client.stop_session(self.session.id)
+
+    def test_create_session_through_client_keeps_simulator_opt_in(self) -> None:
+        payload = windows_session_payload(
+            name="Создано Windows-клиентом",
+            tinysa_port="sim://created-tinysa",
+            receiver_port="sim://created-ardv1",
+            start_hz=88_000_000,
+            stop_hz=108_000_000,
+            receiver_frequency_hz=145_500_000,
+            mode="FM",
+            simulated=True,
+        )
+        payload["id"] = "created/windows"
+        payload["streams"][0]["id"] = "created/tiny"
+        payload["streams"][1]["id"] = "created/ar"
+        created = self.client.create_session(payload)
+        self.assertEqual(created["id"], "created/windows")
+        self.assertEqual(created["state"], "draft")
+        self.assertEqual(created["streams"][0]["settings"]["adapter"], "tinysa-sim")
+        self.assertEqual(created["streams"][1]["level_unit"], "s_meter_count")
+        self.assertFalse(self.client.capabilities()["features"]["hardware_control"])
+        self.assertEqual(
+            self.client.get_session("created/windows")["name"],
+            "Создано Windows-клиентом",
+        )
+
+    def test_candidate_queue_confirmed_handoff_and_real_completion(self) -> None:
+        self.client.start_session(self.session.id)
+        self.client.start_workers(self.session.id)
+        candidate = self.client.create_candidate(
+            self.session.id,
+            {
+                "id": "candidate/windows",
+                "source_stream_id": self.tinysa_id,
+                "interval": measurement_interval(1),
+                "center_frequency_hz": 102_500_000,
+                "bandwidth_hz": 100_000,
+                "peak_level": -42.5,
+                "level_unit": "dBm",
+                "observation_ids": [],
+            },
+        )
+        self.assertEqual(candidate["state"], "new")
+        investigation = self.client.enqueue_investigation(
+            self.session.id,
+            candidate["id"],
+            {
+                "id": "investigation/windows",
+                "target_stream_id": self.receiver_id,
+                "target_frequency_hz": 102_500_000,
+                "mode": "DMR",
+                "priority": 7,
+            },
+        )
+        self.assertEqual(investigation["state"], "queued")
+        self.assertEqual(
+            self.client.next_investigation(self.session.id)["id"],
+            "investigation/windows",
+        )
+        with self.assertRaisesRegex(ValueError, "confirm=true"):
+            self.client.start_next_investigation(
+                self.session.id, investigation["id"], confirm=False
+            )
+        started = self.client.start_next_investigation(
+            self.session.id, investigation["id"], confirm=True
+        )
+        self.assertEqual(started["state"], "listening")
+        wait_until(
+            lambda: any(
+                item.frequency_hz == 102_500_000
+                for item in self.server.session_service.list_observations(self.session.id)
+            ),
+            "Receiver должен записать наблюдения на частоте подтверждённого handoff",
+        )
+        completed = self.client.complete_investigation(
+            self.session.id, investigation["id"]
+        )
+        self.assertEqual(completed["state"], "completed")
+        self.assertTrue(completed["result_observation_ids"])
+        candidates = self.client.list_candidates(self.session.id)
+        self.assertEqual(candidates[0]["state"], "resolved")
+        self.assertEqual(candidates[0]["level_unit"], "dBm")
+        self.client.stop_session(self.session.id)
+
+    def test_manual_start_cancel_fail_and_dismiss_use_encoded_ids(self) -> None:
+        self.client.start_session(self.session.id)
+        self.client.start_workers(self.session.id)
+
+        def create(candidate_id):
+            return self.client.create_candidate(
+                self.session.id,
+                {
+                    "id": candidate_id,
+                    "source_stream_id": self.tinysa_id,
+                    "interval": measurement_interval(1),
+                    "center_frequency_hz": 102_500_000,
+                    "level_unit": "dBm",
+                    "observation_ids": [],
+                },
+            )
+
+        first = create("candidate/cancel")
+        queued = self.client.enqueue_investigation(
+            self.session.id,
+            first["id"],
+            {"id": "investigation/cancel", "target_stream_id": self.receiver_id},
+        )
+        started = self.client.start_investigation(self.session.id, queued["id"])
+        self.assertEqual(started["state"], "listening")
+        cancelled = self.client.cancel_investigation(self.session.id, queued["id"])
+        self.assertEqual(cancelled["state"], "cancelled")
+        dismissed = self.client.dismiss_candidate(self.session.id, first["id"])
+        self.assertEqual(dismissed["state"], "dismissed")
+
+        second = create("candidate/fail")
+        failed_queue = self.client.enqueue_investigation(
+            self.session.id,
+            second["id"],
+            {"id": "investigation/fail", "target_stream_id": self.receiver_id},
+        )
+        with self.assertRaisesRegex(ValueError, "не должна быть пустой"):
+            self.client.fail_investigation(
+                self.session.id, failed_queue["id"], error=" "
+            )
+        failed = self.client.fail_investigation(
+            self.session.id, failed_queue["id"], error="Проверка Windows GUI"
+        )
+        self.assertEqual(failed["state"], "failed")
+        self.assertEqual(failed["error"], "Проверка Windows GUI")
         self.client.stop_session(self.session.id)
 
     def test_invalid_tune_is_rejected_before_http(self) -> None:

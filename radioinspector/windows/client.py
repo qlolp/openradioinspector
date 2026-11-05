@@ -37,6 +37,7 @@ class PlatformSnapshot:
     workers: list[dict[str, Any]] = field(default_factory=list)
     candidates: list[dict[str, Any]] = field(default_factory=list)
     investigations: list[dict[str, Any]] = field(default_factory=list)
+    next_investigation: Optional[dict[str, Any]] = None
     automatic_handoff: Optional[dict[str, Any]] = None
     automatic_detection: Optional[dict[str, Any]] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
@@ -175,6 +176,9 @@ class PlatformClient:
     def list_sessions(self) -> list[dict[str, Any]]:
         return self._request("GET", "/sessions")
 
+    def create_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._post("/sessions", payload)
+
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}")
 
@@ -198,9 +202,83 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/candidates"
         )
 
+    def create_candidate(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._post(f"/sessions/{session}/candidates", payload)
+
+    def dismiss_candidate(
+        self, session_id: str, candidate_id: str
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        candidate = _segment(candidate_id, "candidate_id")
+        return self._post(f"/sessions/{session}/candidates/{candidate}/dismiss")
+
+    def enqueue_investigation(
+        self, session_id: str, candidate_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        candidate = _segment(candidate_id, "candidate_id")
+        return self._post(
+            f"/sessions/{session}/candidates/{candidate}/investigations", payload
+        )
+
     def list_investigations(self, session_id: str) -> list[dict[str, Any]]:
         return self._request(
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/investigations"
+        )
+
+    def next_investigation(self, session_id: str) -> Optional[dict[str, Any]]:
+        session = _segment(session_id, "session_id")
+        return self._request("GET", f"/sessions/{session}/investigations/next")
+
+    def start_next_investigation(
+        self, session_id: str, investigation_id: str, *, confirm: bool
+    ) -> dict[str, Any]:
+        if confirm is not True:
+            raise ValueError("Полуавтоматический handoff требует явного confirm=true")
+        session = _segment(session_id, "session_id")
+        _segment(investigation_id, "investigation_id")
+        return self._post(
+            f"/sessions/{session}/investigations/start-next",
+            {"investigation_id": investigation_id, "confirm": True},
+        )
+
+    def _investigation_action(
+        self, session_id: str, investigation_id: str, action: str
+    ) -> str:
+        session = _segment(session_id, "session_id")
+        investigation = _segment(investigation_id, "investigation_id")
+        return f"/sessions/{session}/investigations/{investigation}/{action}"
+
+    def start_investigation(
+        self, session_id: str, investigation_id: str
+    ) -> dict[str, Any]:
+        return self._post(self._investigation_action(session_id, investigation_id, "start"))
+
+    def complete_investigation(
+        self, session_id: str, investigation_id: str
+    ) -> dict[str, Any]:
+        return self._post(
+            self._investigation_action(session_id, investigation_id, "complete")
+        )
+
+    def fail_investigation(
+        self, session_id: str, investigation_id: str, *, error: str
+    ) -> dict[str, Any]:
+        if not isinstance(error, str) or not error.strip():
+            raise ValueError("Причина сбоя не должна быть пустой")
+        return self._post(
+            self._investigation_action(session_id, investigation_id, "fail"),
+            {"error": error.strip()},
+        )
+
+    def cancel_investigation(
+        self, session_id: str, investigation_id: str
+    ) -> dict[str, Any]:
+        return self._post(
+            self._investigation_action(session_id, investigation_id, "cancel")
         )
 
     def automatic_handoff(self, session_id: str) -> dict[str, Any]:
@@ -239,6 +317,7 @@ class PlatformClient:
             workers=self.list_workers(session_id),
             candidates=self.list_candidates(session_id),
             investigations=self.list_investigations(session_id),
+            next_investigation=self.next_investigation(session_id),
             automatic_handoff=self.automatic_handoff(session_id),
             automatic_detection=self.automatic_detection(session_id),
             sweeps=sweeps,
