@@ -117,6 +117,16 @@ final class SessionTests: XCTestCase {
         XCTAssertTrue(model.current.isEmpty)
     }
 
+    @MainActor func testRemoteCandidateDoesNotInventMeasurementOrQueue() {
+        let model = RemoteDualModel()
+        model.createCandidateFromLatestPeak()
+        XCTAssertEqual(model.errorText, "Нет фактического dBm sweep для создания кандидата")
+        XCTAssertTrue(model.candidates.isEmpty)
+        model.startNextInvestigation()
+        XCTAssertEqual(model.errorText, "Очередь исследований пуста")
+        XCTAssertNil(model.nextInvestigation)
+    }
+
     @MainActor func testWindowObserverOnlyCleansUpItsOwnWindow() {
         let own = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
         let other = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)

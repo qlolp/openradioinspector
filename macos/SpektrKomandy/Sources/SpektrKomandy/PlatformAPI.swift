@@ -80,7 +80,7 @@ public struct PlatformBaseURL: Equatable {
     }
 }
 
-public struct PlatformInterval: Decodable, Equatable {
+public struct PlatformInterval: Codable, Equatable {
     public let startedAt: String
     public let endedAt: String
 }
@@ -121,6 +121,10 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     public let frequenciesHz: [Int64]
     public let levels: [Double]
     public let levelUnit: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -170,6 +174,12 @@ public struct PlatformSnapshot: Equatable {
     public var workers: [PlatformWorker]
     public var sweeps: [PlatformSweep]
     public var observations: [PlatformObservation]
+    public var candidates: [PlatformCandidate] = []
+    public var investigations: [PlatformInvestigation] = []
+    public var nextInvestigation: PlatformInvestigation?
+    public var automaticHandoff: PlatformAutomaticStatus?
+    public var automaticDetection: PlatformAutomaticStatus?
+    public var workflowErrors: [String] = []
 }
 
 private struct PlatformEnvelope<Value: Decodable>: Decodable {
@@ -219,6 +229,10 @@ public final class PlatformClient {
     public init(baseURL: String, session: URLSession = .shared) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
         self.session = session
+    }
+
+    deinit {
+        session.invalidateAndCancel()
     }
 
     public func listSessions() async throws -> [PlatformSession] {
@@ -311,9 +325,49 @@ public final class PlatformClient {
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
         )
+        var workflowErrors: [String] = []
+        let candidates: [PlatformCandidate]
+        do {
+            candidates = try await listCandidates(sessionID: sessionID)
+        } catch {
+            candidates = []
+            workflowErrors.append("candidates: \(error.localizedDescription)")
+        }
+        let investigations: [PlatformInvestigation]
+        do {
+            investigations = try await listInvestigations(sessionID: sessionID)
+        } catch {
+            investigations = []
+            workflowErrors.append("investigations: \(error.localizedDescription)")
+        }
+        let next: PlatformInvestigation?
+        do {
+            next = try await nextInvestigation(sessionID: sessionID)
+        } catch {
+            next = nil
+            workflowErrors.append("next investigation: \(error.localizedDescription)")
+        }
+        let handoff: PlatformAutomaticStatus?
+        do {
+            handoff = try await automaticHandoff(sessionID: sessionID)
+        } catch {
+            handoff = nil
+            workflowErrors.append("automatic handoff: \(error.localizedDescription)")
+        }
+        let detection: PlatformAutomaticStatus?
+        do {
+            detection = try await automaticDetection(sessionID: sessionID)
+        } catch {
+            detection = nil
+            workflowErrors.append("automatic detection: \(error.localizedDescription)")
+        }
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
-            sweeps: sweepsRequest, observations: observationsRequest
+            sweeps: sweepsRequest, observations: observationsRequest,
+            candidates: candidates, investigations: investigations,
+            nextInvestigation: next,
+            automaticHandoff: handoff, automaticDetection: detection,
+            workflowErrors: workflowErrors
         )
     }
 
@@ -327,13 +381,13 @@ public final class PlatformClient {
         )
     }
 
-    private func get<Value: Decodable>(
+    func get<Value: Decodable>(
         _ path: String, query: [URLQueryItem] = []
     ) async throws -> Value {
         try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?)
     }
 
-    private func post<Value: Decodable, Body: Encodable>(
+    func post<Value: Decodable, Body: Encodable>(
         _ path: String, body: Body
     ) async throws -> Value {
         try await request(method: "POST", path: path, query: [], body: body)
@@ -384,7 +438,7 @@ public final class PlatformClient {
         "/sessions/\(segment(sessionID))/streams/\(segment(streamID))/\(action)"
     }
 
-    private static func segment(_ value: String) -> String {
+    static func segment(_ value: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value

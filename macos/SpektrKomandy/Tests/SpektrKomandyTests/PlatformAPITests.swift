@@ -6,6 +6,15 @@ import FoundationNetworking
 @testable import SpektrKomandy
 
 final class PlatformAPITests: XCTestCase {
+    private var sessions: [URLSession] = []
+
+    override func tearDown() {
+        for session in sessions { session.finishTasksAndInvalidate() }
+        sessions.removeAll()
+        Stub.handler = nil
+        super.tearDown()
+    }
+
     final class Stub: URLProtocol {
         static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -33,7 +42,9 @@ final class PlatformAPITests: XCTestCase {
         Stub.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Stub.self]
-        return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
+        let session = URLSession(configuration: configuration)
+        sessions.append(session)
+        return try PlatformClient(baseURL: url, session: session)
     }
 
     private func response(_ url: URL, status: Int = 200) -> HTTPURLResponse {
@@ -137,6 +148,16 @@ final class PlatformAPITests: XCTestCase {
                 [{"id":"ob1","session_id":"session/old","stream_id":"ar/dv1","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"frequency_hz":433075000,"mode":"DMR","level_unit":"s_meter_count","level":42,"squelch_open":true,"decoded_mode":"DMR"}]
                 """
                 return (self.response(request.url!), self.envelope(observation))
+            }
+            if path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/investigations/next") {
+                return (self.response(request.url!), self.envelope("null"))
+            }
+            if path.hasSuffix("/automatic-handoff") || path.hasSuffix("/automatic-detection") {
+                let status = "{\"policy\":{\"enabled\":false},\"runtime\":{},\"scheduler_alive\":false,\"policy_persistent\":false,\"restart_requires_opt_in\":true}"
+                return (self.response(request.url!), self.envelope(status))
             }
             return (self.response(request.url!), self.envelope(self.sessionJSON))
         }
