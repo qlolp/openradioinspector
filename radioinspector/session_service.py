@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 from .contracts import (
     API_VERSION,
     CONTRACT_VERSION,
+    DeviceState,
     MonitoringSession,
     ReceiverObservation,
     SessionEvent,
@@ -60,6 +61,17 @@ class SessionService:
         self._lock = threading.RLock()
         if store is not None:
             restored = store.load_sessions()
+            for session in restored:
+                runtime_state_changed = False
+                for stream in session.streams:
+                    if stream.state is not DeviceState.DISCONNECTED:
+                        # Потоки ОС не переживают перезапуск процесса. Сеанс и
+                        # измерения восстанавливаются, но исполнители не запускаются
+                        # автоматически и не должны выглядеть работающими.
+                        stream.state = DeviceState.DISCONNECTED
+                        runtime_state_changed = True
+                if runtime_state_changed:
+                    store.save_session(session)
             self._sessions = {item.id: item for item in restored}
             events = store.load_events(limit=history_limit)
             self._events.extend(events)
@@ -165,6 +177,33 @@ class SessionService:
                     "session.stopped",
                     session_id=session.id,
                     payload={"session": to_primitive(session)},
+                )
+            except Exception:
+                self._sessions[session_id] = previous
+                raise
+            return copy.deepcopy(session)
+
+    def set_stream_state(
+        self, session_id: str, stream_id: str, state: DeviceState | str
+    ) -> MonitoringSession:
+        """Сохраняет фактическое состояние потока и публикует его изменение."""
+        state = DeviceState(state)
+        with self._lock:
+            session = self._get_locked(session_id)
+            stream = next((item for item in session.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            if stream.state is state:
+                return copy.deepcopy(session)
+            previous = copy.deepcopy(session)
+            stream.state = state
+            try:
+                if self._store is not None:
+                    self._store.save_session(session)
+                self._append_event_locked(
+                    "device.state",
+                    session_id=session_id,
+                    payload={"stream_id": stream_id, "state": state.value},
                 )
             except Exception:
                 self._sessions[session_id] = previous
