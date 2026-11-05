@@ -143,12 +143,57 @@ class WindowsClientValidationTests(unittest.TestCase):
         app.selected_stream_id = lambda: "ar/dv1"
         app.frequency_var = Value()
         app.mode_var = Value()
+        app._render_spectrum = lambda: None
+        app.refresh = lambda: None
         app._select_stream()
         self.assertEqual(app.stream_start.state, "normal")
         self.assertEqual(app.stream_stop.state, "normal")
         self.assertEqual(app.tune_button.state, "normal")
         self.assertEqual(app.frequency_var.value, "145500000")
         self.assertEqual(app.mode_var.value, "FM")
+
+    def test_spectrum_stream_commands_do_not_enable_receiver_tune(self) -> None:
+        class Button:
+            def __init__(self):
+                self.state = "disabled"
+
+            def configure(self, *, state):
+                self.state = state
+
+        app = WindowsApp.__new__(WindowsApp)
+        app.client = object()
+        app.session_id = "session"
+        app._action_running = False
+        for name in (
+            "session_start",
+            "session_stop",
+            "workers_start",
+            "workers_stop",
+            "stream_start",
+            "stream_stop",
+            "tune_button",
+            "refresh_button",
+        ):
+            setattr(app, name, Button())
+        app.snapshot = PlatformSnapshot(
+            {},
+            {},
+            [],
+            session={
+                "streams": [
+                    {
+                        "id": "tiny/sa",
+                        "role": "spectrum_analyzer",
+                        "level_unit": "dBm",
+                    }
+                ]
+            },
+        )
+        app.selected_stream_id = lambda: "tiny/sa"
+        app._render_controls()
+        self.assertEqual(app.stream_start.state, "normal")
+        self.assertEqual(app.stream_stop.state, "normal")
+        self.assertEqual(app.tune_button.state, "disabled")
 
     def test_snapshot_defaults_and_presentation_preserve_source_values(self) -> None:
         snapshot = PlatformSnapshot({}, {}, [])
@@ -295,6 +340,46 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot.investigations[0]["id"], investigation.id)
         self.assertEqual(snapshot.investigations[0]["state"], "queued")
         self.assertFalse(self.workers()[self.receiver_id]["alive"])
+
+    def test_spectrum_snapshot_returns_real_dbm_sweeps_with_encoded_stream_id(self) -> None:
+        self.client.start_session(self.session.id)
+        self.client.start_workers(self.session.id)
+        wait_until(
+            lambda: len(self.server.session_service.list_sweeps(self.session.id)) >= 2,
+            "tinySA должен записать реальные симулированные sweeps",
+        )
+        snapshot = self.client.snapshot(
+            self.session.id, spectrum_stream_id=self.tinysa_id
+        )
+        self.assertEqual(snapshot.spectrum_stream_id, "tiny/sa")
+        self.assertGreaterEqual(len(snapshot.sweeps), 1)
+        self.assertLessEqual(len(snapshot.sweeps), 40)
+        self.assertTrue(
+            all(item["stream_id"] == self.tinysa_id for item in snapshot.sweeps)
+        )
+        self.assertTrue(
+            all(item["level_unit"] == "dBm" for item in snapshot.sweeps)
+        )
+        latest = snapshot.sweeps[-1]
+        self.assertTrue(
+            all(isinstance(value, int) for value in latest["frequencies_hz"])
+        )
+        archived = next(
+            item
+            for item in self.server.session_service.list_sweeps(
+                self.session.id, stream_id=self.tinysa_id, limit=1000
+            )
+            if item.id == latest["id"]
+        )
+        self.assertEqual(latest["levels"], list(archived.levels))
+        without_spectrum = self.client.snapshot(self.session.id)
+        self.assertEqual(without_spectrum.sweeps, [])
+        self.assertIsNone(without_spectrum.spectrum_stream_id)
+        with self.assertRaises(ValueError):
+            self.client.list_sweeps(self.session.id, self.tinysa_id, limit=0)
+        with self.assertRaises(ValueError):
+            self.client.snapshot(spectrum_stream_id=self.tinysa_id)
+        self.client.stop_session(self.session.id)
 
     def test_invalid_tune_is_rejected_before_http(self) -> None:
         with self.assertRaisesRegex(ValueError, "целым числом Гц"):

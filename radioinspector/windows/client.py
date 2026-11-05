@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from ..contracts import CONTRACT_NAME, CONTRACT_VERSION
 
@@ -39,6 +39,8 @@ class PlatformSnapshot:
     investigations: list[dict[str, Any]] = field(default_factory=list)
     automatic_handoff: Optional[dict[str, Any]] = None
     automatic_detection: Optional[dict[str, Any]] = None
+    sweeps: list[dict[str, Any]] = field(default_factory=list)
+    spectrum_stream_id: Optional[str] = None
 
 
 def _segment(value: str, name: str) -> str:
@@ -181,6 +183,16 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/workers"
         )
 
+    def list_sweeps(
+        self, session_id: str, stream_id: str, *, limit: int = 40
+    ) -> list[dict[str, Any]]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("Лимит sweeps должен быть целым в диапазоне 1…1000")
+        session = _segment(session_id, "session_id")
+        _segment(stream_id, "stream_id")
+        query = urlencode({"stream_id": stream_id, "limit": limit})
+        return self._request("GET", f"/sessions/{session}/sweeps?{query}")
+
     def list_candidates(self, session_id: str) -> list[dict[str, Any]]:
         return self._request(
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/candidates"
@@ -201,12 +213,24 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/automatic-detection"
         )
 
-    def snapshot(self, session_id: Optional[str] = None) -> PlatformSnapshot:
+    def snapshot(
+        self,
+        session_id: Optional[str] = None,
+        *,
+        spectrum_stream_id: Optional[str] = None,
+    ) -> PlatformSnapshot:
+        if session_id is None and spectrum_stream_id is not None:
+            raise ValueError("Для sweeps необходимо выбрать сеанс")
         health = self.health()
         capabilities = self.capabilities()
         sessions = self.list_sessions()
         if session_id is None:
             return PlatformSnapshot(health, capabilities, sessions)
+        sweeps = (
+            self.list_sweeps(session_id, spectrum_stream_id, limit=40)
+            if spectrum_stream_id is not None
+            else []
+        )
         return PlatformSnapshot(
             health=health,
             capabilities=capabilities,
@@ -217,6 +241,8 @@ class PlatformClient:
             investigations=self.list_investigations(session_id),
             automatic_handoff=self.automatic_handoff(session_id),
             automatic_detection=self.automatic_detection(session_id),
+            sweeps=sweeps,
+            spectrum_stream_id=spectrum_stream_id,
         )
 
     def _post(self, path: str, payload: Optional[dict[str, Any]] = None) -> Any:

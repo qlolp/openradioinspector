@@ -9,6 +9,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
+from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
 
 
 def session_label(session: dict[str, Any]) -> str:
@@ -82,6 +83,10 @@ class WindowsApp:
         self.client: Optional[PlatformClient] = None
         self.snapshot = PlatformSnapshot({}, {}, [])
         self.session_id: Optional[str] = None
+        self._last_selected_stream_id: Optional[str] = None
+        self._waterfall_photo: Any = None
+        self._spectrum_draw_key: Any = None
+        self._waterfall_draw_key: Any = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="windows-api")
         self._messages: queue.Queue[tuple[str, Future, int, str]] = queue.Queue()
         self._revision = 0
@@ -183,6 +188,35 @@ class WindowsApp:
             (110, 90, 160, 110, 360),
         )
         notebook.add(self.investigations_tree.master, text="Исследования")
+        spectrum_tab = ttk.Frame(notebook, padding=8)
+        spectrum_tab.columnconfigure(0, weight=1)
+        spectrum_tab.rowconfigure(1, weight=3)
+        spectrum_tab.rowconfigure(3, weight=2)
+        self.spectrum_info_var = self.tk.StringVar(
+            value="Выберите поток spectrum_analyzer с исходными dBm на вкладке «Потоки»."
+        )
+        ttk.Label(spectrum_tab, textvariable=self.spectrum_info_var, wraplength=1050).grid(
+            row=0, column=0, sticky="ew", pady=(0, 6)
+        )
+        self.spectrum_canvas = self.tk.Canvas(
+            spectrum_tab, background="#07131c", height=260, highlightthickness=0
+        )
+        self.spectrum_canvas.grid(row=1, column=0, sticky="nsew")
+        self.waterfall_info_var = self.tk.StringVar(value="Водопад: ожидание данных")
+        ttk.Label(spectrum_tab, textvariable=self.waterfall_info_var, wraplength=1050).grid(
+            row=2, column=0, sticky="ew", pady=(8, 6)
+        )
+        self.waterfall_canvas = self.tk.Canvas(
+            spectrum_tab, background="#07131c", height=190, highlightthickness=0
+        )
+        self.waterfall_canvas.grid(row=3, column=0, sticky="nsew")
+        self.spectrum_canvas.bind(
+            "<Configure>", lambda _event: self._render_spectrum()
+        )
+        self.waterfall_canvas.bind(
+            "<Configure>", lambda _event: self._render_spectrum()
+        )
+        notebook.add(spectrum_tab, text="Спектр и водопад")
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -218,7 +252,14 @@ class WindowsApp:
             return
         self._refresh_running = True
         revision = self._revision
-        future = self._executor.submit(self.client.snapshot, self.session_id)
+        client = self.client
+        session_id = self.session_id
+        spectrum_stream_id = self._spectrum_stream_id()
+        future = self._executor.submit(
+            client.snapshot,
+            session_id,
+            spectrum_stream_id=spectrum_stream_id,
+        )
         future.add_done_callback(
             lambda done: self._messages.put(("snapshot", done, revision, ""))
         )
@@ -308,13 +349,179 @@ class WindowsApp:
             self.streams_tree.insert("", "end", iid=stream_id, values=worker_row(stream, workers.get(stream_id)))
         if selected_stream and self.streams_tree.exists(selected_stream):
             self.streams_tree.selection_set(selected_stream)
+        elif streams:
+            preferred = next(
+                (
+                    item
+                    for item in streams
+                    if item.get("role") == "spectrum_analyzer"
+                    and item.get("level_unit") == "dBm"
+                ),
+                streams[0],
+            )
+            self.streams_tree.selection_set(str(preferred.get("id")))
+        # Восстановление выделения не является новым пользовательским выбором.
+        self._last_selected_stream_id = self.selected_stream_id()
         self._fill(self.candidates_tree, snapshot.candidates, candidate_row)
         self._fill(self.investigations_tree, snapshot.investigations, investigation_row)
         self.detection_var.set(f"Обнаружение: {policy_text(snapshot.automatic_detection)}")
         self.handoff_var.set(f"Handoff: {policy_text(snapshot.automatic_handoff)}")
+        spectrum_stream_id = self._spectrum_stream_id()
+        needs_spectrum_refresh = (
+            snapshot.session is not None
+            and spectrum_stream_id != snapshot.spectrum_stream_id
+        )
+        self._render_spectrum()
         self._render_controls()
-        if needs_details:
+        if needs_details or needs_spectrum_refresh:
             self.refresh()
+
+    def _clear_spectrum(self, message: str) -> None:
+        self._spectrum_draw_key = None
+        self._waterfall_draw_key = None
+        self.spectrum_canvas.delete("all")
+        self.waterfall_canvas.delete("all")
+        self._waterfall_photo = None
+        self.spectrum_info_var.set(message)
+        self.waterfall_info_var.set("Водопад: ожидание данных")
+
+    def _render_spectrum(self) -> None:
+        stream = self._selected_stream()
+        if self._spectrum_stream_id() is None:
+            self._clear_spectrum(
+                "Выберите поток spectrum_analyzer с исходными dBm на вкладке «Потоки». "
+                "Отсчёты s_meter_count в dBm не преобразуются."
+            )
+            return
+        if self.snapshot.spectrum_stream_id != stream.get("id"):
+            self._clear_spectrum(f"Загрузка реальных sweeps потока {stream.get('id')}…")
+            return
+        sweeps = self.snapshot.sweeps[-40:]
+        if not sweeps:
+            self._clear_spectrum(
+                f"Поток {stream.get('id')} пока не вернул спектральных sweeps."
+            )
+            return
+        try:
+            if any(item.get("level_unit") != "dBm" for item in sweeps):
+                raise ValueError("Спектр принимает только исходные dBm")
+            latest = sweeps[-1]
+            peak_index, peak_level, peak_frequency = peak_of(latest)
+        except (TypeError, ValueError) as exc:
+            self._clear_spectrum(f"Некорректный спектральный ответ: {exc}")
+            return
+        frequencies = latest["frequencies_hz"]
+        levels = latest["levels"]
+        started_at = (latest.get("interval") or {}).get("started_at", "?")
+        self.spectrum_info_var.set(
+            f"{stream.get('device', stream.get('id'))} · {frequencies[0]}…{frequencies[-1]} Гц · "
+            f"пик {peak_frequency} Гц, {peak_level:g} dBm · {len(levels)} точек · {started_at}"
+        )
+        self._draw_spectrum(latest, peak_index, peak_level, peak_frequency)
+        self._draw_waterfall(sweeps)
+
+    def _draw_spectrum(
+        self,
+        sweep: dict[str, Any],
+        peak_index: int,
+        peak_level: float,
+        peak_frequency: int,
+    ) -> None:
+        canvas = self.spectrum_canvas
+        width = max(int(canvas.winfo_width()), 640)
+        height = max(int(canvas.winfo_height()), 240)
+        draw_key = (sweep.get("id"), width, height)
+        if getattr(self, "_spectrum_draw_key", None) == draw_key:
+            return
+        canvas.delete("all")
+        left, right, top, bottom = 82, 24, 28, 52
+        plot_width = max(width - left - right, 1)
+        plot_height = max(height - top - bottom, 1)
+        frequencies = sweep["frequencies_hz"]
+        levels = sweep["levels"]
+        first_frequency, last_frequency = frequencies[0], frequencies[-1]
+        raw_minimum, raw_maximum = min(levels), max(levels)
+        padding = max((raw_maximum - raw_minimum) * 0.08, 1.0)
+        minimum, maximum = raw_minimum - padding, raw_maximum + padding
+
+        def x(frequency: float) -> float:
+            return left + (frequency - first_frequency) / max(
+                last_frequency - first_frequency, 1
+            ) * plot_width
+
+        def y(level: float) -> float:
+            return top + (maximum - level) / max(maximum - minimum, 1.0) * plot_height
+
+        canvas.create_rectangle(0, 0, width, height, fill="#07131c", outline="")
+        for row in range(5):
+            py = top + plot_height * row / 4
+            level = maximum - (maximum - minimum) * row / 4
+            canvas.create_line(left, py, width - right, py, fill="#18384a")
+            canvas.create_text(
+                left - 10, py, text=f"{level:.1f}", fill="#9eb5c2", anchor="e"
+            )
+        for column in range(6):
+            px = left + plot_width * column / 5
+            frequency = first_frequency + (last_frequency - first_frequency) * column / 5
+            canvas.create_line(px, top, px, height - bottom, fill="#18384a")
+            label = (
+                f"{frequency / 1_000_000:.2f} МГц"
+                if abs(frequency) >= 1_000_000
+                else f"{frequency:.0f} Гц"
+            )
+            anchor = "nw" if column == 0 else "ne" if column == 5 else "n"
+            canvas.create_text(
+                px, height - bottom + 12, text=label, fill="#9eb5c2", anchor=anchor
+            )
+        coordinates: list[float] = []
+        for index in sampled_indices(len(levels), peak_index):
+            coordinates.extend((x(frequencies[index]), y(levels[index])))
+        if len(coordinates) >= 4:
+            canvas.create_line(
+                *coordinates, fill="#60e4ef", width=2, joinstyle="round"
+            )
+        peak_x, peak_y = x(peak_frequency), y(peak_level)
+        canvas.create_line(
+            peak_x, top, peak_x, height - bottom, fill="#ffd36e", dash=(5, 5)
+        )
+        canvas.create_oval(
+            peak_x - 4, peak_y - 4, peak_x + 4, peak_y + 4,
+            fill="#ffd36e", outline="",
+        )
+        canvas.create_text(
+            left + 8, top - 10, text="ПИК · dBm", fill="#ffd36e", anchor="w"
+        )
+        self._spectrum_draw_key = draw_key
+
+    def _draw_waterfall(self, sweeps: list[dict[str, Any]]) -> None:
+        canvas = self.waterfall_canvas
+        width = min(max(int(canvas.winfo_width()), 320), 1000)
+        height = max(int(canvas.winfo_height()), 120)
+        draw_key = (tuple(item.get("id") for item in sweeps[-40:]), width, height)
+        if getattr(self, "_waterfall_draw_key", None) == draw_key:
+            return
+        canvas.delete("all")
+        rows, minimum, maximum = waterfall_levels(sweeps, width)
+        if not rows or minimum is None or maximum is None:
+            self._waterfall_photo = None
+            self.waterfall_info_var.set("Водопад: ожидание данных")
+            return
+        row_height = max(1, height // len(rows))
+        photo = self.tk.PhotoImage(width=width, height=row_height * len(rows))
+        pixel_rows: list[str] = []
+        for row in rows:
+            colors = "{" + " ".join(
+                waterfall_color(level, minimum, maximum) for level in row
+            ) + "}"
+            pixel_rows.extend([colors] * row_height)
+        photo.put(" ".join(pixel_rows))
+        self._waterfall_photo = photo
+        self._waterfall_draw_key = draw_key
+        canvas.create_image(0, 0, image=photo, anchor="nw")
+        self.waterfall_info_var.set(
+            f"Водопад: {len(rows)} sweeps · {minimum:g}…{maximum:g} dBm · "
+            "старые ↑ / новые ↓ · max-агрегация столбцов"
+        )
 
     @staticmethod
     def _fill(tree: Any, records: list[dict[str, Any]], formatter: Callable[[dict[str, Any]], tuple[str, ...]]) -> None:
@@ -344,9 +551,22 @@ class WindowsApp:
             None,
         )
 
+    def _spectrum_stream_id(self) -> Optional[str]:
+        stream = self._selected_stream()
+        if (
+            stream
+            and stream.get("role") == "spectrum_analyzer"
+            and stream.get("level_unit") == "dBm"
+        ):
+            return str(stream.get("id"))
+        return None
+
     def _select_stream(self, _event: Any = None) -> None:
         self._render_controls()
         stream = self._selected_stream()
+        stream_id = str(stream.get("id")) if stream else None
+        changed = stream_id != getattr(self, "_last_selected_stream_id", None)
+        self._last_selected_stream_id = stream_id
         if not stream:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
@@ -356,6 +576,9 @@ class WindowsApp:
             self.frequency_var.set(str(frequency))
         if current.get("mode"):
             self.mode_var.set(str(current["mode"]))
+        if changed:
+            self._render_spectrum()
+            self.refresh()
 
     def _session_action(self, action: str) -> None:
         if not self._require_session():
@@ -422,8 +645,11 @@ class WindowsApp:
         for button in (self.session_start, self.session_stop, self.workers_start, self.workers_stop):
             button.configure(state="normal" if selected else "disabled")
         stream_selected = selected and self.selected_stream_id() is not None
-        for button in (self.stream_start, self.stream_stop, self.tune_button):
+        for button in (self.stream_start, self.stream_stop):
             button.configure(state="normal" if stream_selected else "disabled")
+        stream = self._selected_stream() if stream_selected else None
+        tune_enabled = bool(stream and stream.get("role") == "receiver")
+        self.tune_button.configure(state="normal" if tune_enabled else "disabled")
         self.refresh_button.configure(state="normal" if self.client is not None else "disabled")
 
     def close(self) -> None:
