@@ -397,7 +397,10 @@ class InvestigationServiceTests(unittest.TestCase):
         self.assertTrue(features["automatic_handoff"])
         self.assertTrue(features["automatic_handoff_opt_in_required"])
         self.assertFalse(features["automatic_handoff_policy_persistent"])
-        self.assertFalse(features["automatic_candidate_detection"])
+        self.assertTrue(features["automatic_candidate_detection"])
+        self.assertTrue(features["automatic_candidate_detection_opt_in_required"])
+        self.assertFalse(features["automatic_candidate_detection_policy_persistent"])
+        self.assertFalse(features["automatic_investigation_completion"])
         self.assertFalse(features["hardware_control"])
 
 
@@ -630,6 +633,7 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.host, self.port = self.server.server_address
 
     def tearDown(self) -> None:
+        self.server.automatic_detection.close()
         self.server.automatic_handoff.close()
         self.server.worker_manager.close()
         self.server.shutdown()
@@ -831,7 +835,7 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.assertTrue(features["automatic_handoff"])
         self.assertTrue(features["automatic_handoff_opt_in_required"])
         self.assertFalse(features["automatic_handoff_policy_persistent"])
-        self.assertFalse(features["automatic_candidate_detection"])
+        self.assertTrue(features["automatic_candidate_detection"])
 
     def test_http_encoded_ids_dismiss_fail_and_not_found(self) -> None:
         session_id, spectrum_id, receiver_id = self.create_session()
