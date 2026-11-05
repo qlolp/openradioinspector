@@ -44,6 +44,7 @@ class WebUiTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.server.automatic_detection.close()
         cls.server.automatic_handoff.close()
         cls.server.worker_manager.close()
         cls.server.shutdown()
@@ -116,6 +117,11 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('automatic_handoff.started', javascript)
         self.assertIn('automatic_handoff.disabled', javascript)
         self.assertIn('payload.receiver_stream_id = dom.automaticReceiver.value || null', javascript)
+        self.assertIn('/automatic-detection', javascript)
+        self.assertIn('automatic_detection.policy_changed', javascript)
+        self.assertIn('automatic_detection.candidate_created', javascript)
+        self.assertIn('payload.stream_id = dom.detectionStream.value || null', javascript)
+        self.assertIn('payload.threshold_dbm = requiredNumber', javascript)
 
 
 if __name__ == "__main__":

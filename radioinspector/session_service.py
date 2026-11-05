@@ -165,7 +165,10 @@ class SessionService:
                 "automatic_handoff": True,
                 "automatic_handoff_opt_in_required": True,
                 "automatic_handoff_policy_persistent": False,
-                "automatic_candidate_detection": False,
+                "automatic_candidate_detection": True,
+                "automatic_candidate_detection_opt_in_required": True,
+                "automatic_candidate_detection_policy_persistent": False,
+                "automatic_investigation_completion": False,
                 "hardware_control": False,
             },
         }
