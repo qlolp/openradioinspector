@@ -12,7 +12,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 - Время — ISO 8601 в UTC с суффиксом `Z`.
 - Измерение содержит `started_at` и `ended_at`.
 - Единица исходного уровня обязательна. `s_meter_count` не преобразуется в `dBm` автоматически.
-- Без `--session-database` данные хранятся в памяти и удаляются при перезапуске. С этим параметром сеансы, события и измерения сохраняются в SQLite и восстанавливаются; фактический режим виден в `/api/v1/capabilities`.
+- Без `--session-database` данные хранятся в памяти и удаляются при перезапуске. С этим параметром сеансы, события, измерения, кандидаты и исследования сохраняются в SQLite и восстанавливаются; фактический режим виден в `/api/v1/capabilities`.
 
 ## Маршруты
 
@@ -36,6 +36,17 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
+| `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
+| `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
+| `GET` | `/api/v1/sessions/{id}/candidates/{candidate_id}` | Один кандидат |
+| `POST` | `/api/v1/sessions/{id}/candidates/{candidate_id}/investigations` | Ручная постановка в очередь исследований |
+| `POST` | `/api/v1/sessions/{id}/candidates/{candidate_id}/dismiss` | Отклонение кандидата без открытого исследования |
+| `GET` | `/api/v1/sessions/{id}/investigations?state=` | Очередь и история исследований |
+| `GET` | `/api/v1/sessions/{id}/investigations/{investigation_id}` | Одно исследование |
+| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/start` | Настройка выбранного receiver и начало прослушивания |
+| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/complete` | Завершение со связыванием наблюдений результата |
+| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/fail` | Завершение сбоем с обязательным `error` |
+| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/cancel` | Отмена открытого исследования |
 | `GET` | `/api/v1/events/history?after=0&limit=100` | История событий |
 | `GET` | `/api/v1/events` | SSE-поток событий с replay |
 
@@ -78,7 +89,7 @@ draft → running → stopped
 
 В SQLite создание, запуск, остановка и приём каждого измерения записываются вместе со своим событием в одной транзакции. История в памяти и SSE-подписчики получают событие только после успешного commit. При ошибке записи или прерывании процесса незавершённая операция не появляется после перезапуска.
 
-Недопустимый переход возвращает HTTP 400. Обращение к неизвестному сеансу — HTTP 404 с кодом `session_not_found`.
+Недопустимый переход возвращает HTTP 400. Обращение к неизвестному сеансу — HTTP 404 с кодом `session_not_found`. Остановка сеанса также отменяет все его открытые исследования и не оставляет активное состояние без работающего сеанса.
 
 ## SSE и восстановление подписки
 
@@ -220,4 +231,86 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps \
 
 Успешный приём возвращает HTTP 201 и событие `sweep.received` или `observation.received` в SSE. Выборка возвращает последние `limit` записей по времени начала измерения в хронологическом порядке (при равном времени — по ID), независимо от порядка поступления; допустимы значения от 1 до 1000. SQLite и режим памяти учитывают микросекунды одинаково. Старые архивные строки без дробной части секунды сортируются корректно без переписывания измерений.
 
-`Candidate` и `Investigation` определены в доменном контракте, но их HTTP-очередь ещё не реализована. `hardware_control` также остаётся `false`: приём модели измерения не означает подключение физического прибора.
+## Кандидаты и ручной handoff
+
+Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Это **ручной** handoff: сервер не выделяет кандидатов автоматически и сам не выбирает следующее исследование. Capabilities раздельно сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `automatic_candidate_detection=false`, `semi_automatic_handoff=false` и `automatic_handoff=false`.
+
+Состояния кандидата:
+
+```text
+new → queued → investigating → resolved
+  │       │            │
+  │       │            ├─ после failed/cancelled → queued
+  │       └────────────┘
+  └──────────────→ dismissed
+```
+
+`dismiss` допускается для `new` или для `queued` без открытого исследования. Состояния `resolved` и `investigating` нельзя перевести в `dismissed`.
+
+Создание кандидата:
+
+```bash
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/candidates \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "source_stream_id": "TINYSA_STREAM_ID",
+    "interval": {
+      "started_at": "2026-11-05T10:00:00Z",
+      "ended_at": "2026-11-05T10:00:01Z"
+    },
+    "center_frequency_hz": 102500000,
+    "bandwidth_hz": 200000,
+    "peak_level": -42.5,
+    "level_unit": "dBm",
+    "score": 0.9
+  }'
+```
+
+`source_stream_id` обязан принадлежать сеансу, а `level_unit` — точно совпадать с потоком. Уровень кандидата сохраняется в исходных `dBm` или `s_meter_count`; преобразование между ними не выполняется. Новый кандидат всегда имеет `state=new`.
+
+Постановка в очередь:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/candidates/CANDIDATE_ID/investigations \
+  -H 'Content-Type: application/json' \
+  -d '{"target_stream_id":"RECEIVER_STREAM_ID","mode":"DMR","priority":5}'
+```
+
+Целью может быть только `receiver` того же сеанса. `target_frequency_hz` по умолчанию равен `candidate.center_frequency_hz`; `priority` — неотрицательное целое, по умолчанию `0`. В списке ожидающие исследования сортируются по убыванию приоритета, затем по `created_at` и ID. Для одного кандидата допускается только одно открытое исследование (`queued`, `tuning`, `listening` или `decoding`). После сбоя или отмены кандидат возвращается в `queued` и может быть поставлен повторно новым ID исследования.
+
+Запуск и завершение:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/start
+
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/complete
+
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/fail \
+  -H 'Content-Type: application/json' \
+  -d '{"error":"оператор зафиксировал сбой"}'
+```
+
+Основной путь исследования:
+
+```text
+queued → tuning → listening → completed
+           │          │
+           └──────────┴→ failed
+queued / tuning / listening → cancelled
+```
+
+Перед командой служба сохраняет `tuning`, затем освобождает общий lock и вызывает только очередь целевого receiver. Поэтому свипы tinySA и операции других потоков продолжаются во время перестройки. При успехе исследование становится `listening`, кандидат — `investigating`. Если команда завершилась ошибкой, ответ содержит исследование в `failed` с текстом `error`, а кандидат снова доступен для постановки. Отмена во время команды не перезаписывается последующим `listening`; уже выполненная перестройка прибора не откатывается. Автоматического восстановления прежней частоты нет.
+
+`complete` принимает только `listening`/`decoding` и связывает все наблюдения целевого потока, у которых `frequency_hz=target_frequency_hz`, а `started_at` не раньше начала исследования. Если таких наблюдений нет, возвращается HTTP 400, состояние остаётся `listening` и ложный результат не создаётся. При успехе ID наблюдений попадают в `result_observation_ids`, исследование — в `completed`, кандидат — в `resolved`. Состояние `decoding` зарезервировано контрактом; отдельный HTTP-переход в него в этом срезе не добавлен.
+
+События `candidate.created`, `candidate.dismissed`, `investigation.queued`, `investigation.tuning`, `investigation.listening`, `investigation.completed`, `investigation.failed`, `investigation.cancelled` и `investigation.interrupted` доступны через history/SSE. В SQLite изменение кандидата, исследования и соответствующего события выполняется одной транзакцией; подписчики уведомляются только после commit.
+
+После перезапуска ожидающие `queued` сохраняются. Активные `tuning`/`listening`/`decoding` переводятся в `failed` с ошибкой прерывания и событием `investigation.interrupted`, поскольку поток команды не переживает процесс; кандидат возвращается в `queued`. Приборные workers при этом не перезапускаются автоматически.
+
+ID кандидата и исследования в URL кодируются как один сегмент и декодируются ровно один раз, как ID сеанса. Неизвестные объекты возвращают HTTP 404 с кодами `candidate_not_found` и `investigation_not_found`.
+
+`hardware_control` остаётся `false`: ручной handoff и модели архива проверены на симуляторах, но не означают подключение или аппаратную проверку физических tinySA Ultra/AR-DV1.
