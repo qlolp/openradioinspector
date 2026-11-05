@@ -14,6 +14,7 @@
     "investigation.completed", "investigation.failed", "investigation.cancelled",
     "investigation.interrupted", "automatic_handoff.policy_changed",
     "automatic_handoff.started", "automatic_handoff.disabled",
+    "automatic_detection.policy_changed", "automatic_detection.candidate_created",
   ];
   const STATE_LABELS = {
     draft: "Черновик", running: "Работает", stopped: "Остановлен",
@@ -44,6 +45,12 @@
     candidateBandwidth: byId("candidate-bandwidth"), candidateLevel: byId("candidate-level"),
     candidateScore: byId("candidate-score"), candidateUnit: byId("candidate-unit"),
     candidateCancel: byId("candidate-cancel"), candidateList: byId("candidate-list"),
+    detectionEditor: byId("detection-editor"), detectionForm: byId("detection-form"),
+    detectionStatus: byId("detection-status"), detectionInterval: byId("detection-interval"),
+    detectionThreshold: byId("detection-threshold"), detectionDedup: byId("detection-dedup"),
+    detectionCooldown: byId("detection-cooldown"), detectionMax: byId("detection-max"),
+    detectionStream: byId("detection-stream"), detectionEnable: byId("detection-enable"),
+    detectionDisable: byId("detection-disable"),
     investigationFilter: byId("investigation-filter"), handoffForm: byId("handoff-form"),
     dispatchNext: byId("dispatch-next"), nextInvestigation: byId("next-investigation"),
     automaticEditor: byId("automatic-editor"), automaticForm: byId("automatic-form"),
@@ -62,8 +69,10 @@
   const state = {
     sessions: [], sessionId: null, session: null, workers: [],
     candidates: [], investigations: [], nextInvestigation: null, automaticHandoff: null,
+    automaticDetection: null,
     events: [], sweeps: [], spectrumStreamId: null, capabilities: null, health: null,
-    automaticFormDirty: false, refreshRunning: false, refreshQueued: false, actionPending: false,
+    automaticFormDirty: false, detectionFormDirty: false,
+    refreshRunning: false, refreshQueued: false, actionPending: false,
     noticeTimer: null, refreshTimer: null, eventSource: null,
     lastEventId: 0, initialized: false,
   };
@@ -219,7 +228,7 @@
     dom.hardware.textContent = `hardware_control=${String(features.hardware_control)}`;
     if (state.capabilities) {
       const persistent = state.capabilities.persistent_archive;
-      dom.storage.textContent = `Архив сеансов: ${state.capabilities.session_storage}; восстановление=${String(persistent)}. Автоматический handoff=${String(features.automatic_handoff)}.`;
+      dom.storage.textContent = `Архив сеансов: ${state.capabilities.session_storage}; восстановление=${String(persistent)}. Автоматический handoff=${String(features.automatic_handoff)}; обнаружение=${String(features.automatic_candidate_detection)}.`;
     }
   }
 
@@ -385,6 +394,39 @@
     dom.candidateList.replaceChildren(...records);
   }
 
+  function renderAutomaticDetection() {
+    const status = state.automaticDetection;
+    const policy = status?.policy;
+    const runtime = status?.runtime;
+    const enabled = Boolean(policy?.enabled);
+    dom.detectionStatus.dataset.enabled = String(enabled);
+    if (!status) {
+      dom.detectionStatus.textContent = state.sessionId
+        ? "Состояние обнаружения ещё не получено от ядра."
+        : "Выберите сеанс, чтобы просмотреть политику обнаружения.";
+    } else {
+      const stream = policy.stream_id
+        ? streamById(policy.stream_id)?.device || policy.stream_id
+        : "все spectrum_analyzer с dBm";
+      const error = runtime.last_error ? ` · ${runtime.last_error}` : "";
+      dom.detectionStatus.textContent = `${enabled ? "Включено" : "Выключено"} · ${runtime.last_result} · ${stream} · порог ${levelFormatter.format(policy.threshold_dbm)} dBm · sweeps ${runtime.sweeps_processed}, кандидатов ${runtime.candidates_created}, дублей ${runtime.duplicates_suppressed} · проход ${formatTime(runtime.last_run_at)}${error}`;
+    }
+    const fields = [dom.detectionInterval, dom.detectionThreshold, dom.detectionDedup, dom.detectionCooldown, dom.detectionMax, dom.detectionStream];
+    for (const field of fields) field.disabled = !status || state.actionPending;
+    dom.detectionEnable.disabled = !status || !runningSession() || state.actionPending;
+    dom.detectionDisable.disabled = !status || !enabled || state.actionPending;
+    if (!status || state.detectionFormDirty) return;
+
+    const analyzers = (state.session?.streams || []).filter((stream) => stream.role === "spectrum_analyzer" && stream.level_unit === "dBm");
+    const items = analyzers.map((stream) => ({ value: stream.id, label: `${stream.device} · ${stream.level_unit}` }));
+    setOptions(dom.detectionStream, items, policy.stream_id, "Все spectrum_analyzer с dBm");
+    dom.detectionInterval.value = String(policy.interval_seconds);
+    dom.detectionThreshold.value = String(policy.threshold_dbm);
+    dom.detectionDedup.value = String(policy.dedup_bandwidth_hz);
+    dom.detectionCooldown.value = String(policy.cooldown_seconds);
+    dom.detectionMax.value = String(policy.max_candidates_per_sweep);
+  }
+
   function renderAutomaticHandoff() {
     const status = state.automaticHandoff;
     const policy = status?.policy;
@@ -475,6 +517,7 @@
     renderSpectrum();
     renderEvents();
     renderCandidates();
+    renderAutomaticDetection();
     renderAutomaticHandoff();
     renderInvestigations();
   }
@@ -703,7 +746,9 @@
       state.investigations = [];
       state.nextInvestigation = null;
       state.automaticHandoff = null;
+      state.automaticDetection = null;
       state.automaticFormDirty = false;
+      state.detectionFormDirty = false;
       state.events = [];
       state.sweeps = [];
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
@@ -718,7 +763,9 @@
       state.spectrumStreamId = null;
       state.nextInvestigation = null;
       state.automaticHandoff = null;
+      state.automaticDetection = null;
       state.automaticFormDirty = false;
+      state.detectionFormDirty = false;
       return;
     }
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
@@ -737,10 +784,11 @@
       api(`/sessions/${encode(sessionId)}/investigations`),
       api(`/sessions/${encode(sessionId)}/investigations/next`),
       api(`/sessions/${encode(sessionId)}/automatic-handoff`),
+      api(`/sessions/${encode(sessionId)}/automatic-detection`),
       api(`/events/history?after=${Math.max(0, health.last_event_id - 200)}&limit=200`),
       measurementsPath ? api(`/sessions/${encode(sessionId)}${measurementsPath}`) : Promise.resolve([]),
     ];
-    const [workers, candidates, investigations, nextInvestigation, automaticHandoff, events, sweeps] = await Promise.all(requests);
+    const [workers, candidates, investigations, nextInvestigation, automaticHandoff, automaticDetection, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
       return;
@@ -750,6 +798,7 @@
     state.investigations = investigations;
     state.nextInvestigation = nextInvestigation;
     state.automaticHandoff = automaticHandoff;
+    state.automaticDetection = automaticDetection;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
   }
@@ -913,6 +962,31 @@
     }
   }
 
+  async function configureAutomaticDetection(enabled) {
+    if (!state.sessionId) throw new ApiError("Сначала выберите сеанс.", "invalid_form");
+    const payload = { enabled };
+    if (enabled) {
+      if (!runningSession()) throw new ApiError("Обнаружение можно включить только в работающем сеансе.", "invalid_form");
+      payload.interval_seconds = requiredNumber(dom.detectionInterval, "Период проверки", 0.1, 3600);
+      payload.threshold_dbm = requiredNumber(dom.detectionThreshold, "Порог", -300, 100);
+      payload.dedup_bandwidth_hz = requiredInteger(dom.detectionDedup, "Полоса dedup", 1);
+      payload.cooldown_seconds = requiredNumber(dom.detectionCooldown, "Cooldown", 0, 86400);
+      payload.max_candidates_per_sweep = requiredInteger(dom.detectionMax, "Максимум за sweep", 1);
+      payload.stream_id = dom.detectionStream.value || null;
+    }
+    const status = await withAction(() => api(sessionPath("/automatic-detection"), { method: "POST", body: payload }));
+    if (!status) return;
+    state.automaticDetection = status;
+    state.detectionFormDirty = false;
+    renderAutomaticDetection();
+    notify(
+      status.policy.enabled
+        ? "Автоматическое обнаружение явно включено только для новых sweeps; исследования в очередь не ставятся."
+        : "Автоматическое обнаружение выключено оператором; архив и кандидаты сохранены.",
+      status.policy.enabled ? "running" : "warning",
+    );
+  }
+
   async function configureAutomaticHandoff(enabled) {
     if (!state.sessionId) throw new ApiError("Сначала выберите сеанс.", "invalid_form");
     const payload = { enabled };
@@ -926,6 +1000,7 @@
     }
     const status = await withAction(() => api(sessionPath("/automatic-handoff"), { method: "POST", body: payload }));
     if (!status) return;
+    state.automaticHandoff = status;
     state.automaticFormDirty = false;
     renderAutomaticHandoff();
     notify(
@@ -986,7 +1061,9 @@
     state.sessionId = dom.sessionSelect.value || null;
     state.session = null;
     state.automaticHandoff = null;
+    state.automaticDetection = null;
     state.automaticFormDirty = false;
+    state.detectionFormDirty = false;
     state.revision = (state.revision || 0) + 1;
     storeSession(state.sessionId);
     closeHandoff();
@@ -1041,6 +1118,15 @@
   dom.handoffTarget.addEventListener("change", () => {
     const stream = streamById(dom.handoffTarget.value);
     dom.handoffMode.value = workerById(stream?.id)?.current?.mode || stream?.settings.mode || "";
+  });
+  dom.detectionForm.addEventListener("input", () => { state.detectionFormDirty = true; });
+  dom.detectionForm.addEventListener("change", () => { state.detectionFormDirty = true; });
+  dom.detectionForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    configureAutomaticDetection(true).catch(reportError);
+  });
+  dom.detectionDisable.addEventListener("click", () => {
+    configureAutomaticDetection(false).catch(reportError);
   });
   dom.automaticForm.addEventListener("input", () => { state.automaticFormDirty = true; });
   dom.automaticForm.addEventListener("change", () => { state.automaticFormDirty = true; });
