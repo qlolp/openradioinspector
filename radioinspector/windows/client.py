@@ -291,6 +291,18 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/automatic-detection"
         )
 
+    def configure_automatic_handoff(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._post(f"/sessions/{session}/automatic-handoff", payload)
+
+    def configure_automatic_detection(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._post(f"/sessions/{session}/automatic-detection", payload)
+
     def snapshot(
         self,
         session_id: Optional[str] = None,

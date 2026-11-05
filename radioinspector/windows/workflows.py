@@ -12,7 +12,13 @@ def required_text(value: Any, label: str) -> str:
     return value.strip()
 
 
-def required_int(value: Any, label: str, *, minimum: int = 1) -> int:
+def required_int(
+    value: Any,
+    label: str,
+    *,
+    minimum: int = 1,
+    maximum: Optional[int] = None,
+) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{label} должно быть целым числом")
     try:
@@ -23,6 +29,26 @@ def required_int(value: Any, label: str, *, minimum: int = 1) -> int:
         raise ValueError(f"{label} должно быть целым числом")
     if parsed < minimum:
         raise ValueError(f"{label} должно быть не меньше {minimum}")
+    if maximum is not None and parsed > maximum:
+        raise ValueError(f"{label} должно быть не больше {maximum}")
+    return parsed
+
+
+def required_number(
+    value: Any,
+    label: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} должно быть конечным числом")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} должно быть числом") from exc
+    if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        raise ValueError(f"{label} должно быть в диапазоне {minimum}…{maximum}")
     return parsed
 
 
@@ -157,3 +183,104 @@ def investigation_payload(
     if isinstance(mode, str) and mode.strip():
         payload["mode"] = mode.strip()
     return payload
+
+
+def _enabled(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("Признак включения политики должен быть boolean")
+    return value
+
+
+def _optional_stream(value: Any, label: str) -> Optional[str]:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return required_text(value, label)
+
+
+def automatic_detection_payload(
+    *,
+    enabled: Any,
+    interval_seconds: Any,
+    stream_id: Any,
+    threshold_dbm: Any,
+    dedup_bandwidth_hz: Any,
+    cooldown_seconds: Any,
+    max_candidates_per_sweep: Any,
+) -> dict[str, Any]:
+    """Формирует независимую политику detector без операций handoff."""
+    return {
+        "enabled": _enabled(enabled),
+        "interval_seconds": required_number(
+            interval_seconds,
+            "Период обнаружения",
+            minimum=0.1,
+            maximum=3600.0,
+        ),
+        "stream_id": _optional_stream(stream_id, "Поток обнаружения"),
+        "threshold_dbm": required_number(
+            threshold_dbm,
+            "Порог dBm",
+            minimum=-300.0,
+            maximum=100.0,
+        ),
+        "dedup_bandwidth_hz": required_int(
+            dedup_bandwidth_hz,
+            "Полоса dedup",
+            minimum=1,
+            maximum=10_000_000_000,
+        ),
+        "cooldown_seconds": required_number(
+            cooldown_seconds,
+            "Cooldown",
+            minimum=0.0,
+            maximum=86400.0,
+        ),
+        "max_candidates_per_sweep": required_int(
+            max_candidates_per_sweep,
+            "Максимум кандидатов за sweep",
+            minimum=1,
+            maximum=100,
+        ),
+    }
+
+
+def automatic_handoff_payload(
+    *,
+    enabled: Any,
+    interval_seconds: Any,
+    minimum_priority: Any,
+    receiver_stream_id: Any,
+    max_consecutive_failures: Any,
+    retry_delay_seconds: Any,
+) -> dict[str, Any]:
+    """Формирует независимую политику scheduler без завершения исследований."""
+    return {
+        "enabled": _enabled(enabled),
+        "interval_seconds": required_number(
+            interval_seconds,
+            "Период handoff",
+            minimum=0.1,
+            maximum=3600.0,
+        ),
+        "minimum_priority": required_int(
+            minimum_priority,
+            "Минимальный приоритет",
+            minimum=0,
+            maximum=1_000_000,
+        ),
+        "receiver_stream_id": _optional_stream(
+            receiver_stream_id, "Receiver автоматического handoff"
+        ),
+        "max_consecutive_failures": required_int(
+            max_consecutive_failures,
+            "Сбоев до отключения",
+            minimum=1,
+            maximum=100,
+        ),
+        "retry_delay_seconds": required_number(
+            retry_delay_seconds,
+            "Задержка повтора",
+            minimum=0.1,
+            maximum=86400.0,
+        ),
+    }
