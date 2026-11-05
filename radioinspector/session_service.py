@@ -161,7 +161,7 @@ class SessionService:
                 "measurement_archive": True,
                 "candidate_investigations": True,
                 "manual_investigation_handoff": True,
-                "semi_automatic_handoff": False,
+                "semi_automatic_handoff": True,
                 "automatic_handoff": False,
                 "automatic_candidate_detection": False,
                 "hardware_control": False,
@@ -593,6 +593,35 @@ class SessionService:
                 self._get_investigation_locked(session_id, investigation_id)
             )
 
+    def next_investigation(self, session_id: str) -> Optional[Investigation]:
+        """Возвращает рекомендуемое исследование без изменения очереди."""
+        with self._lock:
+            self._get_locked(session_id)
+            return copy.deepcopy(self._next_investigation_locked(session_id))
+
+    def _next_investigation_locked(self, session_id: str) -> Optional[Investigation]:
+        queued = [
+            item for item in self._investigations.values()
+            if self._investigation_sessions[item.id] == session_id
+            and item.state is InvestigationState.QUEUED
+        ]
+        queued.sort(key=lambda item: (-item.priority, item.created_at, item.id))
+        return queued[0] if queued else None
+
+    def start_next_investigation(
+        self,
+        session_id: str,
+        investigation_id: str,
+        *,
+        tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+    ) -> Investigation:
+        """Запускает подтверждённую оператором рекомендацию, если очередь не изменилась."""
+        if not isinstance(investigation_id, str) or not investigation_id.strip():
+            raise ValueError("Для подтверждения требуется investigation_id")
+        return self._start_investigation(
+            session_id, investigation_id, tune=tune, require_next=True
+        )
+
     def start_investigation(
         self,
         session_id: str,
@@ -601,6 +630,16 @@ class SessionService:
         tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
     ) -> Investigation:
         """Выполняет ручной handoff, не удерживая общий lock на время tune."""
+        return self._start_investigation(session_id, investigation_id, tune=tune)
+
+    def _start_investigation(
+        self,
+        session_id: str,
+        investigation_id: str,
+        *,
+        tune: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+        require_next: bool = False,
+    ) -> Investigation:
         with self._lock:
             session = self._get_locked(session_id)
             if session.state is not SessionState.RUNNING:
@@ -610,6 +649,23 @@ class SessionService:
                 raise ValueError(
                     f"Нельзя запустить исследование из состояния {current.state.value}"
                 )
+            if require_next:
+                recommended = self._next_investigation_locked(session_id)
+                if recommended is None:
+                    raise ValueError("Очередь исследований пуста")
+                if recommended.id != investigation_id:
+                    raise ValueError(
+                        "Очередь изменилась: запросите и подтвердите актуальное "
+                        "следующее исследование"
+                    )
+            if any(
+                item.id != investigation_id
+                and self._investigation_sessions[item.id] == session_id
+                and item.target_stream_id == current.target_stream_id
+                and item.state in RUNTIME_INVESTIGATION_STATES
+                for item in self._investigations.values()
+            ):
+                raise ValueError("Выбранный receiver уже выполняет другое исследование")
             candidate = copy.deepcopy(self._candidates[current.candidate_id])
             investigation = copy.deepcopy(current)
             investigation.state = InvestigationState.TUNING
