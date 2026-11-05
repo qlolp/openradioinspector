@@ -9,7 +9,7 @@ Events. Внешние зависимости не требуются, что п
 
 * отображение текущей панорамы и накопленных графиков максимумов, минимумов
   и усреднённых значений;
-* спектрограмму («водопад») в плоском и объёмном представлениях;
+* спектрограмму («водопад») в плоском и объёмном представлении;
 * редактирование линии порога и просмотр списка сигналов, превысивших порог;
 * измерение параметров сигнала по выбранному поддиапазону;
 * отображение точек измерений на карте и карту распределения напряжённости
@@ -31,6 +31,7 @@ import numpy as np
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
+from ..automatic_handoff import AutomaticHandoffScheduler
 from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
 from ..session_service import (
@@ -501,6 +502,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                self._send_json(api_payload(self.automatic_handoff.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "workers"
             ):
                 self._send_json(api_payload(self.workers.list_workers(parts[3])))
@@ -551,6 +559,14 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in ("candidates", "investigations")
             ):
                 parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                result = self.automatic_handoff.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -747,6 +763,7 @@ def create_server(
     sessions: Optional[SessionService] = None,
     session_database: Optional[str] = None,
     workers: Optional[DeviceWorkerManager] = None,
+    automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -761,15 +778,26 @@ def create_server(
     if workers is not None and workers.sessions is not session_service:
         raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
     worker_manager = workers or DeviceWorkerManager(session_service)
+    if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
+        raise ValueError("AutomaticHandoffScheduler должен использовать тот же SessionService")
+    automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
+        session_service, tune=worker_manager.tune
+    )
     handler = type(
         "BoundHandler",
         (Handler,),
-        {"state": state, "sessions": session_service, "workers": worker_manager},
+        {
+            "state": state,
+            "sessions": session_service,
+            "workers": worker_manager,
+            "automatic_handoff": automatic_scheduler,
+        },
     )
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
     httpd.session_service = session_service
     httpd.worker_manager = worker_manager
+    httpd.automatic_handoff = automatic_scheduler
     return httpd
 
 
@@ -798,6 +826,7 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.automatic_handoff.close()
         httpd.worker_manager.close()
         httpd.server_close()
         httpd.session_service.close()
