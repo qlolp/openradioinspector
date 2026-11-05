@@ -80,7 +80,7 @@ public struct PlatformBaseURL: Equatable {
     }
 }
 
-public struct PlatformInterval: Decodable, Equatable {
+public struct PlatformInterval: Codable, Equatable {
     public let startedAt: String
     public let endedAt: String
 }
@@ -170,6 +170,11 @@ public struct PlatformSnapshot: Equatable {
     public var workers: [PlatformWorker]
     public var sweeps: [PlatformSweep]
     public var observations: [PlatformObservation]
+    public var candidates: [PlatformCandidate] = []
+    public var investigations: [PlatformInvestigation] = []
+    public var nextInvestigation: PlatformInvestigation?
+    public var automaticHandoff: PlatformAutomaticStatus?
+    public var automaticDetection: PlatformAutomaticStatus?
 }
 
 private struct PlatformEnvelope<Value: Decodable>: Decodable {
@@ -311,9 +316,17 @@ public final class PlatformClient {
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
         )
+        async let candidatesRequest: [PlatformCandidate] = listCandidates(sessionID: sessionID)
+        async let investigationsRequest: [PlatformInvestigation] = listInvestigations(sessionID: sessionID)
+        async let nextRequest: PlatformInvestigation? = nextInvestigation(sessionID: sessionID)
+        async let handoffRequest: PlatformAutomaticStatus = automaticHandoff(sessionID: sessionID)
+        async let detectionRequest: PlatformAutomaticStatus = automaticDetection(sessionID: sessionID)
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
-            sweeps: sweepsRequest, observations: observationsRequest
+            sweeps: sweepsRequest, observations: observationsRequest,
+            candidates: candidatesRequest, investigations: investigationsRequest,
+            nextInvestigation: nextRequest,
+            automaticHandoff: handoffRequest, automaticDetection: detectionRequest
         )
     }
 
@@ -327,13 +340,13 @@ public final class PlatformClient {
         )
     }
 
-    private func get<Value: Decodable>(
+    func get<Value: Decodable>(
         _ path: String, query: [URLQueryItem] = []
     ) async throws -> Value {
         try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?)
     }
 
-    private func post<Value: Decodable, Body: Encodable>(
+    func post<Value: Decodable, Body: Encodable>(
         _ path: String, body: Body
     ) async throws -> Value {
         try await request(method: "POST", path: path, query: [], body: body)
@@ -384,7 +397,7 @@ public final class PlatformClient {
         "/sessions/\(segment(sessionID))/streams/\(segment(streamID))/\(action)"
     }
 
-    private static func segment(_ value: String) -> String {
+    static func segment(_ value: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value

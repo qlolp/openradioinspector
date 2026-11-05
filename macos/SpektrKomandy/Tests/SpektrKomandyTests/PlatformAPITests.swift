@@ -138,6 +138,16 @@ final class PlatformAPITests: XCTestCase {
                 """
                 return (self.response(request.url!), self.envelope(observation))
             }
+            if path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/investigations/next") {
+                return (self.response(request.url!), self.envelope("null"))
+            }
+            if path.hasSuffix("/automatic-handoff") || path.hasSuffix("/automatic-detection") {
+                let status = "{\"policy\":{\"enabled\":false},\"runtime\":{},\"scheduler_alive\":false,\"policy_persistent\":false,\"restart_requires_opt_in\":true}"
+                return (self.response(request.url!), self.envelope(status))
+            }
             return (self.response(request.url!), self.envelope(self.sessionJSON))
         }
         let snapshot = try await client.snapshot(sessionID: "session/old")
