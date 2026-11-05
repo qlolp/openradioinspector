@@ -12,7 +12,8 @@
     "candidate.created", "candidate.dismissed",
     "investigation.queued", "investigation.tuning", "investigation.listening",
     "investigation.completed", "investigation.failed", "investigation.cancelled",
-    "investigation.interrupted",
+    "investigation.interrupted", "automatic_handoff.policy_changed",
+    "automatic_handoff.started", "automatic_handoff.disabled",
   ];
   const STATE_LABELS = {
     draft: "Черновик", running: "Работает", stopped: "Остановлен",
@@ -45,6 +46,11 @@
     candidateCancel: byId("candidate-cancel"), candidateList: byId("candidate-list"),
     investigationFilter: byId("investigation-filter"), handoffForm: byId("handoff-form"),
     dispatchNext: byId("dispatch-next"), nextInvestigation: byId("next-investigation"),
+    automaticEditor: byId("automatic-editor"), automaticForm: byId("automatic-form"),
+    automaticStatus: byId("automatic-status"), automaticInterval: byId("automatic-interval"),
+    automaticPriority: byId("automatic-priority"), automaticFailures: byId("automatic-failures"),
+    automaticRetry: byId("automatic-retry"), automaticReceiver: byId("automatic-receiver"),
+    automaticEnable: byId("automatic-enable"), automaticDisable: byId("automatic-disable"),
     handoffCandidate: byId("handoff-candidate"), handoffLabel: byId("handoff-label"),
     handoffTarget: byId("handoff-target"), handoffFrequency: byId("handoff-frequency"),
     handoffPriority: byId("handoff-priority"), handoffMode: byId("handoff-mode"),
@@ -55,9 +61,9 @@
 
   const state = {
     sessions: [], sessionId: null, session: null, workers: [],
-    candidates: [], investigations: [], nextInvestigation: null, events: [], sweeps: [],
-    spectrumStreamId: null, capabilities: null, health: null,
-    refreshRunning: false, refreshQueued: false, actionPending: false,
+    candidates: [], investigations: [], nextInvestigation: null, automaticHandoff: null,
+    events: [], sweeps: [], spectrumStreamId: null, capabilities: null, health: null,
+    automaticFormDirty: false, refreshRunning: false, refreshQueued: false, actionPending: false,
     noticeTimer: null, refreshTimer: null, eventSource: null,
     lastEventId: 0, initialized: false,
   };
@@ -379,6 +385,40 @@
     dom.candidateList.replaceChildren(...records);
   }
 
+  function renderAutomaticHandoff() {
+    const status = state.automaticHandoff;
+    const policy = status?.policy;
+    const runtime = status?.runtime;
+    const enabled = Boolean(policy?.enabled);
+    dom.automaticStatus.dataset.enabled = String(enabled);
+    if (!status) {
+      dom.automaticStatus.textContent = state.sessionId
+        ? "Состояние политики ещё не получено от ядра."
+        : "Выберите сеанс, чтобы просмотреть автоматическую политику.";
+    } else {
+      const receiver = policy.receiver_stream_id
+        ? streamById(policy.receiver_stream_id)?.device || policy.receiver_stream_id
+        : "любой receiver";
+      const last = runtime.last_investigation_id ? ` · исследование ${runtime.last_investigation_id}` : "";
+      const error = runtime.last_error ? ` · ${runtime.last_error}` : "";
+      dom.automaticStatus.textContent = `${enabled ? "Включён" : "Выключен"} · ${runtime.last_result} · ${receiver} · успешно ${runtime.successful_dispatches}, сбоев ${runtime.failed_dispatches}, серия ${runtime.consecutive_failures} · проход ${formatTime(runtime.last_run_at)}${last}${error}`;
+    }
+
+    const fields = [dom.automaticInterval, dom.automaticPriority, dom.automaticFailures, dom.automaticRetry, dom.automaticReceiver];
+    for (const field of fields) field.disabled = !status || state.actionPending;
+    dom.automaticEnable.disabled = !status || !runningSession() || state.actionPending;
+    dom.automaticDisable.disabled = !status || !enabled || state.actionPending;
+    if (!status || state.automaticFormDirty) return;
+
+    const receivers = (state.session?.streams || []).filter((stream) => stream.role === "receiver");
+    const items = receivers.map((stream) => ({ value: stream.id, label: `${stream.device} · ${stream.level_unit}` }));
+    setOptions(dom.automaticReceiver, items, policy.receiver_stream_id, "Любой receiver сеанса");
+    dom.automaticInterval.value = String(policy.interval_seconds);
+    dom.automaticPriority.value = String(policy.minimum_priority);
+    dom.automaticFailures.value = String(policy.max_consecutive_failures);
+    dom.automaticRetry.value = String(policy.retry_delay_seconds);
+  }
+
   function renderInvestigations() {
     const next = state.nextInvestigation;
     dom.dispatchNext.disabled = !next || !runningSession() || state.actionPending;
@@ -387,7 +427,7 @@
       dom.nextInvestigation.textContent = `Следующее по приоритету: ${formatHz(next.target_frequency_hz)} · приоритет ${next.priority} · ${receiver?.device || next.target_stream_id} · ${next.mode || "режим не изменять"}. Перестройка начнётся только после подтверждения.`;
       dom.dispatchNext.textContent = `Подтвердить ${formatHz(next.target_frequency_hz)}`;
     } else {
-      dom.nextInvestigation.textContent = "Ожидающих исследований нет. Ядро не запускает handoff автоматически.";
+      dom.nextInvestigation.textContent = "Ожидающих исследований нет. Ручной запуск требует подтверждения; автоматический — отдельного включения политики.";
       dom.dispatchNext.textContent = "Подтвердить и запустить следующее";
     }
     const filter = dom.investigationFilter.value;
@@ -435,6 +475,7 @@
     renderSpectrum();
     renderEvents();
     renderCandidates();
+    renderAutomaticHandoff();
     renderInvestigations();
   }
 
@@ -661,6 +702,8 @@
       state.candidates = [];
       state.investigations = [];
       state.nextInvestigation = null;
+      state.automaticHandoff = null;
+      state.automaticFormDirty = false;
       state.events = [];
       state.sweeps = [];
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
@@ -674,6 +717,8 @@
     if (!selected) {
       state.spectrumStreamId = null;
       state.nextInvestigation = null;
+      state.automaticHandoff = null;
+      state.automaticFormDirty = false;
       return;
     }
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
@@ -691,10 +736,11 @@
       api(`/sessions/${encode(sessionId)}/candidates`),
       api(`/sessions/${encode(sessionId)}/investigations`),
       api(`/sessions/${encode(sessionId)}/investigations/next`),
+      api(`/sessions/${encode(sessionId)}/automatic-handoff`),
       api(`/events/history?after=${Math.max(0, health.last_event_id - 200)}&limit=200`),
       measurementsPath ? api(`/sessions/${encode(sessionId)}${measurementsPath}`) : Promise.resolve([]),
     ];
-    const [workers, candidates, investigations, nextInvestigation, events, sweeps] = await Promise.all(requests);
+    const [workers, candidates, investigations, nextInvestigation, automaticHandoff, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
       return;
@@ -703,6 +749,7 @@
     state.candidates = candidates;
     state.investigations = investigations;
     state.nextInvestigation = nextInvestigation;
+    state.automaticHandoff = automaticHandoff;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
   }
@@ -820,6 +867,14 @@
     return value;
   }
 
+  function requiredNumber(input, label, minimum, maximum) {
+    const value = input.valueAsNumber;
+    if (!Number.isFinite(value) || value < minimum || value > maximum) {
+      throw new ApiError(`${label}: требуется число от ${minimum} до ${maximum}.`, "invalid_form");
+    }
+    return value;
+  }
+
   function optionalNumber(input, label, integer = false) {
     if (input.value.trim() === "") return undefined;
     const value = input.valueAsNumber;
@@ -856,6 +911,29 @@
       dom.candidateEditor.open = false;
       updateCandidateUnit();
     }
+  }
+
+  async function configureAutomaticHandoff(enabled) {
+    if (!state.sessionId) throw new ApiError("Сначала выберите сеанс.", "invalid_form");
+    const payload = { enabled };
+    if (enabled) {
+      if (!runningSession()) throw new ApiError("Автоматический handoff можно включить только в работающем сеансе.", "invalid_form");
+      payload.interval_seconds = requiredNumber(dom.automaticInterval, "Период проверки", 0.1, 3600);
+      payload.minimum_priority = requiredInteger(dom.automaticPriority, "Минимальный приоритет", 0);
+      payload.max_consecutive_failures = requiredInteger(dom.automaticFailures, "Сбоев до отключения", 1);
+      payload.retry_delay_seconds = requiredNumber(dom.automaticRetry, "Задержка повтора", 0.1, 86400);
+      payload.receiver_stream_id = dom.automaticReceiver.value || null;
+    }
+    const status = await withAction(() => api(sessionPath("/automatic-handoff"), { method: "POST", body: payload }));
+    if (!status) return;
+    state.automaticFormDirty = false;
+    renderAutomaticHandoff();
+    notify(
+      status.policy.enabled
+        ? "Автоматический handoff явно включён. Он запускает только подходящие ожидающие исследования."
+        : "Автоматический handoff выключен оператором; активное исследование не отменено, параметры сохранены до перезапуска.",
+      status.policy.enabled ? "running" : "warning",
+    );
   }
 
   function closeHandoff() {
@@ -907,6 +985,8 @@
   function changeSession() {
     state.sessionId = dom.sessionSelect.value || null;
     state.session = null;
+    state.automaticHandoff = null;
+    state.automaticFormDirty = false;
     state.revision = (state.revision || 0) + 1;
     storeSession(state.sessionId);
     closeHandoff();
@@ -961,6 +1041,15 @@
   dom.handoffTarget.addEventListener("change", () => {
     const stream = streamById(dom.handoffTarget.value);
     dom.handoffMode.value = workerById(stream?.id)?.current?.mode || stream?.settings.mode || "";
+  });
+  dom.automaticForm.addEventListener("input", () => { state.automaticFormDirty = true; });
+  dom.automaticForm.addEventListener("change", () => { state.automaticFormDirty = true; });
+  dom.automaticForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    configureAutomaticHandoff(true).catch(reportError);
+  });
+  dom.automaticDisable.addEventListener("click", () => {
+    configureAutomaticHandoff(false).catch(reportError);
   });
   dom.dispatchNext.addEventListener("click", () => {
     const next = state.nextInvestigation;

@@ -394,7 +394,9 @@ class InvestigationServiceTests(unittest.TestCase):
         self.assertTrue(features["candidate_investigations"])
         self.assertTrue(features["manual_investigation_handoff"])
         self.assertTrue(features["semi_automatic_handoff"])
-        self.assertFalse(features["automatic_handoff"])
+        self.assertTrue(features["automatic_handoff"])
+        self.assertTrue(features["automatic_handoff_opt_in_required"])
+        self.assertFalse(features["automatic_handoff_policy_persistent"])
         self.assertFalse(features["automatic_candidate_detection"])
         self.assertFalse(features["hardware_control"])
 
@@ -628,6 +630,7 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.host, self.port = self.server.server_address
 
     def tearDown(self) -> None:
+        self.server.automatic_handoff.close()
         self.server.worker_manager.close()
         self.server.shutdown()
         self.server.server_close()
@@ -702,7 +705,7 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listing["data"]], ["http-investigation"])
         status, capabilities = self.request("GET", "/api/v1/capabilities")
         self.assertTrue(capabilities["data"]["features"]["manual_investigation_handoff"])
-        self.assertFalse(capabilities["data"]["features"]["automatic_handoff"])
+        self.assertTrue(capabilities["data"]["features"]["automatic_handoff"])
 
     def test_http_semi_automatic_preview_and_confirmation(self) -> None:
         session_id, spectrum_id, receiver_id = self.create_session()
@@ -770,7 +773,65 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.assertEqual(following["data"]["id"], "http-investigation-low")
         status, capabilities = self.request("GET", "/api/v1/capabilities")
         self.assertTrue(capabilities["data"]["features"]["semi_automatic_handoff"])
-        self.assertFalse(capabilities["data"]["features"]["automatic_handoff"])
+        self.assertTrue(capabilities["data"]["features"]["automatic_handoff"])
+
+    def test_http_automatic_handoff_requires_opt_in_and_can_be_disabled(self) -> None:
+        session_id, spectrum_id, receiver_id = self.create_session()
+        self.request("POST", f"/api/v1/sessions/{session_id}/start", {})
+        self.request("POST", f"/api/v1/sessions/{session_id}/workers/start", {})
+        status, _ = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/candidates",
+            candidate_payload(spectrum_id, "http-automatic-candidate"),
+        )
+        self.assertEqual(status, 201)
+        status, _ = self.request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/candidates/http-automatic-candidate/investigations",
+            {
+                "id": "http-automatic-investigation",
+                "target_stream_id": receiver_id,
+                "mode": "DMR",
+            },
+        )
+        self.assertEqual(status, 201)
+        policy_path = f"/api/v1/sessions/{session_id}/automatic-handoff"
+        status, initial = self.request("GET", policy_path)
+        self.assertEqual(status, 200)
+        self.assertFalse(initial["data"]["policy"]["enabled"])
+        self.assertFalse(initial["data"]["policy_persistent"])
+        status, rejected = self.request("POST", policy_path, {"enabled": 1})
+        self.assertEqual(status, 400)
+        status, enabled = self.request(
+            "POST", policy_path,
+            {
+                "enabled": True,
+                "interval_seconds": 0.1,
+                "receiver_stream_id": receiver_id,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(enabled["data"]["policy"]["enabled"])
+        wait_until(
+            lambda: self.server.session_service.get_investigation(
+                session_id, "http-automatic-investigation"
+            ).state is InvestigationState.LISTENING,
+            "HTTP opt-in должен запустить автоматический handoff",
+        )
+        status, runtime = self.request("GET", policy_path)
+        self.assertEqual(
+            runtime["data"]["runtime"]["last_investigation_id"],
+            "http-automatic-investigation",
+        )
+        self.assertEqual(runtime["data"]["runtime"]["successful_dispatches"], 1)
+        status, disabled = self.request("POST", policy_path, {"enabled": False})
+        self.assertEqual(status, 200)
+        self.assertFalse(disabled["data"]["policy"]["enabled"])
+        status, capabilities = self.request("GET", "/api/v1/capabilities")
+        features = capabilities["data"]["features"]
+        self.assertTrue(features["automatic_handoff"])
+        self.assertTrue(features["automatic_handoff_opt_in_required"])
+        self.assertFalse(features["automatic_handoff_policy_persistent"])
+        self.assertFalse(features["automatic_candidate_detection"])
 
     def test_http_encoded_ids_dismiss_fail_and_not_found(self) -> None:
         session_id, spectrum_id, receiver_id = self.create_session()
