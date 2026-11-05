@@ -54,7 +54,7 @@
 | `wifi.py` | Разбор кадров 802.11 | — |
 | `audio.py` | Демодуляция и звуковой контроль | — |
 | `threshold.py` | Линии порога | `trace` |
-| `measurements.py` | β/2, −N дБ, напряжённость, поле, центр тяжести | `trace` |
+| `measurements.py` | β/2, −N дБ, контрольная полоса, поле, центр тяжести | `trace` |
 | `interference.py` | Выявление помех | `trace` |
 | `panorama.py` | База данных панорам (SQLite) | `trace` |
 | `signals.py` | Обнаружение и реестр сигналов | `threshold`, `trace` |
@@ -81,7 +81,7 @@
 | `Trace` | Спектральная трасса: массив частот и массив уровней, шаг перестройки, единица измерения | в памяти |
 | `PanoramaRecord` | Снимок трассы с меткой времени и координатами | таблица `panorama` |
 | `ScanSettings` | Параметры задания на сканирование; определяют имя файла базы | таблица `panorama_meta` |
-| `ThresholdLine` | Пороговая линия: частоты, уровни, единица | таблица `threshold_line` |
+| `ThresholdLine` | Линия порога: частоты, уровни, единица | таблица `threshold_line` |
 | `SignalRecord` / `SignalEvent` | Обнаруженный сигнал и отдельное событие его появления | таблица `signal_event`, файл `signals.json` |
 | `Assignment` | Частотное присвоение передатчика | база данных присвоений |
 
@@ -140,11 +140,11 @@ Points801 DetMaxPeak VBW100.0 SweepT0.0 From30.0 To130.0.pan
 3. **Сравнение с порогом.** `threshold.exceeded_intervals()` выделяет
    интервалы превышения; `power_over_threshold()` вычисляет превышение
    мощности в ваттах.
-4. **Регистрация сигналов.** `signals.SignalList.update_from_trace()`
+4. **Регистрация сигнала.** `signals.SignalList.update_from_trace()`
    сопоставляет новый интервал с существующими сигналами и обновляет реестр.
 5. **Запись.** `PanoramaStore.append()` сохраняет панораму и события.
 6. **Отчётность.** `measurements.measure_signal()` рассчитывает параметры
-   сигнала; `reporting.build_context()` формирует контекст протокола;
+   сигнала; `reporting.build_context()` собирает контекст протокола;
    `export/` выгружает данные в CEF/SigMF/CSV.
 
 ## Обработка ошибок и предупреждения
