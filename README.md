@@ -146,7 +146,7 @@ REST API:
 | `GET` | `/api/state` | текущее состояние: панорама, агрегаты, реестр сигналов, порог |
 | `GET` | `/api/signals` | реестр обнаруженных сигналов |
 | `GET` | `/api/occupancy?threshold=` | оценка загрузки диапазона |
-| `GET` | `/api/efficiency?threshold=` | оценка эффективности использования диапазона |
+| `GET` | `/api/efficiency?threshold=` | оценка загрузки диапазона |
 | `GET` | `/api/keywords` | словарь ключевых слов протоколов |
 | `GET` | `/api/measure?start=&stop=&norm=` | измерение параметров сигнала |
 | `GET` | `/api/coverage?rows=&cols=` | карта покрытия (GeoJSON) |
