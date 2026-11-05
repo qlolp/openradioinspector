@@ -1,9 +1,8 @@
-"""Независимые исполнители приборных потоков и их симуляторы.
+"""Независимые исполнители приборных потоков и их адаптеры.
 
-В этом модуле реализован только программный стенд tinySA Ultra и AR-DV1.
-Физические порты не открываются, а аппаратные команды не заявляются как
-реализованные. Каждый исполнитель имеет собственный поток, очередь команд и
-журнал состояния; ошибка одного прибора не останавливает другой.
+Симуляторы tinySA Ultra и AR-DV1 дополнены явными serial-адаптерами.
+Каждый исполнитель имеет собственный поток, очередь команд и журнал состояния;
+ошибка одного прибора не останавливает другой.
 """
 
 from __future__ import annotations
@@ -564,12 +563,14 @@ class DeviceWorkerManager:
         self._workers: dict[tuple[str, str], DeviceWorker] = {}
         self._lock = threading.RLock()
 
-    def capabilities(self) -> dict[str, bool]:
+    def capabilities(self) -> dict[str, Any]:
         return {
             "simulated_device_workers": True,
             "independent_worker_commands": True,
             "continuous_simulated_monitoring": True,
-            "hardware_control": False,
+            "hardware_control": True,
+            "hardware_validation_not_run": True,
+            "explicit_serial_adapters": True,
         }
 
     @property
@@ -594,7 +595,9 @@ class DeviceWorkerManager:
             existing = self._workers.get(key)
             if existing and existing.alive:
                 raise WorkerError(f"Исполнитель уже запущен: {stream_id}")
-            adapter = create_simulated_adapter(stream, clock=self._clock)
+            from .serial_instruments import create_device_adapter
+
+            adapter = create_device_adapter(stream, clock=self._clock)
             worker = DeviceWorker(self.sessions, adapter, clock=self._clock)
             self._workers[key] = worker
         try:

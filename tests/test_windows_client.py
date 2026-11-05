@@ -406,7 +406,8 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.assertEqual(created["state"], "draft")
         self.assertEqual(created["streams"][0]["settings"]["adapter"], "tinysa-sim")
         self.assertEqual(created["streams"][1]["level_unit"], "s_meter_count")
-        self.assertFalse(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_validation_not_run"])
         self.assertEqual(
             self.client.get_session("created/windows")["name"],
             "Создано Windows-клиентом",
