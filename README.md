@@ -181,6 +181,9 @@ radioinspector/
 ├── devices/         SCPI, SCPI-over-serial, SoapySDR, RTL-SDR, симулятор
 ├── export/          CEF, SigMF, CSV
 └── web/             веб-сервер и статические файлы интерфейса
+
+tools/analysis/    программы разбора коммерческого дистрибутива:
+                   ресурсы PE и формы Delphi, строки, метаданные FireBird, MSI
 ```
 
 Подробности — в [`docs/`](docs/):
@@ -199,6 +202,8 @@ radioinspector/
   инвентарь возможностей дистрибутива RadioInspector Light 32314;
 * [`docs/commercial-app-inventory.md`](docs/commercial-app-inventory.md) —
   инвентарь коммерческого приложения по первичным артефактам дистрибутива;
+* [`docs/measurement-methods.md`](docs/measurement-methods.md) — каталог методик
+  измерения оригинала и их состояние в проекте;
 * [`docs/roadmap.md`](docs/roadmap.md) — дорожная карта проекта: этапы,
   критерии приёмки, состояние веток и решение по коммерческому диску.
 
