@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional
 
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
+from .workflows import candidate_payload, investigation_payload, session_payload
 
 
 def session_label(session: dict[str, Any]) -> str:
@@ -49,6 +50,7 @@ def investigation_row(investigation: dict[str, Any]) -> tuple[str, ...]:
         str(investigation.get("target_frequency_hz", "?")),
         str(investigation.get("mode") or "—"),
         str(investigation.get("target_stream_id", "?")),
+        str(investigation.get("id", "?")),
     )
 
 
@@ -92,6 +94,7 @@ class WindowsApp:
         self._revision = 0
         self._refresh_running = False
         self._action_running = False
+        self._action_callbacks: dict[Future, Callable[[Any], None]] = {}
         self._closed = False
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -101,8 +104,8 @@ class WindowsApp:
     def _build(self) -> None:
         ttk = self.ttk
         self.root.title("OpenRadioInspector — Windows")
-        self.root.geometry("1180x800")
-        self.root.minsize(940, 640)
+        self.root.geometry("1280x900")
+        self.root.minsize(1040, 720)
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill="both", expand=True)
         outer.columnconfigure(0, weight=1)
@@ -130,6 +133,10 @@ class WindowsApp:
         self.session_box = ttk.Combobox(sessions, state="readonly")
         self.session_box.grid(row=0, column=1, columnspan=5, sticky="ew")
         self.session_box.bind("<<ComboboxSelected>>", self._select_session)
+        self.session_create = ttk.Button(
+            sessions, text="Новый сеанс…", command=self._open_session_form
+        )
+        self.session_create.grid(row=0, column=6, padx=(8, 0))
         self.session_start = ttk.Button(sessions, text="Запустить сеанс", command=lambda: self._session_action("start"))
         self.session_start.grid(row=1, column=0, pady=(8, 0), padx=(0, 6), sticky="ew")
         self.session_stop = ttk.Button(sessions, text="Остановить сеанс", command=lambda: self._session_action("stop"))
@@ -181,13 +188,73 @@ class WindowsApp:
             (110, 150, 130, 150, 360),
         )
         notebook.add(self.candidates_tree.master, text="Кандидаты")
+        candidate_actions = ttk.Frame(self.candidates_tree.master)
+        candidate_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.peak_candidate_button = ttk.Button(
+            candidate_actions, text="Кандидат из пика…",
+            command=lambda: self._open_candidate_form(from_peak=True),
+        )
+        self.peak_candidate_button.pack(side="left")
+        self.manual_candidate_button = ttk.Button(
+            candidate_actions, text="Ручной кандидат…",
+            command=lambda: self._open_candidate_form(from_peak=False),
+        )
+        self.manual_candidate_button.pack(side="left", padx=(6, 0))
+        self.enqueue_button = ttk.Button(
+            candidate_actions, text="Поставить в очередь…", command=self._open_enqueue_form
+        )
+        self.enqueue_button.pack(side="left", padx=(6, 0))
+        self.dismiss_button = ttk.Button(
+            candidate_actions, text="Отклонить", command=self._dismiss_candidate
+        )
+        self.dismiss_button.pack(side="left", padx=(6, 0))
+        self.candidates_tree.bind("<<TreeviewSelect>>", lambda _event: self._render_controls())
+
         self.investigations_tree = self._tree(
             notebook,
-            ("state", "priority", "frequency", "mode", "receiver"),
-            ("Состояние", "Приоритет", "Частота, Гц", "Режим", "Receiver ID"),
-            (110, 90, 160, 110, 360),
+            ("state", "priority", "frequency", "mode", "receiver", "id"),
+            ("Состояние", "Приоритет", "Частота, Гц", "Режим", "Receiver ID", "ID"),
+            (100, 80, 140, 90, 250, 300),
         )
         notebook.add(self.investigations_tree.master, text="Исследования")
+        self.next_investigation_var = self.tk.StringVar(
+            value="Следующее: очередь не получена"
+        )
+        ttk.Label(
+            self.investigations_tree.master,
+            textvariable=self.next_investigation_var,
+            wraplength=1100,
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        investigation_actions = ttk.Frame(self.investigations_tree.master)
+        investigation_actions.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        self.start_next_button = ttk.Button(
+            investigation_actions, text="Подтвердить следующий", command=self._start_next
+        )
+        self.start_next_button.pack(side="left")
+        self.investigation_start = ttk.Button(
+            investigation_actions, text="Запустить выбранное",
+            command=lambda: self._investigation_action("start"),
+        )
+        self.investigation_start.pack(side="left", padx=(6, 0))
+        self.investigation_complete = ttk.Button(
+            investigation_actions, text="Завершить",
+            command=lambda: self._investigation_action("complete"),
+        )
+        self.investigation_complete.pack(side="left", padx=(6, 0))
+        self.investigation_cancel = ttk.Button(
+            investigation_actions, text="Отменить",
+            command=lambda: self._investigation_action("cancel"),
+        )
+        self.investigation_cancel.pack(side="left", padx=(6, 0))
+        ttk.Label(investigation_actions, text="Причина сбоя").pack(side="left", padx=(12, 4))
+        self.failure_var = self.tk.StringVar(value="Остановлено оператором через Windows GUI")
+        ttk.Entry(investigation_actions, textvariable=self.failure_var, width=34).pack(side="left")
+        self.investigation_fail = ttk.Button(
+            investigation_actions, text="Зафиксировать сбой",
+            command=lambda: self._investigation_action("fail"),
+        )
+        self.investigation_fail.pack(side="left", padx=(6, 0))
+        self.investigations_tree.bind("<<TreeviewSelect>>", lambda _event: self._render_controls())
         spectrum_tab = ttk.Frame(notebook, padding=8)
         spectrum_tab.columnconfigure(0, weight=1)
         spectrum_tab.rowconfigure(1, weight=3)
@@ -269,7 +336,12 @@ class WindowsApp:
             self.refresh()
             self.root.after(self.refresh_ms, self._poll)
 
-    def _submit_action(self, description: str, operation: Callable[[], Any]) -> None:
+    def _submit_action(
+        self,
+        description: str,
+        operation: Callable[[], Any],
+        on_success: Optional[Callable[[Any], None]] = None,
+    ) -> None:
         if self.client is None or self._action_running or self._closed:
             return
         self._action_running = True
@@ -277,6 +349,8 @@ class WindowsApp:
         self._render_controls()
         revision = self._revision
         future = self._executor.submit(operation)
+        if on_success is not None:
+            self._action_callbacks[future] = on_success
         future.add_done_callback(
             lambda done: self._messages.put(("action", done, revision, description))
         )
@@ -292,6 +366,7 @@ class WindowsApp:
                         self._refresh_running = False
                     else:
                         self._action_running = False
+                        self._action_callbacks.pop(future, None)
                     self._render_controls()
                     self.refresh()
                     continue
@@ -303,6 +378,7 @@ class WindowsApp:
                         self.connection_var.set(f"Ошибка обновления: {exc}")
                     else:
                         self._action_running = False
+                        self._action_callbacks.pop(future, None)
                         self.action_var.set(f"{description}: {exc}")
                     self._render_controls()
                     continue
@@ -311,6 +387,9 @@ class WindowsApp:
                     self._apply_snapshot(result)
                 else:
                     self._action_running = False
+                    callback = self._action_callbacks.pop(future, None)
+                    if callback is not None:
+                        callback(result)
                     self.action_var.set(f"{description}: выполнено сервером.")
                     self._render_controls()
                     self.refresh()
@@ -364,6 +443,17 @@ class WindowsApp:
         self._last_selected_stream_id = self.selected_stream_id()
         self._fill(self.candidates_tree, snapshot.candidates, candidate_row)
         self._fill(self.investigations_tree, snapshot.investigations, investigation_row)
+        next_investigation = snapshot.next_investigation
+        self.next_investigation_var.set(
+            "Следующее: очередь пуста"
+            if next_investigation is None
+            else "Следующее: {id} · приоритет {priority} · {frequency} Гц · receiver {receiver}".format(
+                id=next_investigation.get("id"),
+                priority=next_investigation.get("priority", 0),
+                frequency=next_investigation.get("target_frequency_hz"),
+                receiver=next_investigation.get("target_stream_id"),
+            )
+        )
         self.detection_var.set(f"Обнаружение: {policy_text(snapshot.automatic_detection)}")
         self.handoff_var.set(f"Handoff: {policy_text(snapshot.automatic_handoff)}")
         spectrum_stream_id = self._spectrum_stream_id()
@@ -525,9 +615,14 @@ class WindowsApp:
 
     @staticmethod
     def _fill(tree: Any, records: list[dict[str, Any]], formatter: Callable[[dict[str, Any]], tuple[str, ...]]) -> None:
+        selected = tree.selection()
         tree.delete(*tree.get_children())
         for index, record in enumerate(records):
-            tree.insert("", "end", iid=str(index), values=formatter(record))
+            tree.insert(
+                "", "end", iid=str(record.get("id", index)), values=formatter(record)
+            )
+        if selected and tree.exists(selected[0]):
+            tree.selection_set(selected[0])
 
     def _select_session(self, _event: Any = None) -> None:
         index = self.session_box.current()
@@ -550,6 +645,20 @@ class WindowsApp:
             (item for item in (self.snapshot.session or {}).get("streams", []) if item.get("id") == stream_id),
             None,
         )
+
+    @staticmethod
+    def _selected_record(tree: Any, records: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        selection = tree.selection()
+        if not selection:
+            return None
+        record_id = str(selection[0])
+        return next((item for item in records if str(item.get("id")) == record_id), None)
+
+    def _selected_candidate(self) -> Optional[dict[str, Any]]:
+        return self._selected_record(self.candidates_tree, self.snapshot.candidates)
+
+    def _selected_investigation(self) -> Optional[dict[str, Any]]:
+        return self._selected_record(self.investigations_tree, self.snapshot.investigations)
 
     def _spectrum_stream_id(self) -> Optional[str]:
         stream = self._selected_stream()
@@ -579,6 +688,341 @@ class WindowsApp:
         if changed:
             self._render_spectrum()
             self.refresh()
+
+    def _new_form(self, title: str) -> tuple[Any, Any, Any]:
+        previous = getattr(self, "_active_form", None)
+        if previous is not None:
+            previous.destroy()
+        window = self.tk.Toplevel(self.root)
+        self._active_form = window
+        window.title(title)
+        window.transient(self.root)
+        frame = self.ttk.Frame(window, padding=12)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
+        error_var = self.tk.StringVar()
+        window.protocol("WM_DELETE_WINDOW", lambda: self._destroy_form(window))
+        return window, frame, error_var
+
+    def _destroy_form(self, window: Any) -> None:
+        if getattr(self, "_active_form", None) is window:
+            self._active_form = None
+        window.destroy()
+
+    def _form_entry(
+        self, frame: Any, row: int, label: str, variable: Any, *, width: int = 46
+    ) -> None:
+        self.ttk.Label(frame, text=label).grid(
+            row=row, column=0, sticky="w", padx=(0, 8), pady=4
+        )
+        self.ttk.Entry(frame, textvariable=variable, width=width).grid(
+            row=row, column=1, sticky="ew", pady=4
+        )
+
+    def _form_buttons(
+        self, window: Any, frame: Any, row: int, label: str, command: Callable[[], None]
+    ) -> None:
+        buttons = self.ttk.Frame(frame)
+        buttons.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(10, 4))
+        self.ttk.Button(buttons, text=label, command=command).pack(side="left")
+        self.ttk.Button(
+            buttons, text="Отмена", command=lambda: self._destroy_form(window)
+        ).pack(side="left", padx=(8, 0))
+
+    def _open_session_form(self) -> None:
+        if self.client is None or self._closed:
+            self.action_var.set("Сначала подключитесь к общему ядру.")
+            return
+        window, frame, error_var = self._new_form("Новый двухприборный сеанс")
+        variables = {
+            "name": self.tk.StringVar(value="Windows — двойной обзор"),
+            "tinysa_port": self.tk.StringVar(value="sim://tinysa"),
+            "receiver_port": self.tk.StringVar(value="sim://ardv1"),
+            "start_hz": self.tk.StringVar(value="88000000"),
+            "stop_hz": self.tk.StringVar(value="108000000"),
+            "receiver_frequency_hz": self.tk.StringVar(value="145500000"),
+            "mode": self.tk.StringVar(value="FM"),
+        }
+        labels = (
+            ("name", "Название"),
+            ("tinysa_port", "Порт tinySA"),
+            ("receiver_port", "Порт AR-DV1"),
+            ("start_hz", "Начало обзора, Гц"),
+            ("stop_hz", "Конец обзора, Гц"),
+            ("receiver_frequency_hz", "Частота receiver, Гц"),
+            ("mode", "Режим receiver"),
+        )
+        for row, (name, label) in enumerate(labels):
+            self._form_entry(frame, row, label, variables[name])
+        simulated_var = self.tk.BooleanVar(value=True)
+        self.ttk.Checkbutton(
+            frame,
+            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
+            variable=simulated_var,
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        self.ttk.Label(
+            frame,
+            text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
+            wraplength=520,
+        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        client = self.client
+
+        def submit() -> None:
+            try:
+                payload = session_payload(
+                    **{name: variable.get() for name, variable in variables.items()},
+                    simulated=bool(simulated_var.get()),
+                )
+            except (TypeError, ValueError) as exc:
+                error_var.set(str(exc))
+                return
+            self._destroy_form(window)
+            self._submit_action(
+                "Создание двухприборного сеанса",
+                lambda: client.create_session(payload),
+                on_success=self._use_created_session,
+            )
+
+        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
+            row=10, column=0, columnspan=2, sticky="ew", pady=4
+        )
+
+    def _use_created_session(self, session: dict[str, Any]) -> None:
+        self.session_id = str(session["id"])
+        self.snapshot = PlatformSnapshot(
+            self.snapshot.health, self.snapshot.capabilities, self.snapshot.sessions
+        )
+        for tree in (self.streams_tree, self.candidates_tree, self.investigations_tree):
+            tree.delete(*tree.get_children())
+        self.next_investigation_var.set("Следующее: очередь загружается…")
+        self._clear_spectrum("Сеанс создан; спектральные данные загружаются после выбора потока.")
+
+    def _open_candidate_form(self, *, from_peak: bool) -> None:
+        if not self._require_session():
+            return
+        stream = self._selected_stream()
+        if not stream:
+            self.action_var.set("Сначала выберите исходный поток на вкладке «Потоки».")
+            return
+        sweep = None
+        sweep_id = None
+        defaults = {
+            "started_at": "",
+            "ended_at": "",
+            "center_frequency_hz": str(
+                (stream.get("settings") or {}).get("frequency_hz", "")
+            ),
+            "bandwidth_hz": "",
+            "peak_level": "",
+            "score": "",
+        }
+        if from_peak:
+            if self.snapshot.spectrum_stream_id != stream.get("id") or not self.snapshot.sweeps:
+                self.action_var.set(
+                    "Для фиксации пика выберите spectrum_analyzer с полученными dBm sweeps."
+                )
+                return
+            sweep = self.snapshot.sweeps[-1]
+            try:
+                _index, peak_level, peak_frequency = peak_of(sweep)
+            except (TypeError, ValueError) as exc:
+                self.action_var.set(f"Некорректный sweep: {exc}")
+                return
+            frequencies = sweep["frequencies_hz"]
+            step = abs(frequencies[1] - frequencies[0]) if len(frequencies) > 1 else 1
+            defaults.update(
+                {
+                    "started_at": sweep["interval"]["started_at"],
+                    "ended_at": sweep["interval"]["ended_at"],
+                    "center_frequency_hz": str(peak_frequency),
+                    "bandwidth_hz": str(
+                        (sweep.get("settings") or {}).get("rbw_hz") or max(step, 1)
+                    ),
+                    "peak_level": str(peak_level),
+                }
+            )
+            sweep_id = str(sweep["id"])
+        title = "Кандидат из фактического пика" if from_peak else "Ручной кандидат"
+        window, frame, error_var = self._new_form(title)
+        self.ttk.Label(
+            frame,
+            text=f"Источник: {stream.get('id')} · единица: {stream.get('level_unit')}",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        variables = {name: self.tk.StringVar(value=value) for name, value in defaults.items()}
+        labels = (
+            ("started_at", "Начало интервала, UTC"),
+            ("ended_at", "Конец интервала, UTC"),
+            ("center_frequency_hz", "Центральная частота, Гц"),
+            ("bandwidth_hz", "Оценка полосы, Гц (необязательно)"),
+            ("peak_level", f"Исходный пик, {stream.get('level_unit')}"),
+            ("score", "Оценка (необязательно)"),
+        )
+        for row, (name, label) in enumerate(labels, start=1):
+            self._form_entry(frame, row, label, variables[name])
+        self.ttk.Label(
+            frame,
+            text=(
+                f"Связь с реальным sweep: {sweep_id}. Единицы не преобразуются."
+                if sweep_id
+                else "Интервал задаёт оператор; GUI не синтезирует измерение или его уровень."
+            ),
+            wraplength=560,
+        ).grid(row=7, column=0, columnspan=2, sticky="ew", pady=6)
+        client = self.client
+        session_id = self.session_id
+        source = dict(stream)
+
+        def submit() -> None:
+            try:
+                payload = candidate_payload(
+                    source,
+                    **{name: variable.get() for name, variable in variables.items()},
+                    sweep_id=sweep_id,
+                )
+            except (TypeError, ValueError) as exc:
+                error_var.set(str(exc))
+                return
+            self._destroy_form(window)
+            self._submit_action(
+                "Создание кандидата",
+                lambda: client.create_candidate(session_id, payload),
+            )
+
+        self._form_buttons(window, frame, 8, "Создать кандидата", submit)
+        self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=560).grid(
+            row=9, column=0, columnspan=2, sticky="ew", pady=4
+        )
+
+    def _open_enqueue_form(self) -> None:
+        if not self._require_session():
+            return
+        candidate = self._selected_candidate()
+        if not candidate:
+            self.action_var.set("Сначала выберите кандидата.")
+            return
+        receivers = [
+            item
+            for item in (self.snapshot.session or {}).get("streams", [])
+            if item.get("role") == "receiver"
+        ]
+        if not receivers:
+            self.action_var.set("В сеансе нет receiver для handoff.")
+            return
+        window, frame, error_var = self._new_form("Постановка исследования в очередь")
+        self.ttk.Label(
+            frame,
+            text=f"Кандидат: {candidate.get('id')} · {candidate.get('center_frequency_hz')} Гц",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        self.ttk.Label(frame, text="Receiver").grid(row=1, column=0, sticky="w", pady=4)
+        receiver_var = self.tk.StringVar(value=str(receivers[0]["id"]))
+        self.ttk.Combobox(
+            frame,
+            textvariable=receiver_var,
+            values=[str(item["id"]) for item in receivers],
+            state="readonly",
+        ).grid(row=1, column=1, sticky="ew", pady=4)
+        current = next(
+            (
+                item.get("current") or {}
+                for item in self.snapshot.workers
+                if item.get("stream_id") == receivers[0].get("id")
+            ),
+            {},
+        )
+        settings = receivers[0].get("settings") or {}
+        frequency_var = self.tk.StringVar(value=str(candidate["center_frequency_hz"]))
+        mode_var = self.tk.StringVar(value=str(current.get("mode") or settings.get("mode") or ""))
+        priority_var = self.tk.StringVar(value="0")
+        self._form_entry(frame, 2, "Частота handoff, Гц", frequency_var)
+        self._form_entry(frame, 3, "Режим", mode_var)
+        self._form_entry(frame, 4, "Приоритет", priority_var)
+        client = self.client
+        session_id = self.session_id
+        candidate_id = str(candidate["id"])
+
+        def submit() -> None:
+            try:
+                payload = investigation_payload(
+                    target_stream_id=receiver_var.get(),
+                    target_frequency_hz=frequency_var.get(),
+                    mode=mode_var.get(),
+                    priority=priority_var.get(),
+                )
+            except (TypeError, ValueError) as exc:
+                error_var.set(str(exc))
+                return
+            self._destroy_form(window)
+            self._submit_action(
+                "Постановка исследования в очередь",
+                lambda: client.enqueue_investigation(session_id, candidate_id, payload),
+            )
+
+        self._form_buttons(window, frame, 5, "Поставить в очередь", submit)
+        self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
+            row=6, column=0, columnspan=2, sticky="ew", pady=4
+        )
+
+    def _dismiss_candidate(self) -> None:
+        if not self._require_session():
+            return
+        candidate = self._selected_candidate()
+        if not candidate:
+            self.action_var.set("Сначала выберите кандидата.")
+            return
+        client = self.client
+        session_id = self.session_id
+        candidate_id = str(candidate["id"])
+        self._submit_action(
+            "Отклонение кандидата",
+            lambda: client.dismiss_candidate(session_id, candidate_id),
+        )
+
+    def _start_next(self) -> None:
+        if not self._require_session():
+            return
+        investigation = self.snapshot.next_investigation
+        if not investigation:
+            self.action_var.set("Очередь исследований пуста; сначала обновите рекомендацию.")
+            return
+        client = self.client
+        session_id = self.session_id
+        investigation_id = str(investigation["id"])
+        self._submit_action(
+            f"Подтверждённый запуск следующего исследования {investigation_id}",
+            lambda: client.start_next_investigation(
+                session_id, investigation_id, confirm=True
+            ),
+        )
+
+    def _investigation_action(self, action: str) -> None:
+        if not self._require_session():
+            return
+        investigation = self._selected_investigation()
+        if not investigation:
+            self.action_var.set("Сначала выберите исследование.")
+            return
+        client = self.client
+        session_id = self.session_id
+        investigation_id = str(investigation["id"])
+        descriptions = {
+            "start": "Ручной запуск исследования",
+            "complete": "Завершение исследования",
+            "fail": "Фиксация сбоя исследования",
+            "cancel": "Отмена исследования",
+        }
+        if action == "fail":
+            error = self.failure_var.get().strip()
+            if not error:
+                self.action_var.set("Причина сбоя не должна быть пустой.")
+                return
+            operation = lambda: client.fail_investigation(
+                session_id, investigation_id, error=error
+            )
+        else:
+            method = getattr(client, f"{action}_investigation")
+            operation = lambda: method(session_id, investigation_id)
+        self._submit_action(descriptions[action], operation)
 
     def _session_action(self, action: str) -> None:
         if not self._require_session():
@@ -642,20 +1086,59 @@ class WindowsApp:
     def _render_controls(self) -> None:
         connected = self.client is not None and not self._action_running
         selected = connected and self.session_id is not None
-        for button in (self.session_start, self.session_stop, self.workers_start, self.workers_stop):
-            button.configure(state="normal" if selected else "disabled")
+
+        def set_state(name: str, enabled: bool) -> None:
+            button = getattr(self, name, None)
+            if button is not None:
+                button.configure(state="normal" if enabled else "disabled")
+
+        for name in ("session_start", "session_stop", "workers_start", "workers_stop"):
+            set_state(name, selected)
+        set_state("session_create", connected)
         stream_selected = selected and self.selected_stream_id() is not None
-        for button in (self.stream_start, self.stream_stop):
-            button.configure(state="normal" if stream_selected else "disabled")
+        for name in ("stream_start", "stream_stop"):
+            set_state(name, stream_selected)
         stream = self._selected_stream() if stream_selected else None
-        tune_enabled = bool(stream and stream.get("role") == "receiver")
-        self.tune_button.configure(state="normal" if tune_enabled else "disabled")
-        self.refresh_button.configure(state="normal" if self.client is not None else "disabled")
+        set_state("tune_button", bool(stream and stream.get("role") == "receiver"))
+        set_state("manual_candidate_button", bool(stream))
+        peak_available = bool(
+            stream
+            and self.snapshot.spectrum_stream_id == stream.get("id")
+            and self.snapshot.sweeps
+        )
+        set_state("peak_candidate_button", peak_available)
+        candidate = (
+            self._selected_candidate()
+            if selected and hasattr(self, "candidates_tree")
+            else None
+        )
+        candidate_editable = bool(
+            candidate and candidate.get("state") in ("new", "queued")
+        )
+        set_state("enqueue_button", candidate_editable)
+        set_state("dismiss_button", candidate_editable)
+        investigation = (
+            self._selected_investigation()
+            if selected and hasattr(self, "investigations_tree")
+            else None
+        )
+        state = investigation.get("state") if investigation else None
+        running = (self.snapshot.session or {}).get("state") == "running"
+        set_state("investigation_start", selected and running and state == "queued")
+        set_state("investigation_complete", state in ("listening", "decoding"))
+        set_state("investigation_fail", state in ("queued", "tuning", "listening", "decoding"))
+        set_state("investigation_cancel", state in ("queued", "tuning", "listening", "decoding"))
+        set_state(
+            "start_next_button",
+            selected and running and self.snapshot.next_investigation is not None,
+        )
+        set_state("refresh_button", self.client is not None)
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        self._action_callbacks.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()
 
