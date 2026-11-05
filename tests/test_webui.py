@@ -44,6 +44,7 @@ class WebUiTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.server.automatic_handoff.close()
         cls.server.worker_manager.close()
         cls.server.shutdown()
         cls.server.server_close()
@@ -110,6 +111,11 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('/investigations/next', javascript)
         self.assertIn('/investigations/start-next', javascript)
         self.assertIn('confirm: true', javascript)
+        self.assertIn('/automatic-handoff', javascript)
+        self.assertIn('automatic_handoff.policy_changed', javascript)
+        self.assertIn('automatic_handoff.started', javascript)
+        self.assertIn('automatic_handoff.disabled', javascript)
+        self.assertIn('payload.receiver_stream_id = dom.automaticReceiver.value || null', javascript)
 
 
 if __name__ == "__main__":
