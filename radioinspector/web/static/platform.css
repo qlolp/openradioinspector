@@ -252,6 +252,9 @@ form.editor { border-style: solid; }
 .form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .editor-title { margin: 12px 0; color: var(--muted); font-size: 11px; }
 .editor-title strong { display: block; color: var(--cyan); overflow-wrap: anywhere; }
+.automatic-runtime { margin: 12px 0 0; color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
+.automatic-runtime[data-enabled="true"] { color: var(--mint); }
+.automatic-runtime[data-enabled="false"] { color: var(--muted); }
 .record-list { display: flex; flex-direction: column; }
 .record { padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .record:last-child { border-bottom: 0; }
