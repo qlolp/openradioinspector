@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,6 +19,7 @@ from .contracts import (
     ReceiverObservation,
     SessionEvent,
     Sweep,
+    ensure_utc,
     parse_time,
     to_primitive,
 )
@@ -29,6 +31,10 @@ def _json(value: Any) -> str:
     return json.dumps(
         to_primitive(value), ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
+
+
+def _archive_time(value: datetime) -> str:
+    return ensure_utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _object(value: str) -> dict[str, Any]:
@@ -136,7 +142,9 @@ class SQLiteSessionStore:
             """
         )
 
-    def save_session(self, session: MonitoringSession) -> None:
+    def save_session(
+        self, session: MonitoringSession, *, event: Optional[SessionEvent] = None
+    ) -> None:
         data = to_primitive(session)
         with self._lock, self._connection:
             self._connection.execute(
@@ -161,6 +169,11 @@ class SQLiteSessionStore:
                 ),
             )
             for stream in data["streams"]:
+                owner = self._connection.execute(
+                    "SELECT session_id FROM streams WHERE id = ?", (stream["id"],)
+                ).fetchone()
+                if owner is not None and owner["session_id"] != session.id:
+                    raise ValueError(f"Поток уже принадлежит другому сеансу: {stream['id']}")
                 self._connection.execute(
                     """
                     INSERT INTO streams (
@@ -189,6 +202,9 @@ class SQLiteSessionStore:
                         _json(stream["capabilities"]), _json(stream["settings"]),
                     ),
                 )
+
+            if event is not None:
+                self._insert_event(event)
 
     def load_sessions(self) -> list[MonitoringSession]:
         with self._lock:
@@ -232,18 +248,22 @@ class SQLiteSessionStore:
             return sessions
 
     def append_event(self, event: SessionEvent) -> None:
-        data = to_primitive(event)
         with self._lock, self._connection:
-            self._connection.execute(
-                """
-                INSERT INTO events (sequence, event_type, occurred_at, session_id, payload_json)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    data["sequence"], data["event_type"], data["occurred_at"],
-                    data["session_id"], _json(data["payload"]),
-                ),
-            )
+            self._insert_event(event)
+
+    def _insert_event(self, event: SessionEvent) -> None:
+        """Insert inside the caller's transaction; never commit independently."""
+        data = to_primitive(event)
+        self._connection.execute(
+            """
+            INSERT INTO events (sequence, event_type, occurred_at, session_id, payload_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                data["sequence"], data["event_type"], data["occurred_at"],
+                data["session_id"], _json(data["payload"]),
+            ),
+        )
 
     @staticmethod
     def _event(row: sqlite3.Row) -> SessionEvent:
@@ -277,7 +297,9 @@ class SQLiteSessionStore:
             ).fetchall()
             return [self._event(row) for row in rows]
 
-    def record_sweep(self, sweep: Sweep) -> None:
+    def record_sweep(
+        self, sweep: Sweep, *, event: Optional[SessionEvent] = None
+    ) -> None:
         data = to_primitive(sweep)
         with self._lock, self._connection:
             self._connection.execute(
@@ -289,13 +311,19 @@ class SQLiteSessionStore:
                 """,
                 (
                     data["id"], data["session_id"], data["stream_id"],
-                    data["interval"]["started_at"], data["interval"]["ended_at"],
+                    _archive_time(sweep.interval.started_at),
+                    _archive_time(sweep.interval.ended_at),
                     _json(data["frequencies_hz"]), _json(data["levels"]),
                     data["level_unit"], _json(data["settings"]),
                 ),
             )
 
-    def record_observation(self, observation: ReceiverObservation) -> None:
+            if event is not None:
+                self._insert_event(event)
+
+    def record_observation(
+        self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None
+    ) -> None:
         data = to_primitive(observation)
         with self._lock, self._connection:
             self._connection.execute(
@@ -308,12 +336,16 @@ class SQLiteSessionStore:
                 """,
                 (
                     data["id"], data["session_id"], data["stream_id"],
-                    data["interval"]["started_at"], data["interval"]["ended_at"],
+                    _archive_time(observation.interval.started_at),
+                    _archive_time(observation.interval.ended_at),
                     data["frequency_hz"], data["mode"], data["level"],
                     data["level_unit"], data["squelch_open"], data["decoded_mode"],
                     data["audio_uri"], _json(data["metadata"]),
                 ),
             )
+
+            if event is not None:
+                self._insert_event(event)
 
     @staticmethod
     def _filters(session_id: str, stream_id: Optional[str]) -> tuple[str, list[Any]]:
@@ -332,9 +364,12 @@ class SQLiteSessionStore:
             rows = self._connection.execute(
                 f"""
                 SELECT * FROM (
-                    SELECT * FROM sweeps WHERE {clause}
-                    ORDER BY started_at DESC, id DESC LIMIT ?
-                ) ORDER BY started_at, id
+                    SELECT *, CASE WHEN instr(started_at, '.') = 0
+                        THEN replace(started_at, 'Z', '.000000Z')
+                        ELSE started_at END AS sort_started_at
+                    FROM sweeps WHERE {clause}
+                    ORDER BY sort_started_at DESC, id DESC LIMIT ?
+                ) ORDER BY sort_started_at, id
                 """,
                 (*parameters, limit),
             ).fetchall()
@@ -364,9 +399,12 @@ class SQLiteSessionStore:
             rows = self._connection.execute(
                 f"""
                 SELECT * FROM (
-                    SELECT * FROM observations WHERE {clause}
-                    ORDER BY started_at DESC, id DESC LIMIT ?
-                ) ORDER BY started_at, id
+                    SELECT *, CASE WHEN instr(started_at, '.') = 0
+                        THEN replace(started_at, 'Z', '.000000Z')
+                        ELSE started_at END AS sort_started_at
+                    FROM observations WHERE {clause}
+                    ORDER BY sort_started_at DESC, id DESC LIMIT ?
+                ) ORDER BY sort_started_at, id
                 """,
                 (*parameters, limit),
             ).fetchall()
