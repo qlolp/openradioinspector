@@ -196,7 +196,11 @@ radioinspector/
 * [`docs/devices.md`](docs/devices.md) — поддерживаемое оборудование;
 * [`docs/limits.md`](docs/limits.md) — ограничения и отличия от оригинала;
 * [`docs/capabilities-light-32314.md`](docs/capabilities-light-32314.md) —
-  инвентарь возможностей дистрибутива RadioInspector Light 32314.
+  инвентарь возможностей дистрибутива RadioInspector Light 32314;
+* [`docs/commercial-app-inventory.md`](docs/commercial-app-inventory.md) —
+  инвентарь коммерческого приложения по первичным артефактам дистрибутива;
+* [`docs/roadmap.md`](docs/roadmap.md) — дорожная карта проекта: этапы,
+  критерии приёмки, состояние веток и решение по коммерческому диску.
 
 ---
 
