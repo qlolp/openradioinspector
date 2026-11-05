@@ -57,12 +57,13 @@ AR-DV1 / tinySA Ultra / другие приборы
 | Windows GUI-клиент общего ядра | `feature/windows-gui`, PR #14 | 9 | Tkinter-оболочка поверх `/api/v1` |
 | Спектр и водопад в Windows GUI | `feature/windows-spectrum`, PR #15 | 7 | вывод трасс и водопада |
 | Рабочие сценарии Windows GUI | `feature/windows-workflows`, PR #16 | 5 | формы сеансов, кандидатов и handoff |
+| Политики Windows (без PR) | `feature/windows-policies` | 8 | формы политик detector и handoff, проверки границ, документация команд |
 | macOS «Двойной обзор» | `cursor/macos-dvoynoy-obzor-36a1`, PR #2 | 12 | нативный клиент, приборные панели |
 | macOS: открытие проекта и управление сеансами | `codex/macos-integration-fixes`, PR #4 → #2 | 12 | исправления к каркасу PR #2 |
 | Планировщик заданий и протокол DOCX | `cursor/finish-scheduler-reports-12d6`, PR #3 | 1 | планировщик и генератор DOCX |
 
-Вершина стека (`feature/windows-workflows`, 83 коммита впереди `main`) проходит
-218 тестов. Слияние стека с текущим `main` проверено и проходит без
+Вершина стека (`feature/windows-policies`, 91 коммит впереди `main`) проходит
+222 теста; на один слой ниже (`feature/windows-workflows`) — 218. Слияние стека с текущим `main` проверено и проходит без
 конфликтов. Новые модули стека: `contracts.py` (версионированный доменный
 контракт), `session_service.py`, `session_store.py`, `device_workers.py`,
 `automatic_detection.py`, `automatic_handoff.py`, пакет `windows/`
@@ -76,6 +77,8 @@ AR-DV1 / tinySA Ultra / другие приборы
 * Исполнители приборов — **программный стенд**: физические порты не открываются,
   аппаратные команды не заявляются реализованными. Реальные приборы и
   автоопределение устройства остаются за пределами стека.
+* Ветка `feature/investigations` (15 коммитов) осталась без PR иsuperseded-ветка:
+  её содержание развито в PR #8 и #9.
 
 ## 3. Этапы
 
