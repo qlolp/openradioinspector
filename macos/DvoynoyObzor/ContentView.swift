@@ -112,6 +112,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var failureReason = ""
     @Published var automaticHandoffStatus: PlatformAutomaticStatus?
     @Published var automaticDetectionStatus: PlatformAutomaticStatus?
+    @Published var workflowErrors: [String] = []
     @Published var detectionInterval = "1"
     @Published var detectionStreamID = ""
     @Published var detectionThreshold = "-70"
@@ -233,7 +234,7 @@ final class RemoteDualModel: ObservableObject {
             workers = snapshot.workers
             applyMeasurements(snapshot)
             applyWorkflow(snapshot)
-            errorText = nil
+            errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
             guard requestGeneration == generation, id == selectedSessionID else { return }
@@ -519,6 +520,7 @@ final class RemoteDualModel: ObservableObject {
         selectedInvestigationID = ""
         automaticHandoffStatus = nil
         automaticDetectionStatus = nil
+        workflowErrors = []
         policyFormsInitialized = false
     }
 
@@ -528,6 +530,7 @@ final class RemoteDualModel: ObservableObject {
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
         automaticDetectionStatus = snapshot.automaticDetection
+        workflowErrors = snapshot.workflowErrors
         if !candidates.contains(where: { $0.id == selectedCandidateID }) {
             selectedCandidateID = candidates.first(where: { $0.state == "new" })?.id ?? candidates.first?.id ?? ""
         }
