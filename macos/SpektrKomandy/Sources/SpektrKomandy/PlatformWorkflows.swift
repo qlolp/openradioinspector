@@ -221,6 +221,11 @@ public struct PlatformDetectionPolicyDraft: Encodable {
     public let cooldownSeconds: Double
     public let maxCandidatesPerSweep: Int
 
+    private enum CodingKeys: String, CodingKey {
+        case enabled, intervalSeconds, streamId, thresholdDbm
+        case dedupBandwidthHz, cooldownSeconds, maxCandidatesPerSweep
+    }
+
     public init(
         enabled: Bool, intervalSeconds: Double, streamId: String?, thresholdDbm: Double,
         dedupBandwidthHz: Int64, cooldownSeconds: Double, maxCandidatesPerSweep: Int
@@ -233,6 +238,17 @@ public struct PlatformDetectionPolicyDraft: Encodable {
         self.cooldownSeconds = try PlatformWorkflowValidation.number(cooldownSeconds, "Cooldown", 0.0...86400.0)
         self.maxCandidatesPerSweep = try PlatformWorkflowValidation.integer(maxCandidatesPerSweep, "Максимум кандидатов", 1...100)
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(intervalSeconds, forKey: .intervalSeconds)
+        try container.encode(streamId, forKey: .streamId)
+        try container.encode(thresholdDbm, forKey: .thresholdDbm)
+        try container.encode(dedupBandwidthHz, forKey: .dedupBandwidthHz)
+        try container.encode(cooldownSeconds, forKey: .cooldownSeconds)
+        try container.encode(maxCandidatesPerSweep, forKey: .maxCandidatesPerSweep)
+    }
 }
 
 public struct PlatformHandoffPolicyDraft: Encodable {
@@ -242,6 +258,11 @@ public struct PlatformHandoffPolicyDraft: Encodable {
     public let receiverStreamId: String?
     public let maxConsecutiveFailures: Int
     public let retryDelaySeconds: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, intervalSeconds, minimumPriority, receiverStreamId
+        case maxConsecutiveFailures, retryDelaySeconds
+    }
 
     public init(
         enabled: Bool, intervalSeconds: Double, minimumPriority: Int,
@@ -253,6 +274,16 @@ public struct PlatformHandoffPolicyDraft: Encodable {
         self.receiverStreamId = try PlatformWorkflowValidation.optionalID(receiverStreamId)
         self.maxConsecutiveFailures = try PlatformWorkflowValidation.integer(maxConsecutiveFailures, "Сбоев до отключения", 1...100)
         self.retryDelaySeconds = try PlatformWorkflowValidation.number(retryDelaySeconds, "Задержка повтора", 0.1...86400.0)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(intervalSeconds, forKey: .intervalSeconds)
+        try container.encode(minimumPriority, forKey: .minimumPriority)
+        try container.encode(receiverStreamId, forKey: .receiverStreamId)
+        try container.encode(maxConsecutiveFailures, forKey: .maxConsecutiveFailures)
+        try container.encode(retryDelaySeconds, forKey: .retryDelaySeconds)
     }
 }
 

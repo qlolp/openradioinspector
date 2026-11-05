@@ -6,6 +6,15 @@ import FoundationNetworking
 @testable import SpektrKomandy
 
 final class PlatformWorkflowTests: XCTestCase {
+    private var sessions: [URLSession] = []
+
+    override func tearDown() {
+        for session in sessions { session.finishTasksAndInvalidate() }
+        sessions.removeAll()
+        Stub.handler = nil
+        super.tearDown()
+    }
+
     final class Stub: URLProtocol {
         static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
         override class func canInit(with request: URLRequest) -> Bool { true }
@@ -31,8 +40,10 @@ final class PlatformWorkflowTests: XCTestCase {
         Stub.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Stub.self]
+        let session = URLSession(configuration: configuration)
+        sessions.append(session)
         return try PlatformClient(
-            baseURL: "http://example.test", session: URLSession(configuration: configuration)
+            baseURL: "http://example.test", session: session
         )
     }
 
@@ -147,6 +158,64 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(snapshot.automaticDetection?.runtime.candidatesCreated, 1)
         XCTAssertEqual(snapshot.automaticHandoff?.policy.enabled, false)
         XCTAssertEqual(snapshot.automaticHandoff?.policyPersistent, false)
+    }
+
+    func testOptionalPolicyStreamsEncodeExplicitNull() async throws {
+        let client = try client { request in
+            let object = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            if request.url!.absoluteString.hasSuffix("/automatic-handoff") {
+                XCTAssertTrue(object.keys.contains("receiver_stream_id"))
+                XCTAssertTrue(object["receiver_stream_id"] is NSNull)
+            } else {
+                XCTAssertTrue(object.keys.contains("stream_id"))
+                XCTAssertTrue(object["stream_id"] is NSNull)
+            }
+            return (self.response(request.url!), self.envelope(self.statusJSON(enabled: false)))
+        }
+        _ = try await client.configureAutomaticHandoff(
+            sessionID: "s/1",
+            draft: PlatformHandoffPolicyDraft(
+                enabled: false, intervalSeconds: 1, minimumPriority: 0,
+                receiverStreamId: nil, maxConsecutiveFailures: 3, retryDelaySeconds: 30
+            )
+        )
+        _ = try await client.configureAutomaticDetection(
+            sessionID: "s/1",
+            draft: PlatformDetectionPolicyDraft(
+                enabled: false, intervalSeconds: 1, streamId: nil, thresholdDbm: -70,
+                dedupBandwidthHz: 100000, cooldownSeconds: 60, maxCandidatesPerSweep: 10
+            )
+        )
+    }
+
+    func testAWorkflowOverflowDoesNotFreezeCoreSnapshot() async throws {
+        let session = """
+        {"id":"s/1","name":"Обзор","state":"running","streams":[{"id":"tiny/1","device":"tinySA","role":"spectrum_analyzer","level_unit":"dBm","state":"connected","capabilities":["sweep"]},{"id":"ar/1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}]}
+        """
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/workers") {
+                let workers = "[{\"stream_id\":\"tiny/1\",\"state\":\"running\",\"alive\":true,\"last_error\":null}]"
+                return (self.response(request.url!), self.envelope(workers))
+            }
+            if path.hasSuffix("/sweeps") { return (self.response(request.url!), self.envelope("[]")) }
+            if path.hasSuffix("/observations") { return (self.response(request.url!), self.envelope("[]")) }
+            if path.hasSuffix("/candidates") {
+                return (self.response(request.url!), Data(repeating: 65, count: 2_000_001))
+            }
+            if path.hasSuffix("/investigations/next") { return (self.response(request.url!), self.envelope("null")) }
+            if path.hasSuffix("/investigations") { return (self.response(request.url!), self.envelope("[]")) }
+            if path.hasSuffix("/automatic-handoff") || path.hasSuffix("/automatic-detection") {
+                return (self.response(request.url!), self.envelope(self.statusJSON(enabled: false)))
+            }
+            return (self.response(request.url!), self.envelope(session))
+        }
+        let snapshot = try await client.snapshot(sessionID: "s/1")
+        XCTAssertEqual(snapshot.workers.first?.streamId, "tiny/1")
+        XCTAssertEqual(snapshot.session.id, "s/1")
+        XCTAssertTrue(snapshot.candidates.isEmpty)
+        XCTAssertEqual(snapshot.workflowErrors.count, 1)
+        XCTAssertTrue(snapshot.workflowErrors[0].contains("candidates"))
     }
 
     func testRejectsInvalidWorkflowValues() async throws {

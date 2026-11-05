@@ -179,6 +179,7 @@ public struct PlatformSnapshot: Equatable {
     public var nextInvestigation: PlatformInvestigation?
     public var automaticHandoff: PlatformAutomaticStatus?
     public var automaticDetection: PlatformAutomaticStatus?
+    public var workflowErrors: [String] = []
 }
 
 private struct PlatformEnvelope<Value: Decodable>: Decodable {
@@ -228,6 +229,10 @@ public final class PlatformClient {
     public init(baseURL: String, session: URLSession = .shared) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
         self.session = session
+    }
+
+    deinit {
+        session.invalidateAndCancel()
     }
 
     public func listSessions() async throws -> [PlatformSession] {
@@ -320,17 +325,49 @@ public final class PlatformClient {
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
         )
-        async let candidatesRequest: [PlatformCandidate] = listCandidates(sessionID: sessionID)
-        async let investigationsRequest: [PlatformInvestigation] = listInvestigations(sessionID: sessionID)
-        async let nextRequest: PlatformInvestigation? = nextInvestigation(sessionID: sessionID)
-        async let handoffRequest: PlatformAutomaticStatus = automaticHandoff(sessionID: sessionID)
-        async let detectionRequest: PlatformAutomaticStatus = automaticDetection(sessionID: sessionID)
+        var workflowErrors: [String] = []
+        let candidates: [PlatformCandidate]
+        do {
+            candidates = try await listCandidates(sessionID: sessionID)
+        } catch {
+            candidates = []
+            workflowErrors.append("candidates: \(error.localizedDescription)")
+        }
+        let investigations: [PlatformInvestigation]
+        do {
+            investigations = try await listInvestigations(sessionID: sessionID)
+        } catch {
+            investigations = []
+            workflowErrors.append("investigations: \(error.localizedDescription)")
+        }
+        let next: PlatformInvestigation?
+        do {
+            next = try await nextInvestigation(sessionID: sessionID)
+        } catch {
+            next = nil
+            workflowErrors.append("next investigation: \(error.localizedDescription)")
+        }
+        let handoff: PlatformAutomaticStatus?
+        do {
+            handoff = try await automaticHandoff(sessionID: sessionID)
+        } catch {
+            handoff = nil
+            workflowErrors.append("automatic handoff: \(error.localizedDescription)")
+        }
+        let detection: PlatformAutomaticStatus?
+        do {
+            detection = try await automaticDetection(sessionID: sessionID)
+        } catch {
+            detection = nil
+            workflowErrors.append("automatic detection: \(error.localizedDescription)")
+        }
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
             sweeps: sweepsRequest, observations: observationsRequest,
-            candidates: candidatesRequest, investigations: investigationsRequest,
-            nextInvestigation: nextRequest,
-            automaticHandoff: handoffRequest, automaticDetection: detectionRequest
+            candidates: candidates, investigations: investigations,
+            nextInvestigation: next,
+            automaticHandoff: handoff, automaticDetection: detection,
+            workflowErrors: workflowErrors
         )
     }
 

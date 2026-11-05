@@ -6,6 +6,15 @@ import FoundationNetworking
 @testable import SpektrKomandy
 
 final class PlatformAPITests: XCTestCase {
+    private var sessions: [URLSession] = []
+
+    override func tearDown() {
+        for session in sessions { session.finishTasksAndInvalidate() }
+        sessions.removeAll()
+        Stub.handler = nil
+        super.tearDown()
+    }
+
     final class Stub: URLProtocol {
         static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -33,7 +42,9 @@ final class PlatformAPITests: XCTestCase {
         Stub.handler = handler
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [Stub.self]
-        return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
+        let session = URLSession(configuration: configuration)
+        sessions.append(session)
+        return try PlatformClient(baseURL: url, session: session)
     }
 
     private func response(_ url: URL, status: Int = 200) -> HTTPURLResponse {
