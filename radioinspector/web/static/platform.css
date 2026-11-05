@@ -238,6 +238,10 @@ canvas { display: block; width: 100%; height: auto; }
 .event-row time { color: var(--muted); }
 .event-type { overflow-wrap: anywhere; }
 
+.dispatch-bar { padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--ink-950); }
+.dispatch-bar p { margin: 0 0 10px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.dispatch-bar strong { color: var(--cyan); font-weight: 500; }
+.dispatch-bar .button { width: 100%; }
 .editor { margin: 12px 16px; border: 1px dashed var(--line); background: var(--ink-950); }
 .editor summary { min-height: 44px; padding: 11px 12px; color: var(--cyan); font-size: 11px; }
 .editor form, form.editor { padding: 0 12px 12px; }

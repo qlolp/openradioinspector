@@ -107,6 +107,9 @@ class WebUiTests(unittest.TestCase):
         self.assertNotIn("outerHTML", javascript)
         self.assertNotIn("Math.random", javascript)
         self.assertIn('const API_ROOT = "/api/v1"', javascript)
+        self.assertIn('/investigations/next', javascript)
+        self.assertIn('/investigations/start-next', javascript)
+        self.assertIn('confirm: true', javascript)
 
 
 if __name__ == "__main__":

@@ -167,6 +167,49 @@ class InvestigationServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "created_at"):
             self.enqueue("candidate-low", created_at=to_primitive(BASE))
 
+    def test_semi_automatic_handoff_requires_current_confirmation(self) -> None:
+        self.assertIsNone(self.service.next_investigation(self.session.id))
+        for candidate_id in ("candidate-low", "candidate-high", "candidate-mid"):
+            self.candidate(candidate_id)
+        low = self.enqueue("candidate-low", id="investigation-low", priority=1)
+        high = self.enqueue("candidate-high", id="investigation-high", priority=9, mode="DMR")
+        mid = self.enqueue("candidate-mid", id="investigation-mid", priority=5)
+        self.assertEqual(self.service.next_investigation(self.session.id).id, high.id)
+        calls = []
+
+        def tune(session_id: str, stream_id: str, payload: dict) -> dict:
+            calls.append((session_id, stream_id, payload))
+            return self.tuned(session_id, stream_id, payload)
+
+        with self.assertRaisesRegex(ValueError, "Очередь изменилась"):
+            self.service.start_next_investigation(
+                self.session.id, low.id, tune=tune
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(
+            self.service.get_investigation(self.session.id, high.id).state,
+            InvestigationState.QUEUED,
+        )
+
+        started = self.service.start_next_investigation(
+            self.session.id, high.id, tune=tune
+        )
+        self.assertEqual(started.state, InvestigationState.LISTENING)
+        self.assertEqual(self.service.next_investigation(self.session.id).id, mid.id)
+        with self.assertRaisesRegex(ValueError, "receiver уже выполняет"):
+            self.service.start_investigation(self.session.id, mid.id, tune=tune)
+        with self.assertRaisesRegex(ValueError, "receiver уже выполняет"):
+            self.service.start_next_investigation(self.session.id, mid.id, tune=tune)
+        self.assertEqual(len(calls), 1)
+
+        self.service.cancel_investigation(self.session.id, high.id)
+        following = self.service.start_next_investigation(
+            self.session.id, mid.id, tune=tune
+        )
+        self.assertEqual(following.state, InvestigationState.LISTENING)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.service.next_investigation(self.session.id).id, low.id)
+
     def test_start_success_marks_tuning_then_listening(self) -> None:
         self.candidate()
         investigation = self.enqueue(id="investigation-1", mode="DMR")
@@ -350,7 +393,7 @@ class InvestigationServiceTests(unittest.TestCase):
         features = self.service.capabilities()["features"]
         self.assertTrue(features["candidate_investigations"])
         self.assertTrue(features["manual_investigation_handoff"])
-        self.assertFalse(features["semi_automatic_handoff"])
+        self.assertTrue(features["semi_automatic_handoff"])
         self.assertFalse(features["automatic_handoff"])
         self.assertFalse(features["automatic_candidate_detection"])
         self.assertFalse(features["hardware_control"])
@@ -659,6 +702,74 @@ class InvestigationHttpApiTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in listing["data"]], ["http-investigation"])
         status, capabilities = self.request("GET", "/api/v1/capabilities")
         self.assertTrue(capabilities["data"]["features"]["manual_investigation_handoff"])
+        self.assertFalse(capabilities["data"]["features"]["automatic_handoff"])
+
+    def test_http_semi_automatic_preview_and_confirmation(self) -> None:
+        session_id, spectrum_id, receiver_id = self.create_session()
+        self.request("POST", f"/api/v1/sessions/{session_id}/start", {})
+        self.request("POST", f"/api/v1/sessions/{session_id}/workers/start", {})
+        status, empty = self.request(
+            "GET", f"/api/v1/sessions/{session_id}/investigations/next"
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNone(empty["data"])
+
+        for candidate_id in ("http-low", "http-high"):
+            status, _ = self.request(
+                "POST", f"/api/v1/sessions/{session_id}/candidates",
+                candidate_payload(spectrum_id, candidate_id),
+            )
+            self.assertEqual(status, 201)
+        for investigation_id, candidate_id, priority in (
+            ("http-investigation-low", "http-low", 1),
+            ("http-investigation-high", "http-high", 8),
+        ):
+            status, _ = self.request(
+                "POST",
+                f"/api/v1/sessions/{session_id}/candidates/{candidate_id}/investigations",
+                {
+                    "id": investigation_id,
+                    "target_stream_id": receiver_id,
+                    "priority": priority,
+                    "mode": "DMR",
+                },
+            )
+            self.assertEqual(status, 201)
+
+        status, recommended = self.request(
+            "GET", f"/api/v1/sessions/{session_id}/investigations/next"
+        )
+        self.assertEqual(recommended["data"]["id"], "http-investigation-high")
+        status, rejected = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/investigations/start-next",
+            {"investigation_id": "http-investigation-high", "confirm": False},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("confirm=true", rejected["error"]["message"])
+        status, stale = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/investigations/start-next",
+            {"investigation_id": "http-investigation-low", "confirm": True},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("Очередь изменилась", stale["error"]["message"])
+        status, current = self.request(
+            "GET",
+            f"/api/v1/sessions/{session_id}/investigations/http-investigation-high",
+        )
+        self.assertEqual(current["data"]["state"], "queued")
+
+        status, listening = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/investigations/start-next",
+            {"investigation_id": "http-investigation-high", "confirm": True},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(listening["data"]["state"], "listening")
+        status, following = self.request(
+            "GET", f"/api/v1/sessions/{session_id}/investigations/next"
+        )
+        self.assertEqual(following["data"]["id"], "http-investigation-low")
+        status, capabilities = self.request("GET", "/api/v1/capabilities")
+        self.assertTrue(capabilities["data"]["features"]["semi_automatic_handoff"])
         self.assertFalse(capabilities["data"]["features"]["automatic_handoff"])
 
     def test_http_encoded_ids_dismiss_fail_and_not_found(self) -> None:
