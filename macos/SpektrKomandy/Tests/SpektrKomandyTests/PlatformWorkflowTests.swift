@@ -81,7 +81,7 @@ final class PlatformWorkflowTests: XCTestCase {
                 XCTAssertNil(body["bandwidth_hz"])
                 return (self.response(request.url!), self.envelope(self.candidateJSON))
             }
-            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/candidates/c%2F1/investigations")
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/candidates/c%2F1/investigations"))
             XCTAssertEqual(body["target_stream_id"] as? String, "ar/1")
             XCTAssertEqual(body["target_frequency_hz"] as? Int, 433075000)
             XCTAssertEqual(body["priority"] as? Int, 5)

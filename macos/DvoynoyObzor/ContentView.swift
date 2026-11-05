@@ -746,7 +746,7 @@ struct RemoteUltraPane: View {
                     } else {
                         ForEach(model.rows.prefix(30)) { row in
                             Button {
-                                model.tune(frequencyHz: row.center
+                                model.tune(frequencyHz: row.center)
                             } label: {
                                 HStack {
                                     Text(String(format: "%.6f МГц", Double(row.center) / 1_000_000))
