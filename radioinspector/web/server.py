@@ -482,6 +482,14 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "next"
+            ):
+                self._send_json(api_payload(self.sessions.next_investigation(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in ("candidates", "investigations")
             ):
                 if parts[4] == "candidates":
@@ -565,6 +573,21 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     result = self.sessions.dismiss_candidate(parts[3], parts[5])
                     self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "start-next"
+            ):
+                if payload.get("confirm") is not True:
+                    raise ValueError(
+                        "Полуавтоматический handoff требует явного confirm=true"
+                    )
+                result = self.sessions.start_next_investigation(
+                    parts[3], payload["investigation_id"], tune=self.workers.tune
+                )
+                self._send_json(api_payload(result))
                 return
             if (
                 len(parts) == 7
