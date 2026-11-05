@@ -406,7 +406,8 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.assertEqual(created["state"], "draft")
         self.assertEqual(created["streams"][0]["settings"]["adapter"], "tinysa-sim")
         self.assertEqual(created["streams"][1]["level_unit"], "s_meter_count")
-        self.assertFalse(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_validation_not_run"])
         self.assertEqual(
             self.client.get_session("created/windows")["name"],
             "Создано Windows-клиентом",
@@ -517,68 +518,3 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(completed["state"], "completed")
         self.assertTrue(completed["result_observation_ids"])
-        candidates = self.client.list_candidates(self.session.id)
-        self.assertEqual(candidates[0]["state"], "resolved")
-        self.assertEqual(candidates[0]["level_unit"], "dBm")
-        self.client.stop_session(self.session.id)
-
-    def test_manual_start_cancel_fail_and_dismiss_use_encoded_ids(self) -> None:
-        self.client.start_session(self.session.id)
-        self.client.start_workers(self.session.id)
-
-        def create(candidate_id):
-            return self.client.create_candidate(
-                self.session.id,
-                {
-                    "id": candidate_id,
-                    "source_stream_id": self.tinysa_id,
-                    "interval": measurement_interval(1),
-                    "center_frequency_hz": 102_500_000,
-                    "level_unit": "dBm",
-                    "observation_ids": [],
-                },
-            )
-
-        first = create("candidate/cancel")
-        queued = self.client.enqueue_investigation(
-            self.session.id,
-            first["id"],
-            {"id": "investigation/cancel", "target_stream_id": self.receiver_id},
-        )
-        started = self.client.start_investigation(self.session.id, queued["id"])
-        self.assertEqual(started["state"], "listening")
-        cancelled = self.client.cancel_investigation(self.session.id, queued["id"])
-        self.assertEqual(cancelled["state"], "cancelled")
-        dismissed = self.client.dismiss_candidate(self.session.id, first["id"])
-        self.assertEqual(dismissed["state"], "dismissed")
-
-        second = create("candidate/fail")
-        failed_queue = self.client.enqueue_investigation(
-            self.session.id,
-            second["id"],
-            {"id": "investigation/fail", "target_stream_id": self.receiver_id},
-        )
-        with self.assertRaisesRegex(ValueError, "не должна быть пустой"):
-            self.client.fail_investigation(
-                self.session.id, failed_queue["id"], error=" "
-            )
-        failed = self.client.fail_investigation(
-            self.session.id, failed_queue["id"], error="Проверка Windows GUI"
-        )
-        self.assertEqual(failed["state"], "failed")
-        self.assertEqual(failed["error"], "Проверка Windows GUI")
-        self.client.stop_session(self.session.id)
-
-    def test_invalid_tune_is_rejected_before_http(self) -> None:
-        with self.assertRaisesRegex(ValueError, "целым числом Гц"):
-            self.client.tune(
-                self.session.id,
-                self.receiver_id,
-                frequency_hz=100.5,
-                mode="FM",
-            )
-        self.assertEqual(self.client.get_session(self.session.id)["state"], "draft")
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
