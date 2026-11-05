@@ -46,6 +46,8 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/investigations/start-next` | Запуск рекомендации после явного подтверждения |
 | `GET` | `/api/v1/sessions/{id}/automatic-handoff` | Runtime-политика и состояние автоматического планировщика |
 | `POST` | `/api/v1/sessions/{id}/automatic-handoff` | Частичное изменение политики; opt-in через `enabled=true` |
+| `GET` | `/api/v1/sessions/{id}/automatic-detection` | Runtime-политика и состояние обнаружения кандидатов |
+| `POST` | `/api/v1/sessions/{id}/automatic-detection` | Частичное изменение политики; opt-in через `enabled=true` |
 | `GET` | `/api/v1/sessions/{id}/investigations/{investigation_id}` | Одно исследование |
 | `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/start` | Настройка выбранного receiver и начало прослушивания |
 | `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/complete` | Завершение со связыванием наблюдений результата |
@@ -247,7 +249,7 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps \
 
 ## Кандидаты и режимы handoff
 
-Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Сервер не выделяет кандидатов автоматически и не завершает исследования автоматически. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false` и `automatic_candidate_detection=false`.
+Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматического завершения исследований нет. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false` и `automatic_investigation_completion=false`.
 
 Состояния кандидата:
 
@@ -313,6 +315,50 @@ curl -sS -X POST \
 Без `confirm=true` возвращается HTTP 400. Выбор рекомендации и перевод подтверждённого исследования в `tuning` выполняются под одним lock: если более приоритетная запись появилась после предпросмотра либо подтверждён другой ID, команда отклоняется с сообщением об изменении очереди и не вызывает tune. Повторный предпросмотр возвращает актуальную рекомендацию. Автоматический планировщик не вызывает этот маршрут: он использует отдельную runtime-политику и общий жизненный цикл исследования.
 
 Один receiver может иметь только одно исследование в `tuning`, `listening` или `decoding`; это ограничение действует и для ручного, и для полуавтоматического запуска. Ожидающие записи того же receiver остаются в очереди. Другие приборные потоки и независимые receiver не блокируются.
+
+### Автоматическое обнаружение кандидатов по явной политике
+
+Детектор имеет собственную runtime-политику для каждого сеанса и независим от политики handoff. Начальное состояние всегда `enabled=false`; политика, курсор обработанных sweeps и cooldown не сохраняются в SQLite. Текущее состояние возвращается без изменений:
+
+```bash
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-detection
+```
+
+Ответ содержит `policy`, `runtime`, `scheduler_alive`, `policy_persistent=false`, `restart_requires_opt_in=true`, `processes_existing_archive=false` и `automatically_enqueues_investigations=false`. В `runtime` доступны время и ID последнего обработанного sweep, `last_result`, `last_error`, числа обработанных sweeps, созданных кандидатов и подавленных дублей.
+
+Включение с полным набором параметров:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-detection \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "enabled": true,
+    "interval_seconds": 1.0,
+    "stream_id": "TINYSA_STREAM_ID",
+    "threshold_dbm": -70.0,
+    "dedup_bandwidth_hz": 100000,
+    "cooldown_seconds": 60.0,
+    "max_candidates_per_sweep": 10
+  }'
+```
+
+POST частично обновляет политику. Неизвестные поля отклоняются. `enabled` должен быть JSON boolean. `interval_seconds` находится в диапазоне 0,1…3600, `threshold_dbm` — −300…100, `cooldown_seconds` — 0…86400. `dedup_bandwidth_hz` — целое 1…10000000000, `max_candidates_per_sweep` — целое 1…100. `stream_id` может быть `null` либо ID потока того же сеанса с ролью `spectrum_analyzer` и исходной единицей `dBm`.
+
+При переходе из выключенного состояния во включенное детектор фиксирует текущий конец архива и обрабатывает только ещё не виденные новые sweeps. Массового анализа старого архива нет. В каждом подходящем sweep выделяются непрерывные участки с уровнями `>= threshold_dbm`; кандидат получает частоту точки максимума, исходный пик `dBm`, `score=peak_level-threshold_dbm` и интервал самого sweep. Полоса — расстояние между крайними точками участка; для одиночной точки используется локальный шаг частоты, минимум 1 Гц. Это оценка по выборке, а не точное измерение занимаемой полосы. Участки сортируются по убыванию пика, затем по частоте; применяется лимит на sweep.
+
+Повторная обработка одного sweep не создаёт дубли. Активные `new`/`queued`/`investigating` и отклонённые `dismissed` кандидаты того же потока подавляют новый кандидат в пределах частотного допуска; для завершённых действует runtime cooldown. Допуск учитывает `dedup_bandwidth_hz` и оценённые полосы. Создание выполняется через общий `SessionService.create_candidate()` с состоянием `new`; detector не вызывает `enqueue`, `start`, `complete`, `fail` или `cancel`. Связь с исходным измерением фиксируется событием `automatic_detection.candidate_created`, содержащим `candidate_id` и `sweep_id`. Изменения политики публикуют `automatic_detection.policy_changed`.
+
+Явное выключение сохраняет остальные параметры до перезапуска процесса и запрещает новые проходы:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-detection \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":false}'
+```
+
+Фоновый цикл создаётся лениво при первом включении. Проходы сеансов выполняются в отдельных dispatch-потоках, поэтому блокировка чтения архива одного сеанса не сериализует обнаружение другого. Один проход читает не более 1000 последних sweeps; при большем не обработанном backlog гарантированного разбора всей истории нет. Отсчёты `s_meter_count` не преобразуются в `dBm` и этим детектором не обрабатываются.
 
 ### Автоматический handoff по явной политике
 
@@ -383,10 +429,10 @@ queued / tuning / listening → cancelled
 
 `complete` принимает только `listening`/`decoding` и связывает все наблюдения целевого потока, у которых `frequency_hz=target_frequency_hz`, а `started_at` не раньше начала исследования. Если таких наблюдений нет, возвращается HTTP 400, состояние остаётся `listening` и ложный результат не создаётся. При успехе ID наблюдений попадают в `result_observation_ids`, исследование — в `completed`, кандидат — в `resolved`. Состояние `decoding` зарезервировано контрактом; отдельный HTTP-переход в него в этом срезе не добавлен.
 
-События `candidate.created`, `candidate.dismissed`, `investigation.queued`, `investigation.tuning`, `investigation.listening`, `investigation.completed`, `investigation.failed`, `investigation.cancelled`, `investigation.interrupted`, `automatic_handoff.policy_changed`, `automatic_handoff.started` и `automatic_handoff.disabled` доступны через history/SSE. В SQLite изменение кандидата, исследования и соответствующего события выполняется одной транзакцией; подписчики уведомляются только после commit. Audit-события планировщика публикуются через ту же службу; его runtime-политика и счётчики в SQLite не сохраняются.
+События `candidate.created`, `candidate.dismissed`, `investigation.queued`, `investigation.tuning`, `investigation.listening`, `investigation.completed`, `investigation.failed`, `investigation.cancelled`, `investigation.interrupted`, `automatic_detection.policy_changed`, `automatic_detection.candidate_created`, `automatic_handoff.policy_changed`, `automatic_handoff.started` и `automatic_handoff.disabled` доступны через history/SSE. В SQLite изменение кандидата, исследования и соответствующего события выполняется одной транзакцией; подписчики уведомляются только после commit. Audit-события планировщика публикуются через ту же службу; его runtime-политика и счётчики в SQLite не сохраняются.
 
-После перезапуска ожидающие `queued` сохраняются. Активные `tuning`/`listening`/`decoding` переводятся в `failed` с ошибкой прерывания и событием `investigation.interrupted`, поскольку поток команды не переживает процесс; кандидат возвращается в `queued`. Приборные workers при этом не перезапускаются автоматически. Автоматическая политика не восстанавливается и остаётся выключенной до нового opt-in.
+После перезапуска ожидающие `queued` сохраняются. Активные `tuning`/`listening`/`decoding` переводятся в `failed` с ошибкой прерывания и событием `investigation.interrupted`, поскольку поток команды не переживает процесс; кандидат возвращается в `queued`. Приборные workers при этом не перезапускаются автоматически. Обе автоматические политики не восстанавливаются и остаются выключенными до новых независимых opt-in.
 
 ID кандидата и исследования в URL кодируются как один сегмент и декодируются ровно один раз, как ID сеанса. Неизвестные объекты возвращают HTTP 404 с кодами `candidate_not_found` и `investigation_not_found`.
 
-`hardware_control` остаётся `false`: ручной, полуавтоматический и автоматический handoff и модели архива проверены на симуляторах, но не означают подключение или аппаратную проверку физических tinySA Ultra/AR-DV1.
+`hardware_control` остаётся `false`: автоматическое обнаружение, ручной, полуавтоматический и автоматический handoff и модели архива проверены на синтетических sweeps и симуляторах, но не означают подключение или аппаратную проверку физических tinySA Ultra/AR-DV1.
