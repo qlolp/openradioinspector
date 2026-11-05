@@ -56,6 +56,10 @@ final class PlatformAPITests: XCTestCase {
             try PlatformBaseURL(" http://example.test/root/api/v1/ ").root.absoluteString,
             "http://example.test/root"
         )
+        XCTAssertEqual(
+            try PlatformBaseURL("http://example.test/").endpoint(path: "/sessions").absoluteString,
+            "http://example.test/api/v1/sessions"
+        )
         XCTAssertThrowsError(try PlatformBaseURL("127.0.0.1:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://user:secret@example.test"))
         XCTAssertThrowsError(try PlatformBaseURL("http://example.test/?token=x"))

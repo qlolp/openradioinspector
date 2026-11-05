@@ -49,6 +49,7 @@ public struct PlatformBaseURL: Equatable {
         var path = components.percentEncodedPath
         while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
         if path.hasSuffix("/api/v1") { path.removeLast("/api/v1".count) }
+        if path == "/" { path = "" }
         components.percentEncodedPath = path
         guard let url = components.url else {
             throw PlatformError.invalidURL("Некорректный адрес сервера")
