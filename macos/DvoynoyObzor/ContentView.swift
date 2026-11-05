@@ -146,8 +146,10 @@ final class RemoteDualModel: ObservableObject {
 
     func reloadSessions() async {
         guard let client else { return }
+        let requestGeneration = generation
         do {
             let loaded = try await client.listSessions()
+            guard requestGeneration == generation, self.client === client else { return }
             sessions = loaded
             if selectedSessionID.isEmpty || !loaded.contains(where: { $0.id == selectedSessionID }) {
                 selectedSessionID = loaded.first?.id ?? ""
@@ -155,6 +157,7 @@ final class RemoteDualModel: ObservableObject {
             }
             if !selectedSessionID.isEmpty { await refresh() }
         } catch {
+            guard requestGeneration == generation, self.client === client else { return }
             errorText = describeSession(error)
         }
     }
