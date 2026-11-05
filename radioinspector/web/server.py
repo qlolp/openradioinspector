@@ -31,6 +31,7 @@ import numpy as np
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
+from ..automatic_detection import AutomaticCandidateDetector
 from ..automatic_handoff import AutomaticHandoffScheduler
 from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
@@ -509,6 +510,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                self._send_json(api_payload(self.automatic_detection.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "workers"
             ):
                 self._send_json(api_payload(self.workers.list_workers(parts[3])))
@@ -565,6 +573,14 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "automatic-handoff"
             ):
                 result = self.automatic_handoff.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                result = self.automatic_detection.configure(parts[3], payload)
                 self._send_json(api_payload(result))
                 return
             if (
@@ -764,6 +780,7 @@ def create_server(
     session_database: Optional[str] = None,
     workers: Optional[DeviceWorkerManager] = None,
     automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
+    automatic_detection: Optional[AutomaticCandidateDetector] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -783,6 +800,9 @@ def create_server(
     automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
         session_service, tune=worker_manager.tune
     )
+    if automatic_detection is not None and automatic_detection.sessions is not session_service:
+        raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
+    detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
     handler = type(
         "BoundHandler",
         (Handler,),
@@ -791,6 +811,7 @@ def create_server(
             "sessions": session_service,
             "workers": worker_manager,
             "automatic_handoff": automatic_scheduler,
+            "automatic_detection": detection_scheduler,
         },
     )
     httpd = ThreadingHTTPServer((host, port), handler)
@@ -798,6 +819,7 @@ def create_server(
     httpd.session_service = session_service
     httpd.worker_manager = worker_manager
     httpd.automatic_handoff = automatic_scheduler
+    httpd.automatic_detection = detection_scheduler
     return httpd
 
 
@@ -826,6 +848,7 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.automatic_detection.close()
         httpd.automatic_handoff.close()
         httpd.worker_manager.close()
         httpd.server_close()
