@@ -121,7 +121,7 @@ class ApplicationState:
                 self._subscribers.remove(event)
 
     def bump(self) -> None:
-        """Сигнализирует подписчикам об изменении состояния."""
+        """Сигнализирует подписчиков об изменении состояния."""
         with self._lock:
             self._version += 1
             subscribers = list(self._subscribers)
@@ -678,6 +678,35 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     result = self.workers.tune(parts[3], parts[5], payload)
                 self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("sweeps", "observations")
+                and parts[5] == "batch"
+            ):
+                items = payload.get("items")
+                if not isinstance(items, list):
+                    raise TypeError("Поле items должно быть JSON-массивом")
+                measurements = []
+                for index, item in enumerate(items):
+                    if not isinstance(item, dict):
+                        raise TypeError(f"Элемент пакета {index} должен быть JSON-объектом")
+                    measurement = dict(item)
+                    supplied_session = measurement.get("session_id")
+                    if supplied_session is not None and supplied_session != parts[3]:
+                        raise ValueError(
+                            f"session_id элемента {index} не совпадает с маршрутом"
+                        )
+                    measurement["session_id"] = parts[3]
+                    measurements.append(measurement)
+                if parts[4] == "sweeps":
+                    result = self.sessions.ingest_sweeps(measurements)
+                else:
+                    result = self.sessions.ingest_observations(measurements)
+                self._send_json(
+                    api_payload({"items": result, "count": len(result)}), 201
+                )
                 return
             if (
                 len(parts) == 5
