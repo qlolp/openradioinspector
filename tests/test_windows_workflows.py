@@ -7,6 +7,8 @@ import unittest
 from radioinspector.windows.app import WindowsApp
 from radioinspector.windows.client import PlatformSnapshot
 from radioinspector.windows.workflows import (
+    automatic_detection_payload,
+    automatic_handoff_payload,
     candidate_payload,
     investigation_payload,
     session_payload,
@@ -106,6 +108,63 @@ class WorkflowPayloadTests(unittest.TestCase):
                 target_stream_id="ar/dv1", target_frequency_hz=1, priority=-1
             )
 
+    def test_detection_policy_is_explicit_bounded_and_dbm_only(self) -> None:
+        payload = automatic_detection_payload(
+            enabled=True,
+            interval_seconds="0.5",
+            stream_id=" tiny/sa ",
+            threshold_dbm="-72.5",
+            dedup_bandwidth_hz="125000",
+            cooldown_seconds="0",
+            max_candidates_per_sweep="4",
+        )
+        self.assertEqual(
+            payload,
+            {
+                "enabled": True,
+                "interval_seconds": 0.5,
+                "stream_id": "tiny/sa",
+                "threshold_dbm": -72.5,
+                "dedup_bandwidth_hz": 125000,
+                "cooldown_seconds": 0.0,
+                "max_candidates_per_sweep": 4,
+            },
+        )
+        self.assertNotIn("receiver_stream_id", payload)
+        self.assertNotIn("minimum_priority", payload)
+        disabled = automatic_detection_payload(
+            **{**payload, "enabled": False, "stream_id": ""}
+        )
+        self.assertFalse(disabled["enabled"])
+        self.assertIsNone(disabled["stream_id"])
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            automatic_detection_payload(**{**payload, "enabled": 1})
+        with self.assertRaisesRegex(ValueError, "диапазоне"):
+            automatic_detection_payload(**{**payload, "threshold_dbm": "nan"})
+        with self.assertRaisesRegex(ValueError, "не больше 100"):
+            automatic_detection_payload(
+                **{**payload, "max_candidates_per_sweep": 101}
+            )
+
+    def test_handoff_policy_is_independent_and_validated(self) -> None:
+        payload = automatic_handoff_payload(
+            enabled=True,
+            interval_seconds="2",
+            minimum_priority="5",
+            receiver_stream_id="ar/dv1",
+            max_consecutive_failures="3",
+            retry_delay_seconds="30",
+        )
+        self.assertTrue(payload["enabled"])
+        self.assertEqual(payload["minimum_priority"], 5)
+        self.assertEqual(payload["receiver_stream_id"], "ar/dv1")
+        self.assertNotIn("threshold_dbm", payload)
+        self.assertNotIn("stream_id", payload)
+        with self.assertRaisesRegex(ValueError, "не меньше 0"):
+            automatic_handoff_payload(**{**payload, "minimum_priority": -1})
+        with self.assertRaisesRegex(ValueError, "диапазоне"):
+            automatic_handoff_payload(**{**payload, "retry_delay_seconds": 0})
+
 
 class WorkflowCommandTests(unittest.TestCase):
     def test_commands_capture_ids_and_explicit_confirmation_before_dispatch(self) -> None:
@@ -165,6 +224,36 @@ class WorkflowCommandTests(unittest.TestCase):
                 ("dismiss", "session/old", "candidate/old"),
                 ("next", "session/old", "investigation/old", True),
                 ("fail", "session/old", "investigation/old", "Причина оператора"),
+            ],
+        )
+
+    def test_disabling_one_policy_captures_session_and_does_not_touch_the_other(self) -> None:
+        class RecordingClient:
+            def __init__(self):
+                self.calls = []
+
+            def configure_automatic_detection(self, session_id, payload):
+                self.calls.append(("detection", session_id, payload))
+
+            def configure_automatic_handoff(self, session_id, payload):
+                self.calls.append(("handoff", session_id, payload))
+
+        app = WindowsApp.__new__(WindowsApp)
+        app.client = RecordingClient()
+        app.session_id = "session/old"
+        app._require_session = lambda: True
+        operations = []
+        app._submit_action = lambda _description, operation: operations.append(operation)
+        app._disable_policy("detection")
+        app._disable_policy("handoff")
+        app.session_id = "session/new"
+        for operation in operations:
+            operation()
+        self.assertEqual(
+            app.client.calls,
+            [
+                ("detection", "session/old", {"enabled": False}),
+                ("handoff", "session/old", {"enabled": False}),
             ],
         )
 
