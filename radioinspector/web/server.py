@@ -466,6 +466,12 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) >= 6
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in ("candidates", "investigations")
             ):
                 parts[5] = unquote(parts[5])
@@ -561,6 +567,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
             if (
                 len(parts) >= 6
                 and parts[:3] == ["api", "v1", "sessions"]

@@ -1,0 +1,311 @@
+"""Windows GUI: тонкий HTTP-клиент и проверка команд на общем стенде."""
+
+from __future__ import annotations
+
+import threading
+import time
+import unittest
+import urllib.error
+
+from radioinspector.windows.app import (
+    WindowsApp,
+    candidate_row,
+    investigation_row,
+    policy_text,
+    session_label,
+    worker_row,
+)
+from radioinspector.windows.client import (
+    PlatformClient,
+    PlatformClientError,
+    PlatformSnapshot,
+    validate_tune,
+)
+from radioinspector.web.server import create_server
+from tests.test_device_workers import simulated_session_payload, wait_until
+from tests.test_persistence import measurement_interval
+
+
+class BrokenOpener:
+    def open(self, _request, timeout):
+        raise urllib.error.URLError("стенд недоступен")
+
+
+class WindowsClientValidationTests(unittest.TestCase):
+    def test_url_and_tune_validation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "http://"):
+            PlatformClient("127.0.0.1:8770")
+        with self.assertRaisesRegex(ValueError, "Учётные данные"):
+            PlatformClient("http://user:secret@example.test")
+        self.assertEqual(
+            PlatformClient("http://example.test/root/api/v1/").base_url,
+            "http://example.test/root",
+        )
+        self.assertEqual(validate_tune(433_075_000, " DMR "), (433_075_000, "DMR"))
+        for frequency in (True, 100.5, 0, -1):
+            with self.assertRaises(ValueError):
+                validate_tune(frequency, "FM")
+        with self.assertRaisesRegex(ValueError, "Режим"):
+            validate_tune(100_000_000, " ")
+
+    def test_transport_error_is_typed_and_does_not_open_devices(self) -> None:
+        client = PlatformClient("http://example.test", opener=BrokenOpener())
+        with self.assertRaises(PlatformClientError) as caught:
+            client.health()
+        self.assertEqual(caught.exception.code, "connection_error")
+        self.assertIn("стенд недоступен", str(caught.exception))
+
+    def test_ui_command_captures_session_and_stream_before_background_dispatch(self) -> None:
+        class RecordingClient:
+            def __init__(self):
+                self.calls = []
+
+            def start_session(self, session_id):
+                self.calls.append(("start", session_id))
+
+            def tune(self, session_id, stream_id, *, frequency_hz, mode):
+                self.calls.append(("tune", session_id, stream_id, frequency_hz, mode))
+
+        class Value:
+            def __init__(self, value):
+                self.value = value
+
+            def get(self):
+                return self.value
+
+        app = WindowsApp.__new__(WindowsApp)
+        app.client = RecordingClient()
+        app.session_id = "session/old"
+        app._require_session = lambda: True
+        operations = []
+        app._submit_action = lambda _description, operation: operations.append(operation)
+        app._session_action("start")
+        app.selected_stream_id = lambda: "receiver/old"
+        app._selected_stream = lambda: {"id": "receiver/old", "role": "receiver"}
+        app.frequency_var = Value("433075000")
+        app.mode_var = Value("DMR")
+        app._tune()
+        app.session_id = "session/new"
+        for operation in operations:
+            operation()
+        self.assertEqual(
+            app.client.calls,
+            [
+                ("start", "session/old"),
+                ("tune", "session/old", "receiver/old", 433_075_000, "DMR"),
+            ],
+        )
+
+    def test_stream_selection_enables_controls_before_their_first_use(self) -> None:
+        class Button:
+            def __init__(self):
+                self.state = "disabled"
+
+            def configure(self, *, state):
+                self.state = state
+
+        class Value:
+            def __init__(self):
+                self.value = ""
+
+            def set(self, value):
+                self.value = value
+
+        app = WindowsApp.__new__(WindowsApp)
+        app.client = object()
+        app.session_id = "session"
+        app._action_running = False
+        for name in (
+            "session_start",
+            "session_stop",
+            "workers_start",
+            "workers_stop",
+            "stream_start",
+            "stream_stop",
+            "tune_button",
+            "refresh_button",
+        ):
+            setattr(app, name, Button())
+        app.snapshot = PlatformSnapshot(
+            {},
+            {},
+            [],
+            session={
+                "streams": [
+                    {
+                        "id": "ar/dv1",
+                        "role": "receiver",
+                        "settings": {"frequency_hz": 145_500_000, "mode": "FM"},
+                    }
+                ]
+            },
+        )
+        app.selected_stream_id = lambda: "ar/dv1"
+        app.frequency_var = Value()
+        app.mode_var = Value()
+        app._select_stream()
+        self.assertEqual(app.stream_start.state, "normal")
+        self.assertEqual(app.stream_stop.state, "normal")
+        self.assertEqual(app.tune_button.state, "normal")
+        self.assertEqual(app.frequency_var.value, "145500000")
+        self.assertEqual(app.mode_var.value, "FM")
+
+    def test_snapshot_defaults_and_presentation_preserve_source_values(self) -> None:
+        snapshot = PlatformSnapshot({}, {}, [])
+        self.assertEqual(snapshot.workers, [])
+        self.assertEqual(snapshot.candidates, [])
+        self.assertEqual(snapshot.investigations, [])
+        self.assertIn("draft", session_label({"name": "Тест", "state": "draft", "id": "s"}))
+        row = worker_row(
+            {"device": "tinySA Ultra", "role": "spectrum_analyzer", "level_unit": "dBm"},
+            {"state": "degraded", "measurements": 7, "last_error": "временный сбой"},
+        )
+        self.assertEqual(row[:5], ("tinySA Ultra", "spectrum_analyzer", "degraded", "dBm", "7"))
+        candidate = candidate_row(
+            {
+                "state": "new",
+                "center_frequency_hz": 100_200_000,
+                "bandwidth_hz": 100_000,
+                "peak_level": -45.0,
+                "level_unit": "dBm",
+                "id": "candidate",
+            }
+        )
+        self.assertEqual(candidate[3], "-45 dBm")
+        investigation = investigation_row(
+            {
+                "state": "queued",
+                "priority": 5,
+                "target_frequency_hz": 100_200_000,
+                "mode": "FM",
+                "target_stream_id": "receiver",
+            }
+        )
+        self.assertEqual(investigation[1], "5")
+        self.assertIn("выключено", policy_text({"policy": {"enabled": False}, "runtime": {}}))
+
+
+class WindowsClientIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.server = create_server(host="127.0.0.1", port=0)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        host, port = self.server.server_address
+        self.client = PlatformClient(f"http://{host}:{port}", timeout=3)
+        payload = simulated_session_payload()
+        payload["id"] = "windows/session"
+        payload["streams"][0]["id"] = "tiny/sa"
+        payload["streams"][1]["id"] = "ar/dv1"
+        self.session = self.server.session_service.create_session(payload)
+        self.tinysa_id, self.receiver_id = [item.id for item in self.session.streams]
+
+    def tearDown(self) -> None:
+        self.server.automatic_detection.close()
+        self.server.automatic_handoff.close()
+        self.server.worker_manager.close()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=3)
+        self.server.session_service.close()
+
+    def workers(self):
+        return {
+            item["stream_id"]: item
+            for item in self.server.worker_manager.list_workers(self.session.id)
+        }
+
+    def test_snapshot_and_encoded_ids(self) -> None:
+        self.client.start_session(self.session.id)
+        snapshot = self.client.snapshot(self.session.id)
+        self.assertEqual(snapshot.session["id"], "windows/session")
+        self.assertEqual(snapshot.session["state"], "running")
+        self.assertEqual(len(snapshot.workers), 2)
+        self.assertFalse(snapshot.automatic_detection["policy"]["enabled"])
+        self.assertFalse(snapshot.automatic_handoff["policy"]["enabled"])
+        self.assertFalse(snapshot.automatic_detection["policy_persistent"])
+        self.assertTrue(snapshot.capabilities["features"]["automatic_candidate_detection"])
+        with self.assertRaises(PlatformClientError) as caught:
+            self.client.get_session("missing/session")
+        self.assertEqual(caught.exception.status, 404)
+        self.assertEqual(caught.exception.code, "session_not_found")
+
+    def test_independent_stream_commands_and_tune(self) -> None:
+        self.client.start_session(self.session.id)
+        self.client.start_workers(self.session.id)
+        wait_until(
+            lambda: all(item["measurements"] >= 2 for item in self.workers().values()),
+            "Оба симулятора должны начать независимую запись",
+        )
+        self.client.stop_stream(self.session.id, self.tinysa_id)
+        stopped = self.workers()[self.tinysa_id]["measurements"]
+        receiver_before = self.workers()[self.receiver_id]["measurements"]
+        time.sleep(0.06)
+        current = self.workers()
+        self.assertEqual(current[self.tinysa_id]["measurements"], stopped)
+        self.assertGreater(current[self.receiver_id]["measurements"], receiver_before)
+
+        tuned = self.client.tune(
+            self.session.id,
+            self.receiver_id,
+            frequency_hz=433_075_000,
+            mode="DMR",
+        )
+        self.assertEqual(tuned["tuned"]["frequency_hz"], 433_075_000)
+        self.assertEqual(tuned["tuned"]["mode"], "DMR")
+        wait_until(
+            lambda: self.workers()[self.receiver_id]["current"]["frequency_hz"] == 433_075_000,
+            "Receiver должен выполнить tune через собственную очередь",
+        )
+        observations = self.server.session_service.list_observations(self.session.id)
+        self.assertTrue(any(item.frequency_hz == 433_075_000 for item in observations))
+        self.assertTrue(all(item.level_unit == "s_meter_count" for item in observations))
+
+        self.client.start_stream(self.session.id, self.tinysa_id)
+        wait_until(
+            lambda: self.workers()[self.tinysa_id]["measurements"] > stopped,
+            "tinySA должен перезапуститься отдельно от receiver",
+        )
+        self.client.stop_session(self.session.id)
+        self.assertEqual(self.client.get_session(self.session.id)["state"], "stopped")
+        self.assertTrue(all(not item["alive"] for item in self.workers().values()))
+
+    def test_snapshot_exposes_candidates_queue_and_does_not_start_handoff(self) -> None:
+        self.client.start_session(self.session.id)
+        candidate = self.server.session_service.create_candidate(
+            self.session.id,
+            {
+                "source_stream_id": self.tinysa_id,
+                "interval": measurement_interval(1),
+                "center_frequency_hz": 100_200_000,
+                "bandwidth_hz": 100_000,
+                "peak_level": -45.0,
+                "level_unit": "dBm",
+                "score": 15.0,
+            },
+        )
+        investigation = self.server.session_service.enqueue_investigation(
+            self.session.id,
+            candidate.id,
+            {"target_stream_id": self.receiver_id, "mode": "FM", "priority": 5},
+        )
+        snapshot = self.client.snapshot(self.session.id)
+        self.assertEqual(len(snapshot.candidates), 1)
+        self.assertEqual(snapshot.candidates[0]["level_unit"], "dBm")
+        self.assertEqual(len(snapshot.investigations), 1)
+        self.assertEqual(snapshot.investigations[0]["id"], investigation.id)
+        self.assertEqual(snapshot.investigations[0]["state"], "queued")
+        self.assertFalse(self.workers()[self.receiver_id]["alive"])
+
+    def test_invalid_tune_is_rejected_before_http(self) -> None:
+        with self.assertRaisesRegex(ValueError, "целым числом Гц"):
+            self.client.tune(
+                self.session.id,
+                self.receiver_id,
+                frequency_hz=100.5,
+                mode="FM",
+            )
+        self.assertEqual(self.client.get_session(self.session.id)["state"], "draft")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
