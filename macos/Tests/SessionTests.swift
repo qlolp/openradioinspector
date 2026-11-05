@@ -94,6 +94,29 @@ final class SessionTests: XCTestCase {
         window.contentView = nil
     }
 
+    @MainActor func testRemoteWindowCloseOnlyDisconnectsUI() {
+        let model = RemoteDualModel()
+        model.connected = true
+        model.status = "Сеанс ядра продолжается"
+        let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        let view = WindowCloseView()
+        view.onClose = { model.disconnect() }
+        window.contentView = view
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        XCTAssertFalse(model.connected)
+        XCTAssertNil(model.session)
+        XCTAssertEqual(model.status, "Отключено от сервера; сеанс ядра не остановлен")
+        window.contentView = nil
+    }
+
+    @MainActor func testRemoteTuneDoesNotInventReceiverOrMeasurement() {
+        let model = RemoteDualModel()
+        model.tuneLatestPeak()
+        XCTAssertEqual(model.errorText, "Перестройка доступна только receiver")
+        XCTAssertNil(model.latestObservation)
+        XCTAssertTrue(model.current.isEmpty)
+    }
+
     @MainActor func testWindowObserverOnlyCleansUpItsOwnWindow() {
         let own = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
         let other = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
