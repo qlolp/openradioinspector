@@ -277,7 +277,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Обновление страницы может отменить ожидающий ответ без сбоя API.
+            pass
 
     def _send_api_error(self, status: int, code: str, message: str) -> None:
         self._send_json(
@@ -299,7 +303,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -324,6 +331,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if route in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html")
+            return
+        if route in ("/platform", "/platform.html"):
+            self._send_file(STATIC_DIR / "platform.html")
             return
         if route == "/api/state":
             self._send_json(self.state.snapshot())
