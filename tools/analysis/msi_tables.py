@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import struct
 from pathlib import Path
 
@@ -102,17 +103,79 @@ class CompoundFile:
                 return bytes(out[:size])
         raise KeyError(name)
 
+    def text_streams(self) -> list[tuple[str, bytes]]:
+        """Потоки с содержимым (без служебных каталогов)."""
+        return [(e["name"], self.read_entry(e)) for e in self.entries if e["type"] == 2]
+
+    def read_entry(self, entry: dict) -> bytes:
+        """Содержимое потока по записи каталога."""
+        size, start = entry["size"], entry["start"]
+        if size < self.cutoff:
+            out = bytearray()
+            sect = start
+            seen: set[int] = set()
+            while sect not in (ENDOFCHAIN, NOSTREAM) and sect not in seen:
+                seen.add(sect)
+                off = sect * self.mini_size
+                out += self.ministream[off:off + self.mini_size]
+                sect = self.minifat[sect] if sect < len(self.minifat) else ENDOFCHAIN
+            return bytes(out[:size])
+        out = bytearray()
+        for sect in self.chain(start):
+            out += self.sect(sect)
+        return bytes(out[:size])
+
+    @staticmethod
+    def _printable_ratio(blob: bytes) -> float:
+        """Доля читаемых байт в потоке."""
+        if not blob:
+            return 0.0
+        readable = sum(1 for b in blob if 0x20 <= b < 0x7F or b in (0x09, 0x0A, 0x0D))
+        return readable / len(blob)
+
     def string_pool(self) -> list[str]:
-        """Строки из пула MSI (_StringPool и _StringData)."""
-        pool = self.read("_StringPool")
-        data = self.read("_StringData")
-        out: list[str] = []
-        for i in range(0, len(pool) - 3, 4):
-            value = struct.unpack_from("<I", pool, i)[0]
-            length = value & 0xFFFF
-            offset = (value >> 16) & 0x8000
-            out.append(data[offset:offset + length].decode("utf-8", "replace"))
-        return out
+        """Строки установочного пакета.
+
+        Имена потоков compound file искажены, поэтому пул и данные строк
+        опознаются по содержимому: пул — поток с размером, кратным четырём,
+        записи которого указывают внутрь самого большого потока. Если такой
+        пул не найден, строки извлекаются как читаемые фрагменты.
+        """
+        streams = self.text_streams()
+        if not streams:
+            return []
+        # Пул строк и данные связаны: сумма длин записей пула равна размеру
+        # потока данных. Перебор пар по этому признаку находит настоящий
+        # пул даже при искажённых именах потоков.
+        for pool_name, pool_blob in streams:
+            if not pool_blob or len(pool_blob) % 4:
+                continue
+            values = struct.unpack(f"<{len(pool_blob) // 4}I", pool_blob)
+            lengths = [value & 0xFFFF for value in values]
+            total = sum(lengths)
+            if not values or not total:
+                continue
+            for data_name, data in streams:
+                if data_name == pool_name or total != len(data):
+                    continue
+                out: list[str] = []
+                offset = 0
+                for length in lengths:
+                    out.append(data[offset:offset + length].decode("utf-8", "replace"))
+                    offset += length
+                readable = sum(1 for value in out if value.strip())
+                if readable >= len(out) * 0.5:
+                    return out
+        _, largest = max(streams, key=lambda item: len(item[1]))
+        return readable_strings(largest)
+
+
+def readable_strings(data: bytes, min_len: int = 4) -> list[str]:
+    """Читаемые фрагменты потока: ASCII и UTF-16LE."""
+    out = [m.group().decode("ascii", "ignore") for m in re.finditer(rb"[\x20-\x7e]{%d,}" % min_len, data)]
+    for match in re.finditer(rb"(?:[\x20-\x7e]\x00){%d,}" % min_len, data):
+        out.append(match.group().decode("utf-16-le", "replace"))
+    return out
 
 
 def main() -> None:
@@ -126,8 +189,8 @@ def main() -> None:
 
     cfb = CompoundFile(args.msi)
     if args.streams:
-        for name in cfb.stream_names():
-            print(repr(name))
+        for name, blob in cfb.text_streams():
+            print(f"{len(blob):>9}  {name!r}")
         return
     strings = cfb.string_pool()
     if args.grep:

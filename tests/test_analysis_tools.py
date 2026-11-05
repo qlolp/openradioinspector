@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tools" / "analysis"))
 
 from firebird_meta import classify, identifiers  # noqa: E402
+from msi_tables import CompoundFile  # noqa: E402
 from pe_resources import PEFile, find_forms, parse_dfm  # noqa: E402
 from strings_extract import ascii_strings, utf16_strings  # noqa: E402
 
@@ -115,6 +116,16 @@ class TestRealDistribution(unittest.TestCase):
         names = {name for name, _ in forms}
         self.assertIn("TFINSPECTORRCMF", names)
         self.assertIn("TFRSIGNALSLIST", names)
+
+    def test_installer_package_is_readable(self):
+        msi = next(self.root.rglob("SetupRadioInspectorLight.msi"), None)
+        if msi is None:
+            self.skipTest("SetupRadioInspectorLight.msi не найден")
+        cfb = CompoundFile(msi)
+        streams = cfb.text_streams()
+        self.assertGreater(len(streams), 10)
+        self.assertTrue(all(isinstance(blob, bytes) for _, blob in streams))
+        self.assertTrue(cfb.string_pool())
 
     def test_database_identifiers_include_taskplan(self):
         db = next(self.root.rglob("TASKPLAN.ITASKDB"), None)
