@@ -1,326 +1,367 @@
-# API платформы, версия 1
+# Общий HTTP API v1
 
-API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и других клиентов общего ядра. Существующие маршруты `/api/*` сохраняются и не входят в этот контракт.
+Версия документа: текущий серверный контур с независимыми workers, кандидатами, ручным и подтверждаемым полуавтоматическим handoff.
 
-## Общие правила
+Базовый URL по умолчанию: `http://127.0.0.1:8080/api/v1`. Все ответы — JSON, кроме SSE и статических страниц. UTF-8, частоты — целые Гц, время — ISO 8601 UTC с `Z`.
 
-- Префикс: `/api/v1`.
-- Ответы обёрнуты в объект с `contract`, `contract_version` и `data`.
-- Версия контракта текущего среза: `1`.
-- Ошибки содержат `error.code` и `error.message`.
-- Частоты — целые Гц, не числа с плавающей точкой в МГц.
-- Время — ISO 8601 в UTC с суффиксом `Z`.
-- Измерение содержит `started_at` и `ended_at`.
-- Единица исходного уровня обязательна. `s_meter_count` не преобразуется в `dBm` автоматически.
-- Без `--session-database` данные хранятся в памяти и удаляются при перезапуске. С этим параметром сеансы, события, измерения, кандидаты и исследования сохраняются в SQLite и восстанавливаются; фактический режим виден в `/api/v1/capabilities`.
+Старые `/api/*` не удалены. Они относятся к прежнему прототипу и не являются контрактом нового контура.
 
-## Маршруты
+## Общий формат
 
-| Метод | Путь | Назначение |
-|---|---|---|
-| `GET` | `/api/v1/health` | Состояние службы, число сеансов, последний ID события |
-| `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
-| `POST` | `/api/v1/sessions` | Создание сеанса с независимыми потоками |
-| `GET` | `/api/v1/sessions` | Список сеансов |
-| `GET` | `/api/v1/sessions/{id}` | Один сеанс |
-| `POST` | `/api/v1/sessions/{id}/start` | Запуск сеанса из `draft` |
-| `POST` | `/api/v1/sessions/{id}/stop` | Остановка сеанса из `running` и всех его исполнителей |
-| `POST` | `/api/v1/sessions/{id}/workers/start` | Запуск поддерживаемых симуляторов всех потоков |
-| `POST` | `/api/v1/sessions/{id}/workers/stop` | Остановка исполнителей без изменения жизненного цикла сеанса |
-| `GET` | `/api/v1/sessions/{id}/workers` | Состояние исполнителей сеанса |
-| `GET` | `/api/v1/workers` | Состояние исполнителей всех сеансов |
-| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/start` | Запуск одного исполнителя |
-| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/stop` | Остановка одного исполнителя |
-| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/tune` | Команда перестройки приёмника через его очередь |
-| `POST` | `/api/v1/sessions/{id}/sweeps` | Приём спектрального свипа |
-| `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
-| `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
-| `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
-| `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
-| `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
-| `GET` | `/api/v1/sessions/{id}/candidates/{candidate_id}` | Один кандидат |
-| `POST` | `/api/v1/sessions/{id}/candidates/{candidate_id}/investigations` | Ручная постановка в очередь исследований |
-| `POST` | `/api/v1/sessions/{id}/candidates/{candidate_id}/dismiss` | Отклонение кандидата без открытого исследования |
-| `GET` | `/api/v1/sessions/{id}/investigations?state=` | Очередь и история исследований |
-| `GET` | `/api/v1/sessions/{id}/investigations/{investigation_id}` | Одно исследование |
-| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/start` | Настройка выбранного receiver и начало прослушивания |
-| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/complete` | Завершение со связыванием наблюдений результата |
-| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/fail` | Завершение сбоем с обязательным `error` |
-| `POST` | `/api/v1/sessions/{id}/investigations/{investigation_id}/cancel` | Отмена открытого исследования |
-| `GET` | `/api/v1/events/history?after=0&limit=100` | История событий |
-| `GET` | `/api/v1/events` | SSE-поток событий с replay |
+Успешный ответ:
 
-## Создание двухприборного сеанса
-
-```bash
-curl -sS http://127.0.0.1:8770/api/v1/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "Двойной обзор",
-    "streams": [
-      {
-        "device": "tinySA Ultra",
-        "role": "spectrum_analyzer",
-        "level_unit": "dBm",
-        "port": "/dev/ttyACM0",
-        "capabilities": ["sweep", "waterfall"]
-      },
-      {
-        "device": "AR-DV1",
-        "role": "receiver",
-        "level_unit": "s_meter_count",
-        "port": "/dev/ttyUSB0",
-        "capabilities": ["tune", "audio", "hardware_decode"]
-      }
-    ],
-    "metadata": {"antennas": "independent"}
-  }'
+```json
+{"data": {"id": "session-1"}}
 ```
 
-Порт назначается только одному потоку сеанса. Идентификаторы сеанса и потоков создаются сервером, если не переданы явно. ID потока уникален во всей службе и SQLite-архиве: повторное использование в другом сеансе возвращает HTTP 400, не изменяя существующий сеанс или его измерения. ID сеанса в URL необходимо кодировать как один сегмент (например, `a/b` → `a%2Fb`); сервер декодирует его ровно один раз. Перечисленные в примере capabilities являются метаданными профиля, а не подтверждением того, что сервер уже выполняет аппаратные команды.
-
-## Жизненный цикл
-
-```text
-draft → running → stopped
-```
-
-Создание всегда начинается с `draft`. Допускается явно передать `state: "draft"`; другое состояние и непустые `created_at`, `started_at`, `ended_at` при создании возвращают HTTP 400. Время создания назначает служба, время запуска и остановки меняется только через соответствующие операции. Восстановление из архива использует отдельный путь десериализации и сохраняет записанный жизненный цикл.
-
-В SQLite создание, запуск, остановка и приём каждого измерения записываются вместе со своим событием в одной транзакции. История в памяти и SSE-подписчики получают событие только после успешного commit. При ошибке записи или прерывании процесса незавершённая операция не появляется после перезапуска.
-
-Недопустимый переход возвращает HTTP 400. Обращение к неизвестному сеансу — HTTP 404 с кодом `session_not_found`. Остановка сеанса также отменяет все его открытые исследования и не оставляет активное состояние без работающего сеанса.
-
-## SSE и восстановление подписки
-
-Каждый кадр содержит монотонный `id`, тип `event` и JSON в `data`:
-
-```text
-id: 2
-event: session.started
-data: {"contract":"openradioinspector-platform","contract_version":1,"data":{...}}
-```
-
-Клиент сохраняет последний обработанный ID. При переподключении сервер повторяет более новые события из ограниченного журнала:
-
-```bash
-curl -N http://127.0.0.1:8770/api/v1/events -H 'Last-Event-ID: 2'
-```
-
-Также допускается `GET /api/v1/events?after=2`. Для получения истории без постоянного соединения используется `/api/v1/events/history`.
-
-Если медленный клиент переполняет индивидуальную очередь, приборный поток не блокируется: для этого клиента отбрасывается самое старое ожидающее событие. После переподключения доступные события запрашиваются через replay.
-
-## Raspberry Pi WebUI
-
-`GET /platform` и `GET /platform.html` открывают панель общего сеанса поверх этого API. Прежний интерфейс панорам остаётся на `/`. Панель выбирает уже созданный сеанс и использует только перечисленные REST/SSE-маршруты; создание сеанса выполняется через `POST /api/v1/sessions`. Внешних клиентских зависимостей нет.
-
-Основной сценарий: запустить сеанс и исполнители, выбрать поток спектрального обзора, зафиксировать фактический пик свипа кандидатом, назначить receiver того же сеанса, поставить исследование в очередь, запустить настройку и завершить его после появления подходящих наблюдений. Доступны также ручное создание и отклонение кандидата, независимые start/stop потоков, fail/cancel исследования и фильтры записей. Браузер не синтезирует свипы, наблюдения или успешные результаты.
-
-Подписка использует named SSE-события и replay по `Last-Event-ID`; измерительные события коалесцируются, резервный polling выполняется каждые 5 секунд. История событий запрашивается от `health.last_event_id − 200` с `limit=200`, чтобы при длинном архиве показывать последние, а не первые записи буфера. Повторный coalesced-refresh планируется через 1000 мс, измерительный — через 1500 мс. Один refresh делает один проход и не зацикливается при непрерывных измерениях.
-
-Визуализация ограничена 40 свипами и не более чем 1000 отображаемыми точками спектра с сохранением первой, последней и пиковой точки. Водопад использует max-агрегацию по пиксельным столбцам. Полные частоты остаются целыми Гц, `dBm` и `s_meter_count` отображаются в исходных единицах. Динамические строки вставляются через текстовые DOM-узлы; mock-данных и автоматического пересчёта единиц нет.
-
-## Независимые исполнители и симуляторы
-
-Исполнители запускаются только для потоков с явным `settings.adapter`:
-
-- `tinysa-sim` — периодические свипы в `dBm`, целые частоты в Гц, генератор всегда `off`;
-- `ardv1-sim` — наблюдения в исходных `s_meter_count`, настройка частоты и режима через индивидуальную очередь команд.
-
-Адаптер не выбирается автоматически по названию прибора или строке порта. Физические порты этот контур не открывает, поэтому `hardware_control` остаётся `false`; дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся только к программному стенду.
-
-Пример настроек двух потоков при создании сеанса:
+Ошибка:
 
 ```json
 {
-  "name": "Непрерывный стенд",
-  "streams": [
-    {
-      "device": "tinySA Ultra",
-      "role": "spectrum_analyzer",
-      "level_unit": "dBm",
-      "port": "sim://tinysa",
-      "settings": {
-        "adapter": "tinysa-sim",
-        "start_hz": 88000000,
-        "stop_hz": 108000000,
-        "points": 201,
-        "rbw_hz": 10000,
-        "period_s": 0.25,
-        "seed": 7
-      }
-    },
-    {
-      "device": "AR-DV1",
-      "role": "receiver",
-      "level_unit": "s_meter_count",
-      "port": "sim://ardv1",
-      "settings": {
-        "adapter": "ardv1-sim",
-        "frequency_hz": 145500000,
-        "mode": "FM",
-        "squelch": 10,
-        "period_s": 0.25,
-        "seed": 17
-      }
-    }
-  ]
+  "error": {
+    "code": "validation_error",
+    "message": "Описание ошибки",
+    "details": null
+  }
 }
 ```
 
-После создания сеанс и его исполнители запускаются раздельно:
+Коды: `400` — неверные данные или переход; `404` — объект не найден; `405` — метод не поддерживается; `500` — внутренняя ошибка без traceback в ответе. Все ошибки API, включая отсутствующий маршрут, возвращаются в JSON.
 
-```bash
-curl -sS -X POST http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/start
-curl -sS -X POST http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/workers/start
-curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/workers
-```
+Получение списка измерений и событий:
 
-Перестройка AR-DV1 выполняется командой только его очереди:
+- `limit` — целое от `1` до `10000`, по умолчанию `1000`;
+- `after` — вернуть записи строго после указанного ID;
+- `after` без `limit` для событий означает исторический replay без бесконечного SSE.
 
-```bash
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/streams/RECEIVER_STREAM_ID/tune \
-  -H 'Content-Type: application/json' \
-  -d '{"frequency_hz": 433075000, "mode": "DMR"}'
-```
+Порядок измерений: `started_at`, затем `id`, до применения `limit`. События имеют монотонный целочисленный `id`.
 
-Остановка одного потока не меняет состояние другого:
+## Возможности и состояние
 
-```bash
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/streams/TINYSA_STREAM_ID/stop
-```
+### `GET /health`
 
-Каждый исполнитель сообщает `state`, `alive`, число измерений и команд, последнюю ошибку и текущие настройки. Временный сбой переводит поток в `degraded`; после успешного измерения он возвращается в `running`. После `max_consecutive_errors` подряд только сбойный исполнитель завершается в `error`. События `device.state`, `device.error` и `device.tuned` доступны через историю и SSE.
-
-При перезапуске сервера сеансы и измерения восстанавливаются из SQLite, но потоки операционной системы автоматически не пересоздаются: состояния приборных потоков сбрасываются в `disconnected`, повторный запуск выполняется явно через API. Остановка сеанса сначала завершает все его исполнители.
-
-Для проверки отказоустойчивости симуляторы принимают `failures_remaining` и `max_consecutive_errors`; эти параметры предназначены только для стенда и тестов.
-
-## Приём измерений
-
-`session_id` можно опустить в теле: сервер подставит его из маршрута. Если поле передано и не совпадает с маршрутом, возвращается HTTP 400. `stream_id` обязан принадлежать этому сеансу, а `level_unit` — точно совпадать с единицей потока. Это исключает незаметное преобразование отсчётов S-метра в дБм и запись одного прибора в поток другого.
-
-Пример свипа tinySA:
-
-```bash
-curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "stream_id": "TINYSA_STREAM_ID",
-    "interval": {
-      "started_at": "2026-11-05T10:00:00Z",
-      "ended_at": "2026-11-05T10:00:01Z"
-    },
-    "frequencies_hz": [100000000, 100100000],
-    "levels": [-80.5, -42.0],
-    "level_unit": "dBm",
-    "settings": {"rbw_hz": 10000}
-  }'
-```
-
-Пример наблюдения AR-DV1:
+Возвращает состояние ядра, UTC-время, размер очереди SSE, число подписчиков и ID последнего события.
 
 ```json
 {
-  "stream_id": "RECEIVER_STREAM_ID",
-  "interval": {
-    "started_at": "2026-11-05T10:00:00Z",
-    "ended_at": "2026-11-05T10:00:01Z"
-  },
-  "frequency_hz": 145500000,
-  "mode": "FM",
-  "level": 37,
+  "data": {
+    "status": "ok",
+    "service": "openradioinspector",
+    "api_version": "v1",
+    "time": "2026-11-04T13:00:00Z",
+    "event_backlog": 0,
+    "event_subscribers": 1,
+    "last_event_id": 12
+  }
+}
+```
+
+### `GET /capabilities`
+
+```json
+{
+  "data": {
+    "api_version": "v1",
+    "schema_version": 2,
+    "clients": ["raspberry-web", "windows", "macos"],
+    "features": {
+      "shared_session_core": true,
+      "persistent_archive": true,
+      "event_replay": true,
+      "concurrent_device_workers": true,
+      "candidate_management": true,
+      "investigation_queue": true,
+      "manual_investigation_handoff": true,
+      "semi_automatic_handoff": true,
+      "automatic_handoff": false,
+      "automatic_candidate_detection": false,
+      "hardware_control": false,
+      "audio_streaming": false,
+      "transmission": false,
+      "original_radioinspector_compatibility": false
+    },
+    "adapters": ["tinysa-sim", "ardv1-sim"]
+  }
+}
+```
+
+`hardware_control=false` означает, что поставляются только программные симуляторы. `semi_automatic_handoff=true` означает только рекомендацию плюс отдельное подтверждение оператора. Автоматического выбора кандидатов и автономного запуска исследований нет.
+
+## Сеансы
+
+### `POST /sessions`
+
+Обязательно только `name`. Необязательные поля: `id`, `description`, `owner`, `metadata`.
+
+```json
+{
+  "name": "Двухприборный обзор",
+  "description": "tinySA и AR-DV1",
+  "metadata": {"site": "lab"}
+}
+```
+
+Создаётся только `draft`; сервер сам назначает `created_at` и `updated_at`. Повторный ID возвращает `400` и не изменяет существующий сеанс. Ответ `201`.
+
+### `GET /sessions`
+
+Возвращает массив всех сеансов.
+
+### `GET /sessions/{session_id}`
+
+Возвращает сеанс. ID в URL декодируется один раз.
+
+### `PATCH /sessions/{session_id}`
+
+Разрешены `name`, `description`, `owner`, `metadata`. Пустой PATCH возвращает `400`. Состояние и служебное время через PATCH не меняются.
+
+### `DELETE /sessions/{session_id}`
+
+Удаляет сеанс, потоки, измерения, кандидаты, исследования и события каскадно. Ответ `204` без тела. Это необратимая операция API, а не очистка рабочего сеанса по таймеру.
+
+### `POST /sessions/{session_id}/start`
+
+Переводит `draft → running`, назначает `started_at`. Повторный запуск недопустим.
+
+### `POST /sessions/{session_id}/stop`
+
+Переводит `running → stopped`, назначает `ended_at`. Останавливает потоки сеанса и отменяет все открытые исследования с событием `investigation.cancelled`. После остановки запись измерений и запуск исследований запрещены.
+
+## Приборные потоки
+
+`DeviceStream` содержит:
+
+| Поле | Описание |
+| --- | --- |
+| `id`, `name` | Уникальный ID и отображаемое имя |
+| `role` | `scanner`, `receiver`, `signal_generator` |
+| `transport` | `simulator`, `serial`, `usb`, `network` |
+| `state` | `disconnected`, `connecting`, `idle`, `running`, `degraded`, `error`, `stopped` |
+| `settings` | Параметры адаптера, только JSON-значения |
+| `frequency_min_hz`, `frequency_max_hz` | Необязательные границы в Гц |
+| `level_unit` | `dBm`, `s_meter_count` или `dBµV` |
+| `capabilities` | Массив строк |
+| `last_seen_at`, `last_error` | Runtime-диагностика |
+
+### `POST /sessions/{session_id}/streams`
+
+```json
+{
+  "id": "tinysa-wide",
+  "name": "tinySA Ultra",
+  "role": "scanner",
+  "transport": "simulator",
+  "settings": {"adapter": "tinysa-sim", "interval_seconds": 1.0},
+  "frequency_min_hz": 100000000,
+  "frequency_max_hz": 900000000,
+  "level_unit": "dBm",
+  "capabilities": ["sweep", "waterfall"]
+}
+```
+
+Для AR-DV1:
+
+```json
+{
+  "id": "ardv1-receiver",
+  "name": "AOR AR-DV1",
+  "role": "receiver",
+  "transport": "simulator",
+  "settings": {"adapter": "ardv1-sim"},
   "level_unit": "s_meter_count",
-  "squelch_open": true,
-  "decoded_mode": "DMR"
+  "capabilities": ["tune", "receive", "s_meter"]
 }
 ```
 
-Успешный приём возвращает HTTP 201 и событие `sweep.received` или `observation.received` в SSE. Выборка возвращает последние `limit` записей по времени начала измерения в хронологическом порядке (при равном времени — по ID), независимо от порядка поступления; допустимы значения от 1 до 1000. SQLite и режим памяти учитывают микросекунды одинаково. Старые архивные строки без дробной части секунды сортируются корректно без переписывания измерений.
+Создание возможно только для `draft`/`running`. Начальное runtime-состояние всегда `disconnected`. ID потока глобально уникален: коллизия с потоком другого сеанса отклоняется без изменения чужого сеанса.
 
-## Кандидаты и ручной handoff
+### `GET /sessions/{session_id}/streams`
 
-Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Это **ручной** handoff: сервер не выделяет кандидатов автоматически и сам не выбирает следующее исследование. Capabilities раздельно сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `automatic_candidate_detection=false`, `semi_automatic_handoff=false` и `automatic_handoff=false`.
+Возвращает потоки только указанного сеанса.
 
-Состояния кандидата:
+### `GET/PATCH/DELETE /sessions/{session_id}/streams/{stream_id}`
+
+PATCH принимает `name`, `settings`, `frequency_min_hz`, `frequency_max_hz`, `capabilities`. PATCH не выбирает адаптер и не запускает поток. DELETE запрещён для активного runtime worker. Нельзя удалить поток, на который ссылаются сохранённые кандидаты или исследования: сначала удалите эти записи или сохраните архив без удаления.
+
+### `POST .../streams/{stream_id}/start`
+
+Создаёт и запускает независимый `DeviceWorker` по явному `settings.adapter`. Для `tinysa-sim` нужны границы частоты; необязательные настройки: `step_hz`, `points`, `rbw_hz`, `interval_seconds`.
+
+Для `ardv1-sim`: `start_frequency_hz`, `mode`, `interval_seconds`. Значения по умолчанию: `145500000`, `NFM`, `1.0`.
+
+Переход в `running` и первая запись измерения происходят асинхронно. HTTP 200 подтверждает принятие команды, а не аппаратное измерение.
+
+### `POST .../streams/{stream_id}/stop`
+
+Останавливает только выбранный worker. Другие потоки продолжают работу.
+
+### `POST .../streams/{stream_id}/tune`
+
+Только для `role=receiver`. Пример:
+
+```json
+{"frequency_hz": 145500000, "mode": "NFM", "label": "Контрольная частота"}
+```
+
+Команда попадает в очередь конкретного worker. Настройка выполняется вне глобальной блокировки ядра, поэтому sweep другого прибора продолжает записываться. Неизвестный режим отклоняется симулятором.
+
+## Измерения
+
+### `GET /sessions/{session_id}/sweeps?limit=1000&after=sweep-id`
+
+Каждый `Sweep` содержит `id`, `session_id`, `stream_id`, `started_at`, `ended_at`, `frequencies_hz`, `levels_dbm`, `rbw_hz`, `reference_level_dbm`, `metadata`. Единица потока должна быть `dBm`.
+
+### `GET /sessions/{session_id}/observations?limit=1000&after=observation-id`
+
+`ReceiverObservation` содержит `frequency_hz`, положительный `s_meter_count`, `mode`, `demodulator`, `signal_present`, `audio_available`, `rssi_dbm`, `metadata` и общие поля измерения. Единица потока — `s_meter_count`.
+
+`rssi_dbm`, если он появится, является отдельным необязательным измерением. Автоматического преобразования между ним и `s_meter_count` нет.
+
+## Кандидаты и подтверждаемый handoff
+
+Кандидат создаёт оператор или будущий отдельный анализатор. Текущее ядро не обнаруживает сигналы автоматически.
+
+Состояния кандидата: `new`, `queued`, `investigating`, `resolved`, `dismissed`.
+
+Состояния исследования: `queued`, `tuning`, `listening`, `decoding`, `completed`, `failed`, `cancelled`. Публичного перехода в `decoding` пока нет; это зарезервированное состояние контракта.
+
+### `POST /sessions/{session_id}/candidates`
+
+```json
+{
+  "id": "candidate-145500000",
+  "source_stream_id": "tinysa-wide",
+  "frequency_hz": 145500000,
+  "peak_dbm": -72.5,
+  "priority": 100,
+  "note": "Ручной маркер"
+}
+```
+
+`source_stream_id` обязан принадлежать сеансу. `peak_dbm` допускается только для потока `dBm`; `priority` — от `0` до `1000`. Необязательные `bandwidth_hz` и `note`. Кандидат создаётся в `new`, повторный ID отклоняется.
+
+### `GET /sessions/{session_id}/candidates`
+
+Сортировка: убывание `priority`, затем `created_at`, затем `id`.
+
+### `PATCH /sessions/{session_id}/candidates/{candidate_id}`
+
+Разрешены `priority`, `note`, `state`. Служебные переходы `investigating` и `queued` нельзя установить вручную через PATCH; их назначает lifecycle исследования. `resolved` и `dismissed` можно установить только для кандидата без открытого исследования.
+
+### `DELETE /sessions/{session_id}/candidates/{candidate_id}`
+
+Нельзя удалить кандидата с открытым исследованием. Завершённые исследования также ссылаются на кандидата в SQLite, поэтому для сохранения архивной целостности запись обычно следует пометить `resolved`/`dismissed`, а не удалять.
+
+### `POST /sessions/{session_id}/candidates/{candidate_id}/investigations`
+
+```json
+{
+  "id": "investigation-001",
+  "target_stream_id": "ardv1-receiver",
+  "target_frequency_hz": 145500000,
+  "mode": "NFM",
+  "priority": 100
+}
+```
+
+Создаётся в `queued`, кандидат атомарно получает `queued`. Цель должна быть receiver того же сеанса. Если частота не указана, используется частота кандидата; если задана явно, она не обязана совпадать с исходным маркером. Для одного кандидата допускается только одно открытое исследование. `mode` необязателен: без него receiver сохраняет текущий режим.
+
+### `GET /sessions/{session_id}/investigations`
+
+Сортировка: убывание `priority`, затем `created_at`, затем `id`.
+
+### `GET /sessions/{session_id}/investigations/{investigation_id}`
+
+Возвращает одно исследование со всеми временными метками, результатом и ошибкой.
+
+### `GET /sessions/{session_id}/investigations/next`
+
+Возвращает рекомендованное `queued` исследование по общему порядку очереди. Предпросмотр не меняет кандидата, исследование, события или receiver. Если очередь пуста, возвращается HTTP 200 с `{"data": null}`.
+
+### `POST /sessions/{session_id}/investigations/start-next`
+
+Отдельное подтверждение рекомендации:
+
+```json
+{
+  "investigation_id": "investigation-001",
+  "confirm": true
+}
+```
+
+`confirm` обязан быть JSON boolean `true`; `false`, `1` и строка не принимаются. Ядро атомарно проверяет, что подтверждаемый ID всё ещё является следующим по приоритету. При устаревшем ID, пустой очереди или другом активном исследовании на том же receiver возвращается `400`, а tune не выполняется. При успехе lifecycle совпадает с ручным `start`.
+
+### Полуавтоматический запуск следующего
+
+```bash
+curl http://127.0.0.1:8080/api/v1/sessions/SESSION/investigations/next
+
+curl -X POST http://127.0.0.1:8080/api/v1/sessions/SESSION/investigations/start-next \
+  -H 'Content-Type: application/json' \
+  -d '{"investigation_id":"investigation-001","confirm":true}'
+```
+
+Первый запрос только показывает рекомендацию. Второй повторно проверяет актуальность ID и занятость receiver, после чего использует общий lifecycle `tuning → listening`.
+
+### `POST /sessions/{session_id}/investigations/{investigation_id}/start`
+
+Допускается только для `queued` в запущенном сеансе. Выбранный receiver не должен одновременно выполнять другое исследование в `tuning`, `listening` или `decoding`; независимые receiver и scanner при этом не блокируются. Состояние `tuning`, `started_at` и кандидат `investigating` сохраняются до команды. Затем вызывается `tune` целевого worker вне общей блокировки.
+
+При успехе состояние меняется на `listening`. При ошибке — на `failed`, кандидат возвращается в `queued`, ошибка доступна в `error` и событии `investigation.failed`. Ответом является объект со состоянием `failed`, а не потерянный HTTP-результат.
+
+Если оператор отменил исследование во время настройки, поздний успешный `tune` не перезаписывает `cancelled`. Прежняя частота receiver автоматически не восстанавливается.
+
+### `POST .../investigations/{investigation_id}/complete`
+
+Допускается из `listening` или `decoding`. Обязателен `result_observation_id`:
+
+```json
+{"result_observation_id": "observation-001", "note": "Сигнал подтверждён"}
+```
+
+Наблюдение должно принадлежать тому же сеансу и receiver, а его частота — целевой частоте исследования. Если задан `mode`, он также должен совпасть. Иначе возвращается `400`. При успехе исследование получает `completed`, кандидат — `resolved`.
+
+### `POST .../investigations/{investigation_id}/fail`
+
+```json
+{"reason": "Нет устойчивого сигнала"}
+```
+
+Допускается из `tuning`, `listening`, `decoding`. Исследование получает `failed`, кандидат возвращается в `queued`.
+
+### `POST .../investigations/{investigation_id}/cancel`
+
+Допускается для любого открытого состояния. Исследование получает `cancelled`, кандидат — `queued`.
+
+После перезапуска процесса `tuning`, `listening`, `decoding` автоматически переводятся в `failed` с `investigation.interrupted`; ожидающие исследования остаются `queued`. Старые runtime workers не воскрешаются.
+
+## События и SSE
+
+### `GET /sessions/{session_id}/events?after=0&limit=1000`
+
+Возвращает исторические события сеанса из SQLite. `after=0` означает начало архива.
+
+### `GET /api/v1/events?after=0&limit=1000`
+
+Без `after` открывает долгоживущий SSE и отправляет новые события.
+
+С `after` сначала выполняется replay сохранённых событий, затем соединение остаётся live-подпиской. Для конечного HTTP-чтения истории используйте session events без `text/event-stream` либо общий endpoint с `after`, `limit` и обычным `Accept`.
+
+Каждый SSE-кадр:
 
 ```text
-new → queued → investigating → resolved
-  │       │            │
-  │       │            ├─ после failed/cancelled → queued
-  │       └────────────┘
-  └──────────────→ dismissed
+id: 12
+event: session.started
+data: {"id":12,"session_id":"...","sequence":12,"type":"session.started","time":"2026-11-04T13:00:00Z","payload":{}}
+
 ```
 
-`dismiss` допускается для `new` или для `queued` без открытого исследования. Состояния `resolved` и `investigating` нельзя перевести в `dismissed`.
+Раз в 15 секунд отправляется SSE-комментарий `: keepalive`. Медленные клиенты могут пропускать live-события при переполнении ограниченной очереди; пропуски восстанавливаются по `Last-Event-ID`/`after` из SQLite. Replay и уведомления подписчиков происходят только после успешного commit.
 
-Создание кандидата:
+Типы событий: `session.created`, `session.updated`, `session.started`, `session.stopped`, `stream.added`, `stream.updated`, `stream.state_changed`, `sweep.recorded`, `observation.recorded`, `candidate.created`, `candidate.updated`, `investigation.queued`, `investigation.tuning`, `investigation.listening`, `investigation.completed`, `investigation.failed`, `investigation.cancelled`, `investigation.interrupted`.
 
-```bash
-curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/candidates \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "source_stream_id": "TINYSA_STREAM_ID",
-    "interval": {
-      "started_at": "2026-11-05T10:00:00Z",
-      "ended_at": "2026-11-05T10:00:01Z"
-    },
-    "center_frequency_hz": 102500000,
-    "bandwidth_hz": 200000,
-    "peak_level": -42.5,
-    "level_unit": "dBm",
-    "score": 0.9
-  }'
-```
+## Архив и восстановление
 
-`source_stream_id` обязан принадлежать сеансу, а `level_unit` — точно совпадать с потоком. Уровень кандидата сохраняется в исходных `dBm` или `s_meter_count`; преобразование между ними не выполняется. Новый кандидат всегда имеет `state=new`.
+SQLite включает `foreign_keys=ON`, `journal_mode=WAL`, `busy_timeout=5000`, `synchronous=NORMAL`. Таблицы: `metadata`, `sessions`, `device_streams`, `sweeps`, `receiver_observations`, `candidates`, `investigations`, `session_events`.
 
-Постановка в очередь:
-
-```bash
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/candidates/CANDIDATE_ID/investigations \
-  -H 'Content-Type: application/json' \
-  -d '{"target_stream_id":"RECEIVER_STREAM_ID","mode":"DMR","priority":5}'
-```
-
-Целью может быть только `receiver` того же сеанса. `target_frequency_hz` по умолчанию равен `candidate.center_frequency_hz`; `priority` — неотрицательное целое, по умолчанию `0`. В списке ожидающие исследования сортируются по убыванию приоритета, затем по `created_at` и ID. Для одного кандидата допускается только одно открытое исследование (`queued`, `tuning`, `listening` или `decoding`). После сбоя или отмены кандидат возвращается в `queued` и может быть поставлен повторно новым ID исследования.
-
-Запуск и завершение:
-
-```bash
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/start
-
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/complete
-
-curl -sS -X POST \
-  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/investigations/INVESTIGATION_ID/fail \
-  -H 'Content-Type: application/json' \
-  -d '{"error":"оператор зафиксировал сбой"}'
-```
-
-Основной путь исследования:
-
-```text
-queued → tuning → listening → completed
-           │          │
-           └──────────┴→ failed
-queued / tuning / listening → cancelled
-```
-
-Перед командой служба сохраняет `tuning`, затем освобождает общий lock и вызывает только очередь целевого receiver. Поэтому свипы tinySA и операции других потоков продолжаются во время перестройки. При успехе исследование становится `listening`, кандидат — `investigating`. Если команда завершилась ошибкой, ответ содержит исследование в `failed` с текстом `error`, а кандидат снова доступен для постановки. Отмена во время команды не перезаписывается последующим `listening`; уже выполненная перестройка прибора не откатывается. Автоматического восстановления прежней частоты нет.
-
-`complete` принимает только `listening`/`decoding` и связывает все наблюдения целевого потока, у которых `frequency_hz=target_frequency_hz`, а `started_at` не раньше начала исследования. Если таких наблюдений нет, возвращается HTTP 400, состояние остаётся `listening` и ложный результат не создаётся. При успехе ID наблюдений попадают в `result_observation_ids`, исследование — в `completed`, кандидат — в `resolved`. Состояние `decoding` зарезервировано контрактом; отдельный HTTP-переход в него в этом срезе не добавлен.
-
-События `candidate.created`, `candidate.dismissed`, `investigation.queued`, `investigation.tuning`, `investigation.listening`, `investigation.completed`, `investigation.failed`, `investigation.cancelled` и `investigation.interrupted` доступны через history/SSE. В SQLite изменение кандидата, исследования и соответствующего события выполняется одной транзакцией; подписчики уведомляются только после commit.
-
-После перезапуска ожидающие `queued` сохраняются. Активные `tuning`/`listening`/`decoding` переводятся в `failed` с ошибкой прерывания и событием `investigation.interrupted`, поскольку поток команды не переживает процесс; кандидат возвращается в `queued`. Приборные workers при этом не перезапускаются автоматически.
-
-ID кандидата и исследования в URL кодируются как один сегмент и декодируются ровно один раз, как ID сеанса. Неизвестные объекты возвращают HTTP 404 с кодами `candidate_not_found` и `investigation_not_found`.
-
-`hardware_control` остаётся `false`: ручной handoff и модели архива проверены на симуляторах, но не означают подключение или аппаратную проверку физических tinySA Ultra/AR-DV1.
+Состояние сеанса, потока, кандидата, исследования, измерение и соответствующее событие сохраняются в одной транзакции. После открытия существующей базы схема проверяется и при необходимости мигрируется с версии 1 до 2; восстанавливаются сеансы, измерения, кандидаты, исследования и события. Старые активные investigations получают `failed`, а их кандидаты — `queued`. Runtime-состояния потоков сбрасываются в `disconnected`; worker threads и последовательные порты автоматически не открываются.
