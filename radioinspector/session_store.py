@@ -132,6 +132,12 @@ class SQLiteSessionStore:
             );
             CREATE INDEX IF NOT EXISTS observations_stream_time
                 ON observations(stream_id, started_at, id);
+            CREATE INDEX IF NOT EXISTS observations_target_time ON observations (
+                session_id, stream_id, frequency_hz,
+                (CASE WHEN instr(started_at, '.') = 0
+                    THEN replace(started_at, 'Z', '.000000Z')
+                    ELSE started_at END)
+            );
             CREATE TABLE IF NOT EXISTS events (
                 sequence INTEGER PRIMARY KEY,
                 event_type TEXT NOT NULL,
@@ -518,8 +524,13 @@ class SQLiteSessionStore:
                 """
                 SELECT id, started_at FROM observations
                 WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
+                  AND (
+                    CASE WHEN instr(started_at, '.') = 0
+                        THEN replace(started_at, 'Z', '.000000Z')
+                        ELSE started_at END
+                  ) >= ?
                 """,
-                (session_id, stream_id, frequency_hz),
+                (session_id, stream_id, frequency_hz, _archive_time(started_at)),
             ).fetchall()
         selected = [row for row in rows if parse_time(row["started_at"]) >= started_at]
         selected.sort(key=lambda row: (parse_time(row["started_at"]), row["id"]))
