@@ -123,6 +123,30 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('payload.stream_id = dom.detectionStream.value || null', javascript)
         self.assertIn('payload.threshold_dbm = requiredNumber', javascript)
 
+    def test_automatic_completion_form_is_opt_in_and_isolated(self) -> None:
+        html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
+        javascript = (STATIC_DIR / "completion.js").read_text(encoding="utf-8")
+        self.assertIn('src="/static/completion.js"', html)
+        for element_id in (
+            "completion-form", "completion-status", "completion-interval",
+            "completion-listening", "completion-observations", "completion-receiver",
+            "completion-save", "completion-enable", "completion-disable",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+            self.assertIn(f'byId("{element_id}")', javascript)
+        self.assertIn('/automatic-completion', javascript)
+        self.assertIn('configureAutomaticCompletion(enabled, saveOnly = false)', javascript)
+        self.assertIn('if (!saveOnly) payload.enabled = enabled', javascript)
+        self.assertIn('configureAutomaticCompletion(enabled, true)', javascript)
+        self.assertIn('configureAutomaticCompletion(false)', javascript)
+        self.assertIn('state.automaticCompletion = status', javascript)
+        self.assertIn('state.automaticCompletion = null', javascript)
+        self.assertIn('state.completionFormDirty = false', javascript)
+        self.assertIn('Live-измерения и другие политики продолжаются', javascript)
+        self.assertIn('automatic_completion.completed', javascript)
+        self.assertNotIn("innerHTML", javascript)
+        self.assertNotIn("outerHTML", javascript)
+
 
 if __name__ == "__main__":
     unittest.main()
