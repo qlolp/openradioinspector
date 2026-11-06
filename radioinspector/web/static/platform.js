@@ -64,12 +64,14 @@
     handoffCancel: byId("handoff-cancel"), investigationList: byId("investigation-list"),
     sseStatus: byId("sse-status"), health: byId("health-summary"),
     hardware: byId("hardware-capability"), storage: byId("storage-capability"),
+    analyticsSweeps: byId("analytics-sweeps"), analyticsObservations: byId("analytics-observations"),
+    analyticsSquelch: byId("analytics-squelch"), analyticsLatest: byId("analytics-latest"),
   };
 
   const state = {
     sessions: [], sessionId: null, session: null, workers: [],
     candidates: [], investigations: [], nextInvestigation: null, automaticHandoff: null,
-    automaticDetection: null,
+    automaticDetection: null, analytics: null,
     events: [], sweeps: [], spectrumStreamId: null, capabilities: null, health: null,
     automaticFormDirty: false, detectionFormDirty: false,
     refreshRunning: false, refreshQueued: false, actionPending: false,
@@ -230,6 +232,36 @@
       const persistent = state.capabilities.persistent_archive;
       dom.storage.textContent = `Архив сеансов: ${state.capabilities.session_storage}; восстановление=${String(persistent)}. Автоматический handoff=${String(features.automatic_handoff)}; обнаружение=${String(features.automatic_candidate_detection)}.`;
     }
+  }
+
+  function renderAnalytics() {
+    const summary = state.analytics;
+    if (!summary) {
+      dom.analyticsSweeps.textContent = "—";
+      dom.analyticsObservations.textContent = "—";
+      dom.analyticsSquelch.textContent = "—";
+      dom.analyticsLatest.textContent = "Сводка появится после выбора сеанса.";
+      return;
+    }
+    if (summary.error) {
+      dom.analyticsSweeps.textContent = "—";
+      dom.analyticsObservations.textContent = "—";
+      dom.analyticsSquelch.textContent = "—";
+      dom.analyticsLatest.textContent = `Сводка недоступна: ${summary.error}. Live-измерения продолжаются.`;
+      return;
+    }
+    const sweeps = summary.sweeps || {};
+    const observations = summary.observations || {};
+    dom.analyticsSweeps.textContent = `${integerFormatter.format(sweeps.count || 0)} · ${(sweeps.level_units || []).join(", ") || "нет данных"}`;
+    dom.analyticsObservations.textContent = `${integerFormatter.format(observations.count || 0)} · ${(observations.level_units || []).join(", ") || "нет данных"}`;
+    const ratio = observations.squelch_open_ratio;
+    dom.analyticsSquelch.textContent = ratio === null || ratio === undefined
+      ? `нет данных · известно ${observations.squelch_known || 0}`
+      : `${levelFormatter.format(ratio * 100)}% · ${observations.squelch_open || 0} из ${observations.squelch_known || 0}`;
+    const peak = sweeps.latest_peak;
+    dom.analyticsLatest.textContent = peak
+      ? `Пик последнего sweep: ${formatHz(peak.frequency_hz)} · ${levelFormatter.format(peak.level)} ${peak.level_unit} · ${peak.sweep_id}`
+      : "Архив выбранного сеанса пока не содержит спектральных свипов.";
   }
 
   function renderSession() {
@@ -511,6 +543,7 @@
 
   function renderAll() {
     renderHealth();
+    renderAnalytics();
     renderSession();
     renderDevices();
     renderSpectrumSelector();
@@ -747,6 +780,7 @@
       state.nextInvestigation = null;
       state.automaticHandoff = null;
       state.automaticDetection = null;
+      state.analytics = null;
       state.automaticFormDirty = false;
       state.detectionFormDirty = false;
       state.events = [];
@@ -764,6 +798,7 @@
       state.nextInvestigation = null;
       state.automaticHandoff = null;
       state.automaticDetection = null;
+      state.analytics = null;
       state.automaticFormDirty = false;
       state.detectionFormDirty = false;
       return;
@@ -785,10 +820,11 @@
       api(`/sessions/${encode(sessionId)}/investigations/next`),
       api(`/sessions/${encode(sessionId)}/automatic-handoff`),
       api(`/sessions/${encode(sessionId)}/automatic-detection`),
+      api(`/sessions/${encode(sessionId)}/analytics/summary`).catch((error) => ({ error: error.message })),
       api(`/events/history?after=${Math.max(0, health.last_event_id - 200)}&limit=200`),
       measurementsPath ? api(`/sessions/${encode(sessionId)}${measurementsPath}`) : Promise.resolve([]),
     ];
-    const [workers, candidates, investigations, nextInvestigation, automaticHandoff, automaticDetection, events, sweeps] = await Promise.all(requests);
+    const [workers, candidates, investigations, nextInvestigation, automaticHandoff, automaticDetection, analytics, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
       return;
@@ -799,6 +835,7 @@
     state.nextInvestigation = nextInvestigation;
     state.automaticHandoff = automaticHandoff;
     state.automaticDetection = automaticDetection;
+    state.analytics = analytics;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
   }
