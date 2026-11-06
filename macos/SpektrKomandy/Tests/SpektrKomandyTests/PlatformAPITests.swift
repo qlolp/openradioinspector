@@ -73,6 +73,8 @@ final class PlatformAPITests: XCTestCase {
         )
         XCTAssertThrowsError(try PlatformBaseURL("127.0.0.1:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://example.test"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://127.attacker.example:8770"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://127.0.0.1.attacker.example:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://user:secret@example.test"))
         XCTAssertThrowsError(try PlatformBaseURL("https://example.test/?token=x"))
         XCTAssertEqual(
@@ -223,6 +225,28 @@ final class PlatformAPITests: XCTestCase {
         }
         await XCTAssertThrowsPlatformError(
             try await malformed.listSweeps(sessionID: "s", streamID: "tiny")
+        )
+    }
+
+    func testResponseTooLargeIsRejectedDuringBodyRead() async throws {
+        let client = try client { _ in
+            let response = self.response(
+                URL(string: "https://example.test/api/v1/sessions")!
+            )
+            return (response, Data(repeating: 65, count: 2_000_001))
+        }
+        await XCTAssertThrowsPlatformError(try await client.listSessions())
+    }
+
+    func testRejectsFrequencyOverflowBeforeArithmetic() async throws {
+        let client = try client { request in
+            let body = """
+            [{"id":"sw","session_id":"s","stream_id":"tiny","interval":{"started_at":"a","ended_at":"b"},"frequencies_hz":[-9223372036854775808,1],"levels":[-60,-60],"level_unit":"dBm"}]
+            """
+            return (self.response(request.url!), self.envelope(body))
+        }
+        await XCTAssertThrowsPlatformError(
+            try await client.listSweeps(sessionID: "s", streamID: "tiny")
         )
     }
 
