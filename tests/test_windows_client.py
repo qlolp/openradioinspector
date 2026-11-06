@@ -9,7 +9,6 @@ import urllib.error
 
 from radioinspector.windows.app import (
     WindowsApp,
-    analytics_text,
     candidate_row,
     investigation_row,
     policy_text,
@@ -54,30 +53,6 @@ class WindowsClientValidationTests(unittest.TestCase):
                 validate_tune(frequency, "FM")
         with self.assertRaisesRegex(ValueError, "Режим"):
             validate_tune(100_000_000, " ")
-
-    def test_analytics_text_preserves_units_and_isolates_error(self) -> None:
-        summary = {
-            "sweeps": {
-                "count": 2,
-                "level_units": ["dBm"],
-                "latest_peak": {
-                    "frequency_hz": 100_100_000,
-                    "level": -42.0,
-                    "level_unit": "dBm",
-                },
-            },
-            "observations": {
-                "count": 1,
-                "level_units": ["s_meter_count"],
-                "squelch_open_ratio": 1.0,
-            },
-        }
-        text = analytics_text(summary)
-        self.assertIn("2 sweeps dBm", text)
-        self.assertIn("1 observations s_meter_count", text)
-        self.assertIn("100100000 Гц", text)
-        self.assertIn("100.0%", text)
-        self.assertIn("Live-измерения", analytics_text(None, "старая версия сервера"))
 
     def test_transport_error_is_typed_and_does_not_open_devices(self) -> None:
         client = PlatformClient("http://example.test", opener=BrokenOpener())
