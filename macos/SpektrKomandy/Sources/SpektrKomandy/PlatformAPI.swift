@@ -94,7 +94,7 @@ private func platformSameOrigin(_ first: URL, _ second: URL) -> Bool {
         && first.port == second.port
 }
 
-final class PlatformRedirectGuard: NSObject, URLSessionDelegate {
+class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -463,7 +463,7 @@ public final class PlatformClient {
         async let workersRequest: [PlatformWorker] = get(
             "/sessions/\(Self.segment(sessionID))/workers"
         )
-        async let sweepsRequest: [PlatformSweep] = measurements(
+        async let sweepsRequest: [PlatformSweep] = measurementsWithResponseFallback(
             kind: "sweeps", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isDbmAnalyzer })?.id
         )
@@ -535,13 +535,29 @@ public final class PlatformClient {
         )
     }
 
-    private func measurements<Value: Decodable>(
+    private func measurementsWithResponseFallback<Value: Decodable>(
         kind: String, sessionID: String, streamID: String?
+    ) async throws -> [Value] {
+        var limit = 40
+        while true {
+            do {
+                return try await measurements(
+                    kind: kind, sessionID: sessionID, streamID: streamID, limit: limit
+                )
+            } catch PlatformError.responseTooLarge {
+                guard limit > 1 else { throw PlatformError.responseTooLarge }
+                limit = max(1, limit / 2)
+            }
+        }
+    }
+
+    private func measurements<Value: Decodable>(
+        kind: String, sessionID: String, streamID: String?, limit: Int = 40
     ) async throws -> [Value] {
         guard let streamID else { return [] }
         return try await get(
             "/sessions/\(Self.segment(sessionID))/\(kind)",
-            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: "40")]
+            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: String(limit))]
         )
     }
 
@@ -574,6 +590,8 @@ public final class PlatformClient {
         let response: URLResponse
         do {
             (data, response) = try await session.data(for: request)
+        } catch let error as PlatformError {
+            throw error
         } catch {
             throw PlatformError.connection(error.localizedDescription)
         }
