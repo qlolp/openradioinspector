@@ -460,46 +460,31 @@ class WindowsApp:
                 ),
                 streams[0],
             )
-            self.streams_tree.selection_set(str(preferred.get("id")))
-        # Восстановление выделения не является новым пользовательским выбором.
-        self._last_selected_stream_id = self.selected_stream_id()
-        self._fill(self.candidates_tree, snapshot.candidates, candidate_row)
-        self._fill(self.investigations_tree, snapshot.investigations, investigation_row)
+            self.streams_tree.selection_set(str(preferred.get("id"))
+        self.candidates_tree.delete(*self.candidates_tree.get_children())
+        for candidate in snapshot.candidates:
+            self.candidates_tree.insert("", "end", iid=str(candidate.get("id")), values=candidate_row(candidate))
+        self.investigations_tree.delete(*self.investigations_tree.get_children())
+        for investigation in snapshot.investigations:
+            self.investigations_tree.insert("", "end", iid=str(investigation.get("id")), values=investigation_row(investigation))
         next_investigation = snapshot.next_investigation
-        self.next_investigation_var.set(
-            "Следующее: очередь пуста"
-            if next_investigation is None
-            else "Следующее: {id} · приоритет {priority} · {frequency} Гц · receiver {receiver}".format(
-                id=next_investigation.get("id"),
-                priority=next_investigation.get("priority", 0),
-                frequency=next_investigation.get("target_frequency_hz"),
-                receiver=next_investigation.get("target_stream_id"),
+        if next_investigation:
+            self.next_investigation_var.set(
+                f"Следующее: {next_investigation.get('id')} · приоритет {next_investigation.get('priority')} · "
+                f"{next_investigation.get('target_frequency_hz')} Гц · {next_investigation.get('mode') or '—'}"
             )
-        )
-        self.detection_var.set(f"Обнаружение: {policy_text(snapshot.automatic_detection)}")
-        self.handoff_var.set(f"Handoff: {policy_text(snapshot.automatic_handoff)}")
-        spectrum_stream_id = self._spectrum_stream_id()
-        needs_spectrum_refresh = (
-            snapshot.session is not None
-            and spectrum_stream_id != snapshot.spectrum_stream_id
-        )
-        self._render_spectrum()
+        else:
+            self.next_investigation_var.set("Следующее: очередь пуста")
+        self.detection_var.set(policy_text(snapshot.automatic_detection))
+        self.handoff_var.set(policy_text(snapshot.automatic_handoff))
         self._render_controls()
-        if needs_details or needs_spectrum_refresh:
+        self._render_spectrum()
+        if needs_details:
             self.refresh()
-
-    def _clear_spectrum(self, message: str) -> None:
-        self._spectrum_draw_key = None
-        self._waterfall_draw_key = None
-        self.spectrum_canvas.delete("all")
-        self.waterfall_canvas.delete("all")
-        self._waterfall_photo = None
-        self.spectrum_info_var.set(message)
-        self.waterfall_info_var.set("Водопад: ожидание данных")
 
     def _render_spectrum(self) -> None:
         stream = self._selected_stream()
-        if self._spectrum_stream_id() is None:
+        if not stream or stream.get("role") != "spectrum_analyzer" or stream.get("level_unit") != "dBm":
             self._clear_spectrum(
                 "Выберите поток spectrum_analyzer с исходными dBm на вкладке «Потоки». "
                 "Отсчёты s_meter_count в dBm не преобразуются."
@@ -776,24 +761,32 @@ class WindowsApp:
         )
         for row, (name, label) in enumerate(labels):
             self._form_entry(frame, row, label, variables[name])
-        simulated_var = self.tk.BooleanVar(value=True)
-        self.ttk.Checkbutton(
+        adapter_var = self.tk.StringVar(value="simulators")
+        self.ttk.Label(frame, text="Тип workers").grid(row=7, column=0, sticky="w", pady=4)
+        self.ttk.Combobox(
             frame,
-            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
-            variable=simulated_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+            textvariable=adapter_var,
+            values=("draft", "simulators", "serial"),
+            state="readonly",
+        ).grid(row=7, column=1, sticky="ew", pady=4)
+        self.ttk.Label(
+            frame,
+            text="draft — только профили; simulators — программный стенд; serial — явные serial-адаптеры, стенд не проверен.",
+            wraplength=520,
+        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
         self.ttk.Label(
             frame,
             text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
             wraplength=520,
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=4)
         client = self.client
 
         def submit() -> None:
             try:
                 payload = session_payload(
                     **{name: variable.get() for name, variable in variables.items()},
-                    simulated=bool(simulated_var.get()),
+                    simulated=adapter_var.get() == "simulators",
+                    serial=adapter_var.get() == "serial",
                 )
             except (TypeError, ValueError) as exc:
                 error_var.set(str(exc))
@@ -805,9 +798,9 @@ class WindowsApp:
                 on_success=self._use_created_session,
             )
 
-        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self._form_buttons(window, frame, 10, "Создать сеанс", submit)
         self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
-            row=10, column=0, columnspan=2, sticky="ew", pady=4
+            row=11, column=0, columnspan=2, sticky="ew", pady=4
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:
