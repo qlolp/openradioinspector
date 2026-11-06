@@ -132,6 +132,12 @@ class SQLiteSessionStore:
             );
             CREATE INDEX IF NOT EXISTS observations_stream_time
                 ON observations(stream_id, started_at, id);
+            CREATE INDEX IF NOT EXISTS observations_target_time ON observations (
+                session_id, stream_id, frequency_hz,
+                (CASE WHEN instr(started_at, '.') = 0
+                    THEN replace(started_at, 'Z', '.000000Z')
+                    ELSE started_at END)
+            );
             CREATE TABLE IF NOT EXISTS events (
                 sequence INTEGER PRIMARY KEY,
                 event_type TEXT NOT NULL,
