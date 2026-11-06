@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -35,6 +37,7 @@ class StreamScan:
 @dataclass(frozen=True)
 class Checkpoint:
     session_id: str
+    destination: str
     sha256: str
     next_line: int
     sweeps: int
@@ -155,11 +158,13 @@ def _load_checkpoint(path: Path) -> Checkpoint:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ArchiveIngestError(f"Некорректный checkpoint: {exc}", code="invalid_checkpoint") from exc
-    required = {"session_id", "sha256", "next_line", "sweeps", "observations", "batches", "complete"}
+    required = {"session_id", "destination", "sha256", "next_line", "sweeps", "observations", "batches", "complete"}
     if not isinstance(payload, dict) or set(payload) != required:
         raise ArchiveIngestError("Checkpoint имеет неверную структуру", code="invalid_checkpoint")
     if not isinstance(payload["session_id"], str) or not payload["session_id"]:
         raise ArchiveIngestError("Checkpoint session_id некорректен", code="invalid_checkpoint")
+    if not isinstance(payload["destination"], str) or not payload["destination"]:
+        raise ArchiveIngestError("Checkpoint destination некорректен", code="invalid_checkpoint")
     sha256 = payload["sha256"]
     if not isinstance(sha256, str) or len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
         raise ArchiveIngestError("Checkpoint SHA-256 некорректен", code="invalid_checkpoint")
@@ -189,7 +194,7 @@ def _check_response(response: Any, kind: str, items: list[dict[str, Any]]) -> No
         raise ArchiveIngestError(f"Сервер вернул другие ID в {kind}", code="invalid_batch_response")
 
 
-def import_stream(
+def _import_stream_snapshot(
     client: ArchiveIngestClient,
     path: str | Path,
     session_id: str,
@@ -203,6 +208,9 @@ def import_stream(
     checkpoint_file = Path(checkpoint_path) if checkpoint_path else None
     if resume and checkpoint_file is None:
         raise ArchiveIngestError("--resume требует --checkpoint", code="checkpoint_required")
+    if resume and not checkpoint_file.exists():
+        raise ArchiveIngestError("Checkpoint не существует", code="checkpoint_not_found")
+    destination = client.base_url
     capabilities = client.capabilities()
     effective_batch_size = _server_batch_size(capabilities, batch_size)
     session = client.get_session(session_id)
@@ -214,6 +222,8 @@ def import_stream(
             raise ArchiveIngestError("Checkpoint существует; для продолжения укажите --resume", code="resume_required")
         checkpoint = _load_checkpoint(checkpoint_file)
     if checkpoint is not None:
+        if checkpoint.destination != destination:
+            raise ArchiveIngestError("Checkpoint относится к другому узлу", code="destination_mismatch")
         if checkpoint.session_id != session_id or checkpoint.sha256 != scan.sha256:
             raise ArchiveIngestError("Checkpoint относится к другому файлу или сеансу", code="checkpoint_mismatch")
 
@@ -224,6 +234,7 @@ def import_stream(
     if checkpoint is not None and checkpoint.complete:
         return {
             "session_id": session_id,
+            "destination": destination,
             "sweeps": 0,
             "observations": 0,
             "total_sweeps": total_sweeps,
@@ -266,7 +277,7 @@ def import_stream(
         if checkpoint_file is not None and not dry_run:
             _write_checkpoint(
                 checkpoint_file,
-                Checkpoint(session_id, scan.sha256, next_line, total_sweeps, total_observations, batches, False),
+                Checkpoint(session_id, destination, scan.sha256, next_line, total_sweeps, total_observations, batches, False),
             )
         chunk = []
 
@@ -285,10 +296,11 @@ def import_stream(
     if checkpoint_file is not None and not dry_run:
         _write_checkpoint(
             checkpoint_file,
-            Checkpoint(session_id, scan.sha256, next_line, total_sweeps, total_observations, batches, complete),
+            Checkpoint(session_id, destination, scan.sha256, next_line, total_sweeps, total_observations, batches, complete),
         )
     return {
         "session_id": session_id,
+        "destination": destination,
         "sweeps": imported["sweep"],
         "observations": imported["observation"],
         "total_sweeps": total_sweeps,
@@ -303,6 +315,37 @@ def import_stream(
         "whole_file_atomic": False,
         "sha256": scan.sha256,
     }
+
+
+def import_stream(
+    client: ArchiveIngestClient,
+    path: str | Path,
+    session_id: str,
+    *,
+    batch_size: Optional[int] = None,
+    checkpoint_path: Optional[str | Path] = None,
+    resume: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Снимает входной snapshot и выполняет по нему два аналитических прохода."""
+    if resume and checkpoint_path is None:
+        raise ArchiveIngestError("--resume требует --checkpoint", code="checkpoint_required")
+    if resume and not Path(checkpoint_path).exists():
+        raise ArchiveIngestError("Checkpoint не существует", code="checkpoint_not_found")
+    source = Path(path)
+    with tempfile.TemporaryDirectory(prefix="archive-stream-") as temporary:
+        snapshot = Path(temporary) / "input.ndjson"
+        with source.open("rb") as input_file, snapshot.open("wb") as output_file:
+            shutil.copyfileobj(input_file, output_file)
+        return _import_stream_snapshot(
+            client,
+            snapshot,
+            session_id,
+            batch_size=batch_size,
+            checkpoint_path=checkpoint_path,
+            resume=resume,
+            dry_run=dry_run,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:
