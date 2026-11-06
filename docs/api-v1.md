@@ -435,6 +435,14 @@ curl -sS -X POST \
 Для каждого сеанса существует независимая runtime-политика. Начальное состояние всегда `enabled=false`; политика не записывается в SQLite и после перезапуска процесса требует нового явного включения. Текущее состояние возвращается без изменений:
 
 ```bash
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-handoff
+```
+
+Ответ содержит `policy`, `runtime`, `scheduler_alive`, `policy_persistent=false` и `restart_requires_opt_in=true`. В `runtime` доступны время последнего прохода, ID последнего выбранного исследования, `last_result`, `last_error`, число успешных и неуспешных запусков и текущая серия последовательных сбоев.
+
+Включение с полным набором ограничений:
+
+```bash
 curl -sS -X POST \
   http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-handoff \
   -H 'Content-Type: application/json' \
