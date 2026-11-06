@@ -41,6 +41,7 @@ from ..session_service import (
     SessionNotFoundError,
     SessionService,
 )
+from ..session_analytics import analytics_summary
 from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -121,7 +122,7 @@ class ApplicationState:
                 self._subscribers.remove(event)
 
     def bump(self) -> None:
-        """Сигнализирует подписчикам об изменении состояния."""
+        """Сигнализирует подписчиков об изменении состояния."""
         with self._lock:
             self._version += 1
             subscribers = list(self._subscribers)
@@ -438,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
+                capabilities["features"]["session_analytics"] = True
+                capabilities["features"]["session_analytics_archive_wide"] = True
                 self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/sessions":
@@ -526,6 +529,19 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "workers"
             ):
                 self._send_json(api_payload(self.workers.list_workers(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "analytics"
+                and parts[5] == "summary"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                self._send_json(
+                    api_payload(
+                        analytics_summary(self.sessions, parts[3], stream_id=stream_id)
+                    )
+                )
                 return
             if (
                 len(parts) == 5

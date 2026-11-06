@@ -117,6 +117,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var failureReason = ""
     @Published var automaticHandoffStatus: PlatformAutomaticStatus?
     @Published var automaticDetectionStatus: PlatformAutomaticStatus?
+    @Published var archiveAnalytics: PlatformAnalyticsSummary?
+    @Published var archiveAnalyticsError: String?
     @Published var workflowErrors: [String] = []
     @Published var detectionInterval = "1"
     @Published var detectionStreamID = ""
@@ -561,6 +563,8 @@ final class RemoteDualModel: ObservableObject {
         selectedInvestigationID = ""
         automaticHandoffStatus = nil
         automaticDetectionStatus = nil
+        archiveAnalytics = nil
+        archiveAnalyticsError = nil
         workflowErrors = []
         policyFormsInitialized = false
     }
@@ -571,6 +575,8 @@ final class RemoteDualModel: ObservableObject {
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
         automaticDetectionStatus = snapshot.automaticDetection
+        archiveAnalytics = snapshot.analytics
+        archiveAnalyticsError = snapshot.analyticsError
         workflowErrors = snapshot.workflowErrors
         if !candidates.contains(where: { $0.id == selectedCandidateID }) {
             selectedCandidateID = candidates.first(where: { $0.state == "new" })?.id ?? candidates.first?.id ?? ""

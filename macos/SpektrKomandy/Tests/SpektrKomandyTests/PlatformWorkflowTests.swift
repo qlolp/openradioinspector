@@ -179,6 +179,12 @@ final class PlatformWorkflowTests: XCTestCase {
             if path.hasSuffix("/investigations") { return (self.response(request.url!), self.envelope("[\(self.investigationJSON)]")) }
             if path.hasSuffix("/automatic-handoff") { return (self.response(request.url!), self.envelope(self.statusJSON(enabled: false))) }
             if path.hasSuffix("/automatic-detection") { return (self.response(request.url!), self.envelope(self.statusJSON(enabled: true))) }
+            if path.hasSuffix("/analytics/summary") {
+                let summary = """
+                {"session_id":"s/1","stream_id":null,"archive_wide":true,"sweeps":{"count":1,"first_started_at":"2026-01-01T00:00:00Z","last_started_at":"2026-01-01T00:00:01Z","level_units":["dBm"],"latest":null,"latest_peak":{"sweep_id":"sw/1","frequency_hz":433075000,"level":-42.5,"level_unit":"dBm"}},"observations":{"count":2,"first_started_at":null,"last_started_at":null,"level_units":["s_meter_count"],"latest":null,"squelch_known":2,"squelch_open":1,"squelch_open_ratio":0.5}}
+                """
+                return (self.response(request.url!), self.envelope(summary))
+            }
             return (self.response(request.url!), self.envelope(session))
         }
         let snapshot = try await client.snapshot(sessionID: "s/1")
@@ -188,6 +194,11 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(snapshot.automaticDetection?.runtime.candidatesCreated, 1)
         XCTAssertEqual(snapshot.automaticHandoff?.policy.enabled, false)
         XCTAssertEqual(snapshot.automaticHandoff?.policyPersistent, false)
+        XCTAssertEqual(snapshot.analytics?.sweeps.count, 1)
+        XCTAssertEqual(snapshot.analytics?.sweeps.latestPeak?.levelUnit, "dBm")
+        XCTAssertEqual(snapshot.analytics?.observations.levelUnits, ["s_meter_count"])
+        XCTAssertEqual(snapshot.analytics?.observations.squelchOpenRatio, 0.5)
+        XCTAssertNil(snapshot.analyticsError)
     }
 
     func testOptionalPolicyStreamsEncodeExplicitNull() async throws {
