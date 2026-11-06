@@ -269,12 +269,14 @@ final class PlatformWorkflowTests: XCTestCase {
         let client = try client { request in
             let object = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             if request.url!.absoluteString.hasSuffix("/automatic-handoff") {
+                XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object.keys.contains("receiver_stream_id"))
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else if request.url!.absoluteString.hasSuffix("/automatic-completion") {
                 XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else {
+                XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object.keys.contains("stream_id"))
                 XCTAssertTrue(object["stream_id"] is NSNull)
             }
@@ -283,14 +285,14 @@ final class PlatformWorkflowTests: XCTestCase {
         _ = try await client.configureAutomaticHandoff(
             sessionID: "s/1",
             draft: PlatformHandoffPolicyDraft(
-                enabled: false, intervalSeconds: 1, minimumPriority: 0,
+                enabled: nil, intervalSeconds: 1, minimumPriority: 0,
                 receiverStreamId: nil, maxConsecutiveFailures: 3, retryDelaySeconds: 30
             )
         )
         _ = try await client.configureAutomaticDetection(
             sessionID: "s/1",
             draft: PlatformDetectionPolicyDraft(
-                enabled: false, intervalSeconds: 1, streamId: nil, thresholdDbm: -70,
+                enabled: nil, intervalSeconds: 1, streamId: nil, thresholdDbm: -70,
                 dedupBandwidthHz: 100000, cooldownSeconds: 60, maxCandidatesPerSweep: 10
             )
         )

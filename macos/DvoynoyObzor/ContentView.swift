@@ -431,7 +431,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticDetection() {
-        configureAutomaticDetection(enabled: automaticDetectionStatus?.policy.enabled ?? false)
+        configureAutomaticDetection(enabled: nil)
     }
 
     func enableAutomaticDetection() {
@@ -443,7 +443,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticHandoff() {
-        configureAutomaticHandoff(enabled: automaticHandoffStatus?.policy.enabled ?? false)
+        configureAutomaticHandoff(enabled: nil)
     }
 
     func enableAutomaticHandoff() {
@@ -481,7 +481,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticDetection(enabled: Bool) {
+    private func configureAutomaticDetection(enabled: Bool?) {
         do {
             let draft = try PlatformDetectionPolicyDraft(
                 enabled: enabled,
@@ -498,7 +498,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticHandoff(enabled: Bool) {
+    private func configureAutomaticHandoff(enabled: Bool?) {
         do {
             let draft = try PlatformHandoffPolicyDraft(
                 enabled: enabled,
