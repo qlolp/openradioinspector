@@ -37,6 +37,7 @@ class WorkflowPayloadTests(unittest.TestCase):
         self.assertEqual(payload["streams"][1]["level_unit"], "s_meter_count")
         self.assertEqual(payload["streams"][0]["settings"]["adapter"], "tinysa-sim")
         self.assertEqual(payload["streams"][1]["settings"]["adapter"], "ardv1-sim")
+        self.assertIn("hardware_decode", payload["streams"][1]["capabilities"])
         self.assertTrue(payload["metadata"]["simulated"])
 
         profile = self.session(
@@ -61,6 +62,7 @@ class WorkflowPayloadTests(unittest.TestCase):
         )
         self.assertEqual(payload["streams"][0]["settings"]["adapter"], "tinysa-serial")
         self.assertEqual(payload["streams"][1]["settings"]["adapter"], "ardv1-serial")
+        self.assertNotIn("hardware_decode", payload["streams"][1]["capabilities"])
         self.assertEqual(payload["streams"][0]["port"], "COM3")
         self.assertEqual(payload["streams"][1]["port"], "COM4")
         self.assertTrue(payload["metadata"]["serial"])

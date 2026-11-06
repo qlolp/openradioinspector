@@ -113,8 +113,9 @@ final class PlatformAPITests: XCTestCase {
             let streams = body["streams"] as! [[String: Any]]
             XCTAssertEqual(streams[0]["port"] as? String, "/dev/ttyACM0")
             XCTAssertEqual(streams[1]["port"] as? String, "/dev/ttyUSB0")
-            XCTAssertEqual((streams[0]["settings"] as? [String: String])?["adapter"], "tinysa-serial")
-            XCTAssertEqual((streams[1]["settings"] as? [String: String])?["adapter"], "ardv1-serial")
+            XCTAssertEqual((streams[0]["settings"] as? [String: Any])?["adapter"] as? String, "tinysa-serial")
+            XCTAssertEqual((streams[1]["settings"] as? [String: Any])?["adapter"] as? String, "ardv1-serial")
+            XCTAssertFalse((streams[1]["capabilities"] as? [String])?.contains("hardware_decode") ?? true)
             return (self.response(request.url!), self.envelope(self.sessionJSON))
         }
         _ = try await client.createSession(

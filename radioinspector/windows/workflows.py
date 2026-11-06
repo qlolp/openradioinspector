@@ -123,6 +123,9 @@ def session_payload(
         receiver_settings.update(
             {"adapter": "ardv1-serial", "period_s": 0.25}
         )
+    receiver_capabilities = ["tune", "audio"]
+    if not serial:
+        receiver_capabilities.append("hardware_decode")
     return {
         "name": selected_name,
         "streams": [
@@ -139,7 +142,7 @@ def session_payload(
                 "role": "receiver",
                 "level_unit": "s_meter_count",
                 "port": target_port,
-                "capabilities": ["tune", "audio", "hardware_decode"],
+                "capabilities": receiver_capabilities,
                 "settings": receiver_settings,
             },
         ],
