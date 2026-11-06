@@ -252,9 +252,8 @@ def automatic_completion_payload(
     minimum_observations: Any,
     receiver_stream_id: Any,
 ) -> dict[str, Any]:
-    """Формирует независимую политику completion без fail/cancel."""
-    return {
-        "enabled": _enabled(enabled),
+    """Формирует completion payload; None сохраняет параметры без opt-in."""
+    payload = {
         "interval_seconds": required_number(
             interval_seconds,
             "Период завершения",
@@ -277,6 +276,9 @@ def automatic_completion_payload(
             receiver_stream_id, "Receiver автоматического завершения"
         ),
     }
+    if enabled is not None:
+        return {"enabled": _enabled(enabled), **payload}
+    return payload
 
 
 def automatic_handoff_payload(

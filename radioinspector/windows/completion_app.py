@@ -110,15 +110,15 @@ class CompletionWindowsApp(WindowsApp):
         client = self.client
         session_id = self.session_id
 
-        def make_payload(enabled: bool) -> dict[str, Any]:
+        def make_payload(enabled: Optional[bool]) -> dict[str, Any]:
             parameters = {
                 name: variable.get() for name, variable in variables.items()
             }
             parameters["receiver_stream_id"] = stream_var.get()
             return automatic_completion_payload(enabled=enabled, **parameters)
 
-        def submit(enabled: bool) -> None:
-            if enabled and (self.snapshot.session or {}).get("state") != "running":
+        def submit(enabled: Optional[bool]) -> None:
+            if enabled is True and (self.snapshot.session or {}).get("state") != "running":
                 error_var.set(
                     "Автоматическое завершение можно включить только в работающем сеансе."
                 )
@@ -131,8 +131,8 @@ class CompletionWindowsApp(WindowsApp):
             self._destroy_form(window)
             description = (
                 "Явное включение завершения"
-                if enabled
-                else "Сохранение выключенной политики завершения"
+                if enabled is True
+                else "Сохранение параметров завершения без изменения opt-in"
             )
             self._submit_action(
                 description,
@@ -157,7 +157,7 @@ class CompletionWindowsApp(WindowsApp):
             ).pack(side="left", padx=(8, 0))
         else:
             self.ttk.Button(
-                buttons, text="Сохранить выключенной", command=lambda: submit(False)
+                buttons, text="Сохранить выключенной", command=lambda: submit(None)
             ).pack(side="left")
             self.ttk.Button(
                 buttons, text="Включить явно", command=lambda: submit(True)
