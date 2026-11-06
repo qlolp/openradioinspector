@@ -31,6 +31,7 @@ import numpy as np
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..archive_export import build_archive_document
+from ..archive_export_stream import iter_snapshot_ndjson, open_archive_snapshot
 from ..assignments import AssignmentDatabase
 from ..automatic_completion import AutomaticInvestigationCompletion
 from ..automatic_detection import AutomaticCandidateDetector
@@ -297,6 +298,26 @@ class Handler(BaseHTTPRequestHandler):
             status,
         )
 
+    def _stream_archive_ndjson(self, session_id: str, *, stream_id: Optional[str]) -> None:
+        with open_archive_snapshot(self.sessions, session_id, stream_id=stream_id) as snapshot:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Archive-Sweeps", str(snapshot.sweep_count))
+            self.send_header("X-Archive-Observations", str(snapshot.observation_count))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            try:
+                for index, line in enumerate(
+                    iter_snapshot_ndjson(snapshot, session_id), start=1
+                ):
+                    self.wfile.write(line)
+                    if index % 100 == 0:
+                        self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
     def _send_file(self, path: Path) -> None:
         if not path.exists():
             self.send_error(404, "Not found")
@@ -442,6 +463,8 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"].update(self.workers.capabilities())
                 capabilities["features"]["session_archive_export"] = True
                 capabilities["features"]["session_archive_export_archive_wide"] = True
+                capabilities["features"]["session_archive_export_ndjson"] = True
+                capabilities["features"]["session_archive_export_streaming"] = True
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
@@ -540,6 +563,15 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "workers"
             ):
                 self._send_json(api_payload(self.workers.list_workers(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "archive"
+                and parts[5] == "export.ndjson"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                self._stream_archive_ndjson(parts[3], stream_id=stream_id)
                 return
             if (
                 len(parts) == 6
