@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tomllib
 import unittest
+from pathlib import Path
 
 from radioinspector.windows.app import WindowsApp
 from radioinspector.windows.client import PlatformSnapshot
@@ -289,6 +291,53 @@ class WorkflowCommandTests(unittest.TestCase):
                 ("detection", "session/old", {"enabled": False}),
                 ("handoff", "session/old", {"enabled": False}),
             ],
+        )
+
+    def test_completion_status_is_bound_to_a_visible_label(self) -> None:
+        class Variable:
+            def __init__(self, *, value):
+                self.value = value
+
+        class Widget:
+            created = []
+
+            def __init__(self, master, **kwargs):
+                self.master = master
+                self.kwargs = kwargs
+                self.grid_kwargs = None
+                self.created.append(self)
+
+            def grid(self, **kwargs):
+                self.grid_kwargs = kwargs
+
+        class Tk:
+            StringVar = Variable
+
+        class Ttk:
+            Label = Widget
+            Button = Widget
+
+        policies = object()
+        app = CompletionWindowsApp.__new__(CompletionWindowsApp)
+        app.tk = Tk()
+        app.ttk = Ttk()
+        app.detection_policy_button = Widget(policies)
+        app._build_completion_controls()
+        label, button = Widget.created[1:]
+        self.assertIs(label.master, policies)
+        self.assertIs(label.kwargs["textvariable"], app.completion_var)
+        self.assertEqual(label.grid_kwargs["row"], 3)
+        self.assertEqual(label.grid_kwargs["sticky"], "ew")
+        self.assertIs(button.master, policies)
+        self.assertEqual(button.kwargs["state"], "disabled")
+
+    def test_installed_windows_launcher_uses_completion_app(self) -> None:
+        project = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        with project.open("rb") as stream:
+            scripts = tomllib.load(stream)["project"]["scripts"]
+        self.assertEqual(
+            scripts["radioinspector-windows"],
+            "radioinspector.windows.completion_app:main",
         )
 
     def test_disabling_completion_uses_only_completion_api(self) -> None:
