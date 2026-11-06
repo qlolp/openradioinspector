@@ -18,6 +18,7 @@ from radioinspector.archive_export import (
     main,
 )
 from radioinspector.archive_ingest import (
+    MAX_RESPONSE_BYTES,
     ArchiveIngestClient,
     ArchiveIngestError,
     import_archive,
@@ -189,6 +190,57 @@ class ArchiveHttpExportTests(unittest.TestCase):
         with self.assertRaises(ArchiveIngestError) as caught:
             fetch_archive_document(client, "missing/session")
         self.assertEqual(caught.exception.status, 404)
+
+    def test_export_response_has_no_fixed_cap_but_ingest_keeps_limit(self) -> None:
+        envelope = json.dumps(
+            {
+                "contract": "openradioinspector-platform",
+                "contract_version": 1,
+                "data": {
+                    "format": "openradioinspector-archive",
+                    "format_version": 1,
+                    "sweeps": [],
+                    "observations": [],
+                },
+            }
+        ).encode("utf-8")
+        raw = envelope[:-1] + b" " * (MAX_RESPONSE_BYTES + 1) + b"}"
+
+        class Response:
+            status = 200
+
+            def __init__(self) -> None:
+                self.read_size = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, size=-1):
+                self.read_size = size
+                return raw
+
+        class Opener:
+            def __init__(self) -> None:
+                self.response = Response()
+
+            def open(self, _request, timeout):
+                return self.response
+
+        opener = Opener()
+        client = ArchiveIngestClient(self.node.url, opener=opener)
+        document = client.export_archive(self.session.id)
+        self.assertEqual(document["format"], "openradioinspector-archive")
+        self.assertEqual(opener.response.read_size, -1)
+
+        opener = Opener()
+        client = ArchiveIngestClient(self.node.url, opener=opener)
+        with self.assertRaises(ArchiveIngestError) as caught:
+            client.capabilities()
+        self.assertEqual(caught.exception.code, "response_too_large")
+        self.assertEqual(opener.response.read_size, MAX_RESPONSE_BYTES + 1)
 
     def test_invalid_response_does_not_create_output(self) -> None:
         output = Path(self.temporary.name) / "invalid.json"
