@@ -89,8 +89,9 @@ class ArchiveServiceExportTests(unittest.TestCase):
 
 
 class HttpNode:
-    def __init__(self, database: str) -> None:
+    def __init__(self, database: str, *, port: int = 0) -> None:
         self.database = database
+        self.requested_port = port
         self.service = None
         self.server = None
         self.thread = None
@@ -98,7 +99,9 @@ class HttpNode:
 
     def start(self) -> None:
         self.service = SessionService(store=SQLiteSessionStore(self.database))
-        self.server = create_server(host="127.0.0.1", port=0, sessions=self.service)
+        self.server = create_server(
+            host="127.0.0.1", port=self.requested_port, sessions=self.service
+        )
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.host, self.port = self.server.server_address
