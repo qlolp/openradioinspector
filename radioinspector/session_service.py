@@ -466,6 +466,17 @@ class SessionService:
             raise ValueError("limit должен быть целым от 1 до 1000")
         return limit
 
+    def archive_measurements(
+        self, session_id: str, *, stream_id: Optional[str] = None
+    ) -> tuple[list[Sweep], list[ReceiverObservation]]:
+        """Возвращает оба типа измерений одним снимком без окна для writer."""
+        with self._lock:
+            sweeps = self.list_sweeps(session_id, stream_id=stream_id, limit=None)
+            observations = self.list_observations(
+                session_id, stream_id=stream_id, limit=None
+            )
+            return sweeps, observations
+
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
