@@ -824,6 +824,31 @@ class SessionService:
                 session_id, investigation, candidate, "investigation.listening"
             )
 
+    def matching_observation_ids(
+        self, session_id: str, investigation_id: str
+    ) -> tuple[str, ...]:
+        """Read-only отбор наблюдений цели без изменения исследования."""
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.started_at is None:
+                return ()
+            if self._store is not None:
+                return self._store.matching_observation_ids(
+                    session_id,
+                    current.target_stream_id,
+                    current.target_frequency_hz,
+                    current.started_at,
+                )
+            matches = [
+                item for item in self._observations
+                if item.session_id == session_id
+                and item.stream_id == current.target_stream_id
+                and item.frequency_hz == current.target_frequency_hz
+                and item.interval.started_at >= current.started_at
+            ]
+            matches.sort(key=lambda item: (item.interval.started_at, item.id))
+            return tuple(item.id for item in matches)
+
     def complete_investigation(
         self, session_id: str, investigation_id: str
     ) -> Investigation:
