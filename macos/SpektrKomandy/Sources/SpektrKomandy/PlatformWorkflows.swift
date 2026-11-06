@@ -219,7 +219,7 @@ public struct PlatformInvestigationDraft: Encodable {
 }
 
 public struct PlatformDetectionPolicyDraft: Encodable {
-    public let enabled: Bool
+    public let enabled: Bool?
     public let intervalSeconds: Double
     public let streamId: String?
     public let thresholdDbm: Double
@@ -233,7 +233,7 @@ public struct PlatformDetectionPolicyDraft: Encodable {
     }
 
     public init(
-        enabled: Bool, intervalSeconds: Double, streamId: String?, thresholdDbm: Double,
+        enabled: Bool?, intervalSeconds: Double, streamId: String?, thresholdDbm: Double,
         dedupBandwidthHz: Int64, cooldownSeconds: Double, maxCandidatesPerSweep: Int
     ) throws {
         self.enabled = enabled
@@ -247,7 +247,7 @@ public struct PlatformDetectionPolicyDraft: Encodable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(enabled, forKey: .enabled)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
         try container.encode(intervalSeconds, forKey: .intervalSeconds)
         try container.encode(streamId, forKey: .streamId)
         try container.encode(thresholdDbm, forKey: .thresholdDbm)
@@ -258,7 +258,7 @@ public struct PlatformDetectionPolicyDraft: Encodable {
 }
 
 public struct PlatformHandoffPolicyDraft: Encodable {
-    public let enabled: Bool
+    public let enabled: Bool?
     public let intervalSeconds: Double
     public let minimumPriority: Int
     public let receiverStreamId: String?
@@ -271,7 +271,7 @@ public struct PlatformHandoffPolicyDraft: Encodable {
     }
 
     public init(
-        enabled: Bool, intervalSeconds: Double, minimumPriority: Int,
+        enabled: Bool?, intervalSeconds: Double, minimumPriority: Int,
         receiverStreamId: String?, maxConsecutiveFailures: Int, retryDelaySeconds: Double
     ) throws {
         self.enabled = enabled
@@ -284,7 +284,7 @@ public struct PlatformHandoffPolicyDraft: Encodable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(enabled, forKey: .enabled)
+        try container.encodeIfPresent(enabled, forKey: .enabled)
         try container.encode(intervalSeconds, forKey: .intervalSeconds)
         try container.encode(minimumPriority, forKey: .minimumPriority)
         try container.encode(receiverStreamId, forKey: .receiverStreamId)
