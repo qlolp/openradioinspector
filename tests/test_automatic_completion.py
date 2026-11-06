@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import http.client
 import json
+import tempfile
 import threading
 import unittest
 from datetime import timedelta
+from pathlib import Path
 
 from radioinspector.automatic_completion import AutomaticInvestigationCompletion
 from radioinspector.contracts import InvestigationState, TimeInterval, to_primitive
 from radioinspector.session_service import SessionService
+from radioinspector.session_store import SQLiteSessionStore
 from radioinspector.web.server import create_server
 from tests.test_device_workers import simulated_session_payload, wait_until
 from tests.test_investigations import candidate_payload
@@ -167,6 +170,88 @@ class AutomaticCompletionTests(CompletionSetup, unittest.TestCase):
             InvestigationState.LISTENING,
         )
 
+    def test_disable_during_preflight_prevents_completion(self) -> None:
+        investigation = self.active("disable-inflight")
+        self.observations(investigation, 1)
+        self.scheduler.configure(self.session.id, {"enabled": True})
+        entered = threading.Event()
+        release = threading.Event()
+        original = self.service.matching_observation_ids
+
+        def blocking(session_id, investigation_id, **kwargs):
+            entered.set()
+            if not release.wait(timeout=3):
+                raise TimeoutError("Preflight не разблокирован")
+            return original(session_id, investigation_id)
+
+        self.service.matching_observation_ids = blocking
+        result = []
+        thread = threading.Thread(target=lambda: result.append(self.scheduler.run_once(self.session.id)))
+        thread.start()
+        self.assertTrue(entered.wait(timeout=2))
+        self.scheduler.configure(self.session.id, {"enabled": False})
+        release.set()
+        thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, [None])
+        self.assertEqual(
+            self.service.get_investigation(self.session.id, investigation.id).state,
+            InvestigationState.LISTENING,
+        )
+        status = self.scheduler.status(self.session.id)
+        self.assertEqual(status["runtime"]["last_result"], "policy_changed")
+        self.assertEqual(status["runtime"]["completed_investigations"], 0)
+        self.assertFalse(
+            any(item.event_type == "automatic_completion.completed" for item in self.service.events())
+        )
+
+    def test_disable_invalidates_inflight_completion(self):
+        investigation = self.active("disable-inflight")
+        self.observations(investigation, 1)
+        entered = threading.Event()
+        release = threading.Event()
+        service = self.service
+        original_matching = service.matching_observation_ids
+        original_complete = service.complete_investigation
+        complete_calls = []
+
+        def blocked_matching(session_id, investigation_id, **kwargs):
+            result = original_matching(session_id, investigation_id, **kwargs)
+            entered.set()
+            if not release.wait(timeout=3):
+                raise TimeoutError("Не разблокирован in-flight pass")
+            return result
+
+        def tracked_complete(session_id, investigation_id):
+            complete_calls.append(investigation_id)
+            return original_complete(session_id, investigation_id)
+
+        service.matching_observation_ids = blocked_matching
+        service.complete_investigation = tracked_complete
+        self.scheduler.configure(self.session.id, {"enabled": True})
+        errors = []
+
+        def run():
+            try:
+                self.scheduler.run_once(self.session.id)
+            except Exception as exc:  # noqa: BLE001 - проверяется ниже
+                errors.append(exc)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        self.assertTrue(entered.wait(timeout=2))
+        self.scheduler.configure(self.session.id, {"enabled": False})
+        release.set()
+        thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(complete_calls, [])
+        current = self.service.get_investigation(self.session.id, investigation.id)
+        self.assertEqual(current.state, InvestigationState.LISTENING)
+        status = self.scheduler.status(self.session.id)
+        self.assertEqual(status["runtime"]["last_result"], "policy_changed")
+        self.assertEqual(status["runtime"]["skipped_investigations"], 1)
+
     def test_policy_validation(self):
         with self.assertRaisesRegex(ValueError, "только receiver"):
             self.scheduler.configure(
@@ -185,6 +270,42 @@ class AutomaticCompletionTests(CompletionSetup, unittest.TestCase):
         self.assertFalse(disabled["policy"]["enabled"])
 
 
+class CompletionStoreTests(CompletionSetup, unittest.TestCase):
+    def test_sqlite_preflight_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = SQLiteSessionStore(str(Path(temporary) / "completion.sqlite"))
+            self.now = BASE
+            service = SessionService(store=store, clock=lambda: self.now)
+            self.service = service
+            try:
+                self.session = service.create_session(simulated_session_payload())
+                service.start_session(self.session.id, at=self.now)
+                self.spectrum_id, self.receiver_id = [
+                    item.id for item in self.session.streams
+                ]
+                investigation = self.active("bounded")
+                self.observations(investigation, 5)
+                statements = []
+                store._connection.set_trace_callback(statements.append)
+                ids = service.matching_observation_ids(
+                    self.session.id, investigation.id, limit=2
+                )
+                self.assertEqual(len(ids), 2)
+                store._connection.set_trace_callback(None)
+                normalized = [" ".join(item.split()) for item in statements]
+                self.assertTrue(any("LIMIT 2" in item for item in normalized))
+                self.assertTrue(any("WHERE sort_started_at >=" in item for item in normalized))
+                self.assertFalse(
+                    any("SELECT id, started_at FROM observations" in item for item in normalized)
+                )
+                completed = service.complete_investigation(
+                    self.session.id, investigation.id
+                )
+                self.assertEqual(len(completed.result_observation_ids), 5)
+            finally:
+                service.close()
+
+
 class BlockingCompletionService(SessionService):
     def __init__(self, first_id, entered, release, armed):
         super().__init__(history_limit=5000)
@@ -193,12 +314,12 @@ class BlockingCompletionService(SessionService):
         self.release = release
         self.armed = armed
 
-    def matching_observation_ids(self, session_id, investigation_id):
+    def matching_observation_ids(self, session_id, investigation_id, **kwargs):
         if session_id == self.first_id and self.armed.is_set():
             self.entered.set()
             if not self.release.wait(timeout=4):
                 raise TimeoutError("Не разблокирован read-only отбор")
-        return super().matching_observation_ids(session_id, investigation_id)
+        return super().matching_observation_ids(session_id, investigation_id, **kwargs)
 
 
 class AutomaticCompletionBackgroundTests(CompletionSetup, unittest.TestCase):
