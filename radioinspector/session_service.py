@@ -824,6 +824,37 @@ class SessionService:
                 session_id, investigation, candidate, "investigation.listening"
             )
 
+    def matching_observation_ids(
+        self, session_id: str, investigation_id: str, *, limit: Optional[int] = None
+    ) -> tuple[str, ...]:
+        """Read-only отбор наблюдений цели без изменения исследования."""
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
+        ):
+            raise ValueError("limit должен быть положительным целым или None")
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.started_at is None:
+                return ()
+            if self._store is not None:
+                return self._store.matching_observation_ids(
+                    session_id,
+                    current.target_stream_id,
+                    current.target_frequency_hz,
+                    current.started_at,
+                    limit=limit,
+                )
+            matches = [
+                item for item in self._observations
+                if item.session_id == session_id
+                and item.stream_id == current.target_stream_id
+                and item.frequency_hz == current.target_frequency_hz
+                and item.interval.started_at >= current.started_at
+            ]
+            matches.sort(key=lambda item: (item.interval.started_at, item.id))
+            selected = matches if limit is None else matches[:limit]
+            return tuple(item.id for item in selected)
+
     def complete_investigation(
         self, session_id: str, investigation_id: str
     ) -> Investigation:

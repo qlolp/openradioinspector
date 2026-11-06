@@ -32,6 +32,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from ..archive_export import build_archive_document
 from ..assignments import AssignmentDatabase
+from ..automatic_completion import AutomaticInvestigationCompletion
 from ..automatic_detection import AutomaticCandidateDetector
 from ..automatic_handoff import AutomaticHandoffScheduler
 from ..contracts import api_payload
@@ -441,6 +442,9 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"].update(self.workers.capabilities())
                 capabilities["features"]["session_archive_export"] = True
                 capabilities["features"]["session_archive_export_archive_wide"] = True
+                capabilities["features"]["automatic_investigation_completion"] = True
+                capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
+                capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
                 self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/sessions":
@@ -515,6 +519,13 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "automatic-handoff"
             ):
                 self._send_json(api_payload(self.automatic_handoff.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-completion"
+            ):
+                self._send_json(api_payload(self.automatic_completion.status(parts[3])))
                 return
             if (
                 len(parts) == 5
@@ -603,6 +614,14 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "automatic-handoff"
             ):
                 result = self.automatic_handoff.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-completion"
+            ):
+                result = self.automatic_completion.configure(parts[3], payload)
                 self._send_json(api_payload(result))
                 return
             if (
@@ -840,6 +859,7 @@ def create_server(
     workers: Optional[DeviceWorkerManager] = None,
     automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
     automatic_detection: Optional[AutomaticCandidateDetector] = None,
+    automatic_completion: Optional[AutomaticInvestigationCompletion] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -862,6 +882,11 @@ def create_server(
     if automatic_detection is not None and automatic_detection.sessions is not session_service:
         raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
     detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
+    if automatic_completion is not None and automatic_completion.sessions is not session_service:
+        raise ValueError("AutomaticInvestigationCompletion должен использовать тот же SessionService")
+    completion_scheduler = automatic_completion or AutomaticInvestigationCompletion(
+        session_service
+    )
     handler = type(
         "BoundHandler",
         (Handler,),
@@ -871,6 +896,7 @@ def create_server(
             "workers": worker_manager,
             "automatic_handoff": automatic_scheduler,
             "automatic_detection": detection_scheduler,
+            "automatic_completion": completion_scheduler,
         },
     )
     httpd = ThreadingHTTPServer((host, port), handler)
@@ -879,6 +905,7 @@ def create_server(
     httpd.worker_manager = worker_manager
     httpd.automatic_handoff = automatic_scheduler
     httpd.automatic_detection = detection_scheduler
+    httpd.automatic_completion = completion_scheduler
     return httpd
 
 
@@ -907,6 +934,7 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.automatic_completion.close()
         httpd.automatic_detection.close()
         httpd.automatic_handoff.close()
         httpd.worker_manager.close()

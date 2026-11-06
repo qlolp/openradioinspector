@@ -290,7 +290,9 @@ class AutomaticDetectionHttpTests(unittest.TestCase):
         self.assertTrue(features["automatic_candidate_detection"])
         self.assertTrue(features["automatic_candidate_detection_opt_in_required"])
         self.assertFalse(features["automatic_candidate_detection_policy_persistent"])
-        self.assertFalse(features["automatic_investigation_completion"])
+        self.assertTrue(features["automatic_investigation_completion"])
+        self.assertTrue(features["automatic_investigation_completion_opt_in_required"])
+        self.assertFalse(features["automatic_investigation_completion_policy_persistent"])
 
 
 class AutomaticDetectionBackgroundTests(unittest.TestCase):
