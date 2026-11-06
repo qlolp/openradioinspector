@@ -426,9 +426,11 @@ class SQLiteSessionStore:
         return clause, parameters
 
     def list_sweeps(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
         clause, parameters = self._filters(session_id, stream_id)
+        limit_sql = "LIMIT ?" if limit is not None else ""
+        query_parameters = (*parameters, limit) if limit is not None else parameters
         with self._lock:
             rows = self._connection.execute(
                 f"""
@@ -437,10 +439,10 @@ class SQLiteSessionStore:
                         THEN replace(started_at, 'Z', '.000000Z')
                         ELSE started_at END AS sort_started_at
                     FROM sweeps WHERE {clause}
-                    ORDER BY sort_started_at DESC, id DESC LIMIT ?
+                    ORDER BY sort_started_at DESC, id DESC {limit_sql}
                 ) ORDER BY sort_started_at, id
                 """,
-                (*parameters, limit),
+                query_parameters,
             ).fetchall()
             return [
                 Sweep.from_dict(
@@ -461,9 +463,11 @@ class SQLiteSessionStore:
             ]
 
     def list_observations(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[ReceiverObservation]:
         clause, parameters = self._filters(session_id, stream_id)
+        limit_sql = "LIMIT ?" if limit is not None else ""
+        query_parameters = (*parameters, limit) if limit is not None else parameters
         with self._lock:
             rows = self._connection.execute(
                 f"""
@@ -472,10 +476,10 @@ class SQLiteSessionStore:
                         THEN replace(started_at, 'Z', '.000000Z')
                         ELSE started_at END AS sort_started_at
                     FROM observations WHERE {clause}
-                    ORDER BY sort_started_at DESC, id DESC LIMIT ?
+                    ORDER BY sort_started_at DESC, id DESC {limit_sql}
                 ) ORDER BY sort_started_at, id
                 """,
-                (*parameters, limit),
+                query_parameters,
             ).fetchall()
             return [
                 ReceiverObservation.from_dict(
