@@ -196,7 +196,12 @@ class ArchiveIngestClient:
         self._opener = opener or urllib.request.build_opener()
 
     def _request(
-        self, method: str, path: str, payload: Optional[dict[str, Any]] = None
+        self,
+        method: str,
+        path: str,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        max_response_bytes: Optional[int] = MAX_RESPONSE_BYTES,
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
@@ -208,7 +213,11 @@ class ArchiveIngestClient:
         )
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
-                raw = response.read(MAX_RESPONSE_BYTES + 1)
+                raw = (
+                    response.read()
+                    if max_response_bytes is None
+                    else response.read(max_response_bytes + 1)
+                )
                 status = getattr(response, "status", 200)
         except urllib.error.HTTPError as exc:
             raw = exc.read(MAX_RESPONSE_BYTES + 1)
@@ -218,7 +227,7 @@ class ArchiveIngestClient:
             raise ArchiveIngestError(
                 f"Сервер недоступен: {reason}", code="connection_error"
             ) from exc
-        if len(raw) > MAX_RESPONSE_BYTES:
+        if max_response_bytes is not None and len(raw) > max_response_bytes:
             raise ArchiveIngestError(
                 "Ответ сервера превышает 32 МБ", status=status, code="response_too_large"
             )
@@ -280,7 +289,9 @@ class ArchiveIngestClient:
     ) -> dict[str, Any]:
         session = _segment(session_id, "session_id")
         query = f"?{urlencode({'stream_id': stream_id})}" if stream_id is not None else ""
-        return self._request("GET", f"/sessions/{session}/archive/export{query}")
+        return self._request(
+            "GET", f"/sessions/{session}/archive/export{query}", max_response_bytes=None
+        )
 
     def ingest_batch(
         self, session_id: str, kind: str, items: list[dict[str, Any]]
