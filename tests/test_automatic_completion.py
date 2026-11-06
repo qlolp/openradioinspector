@@ -167,6 +167,41 @@ class AutomaticCompletionTests(CompletionSetup, unittest.TestCase):
             InvestigationState.LISTENING,
         )
 
+    def test_disable_during_preflight_prevents_completion(self) -> None:
+        investigation = self.active("disable-inflight")
+        self.observations(investigation, 1)
+        self.scheduler.configure(self.session.id, {"enabled": True})
+        entered = threading.Event()
+        release = threading.Event()
+        original = self.service.matching_observation_ids
+
+        def blocking(session_id, investigation_id):
+            entered.set()
+            if not release.wait(timeout=3):
+                raise TimeoutError("Preflight не разблокирован")
+            return original(session_id, investigation_id)
+
+        self.service.matching_observation_ids = blocking
+        result = []
+        thread = threading.Thread(target=lambda: result.append(self.scheduler.run_once(self.session.id)))
+        thread.start()
+        self.assertTrue(entered.wait(timeout=2))
+        self.scheduler.configure(self.session.id, {"enabled": False})
+        release.set()
+        thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result, [None])
+        self.assertEqual(
+            self.service.get_investigation(self.session.id, investigation.id).state,
+            InvestigationState.LISTENING,
+        )
+        status = self.scheduler.status(self.session.id)
+        self.assertEqual(status["runtime"]["last_result"], "policy_changed")
+        self.assertEqual(status["runtime"]["completed_investigations"], 0)
+        self.assertFalse(
+            any(item.event_type == "automatic_completion.completed" for item in self.service.events())
+        )
+
     def test_policy_validation(self):
         with self.assertRaisesRegex(ValueError, "только receiver"):
             self.scheduler.configure(
