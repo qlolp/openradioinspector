@@ -281,6 +281,9 @@ final class RemoteDualModel: ObservableObject {
             let snapshot = try await client.snapshot(sessionID: id)
             guard requestGeneration == generation, id == selectedSessionID else { return }
             session = snapshot.session
+            if let modes = receiver?.tuneModes, !modes.contains(mode) {
+                mode = modes.first ?? "FM"
+            }
             workers = snapshot.workers
             applyMeasurements(snapshot)
             applyWorkflow(snapshot)
@@ -640,7 +643,7 @@ final class RemoteDualModel: ObservableObject {
         if !handoffFormInitialized, let policy = automaticHandoffStatus?.policy {
             handoffInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
             handoffMinimumPriority = policy.minimumPriority.map { String($0) } ?? "0"
-            handoffReceiverStreamID = policy.receiverStreamId ?? receiver?.id ?? ""
+            handoffReceiverStreamID = policy.receiverStreamId ?? ""
             handoffMaximumFailures = policy.maxConsecutiveFailures.map { String($0) } ?? "3"
             handoffRetryDelay = policy.retryDelaySeconds.map { String(describing: $0) } ?? "30"
             handoffFormInitialized = true
@@ -738,7 +741,7 @@ struct RemoteArPane: View {
                 )
                 HStack {
                     Picker("Режим", selection: $model.mode) {
-                        ForEach(["FM", "AM", "DMR", "TETRA"], id: \.self) { Text($0) }
+                        ForEach(model.receiver?.tuneModes ?? ["FM", "AM"], id: \.self) { Text($0) }
                     }
                     .frame(width: 180)
                     Button("Перестроить на фактический пик") { model.tuneLatestPeak() }
