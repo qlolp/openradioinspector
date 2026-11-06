@@ -52,6 +52,7 @@ all = [
 radioinspector = "radioinspector.cli:main"
 radioinspector-windows = "radioinspector.windows.app:main"
 radioinspector-archive-import = "radioinspector.archive_ingest:main"
+radioinspector-archive-export = "radioinspector.archive_export:main"
 
 [project.urls]
 Homepage = "https://github.com/qlolp/openradioinspector"

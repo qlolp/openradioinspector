@@ -467,9 +467,10 @@ class SessionService:
         return limit
 
     def list_sweeps(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
-        limit = self._limit(limit)
+        if limit is not None:
+            limit = self._limit(limit)
         with self._lock:
             self._validate_stream_query_locked(session_id, stream_id)
             if self._store is not None:
@@ -480,12 +481,13 @@ class SessionService:
                 and (stream_id is None or item.stream_id == stream_id)
             ]
             selected.sort(key=lambda item: (item.interval.started_at, item.id))
-            return copy.deepcopy(selected[-limit:])
+            return copy.deepcopy(selected if limit is None else selected[-limit:])
 
     def list_observations(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[ReceiverObservation]:
-        limit = self._limit(limit)
+        if limit is not None:
+            limit = self._limit(limit)
         with self._lock:
             self._validate_stream_query_locked(session_id, stream_id)
             if self._store is not None:
@@ -498,7 +500,7 @@ class SessionService:
                 and (stream_id is None or item.stream_id == stream_id)
             ]
             selected.sort(key=lambda item: (item.interval.started_at, item.id))
-            return copy.deepcopy(selected[-limit:])
+            return copy.deepcopy(selected if limit is None else selected[-limit:])
 
     def _validate_stream_query_locked(
         self, session_id: str, stream_id: Optional[str]

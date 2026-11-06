@@ -30,6 +30,7 @@ from typing import Optional
 import numpy as np
 from urllib.parse import parse_qs, unquote, urlparse
 
+from ..archive_export import build_archive_document
 from ..assignments import AssignmentDatabase
 from ..automatic_detection import AutomaticCandidateDetector
 from ..automatic_handoff import AutomaticHandoffScheduler
@@ -438,6 +439,8 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
+                capabilities["features"]["session_archive_export"] = True
+                capabilities["features"]["session_archive_export_archive_wide"] = True
                 self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/sessions":
@@ -526,6 +529,21 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "workers"
             ):
                 self._send_json(api_payload(self.workers.list_workers(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "archive"
+                and parts[5] == "export"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                self._send_json(
+                    api_payload(
+                        build_archive_document(
+                            self.sessions, parts[3], stream_id=stream_id
+                        )
+                    )
+                )
                 return
             if (
                 len(parts) == 5
