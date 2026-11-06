@@ -244,6 +244,43 @@ def automatic_detection_payload(
     }
 
 
+def automatic_completion_payload(
+    *,
+    enabled: Any,
+    interval_seconds: Any,
+    minimum_listening_seconds: Any,
+    minimum_observations: Any,
+    receiver_stream_id: Any,
+) -> dict[str, Any]:
+    """Формирует completion payload; None сохраняет параметры без opt-in."""
+    payload = {
+        "interval_seconds": required_number(
+            interval_seconds,
+            "Период завершения",
+            minimum=0.1,
+            maximum=3600.0,
+        ),
+        "minimum_listening_seconds": required_number(
+            minimum_listening_seconds,
+            "Минимум прослушивания",
+            minimum=0.0,
+            maximum=86400.0,
+        ),
+        "minimum_observations": required_int(
+            minimum_observations,
+            "Минимум наблюдений",
+            minimum=1,
+            maximum=1000,
+        ),
+        "receiver_stream_id": _optional_stream(
+            receiver_stream_id, "Receiver автоматического завершения"
+        ),
+    }
+    if enabled is not None:
+        return {"enabled": _enabled(enabled), **payload}
+    return payload
+
+
 def automatic_handoff_payload(
     *,
     enabled: Any,

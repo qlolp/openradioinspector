@@ -39,6 +39,10 @@ curl -sS -X POST \
 
 Capabilities сообщают `automatic_investigation_completion=true`, `automatic_investigation_completion_opt_in_required=true` и `automatic_investigation_completion_policy_persistent=false`.
 
+## Windows GUI
+
+`CompletionWindowsApp` добавляет форму «Настроить завершение…» поверх существующего `WindowsApp`: interval, minimum listening time/observations и receiver. «Сохранить выключенной» передаёт параметры без `enabled`, «Включить явно» разрешено только в running-сеансе, а «Выключить» отправляет только `enabled=false`. Snapshot показывает фактические policy/runtime. Detector и handoff не изменяются.
+
 ## Границы
 
 Планировщик не выполняет automatic fail/cancel, не переводит исследование в `decoding`, не классифицирует сигнал, не измеряет точную занимаемую полосу, не останавливает workers и не восстанавливает прежнюю частоту receiver. `s_meter_count` не преобразуется в `dBm`. Активные исследования после перезапуска по-прежнему получают `failed` с `investigation.interrupted`, а политика остаётся выключенной. Аппаратная проверка не заявляется.

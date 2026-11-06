@@ -40,6 +40,7 @@ class PlatformSnapshot:
     next_investigation: Optional[dict[str, Any]] = None
     automatic_handoff: Optional[dict[str, Any]] = None
     automatic_detection: Optional[dict[str, Any]] = None
+    automatic_completion: Optional[dict[str, Any]] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
     spectrum_stream_id: Optional[str] = None
 
@@ -303,6 +304,17 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         return self._post(f"/sessions/{session}/automatic-detection", payload)
 
+    def automatic_completion(self, session_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET", f"/sessions/{_segment(session_id, 'session_id')}/automatic-completion"
+        )
+
+    def configure_automatic_completion(
+        self, session_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._post(f"/sessions/{session}/automatic-completion", payload)
+
     def snapshot(
         self,
         session_id: Optional[str] = None,
@@ -332,6 +344,7 @@ class PlatformClient:
             next_investigation=self.next_investigation(session_id),
             automatic_handoff=self.automatic_handoff(session_id),
             automatic_detection=self.automatic_detection(session_id),
+            automatic_completion=self.automatic_completion(session_id),
             sweeps=sweeps,
             spectrum_stream_id=spectrum_stream_id,
         )

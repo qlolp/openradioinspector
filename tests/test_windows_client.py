@@ -23,6 +23,7 @@ from radioinspector.windows.client import (
 )
 from radioinspector.web.server import create_server
 from radioinspector.windows.workflows import (
+    automatic_completion_payload,
     automatic_detection_payload,
     automatic_handoff_payload,
     session_payload as windows_session_payload,
@@ -463,6 +464,29 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(disabled_handoff["policy"]["enabled"])
         self.assertEqual(disabled_handoff["policy"]["receiver_stream_id"], self.receiver_id)
+
+        completion = automatic_completion_payload(
+            enabled=True,
+            interval_seconds=0.2,
+            minimum_listening_seconds=0,
+            minimum_observations=1,
+            receiver_stream_id=self.receiver_id,
+        )
+        completion_status = self.client.configure_automatic_completion(
+            self.session.id, completion
+        )
+        self.assertTrue(completion_status["policy"]["enabled"])
+        self.assertEqual(completion_status["policy"]["minimum_observations"], 1)
+        snapshot = self.client.snapshot(self.session.id)
+        self.assertTrue(snapshot.automatic_completion["policy"]["enabled"])
+        self.assertEqual(snapshot.automatic_completion["policy"]["receiver_stream_id"], self.receiver_id)
+        disabled_completion = self.client.configure_automatic_completion(
+            self.session.id, {"enabled": False}
+        )
+        self.assertFalse(disabled_completion["policy"]["enabled"])
+        self.assertEqual(disabled_completion["policy"]["minimum_observations"], 1)
+        self.assertFalse(self.client.automatic_detection(self.session.id)["policy"]["enabled"])
+        self.assertFalse(self.client.automatic_handoff(self.session.id)["policy"]["enabled"])
         self.client.stop_session(self.session.id)
 
     def test_candidate_queue_confirmed_handoff_and_real_completion(self) -> None:
