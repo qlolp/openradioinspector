@@ -144,7 +144,9 @@ final class RemoteDualModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var generation = 0
     private var absorbedSweepIDs: Set<String> = []
-    private var policyFormsInitialized = false
+    private var detectionFormInitialized = false
+    private var handoffFormInitialized = false
+    private var completionFormInitialized = false
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -450,7 +452,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticCompletion() {
-        configureAutomaticCompletion(enabled: automaticCompletionStatus?.policy.enabled ?? false)
+        configureAutomaticCompletion(enabled: nil)
     }
 
     func enableAutomaticCompletion() {
@@ -459,6 +461,21 @@ final class RemoteDualModel: ObservableObject {
 
     func disableAutomaticCompletion() {
         perform { try await $0.disableAutomaticCompletion(sessionID: $1) }
+    }
+
+    private func configureAutomaticCompletion(enabled: Bool?) {
+        do {
+            let draft = try PlatformCompletionPolicyDraft(
+                enabled: enabled,
+                intervalSeconds: try numberField(completionInterval, "Период завершения", 0.1...3600.0),
+                minimumListeningSeconds: try numberField(completionMinimumListening, "Минимум прослушивания", 0.0...86_400.0),
+                minimumObservations: try integerField(completionMinimumObservations, "Минимум наблюдений", 1...1000),
+                receiverStreamId: completionReceiverStreamID
+            )
+            perform { try await $0.configureAutomaticCompletion(sessionID: $1, draft: draft) }
+        } catch {
+            errorText = describeSession(error)
+        }
     }
 
     private func configureAutomaticDetection(enabled: Bool) {
@@ -489,21 +506,6 @@ final class RemoteDualModel: ObservableObject {
                 retryDelaySeconds: try numberField(handoffRetryDelay, "Задержка повтора", 0.1...86400.0)
             )
             perform { try await $0.configureAutomaticHandoff(sessionID: $1, draft: draft) }
-        } catch {
-            errorText = describeSession(error)
-        }
-    }
-
-    private func configureAutomaticCompletion(enabled: Bool) {
-        do {
-            let draft = try PlatformCompletionPolicyDraft(
-                enabled: enabled,
-                intervalSeconds: try numberField(completionInterval, "Период завершения", 0.1...3600.0),
-                minimumListeningSeconds: try numberField(completionMinimumListening, "Минимум прослушивания", 0.0...86_400.0),
-                minimumObservations: try integerField(completionMinimumObservations, "Минимум наблюдений", 1...1000),
-                receiverStreamId: completionReceiverStreamID
-            )
-            perform { try await $0.configureAutomaticCompletion(sessionID: $1, draft: draft) }
         } catch {
             errorText = describeSession(error)
         }
@@ -554,22 +556,21 @@ final class RemoteDualModel: ObservableObject {
         busy = true
         Task {
             do {
-                let result = try await operation(client, id)
-                guard requestGeneration == generation, id == selectedSessionID else { return }
+                _ = try await operation(client, id)
+                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
                 await refresh()
-                return result
             } catch {
-                guard requestGeneration == generation, id == selectedSessionID else { return }
+                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
                 errorText = describeSession(error)
             }
-            guard requestGeneration == generation, id == selectedSessionID else { return }
+            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
             busy = false
         }
     }
 
     private func startPolling() {
         pollTask?.cancel()
-        pollTask = Task {
+        pollTask = Task { @MainActor in
             while !Task.isCancelled {
                 await refresh()
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -600,7 +601,9 @@ final class RemoteDualModel: ObservableObject {
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         workflowErrors = []
-        policyFormsInitialized = false
+        detectionFormInitialized = false
+        handoffFormInitialized = false
+        completionFormInitialized = false
     }
 
     private func applyWorkflow(_ snapshot: PlatformSnapshot) {
@@ -625,31 +628,30 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func loadPolicyFormsIfNeeded() {
-        guard !policyFormsInitialized,
-              automaticHandoffStatus != nil, automaticDetectionStatus != nil,
-              automaticCompletionStatus != nil else { return }
-        if let policy = automaticDetectionStatus?.policy {
+        if !detectionFormInitialized, let policy = automaticDetectionStatus?.policy {
             detectionInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
             detectionStreamID = policy.streamId ?? analyzer?.id ?? ""
             detectionThreshold = policy.thresholdDbm.map { String(describing: $0) } ?? "-70"
             detectionDedupBandwidth = policy.dedupBandwidthHz.map { String($0) } ?? "100000"
             detectionCooldown = policy.cooldownSeconds.map { String(describing: $0) } ?? "60"
             detectionMaximumCandidates = policy.maxCandidatesPerSweep.map { String($0) } ?? "10"
+            detectionFormInitialized = true
         }
-        if let policy = automaticHandoffStatus?.policy {
+        if !handoffFormInitialized, let policy = automaticHandoffStatus?.policy {
             handoffInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
             handoffMinimumPriority = policy.minimumPriority.map { String($0) } ?? "0"
             handoffReceiverStreamID = policy.receiverStreamId ?? receiver?.id ?? ""
             handoffMaximumFailures = policy.maxConsecutiveFailures.map { String($0) } ?? "3"
             handoffRetryDelay = policy.retryDelaySeconds.map { String(describing: $0) } ?? "30"
+            handoffFormInitialized = true
         }
-        if let policy = automaticCompletionStatus?.policy {
+        if !completionFormInitialized, let policy = automaticCompletionStatus?.policy {
             completionInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
             completionMinimumListening = policy.minimumListeningSeconds.map { String(describing: $0) } ?? "0"
             completionMinimumObservations = policy.minimumObservations.map { String($0) } ?? "1"
             completionReceiverStreamID = policy.receiverStreamId ?? ""
+            completionFormInitialized = true
         }
-        policyFormsInitialized = true
     }
 
     private func applyMeasurements(_ snapshot: PlatformSnapshot) {
@@ -670,9 +672,187 @@ final class RemoteDualModel: ObservableObject {
         }
         latestSweep = snapshot.sweeps.last
         latestObservation = snapshot.observations.last
-        current = envelope.current
-        minimum = envelope.minimum
-        maximum = envelope.maximum
+        if let latestSweep {
+            current = plot(latestSweep)
+        } else {
+            current = []
+        }
+        minimum = envelope.minimumSeries().map { PlotPoint(x: Double($0.frequency) / 1_000_000, y: $0.level) }
+        maximum = envelope.maximumSeries().map { PlotPoint(x: Double($0.frequency) / 1_000_000, y: $0.level) }
         rows = found
     }
+
+    private func plot(_ sweep: PlatformSweep) -> [PlotPoint] {
+        zip(sweep.frequenciesHz, sweep.levels).map {
+            PlotPoint(x: Double($0) / 1_000_000, y: $1)
+        }
+    }
+}
+
+import SpektrKomandy
+import SwiftUI
+
+struct RemoteStreamControls: View {
+    var title: String
+    var stream: PlatformStream?
+    var worker: PlatformWorker?
+    var busy: Bool
+    var onStart: () -> Void
+    var onStop: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(stream.map { "\($0.device) · \($0.id)" } ?? "Подходящий поток не найден")
+                .font(.caption)
+                .textSelection(.enabled)
+            HStack {
+                Label(worker?.state ?? stream?.state ?? "—", systemImage: worker?.alive == true ? "circle.fill" : "circle")
+                    .foregroundStyle(worker?.alive == true ? .green : .secondary)
+                Spacer()
+                Button("Запустить поток", action: onStart)
+                    .disabled(stream == nil || busy)
+                Button("Остановить поток", action: onStop)
+                    .disabled(stream == nil || busy)
+            }
+            if let error = worker?.lastError, !error.isEmpty {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        }
+    }
+}
+
+struct RemoteArPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("AOR AR-DV1 · через ядро").font(.title2.weight(.semibold))
+                Text("Наблюдения и команды поступают через /api/v1. Уровень остаётся в исходных отсчётах S-метра; звук и аппаратное декодирование выполняет приёмник.")
+                    .foregroundStyle(.secondary)
+                RemoteStreamControls(
+                    title: "AR-DV1", stream: model.receiver,
+                    worker: model.worker(for: model.receiver?.id), busy: model.busy,
+                    onStart: { model.startStream(model.receiver) },
+                    onStop: { model.stopStream(model.receiver) }
+                )
+                HStack {
+                    Picker("Режим", selection: $model.mode) {
+                        ForEach(["FM", "AM", "DMR", "TETRA"], id: \.self) { Text($0) }
+                    }
+                    .frame(width: 180)
+                    Button("Перестроить на фактический пик") { model.tuneLatestPeak() }
+                        .disabled(model.receiver == nil || model.current.isEmpty || model.busy)
+                }
+                if let observation = model.latestObservation {
+                    GroupBox("Последнее наблюдение ядра") {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(frequency(observation.frequencyHz))
+                            Text("Режим: \(observation.mode) · декодер: \(observation.decodedMode ?? "—")")
+                            Text("Уровень: \(observation.level.map { String(format: "%.1f", $0) } ?? "—") \(observation.levelUnit)")
+                            Text("Шумодав: \(observation.squelchOpen.map { $0 ? "открыт" : "закрыт" } ?? "—")")
+                            Text("Интервал: \(observation.interval.startedAt) — \(observation.interval.endedAt)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                } else {
+                    Text("Наблюдений receiver пока нет").foregroundStyle(.secondary)
+                }
+                Text("Перестройка AR-DV1 не останавливает tinySA. Прежняя частота автоматически не восстанавливается.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ErrorLine(text: model.errorText)
+            }
+            .padding(16)
+        }
+    }
+
+    private func frequency(_ hertz: Int64) -> String {
+        String(format: "%.6f МГц", Double(hertz) / 1_000_000) + " · \(hertz) Гц"
+    }
+}
+
+struct RemoteUltraPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("tinySA Ultra · через ядро").font(.title2.weight(.semibold))
+                Text("Спектр и водопад строятся только из архивных dBm sweeps. Клиент не отправляет scan и не включает генератор.")
+                    .foregroundStyle(.secondary)
+                RemoteStreamControls(
+                    title: "tinySA", stream: model.analyzer,
+                    worker: model.worker(for: model.analyzer?.id), busy: model.busy,
+                    onStart: { model.startStream(model.analyzer) },
+                    onStop: { model.stopStream(model.analyzer) }
+                )
+                HStack {
+                    TextField("Порог, dBm", text: $model.threshold)
+                        .textFieldStyle(.roundedBorder).frame(width: 140)
+                    Text(model.live).font(.caption).foregroundStyle(.secondary)
+                }
+                TraceChart(
+                    current: model.current, minimum: model.minimum, maximum: model.maximum,
+                    threshold: model.thresholdDbm, yTitle: "дБм (исходные)"
+                )
+                WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
+                GroupBox("Превышения порога") {
+                    if model.rows.isEmpty {
+                        Text("Превышений нет").foregroundStyle(.secondary)
+                    } else {
+                        ForEach(model.rows.prefix(30)) { row in
+                            Button {
+                                model.tune(frequencyHz: row.center)
+                            } label: {
+                                HStack {
+                                    Text(String(format: "%.6f МГц", Double(row.center) / 1_000_000))
+                                    Spacer()
+                                    Text("полоса \(row.width) Гц · \(row.hits)")
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.receiver == nil || model.busy)
+                        }
+                    }
+                }
+                ErrorLine(text: model.errorText)
+            }
+            .padding(16)
+        }
+    }
+}
+
+// Observe this particular window; other WindowGroup windows keep their own sessions.
+struct WindowCloseObserver: NSViewRepresentable {
+    var onClose: () -> Void
+
+    func makeNSView(context: Context) -> WindowCloseView {
+        let view = WindowCloseView()
+        view.onClose = onClose
+        return view
+    }
+
+    func updateNSView(_ view: WindowCloseView, context: Context) {
+        view.onClose = onClose
+    }
+}
+
+final class WindowCloseView: NSView {
+    var onClose: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
+        if let window {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose),
+                name: NSWindow.willCloseNotification, object: window)
+        }
+    }
+
+    @objc private func windowWillClose(_ notification: Notification) {
+        onClose?()
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
