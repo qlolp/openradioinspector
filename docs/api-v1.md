@@ -38,6 +38,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
+| `GET` | `/api/v1/sessions/{id}/analytics/summary?stream_id=` | Read-only агрегаты всего архива сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
 | `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
 | `GET` | `/api/v1/sessions/{id}/candidates/{candidate_id}` | Один кандидат |
@@ -300,6 +301,18 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps/batch \
 
 Успешный ответ имеет HTTP 201 и `data={"items":[...],"count":2}`. Порядок элементов сохраняется. Для каждого измерения создаётся своё обычное событие `sweep.received` или `observation.received` с монотонной последовательностью. В SQLite весь пакет и все его события записываются одной транзакцией; replay и SSE обновляются только после commit. Ошибка любого элемента, дубликат ID внутри пакета или конфликт с архивом отклоняет весь пакет: частичные измерения и события не сохраняются. Memory-only режим применяет ту же проверку «всё или ничего» до изменения списков. Capabilities сообщают `measurement_batch_ingest=true`, `measurement_batch_atomic=true` и `measurement_batch_limit=100`.
 
+### Read-only аналитика архива
+
+`GET /api/v1/sessions/{id}/analytics/summary` возвращает агрегаты всего архива сеанса, а не только последние 40 или 100 измерений HTTP-выборки. Необязательный `stream_id` ограничивает расчёт одним потоком того же сеанса; неизвестный сеанс возвращает 404, чужой поток — 400.
+
+```bash
+curl -sS 'http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/analytics/summary?stream_id=TINYSA_STREAM_ID'
+```
+
+Отдельные объекты `sweeps` и `observations` содержат `count`, `first_started_at`, `last_started_at`, `level_units` и полное последнее измерение `latest`. Для последнего sweep дополнительно возвращается `latest_peak` с фактическими `sweep_id`, `frequency_hz`, `level` и `level_unit`. Для observations публикуются `squelch_known`, `squelch_open` и `squelch_open_ratio`; если состояние шумодава неизвестно у всех записей, ratio равно `null`.
+
+Поле `archive_wide=true` подчёркивает область расчёта. Memory-only и SQLite возвращают одинаковую структуру; после перезапуска SQLite-архив сохраняет агрегаты. Расчёт выполняется под блокировкой службы и read-only: он не создаёт измерений, событий или преобразования `s_meter_count` в `dBm`. Capabilities сообщают `session_analytics=true` и `session_analytics_archive_wide=true`. Это сводка архива, а не автоматическая классификация сигнала или точное измерение занимаемой полосы.
+
 ## Кандидаты и режимы handoff
 
 Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматического завершения исследований нет. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false` и `automatic_investigation_completion=false`.
@@ -443,7 +456,7 @@ POST частично обновляет политику. Неизвестны�
 
 На каждом проходе планировщик рассматривает только `queued` с приоритетом не ниже заданного и подходящим receiver, в общем порядке очереди. Занятый receiver пропускается, но не блокирует независимый свободный receiver. Если ручной запуск занял receiver после предварительного выбора, проход помечается `skipped` и не считается приборным сбоем. Запуск выполняется через тот же `start_investigation`: автоматизируются только переходы `queued → tuning → listening`, без автоматического `complete`, `fail` или `cancel`.
 
-После сбоя настройки следующий фоновый проход откладывается на `retry_delay_seconds`. При достижении `max_consecutive_failures` политика автоматически получает `enabled=false`, runtime — `last_result=circuit_breaker`. Явное выключение сохраняет остальные параметры до перезапуска процесса:
+После сбоя настройки следующий фоновой проход откладывается на `retry_delay_seconds`. При достижении `max_consecutive_failures` политика автоматически получает `enabled=false`, runtime — `last_result=circuit_breaker`. Явное выключение сохраняет остальные параметры до перезапуска процесса:
 
 ```bash
 curl -sS -X POST \
