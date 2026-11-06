@@ -71,6 +71,26 @@ def policy_text(status: Optional[dict[str, Any]]) -> str:
     return f"{enabled} · {runtime.get('last_result', '?')} · процесс: runtime-only{suffix}"
 
 
+def analytics_text(summary: Optional[dict[str, Any]], error: Optional[str] = None) -> str:
+    if error:
+        return f"Сводка архива недоступна: {error}. Live-измерения продолжаются"
+    if not summary:
+        return "Сводка архива: ожидание данных"
+    sweeps = summary.get("sweeps") or {}
+    observations = summary.get("observations") or {}
+    ratio = observations.get("squelch_open_ratio")
+    squelch = "нет данных" if ratio is None else f"{ratio * 100:.1f}%"
+    text = (
+        f"Архив: {sweeps.get('count', 0)} sweeps {','.join(sweeps.get('level_units') or []) or 'нет данных'} · "
+        f"{observations.get('count', 0)} observations {','.join(observations.get('level_units') or []) or 'нет данных'} · "
+        f"шумодав {squelch}"
+    )
+    peak = sweeps.get("latest_peak")
+    if peak:
+        text += f" · пик {peak.get('frequency_hz')} Гц ({peak.get('level')} {peak.get('level_unit')})"
+    return text
+
+
 class WindowsApp:
     """Тонкий UI: фоновые HTTP-запросы не обращаются к Tk напрямую."""
 
@@ -173,17 +193,21 @@ class WindowsApp:
         policies = ttk.Frame(outer)
         policies.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         policies.columnconfigure((0, 1), weight=1)
+        self.analytics_var = self.tk.StringVar(value="Сводка архива: ожидание данных")
         self.detection_var = self.tk.StringVar(value="Обнаружение: состояние не получено")
         self.handoff_var = self.tk.StringVar(value="Handoff: состояние не получено")
-        ttk.Label(policies, textvariable=self.detection_var, wraplength=550).grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ttk.Label(policies, textvariable=self.handoff_var, wraplength=550).grid(row=0, column=1, sticky="ew")
+        ttk.Label(policies, textvariable=self.analytics_var, wraplength=1000).grid(
+            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6)
+        )
+        ttk.Label(policies, textvariable=self.detection_var, wraplength=550).grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        ttk.Label(policies, textvariable=self.handoff_var, wraplength=550).grid(row=1, column=1, sticky="ew")
         self.detection_policy_button = ttk.Button(
             policies,
             text="Настроить обнаружение…",
             command=lambda: self._open_policy_form("detection"),
         )
         self.detection_policy_button.grid(
-            row=1, column=0, sticky="w", padx=(0, 8), pady=(6, 0)
+            row=2, column=0, sticky="w", padx=(0, 8), pady=(6, 0)
         )
         self.handoff_policy_button = ttk.Button(
             policies,
@@ -191,7 +215,7 @@ class WindowsApp:
             command=lambda: self._open_policy_form("handoff"),
         )
         self.handoff_policy_button.grid(
-            row=1, column=1, sticky="w", pady=(6, 0)
+            row=2, column=1, sticky="w", pady=(6, 0)
         )
 
         notebook = ttk.Notebook(outer)
@@ -476,6 +500,7 @@ class WindowsApp:
                 receiver=next_investigation.get("target_stream_id"),
             )
         )
+        self.analytics_var.set(analytics_text(snapshot.analytics, snapshot.analytics_error))
         self.detection_var.set(f"Обнаружение: {policy_text(snapshot.automatic_detection)}")
         self.handoff_var.set(f"Handoff: {policy_text(snapshot.automatic_handoff)}")
         spectrum_stream_id = self._spectrum_stream_id()
@@ -498,13 +523,13 @@ class WindowsApp:
         self.waterfall_info_var.set("Водопад: ожидание данных")
 
     def _render_spectrum(self) -> None:
-        stream = self._selected_stream()
         if self._spectrum_stream_id() is None:
             self._clear_spectrum(
                 "Выберите поток spectrum_analyzer с исходными dBm на вкладке «Потоки». "
                 "Отсчёты s_meter_count в dBm не преобразуются."
             )
             return
+        stream = self._selected_stream()
         if self.snapshot.spectrum_stream_id != stream.get("id"):
             self._clear_spectrum(f"Загрузка реальных sweeps потока {stream.get('id')}…")
             return
@@ -776,24 +801,32 @@ class WindowsApp:
         )
         for row, (name, label) in enumerate(labels):
             self._form_entry(frame, row, label, variables[name])
-        simulated_var = self.tk.BooleanVar(value=True)
-        self.ttk.Checkbutton(
+        adapter_var = self.tk.StringVar(value="simulators")
+        self.ttk.Label(frame, text="Тип workers").grid(row=7, column=0, sticky="w", pady=4)
+        self.ttk.Combobox(
             frame,
-            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
-            variable=simulated_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+            textvariable=adapter_var,
+            values=("draft", "simulators", "serial"),
+            state="readonly",
+        ).grid(row=7, column=1, sticky="ew", pady=4)
+        self.ttk.Label(
+            frame,
+            text="draft — только профили; simulators — программный стенд; serial — явные serial-адаптеры, стенд не проверен.",
+            wraplength=520,
+        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
         self.ttk.Label(
             frame,
             text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
             wraplength=520,
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=4)
         client = self.client
 
         def submit() -> None:
             try:
                 payload = session_payload(
                     **{name: variable.get() for name, variable in variables.items()},
-                    simulated=bool(simulated_var.get()),
+                    simulated=adapter_var.get() == "simulators",
+                    serial=adapter_var.get() == "serial",
                 )
             except (TypeError, ValueError) as exc:
                 error_var.set(str(exc))
@@ -805,9 +838,9 @@ class WindowsApp:
                 on_success=self._use_created_session,
             )
 
-        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self._form_buttons(window, frame, 10, "Создать сеанс", submit)
         self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
-            row=10, column=0, columnspan=2, sticky="ew", pady=4
+            row=11, column=0, columnspan=2, sticky="ew", pady=4
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:
