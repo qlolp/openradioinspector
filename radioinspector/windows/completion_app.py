@@ -15,14 +15,27 @@ class CompletionWindowsApp(WindowsApp):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.completion_var = self.tk.StringVar(value="Завершение: состояние не получено")
-        self.completion_policy_button = self.tk.Button(
-            self.root,
+        self._build_completion_controls()
+
+    def _build_completion_controls(self) -> None:
+        policies = self.detection_policy_button.master
+        self.completion_var = self.tk.StringVar(
+            value="Завершение: состояние не получено"
+        )
+        self.completion_status_label = self.ttk.Label(
+            policies, textvariable=self.completion_var, wraplength=1000
+        )
+        self.completion_status_label.grid(
+            row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0)
+        )
+        self.completion_policy_button = self.ttk.Button(
+            policies,
             text="Настроить завершение…",
             command=lambda: self._open_policy_form("completion"),
+            state="disabled",
         )
-        self.completion_policy_button.pack(
-            side="top", fill="x", padx=10, pady=(0, 8)
+        self.completion_policy_button.grid(
+            row=4, column=0, sticky="w", padx=(0, 8), pady=(6, 0)
         )
 
     def _apply_snapshot(self, snapshot) -> None:
