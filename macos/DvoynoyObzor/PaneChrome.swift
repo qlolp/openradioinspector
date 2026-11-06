@@ -111,6 +111,7 @@ struct RemoteWorkflowPane: View {
                 candidates.frame(width: 390, alignment: .leading)
                 investigations.frame(width: 430, alignment: .leading)
                 VStack(spacing: 12) {
+                    RemoteAnalyticsPane(model: model)
                     RemoteDetectionPolicyPane(model: model)
                     RemoteHandoffPolicyPane(model: model)
                 }
@@ -208,6 +209,38 @@ struct RemoteWorkflowPane: View {
 }
 
 private let workflowOpenStates: Set<String> = ["queued", "tuning", "listening", "decoding"]
+
+struct RemoteAnalyticsPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        GroupBox("Сводка всего архива · read-only") {
+            VStack(alignment: .leading, spacing: 6) {
+                if let summary = model.archiveAnalytics {
+                    Text("Sweeps: \(summary.sweeps.count) · \(summary.sweeps.levelUnits.joined(separator: ", "))")
+                    Text("Observations: \(summary.observations.count) · \(summary.observations.levelUnits.joined(separator: ", "))")
+                    if let ratio = summary.observations.squelchOpenRatio {
+                        Text("Шумодав открыт: \(String(format: "%.1f", ratio * 100))% · \(summary.observations.squelchOpen) из \(summary.observations.squelchKnown)")
+                    } else {
+                        Text("Состояние шумодава неизвестно")
+                    }
+                    if let peak = summary.sweeps.latestPeak {
+                        Text("Пик последнего sweep: \(workflowFrequency(peak.frequencyHz)) · \(String(format: "%.2f", peak.level)) \(peak.levelUnit)")
+                            .textSelection(.enabled)
+                    } else {
+                        Text("Спектральных свипов нет").foregroundStyle(.secondary)
+                    }
+                    Text("archive_wide=\(summary.archiveWide) · исходные единицы не преобразуются")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text(model.archiveAnalyticsError ?? "Сводка появится после выбора сеанса")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(4)
+        }
+    }
+}
 
 struct RemoteDetectionPolicyPane: View {
     @ObservedObject var model: RemoteDualModel
