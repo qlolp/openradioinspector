@@ -233,7 +233,9 @@ class AutomaticInvestigationCompletion:
                 if elapsed < policy["minimum_listening_seconds"]:
                     continue
                 observation_ids = self.sessions.matching_observation_ids(
-                    session_id, investigation.id
+                    session_id,
+                    investigation.id,
+                    limit=policy["minimum_observations"],
                 )
                 if len(observation_ids) < policy["minimum_observations"]:
                     continue
@@ -246,18 +248,17 @@ class AutomaticInvestigationCompletion:
                         return None
                     runtime["last_investigation_id"] = investigation.id
                     runtime["last_result"] = "completing"
-                try:
-                    result = self.sessions.complete_investigation(
-                        session_id, investigation.id
-                    )
-                except ValueError as exc:
-                    # Ручное complete/fail/cancel после предварительного выбора —
-                    # гонка оператора, а не сбой прибора или архива.
-                    with self._lock:
+                    try:
+                        result = self.sessions.complete_investigation(
+                            session_id, investigation.id
+                        )
+                    except ValueError as exc:
+                        # Ручное complete/fail/cancel после предварительного выбора —
+                        # гонка оператора, а не сбой прибора или архива.
                         runtime["last_result"] = "skipped"
                         runtime["last_error"] = str(exc)
                         runtime["skipped_investigations"] += 1
-                    return None
+                        return None
                 with self._lock:
                     runtime["last_result"] = "completed"
                     runtime["last_error"] = None
