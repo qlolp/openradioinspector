@@ -97,6 +97,9 @@ public struct PlatformStream: Decodable, Identifiable, Equatable {
     public var isDbmAnalyzer: Bool {
         role == "spectrum_analyzer" && levelUnit == "dBm"
     }
+    public var tuneModes: [String] {
+        capabilities.contains("hardware_decode") ? ["FM", "AM", "DMR", "TETRA"] : ["FM", "AM"]
+    }
 }
 
 public struct PlatformSession: Decodable, Identifiable, Equatable {

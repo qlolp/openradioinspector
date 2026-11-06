@@ -334,6 +334,20 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertTrue(snapshot.workflowErrors[1].contains("automatic completion"))
     }
 
+    func testReceiverModesFollowDeclaredProfileCapabilities() {
+        let serial = PlatformStream(
+            id: "ar/1", device: "AR-DV1", role: "receiver",
+            levelUnit: "s_meter_count", state: "connected", capabilities: ["tune", "audio"]
+        )
+        let hardwareDigital = PlatformStream(
+            id: "ar/2", device: "AR-DV1", role: "receiver",
+            levelUnit: "s_meter_count", state: "connected",
+            capabilities: ["tune", "audio", "hardware_decode"]
+        )
+        XCTAssertEqual(serial.tuneModes, ["FM", "AM"])
+        XCTAssertEqual(hardwareDigital.tuneModes, ["FM", "AM", "DMR", "TETRA"])
+    }
+
     func testRejectsInvalidWorkflowValues() async throws {
         XCTAssertThrowsError(try PlatformCandidateDraft(
             sourceStreamId: "tiny", interval: PlatformInterval(startedAt: "a", endedAt: "b"),
