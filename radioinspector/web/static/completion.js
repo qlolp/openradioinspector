@@ -90,6 +90,7 @@
       const error = runtime.last_error ? ` · ${runtime.last_error}` : "";
       dom.status.textContent = `${enabled ? "Включено" : "Выключено"} · ${runtime.last_result} · ${receiver} · завершено ${runtime.completed_investigations}, пропущено ${runtime.skipped_investigations} · проход ${formatTime(runtime.last_run_at)}${last}${error}`;
     }
+    dom.session.disabled = state.actionPending;
     const fields = [dom.interval, dom.listening, dom.observations, dom.receiver];
     for (const field of fields) field.disabled = !status || Boolean(status.error) || state.actionPending;
     dom.save.disabled = !status || Boolean(status.error) || state.actionPending;
@@ -102,8 +103,7 @@
     dom.receiver.value = policy.receiver_stream_id || "";
   }
 
-  async function loadReceivers(policy) {
-    const session = await api(sessionPath());
+  function loadReceivers(policy, session) {
     const items = (session.streams || [])
       .filter((stream) => stream.role === "receiver")
       .map((stream) => ({ value: stream.id, label: `${stream.device} · ${stream.level_unit}` }));
@@ -125,8 +125,9 @@
       if (generation !== state.generation) return;
       state.automaticCompletion = status;
       const policy = status.policy || {};
+      if (generation !== state.generation) return;
       if (!state.completionFormDirty) {
-        await loadReceivers(policy);
+        loadReceivers(policy, session);
       }
     } catch (error) {
       if (generation !== state.generation) return;
@@ -157,11 +158,20 @@
 
   async function configureAutomaticCompletion(enabled, saveOnly = false) {
     if (!dom.session.value) throw new ApiError("Сначала выберите сеанс.", "invalid_form");
+    const sessionId = dom.session.value;
+    const generation = state.generation;
+    const actionPath = (suffix = "") => `/sessions/${encode(sessionId)}${suffix}`;
+    const rejectStaleAction = () => {
+      if (generation !== state.generation || sessionId !== dom.session.value) {
+        throw new ApiError("Выбор сеанса изменился; действие отменено.", "stale_action");
+      }
+    };
     const payload = {};
     if (!saveOnly) payload.enabled = enabled;
     if (enabled || saveOnly) {
       if (enabled && !saveOnly) {
-        const session = await api(sessionPath());
+        const session = await api(actionPath());
+        rejectStaleAction();
         if (session.state !== "running") {
           throw new ApiError("Автоматическое завершение можно включить только в работающем сеансе.", "invalid_form");
         }
@@ -174,7 +184,9 @@
     state.actionPending = true;
     renderAutomaticCompletion();
     try {
-      const status = await api(sessionPath("/automatic-completion"), { method: "POST", body: payload });
+      rejectStaleAction();
+      const status = await api(actionPath("/automatic-completion"), { method: "POST", body: payload });
+      rejectStaleAction();
       state.automaticCompletion = status;
       state.completionFormDirty = false;
       renderAutomaticCompletion();
