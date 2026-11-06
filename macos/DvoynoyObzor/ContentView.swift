@@ -633,7 +633,7 @@ final class RemoteDualModel: ObservableObject {
     private func loadPolicyFormsIfNeeded() {
         if !detectionFormInitialized, let policy = automaticDetectionStatus?.policy {
             detectionInterval = policy.intervalSeconds.map { String(describing: $0) } ?? "1"
-            detectionStreamID = policy.streamId ?? analyzer?.id ?? ""
+            detectionStreamID = policy.streamId ?? ""
             detectionThreshold = policy.thresholdDbm.map { String(describing: $0) } ?? "-70"
             detectionDedupBandwidth = policy.dedupBandwidthHz.map { String($0) } ?? "100000"
             detectionCooldown = policy.cooldownSeconds.map { String(describing: $0) } ?? "60"
