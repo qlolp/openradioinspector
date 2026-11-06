@@ -9,6 +9,7 @@ import urllib.error
 
 from radioinspector.windows.app import (
     WindowsApp,
+    analytics_text,
     candidate_row,
     investigation_row,
     policy_text,
@@ -23,6 +24,7 @@ from radioinspector.windows.client import (
 )
 from radioinspector.web.server import create_server
 from radioinspector.windows.workflows import (
+    automatic_completion_payload,
     automatic_detection_payload,
     automatic_handoff_payload,
     session_payload as windows_session_payload,
@@ -52,6 +54,30 @@ class WindowsClientValidationTests(unittest.TestCase):
                 validate_tune(frequency, "FM")
         with self.assertRaisesRegex(ValueError, "Режим"):
             validate_tune(100_000_000, " ")
+
+    def test_analytics_text_preserves_units_and_isolates_error(self) -> None:
+        summary = {
+            "sweeps": {
+                "count": 2,
+                "level_units": ["dBm"],
+                "latest_peak": {
+                    "frequency_hz": 100_100_000,
+                    "level": -42.0,
+                    "level_unit": "dBm",
+                },
+            },
+            "observations": {
+                "count": 1,
+                "level_units": ["s_meter_count"],
+                "squelch_open_ratio": 1.0,
+            },
+        }
+        text = analytics_text(summary)
+        self.assertIn("2 sweeps dBm", text)
+        self.assertIn("1 observations s_meter_count", text)
+        self.assertIn("100100000 Гц", text)
+        self.assertIn("100.0%", text)
+        self.assertIn("Live-измерения", analytics_text(None, "старая версия сервера"))
 
     def test_transport_error_is_typed_and_does_not_open_devices(self) -> None:
         client = PlatformClient("http://example.test", opener=BrokenOpener())
@@ -463,6 +489,29 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(disabled_handoff["policy"]["enabled"])
         self.assertEqual(disabled_handoff["policy"]["receiver_stream_id"], self.receiver_id)
+
+        completion = automatic_completion_payload(
+            enabled=True,
+            interval_seconds=0.2,
+            minimum_listening_seconds=0,
+            minimum_observations=1,
+            receiver_stream_id=self.receiver_id,
+        )
+        completion_status = self.client.configure_automatic_completion(
+            self.session.id, completion
+        )
+        self.assertTrue(completion_status["policy"]["enabled"])
+        self.assertEqual(completion_status["policy"]["minimum_observations"], 1)
+        snapshot = self.client.snapshot(self.session.id)
+        self.assertTrue(snapshot.automatic_completion["policy"]["enabled"])
+        self.assertEqual(snapshot.automatic_completion["policy"]["receiver_stream_id"], self.receiver_id)
+        disabled_completion = self.client.configure_automatic_completion(
+            self.session.id, {"enabled": False}
+        )
+        self.assertFalse(disabled_completion["policy"]["enabled"])
+        self.assertEqual(disabled_completion["policy"]["minimum_observations"], 1)
+        self.assertFalse(self.client.automatic_detection(self.session.id)["policy"]["enabled"])
+        self.assertFalse(self.client.automatic_handoff(self.session.id)["policy"]["enabled"])
         self.client.stop_session(self.session.id)
 
     def test_candidate_queue_confirmed_handoff_and_real_completion(self) -> None:
