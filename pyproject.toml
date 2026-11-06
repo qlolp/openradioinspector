@@ -51,6 +51,7 @@ all = [
 [project.scripts]
 radioinspector = "radioinspector.cli:main"
 radioinspector-windows = "radioinspector.windows.app:main"
+radioinspector-archive-import = "radioinspector.archive_ingest:main"
 
 [project.urls]
 Homepage = "https://github.com/qlolp/openradioinspector"
