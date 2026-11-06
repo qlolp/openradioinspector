@@ -43,6 +43,7 @@ from ..session_service import (
     SessionNotFoundError,
     SessionService,
 )
+from ..session_analytics import analytics_summary
 from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -440,6 +441,8 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
+                capabilities["features"]["session_analytics"] = True
+                capabilities["features"]["session_analytics_archive_wide"] = True
                 capabilities["features"]["session_archive_export"] = True
                 capabilities["features"]["session_archive_export_archive_wide"] = True
                 capabilities["features"]["automatic_investigation_completion"] = True
@@ -553,6 +556,19 @@ class Handler(BaseHTTPRequestHandler):
                         build_archive_document(
                             self.sessions, parts[3], stream_id=stream_id
                         )
+                    )
+                )
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "analytics"
+                and parts[5] == "summary"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                self._send_json(
+                    api_payload(
+                        analytics_summary(self.sessions, parts[3], stream_id=stream_id)
                     )
                 )
                 return
