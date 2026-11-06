@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional, TextIO
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from .contracts import (
     CONTRACT_NAME,
@@ -95,7 +95,9 @@ def load_archive_document(source: TextIO, session_id: str) -> ArchiveDocument:
     return parse_archive_document(payload, session_id)
 
 
-def parse_archive_document(payload: Any, session_id: str) -> ArchiveDocument:
+def parse_archive_document(
+    payload: Any, session_id: str, *, allow_empty: bool = False
+) -> ArchiveDocument:
     """Валидирует весь документ до каких-либо сетевых операций записи."""
     if not isinstance(session_id, str) or not session_id:
         raise ArchiveIngestError("session_id должен быть непустой строкой", code="invalid_session")
@@ -162,7 +164,7 @@ def parse_archive_document(payload: Any, session_id: str) -> ArchiveDocument:
     document = ArchiveDocument(
         sweeps=parsed["sweeps"], observations=parsed["observations"]
     )
-    if document.total == 0:
+    if document.total == 0 and not allow_empty:
         raise ArchiveIngestError("Архивный документ не содержит измерений", code="empty_document")
     return document
 
@@ -272,6 +274,13 @@ class ArchiveIngestClient:
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}")
+
+    def export_archive(
+        self, session_id: str, *, stream_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        query = f"?{urlencode({'stream_id': stream_id})}" if stream_id is not None else ""
+        return self._request("GET", f"/sessions/{session}/archive/export{query}")
 
     def ingest_batch(
         self, session_id: str, kind: str, items: list[dict[str, Any]]
