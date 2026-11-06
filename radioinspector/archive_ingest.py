@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import socket
 import sys
 import urllib.error
@@ -58,10 +59,35 @@ def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Недопустимое JSON-число: {value}")
 
 
+def _parse_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"Неконечное JSON-число: {value}")
+    return number
+
+
+def _ensure_finite_numbers(value: Any) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ArchiveIngestError(
+            "Документ содержит NaN или Infinity во вложенных данных",
+            code="non_finite_number",
+        )
+    if isinstance(value, dict):
+        for item in value.values():
+            _ensure_finite_numbers(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _ensure_finite_numbers(item)
+
+
 def load_archive_document(source: TextIO, session_id: str) -> ArchiveDocument:
     """Читает строгий JSON; NaN и Infinity не принимаются даже в metadata."""
     try:
-        payload = json.load(source, parse_constant=_reject_json_constant)
+        payload = json.load(
+            source,
+            parse_constant=_reject_json_constant,
+            parse_float=_parse_json_float,
+        )
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise ArchiveIngestError(
             f"Входной файл не является корректным JSON: {exc}", code="invalid_json"
@@ -75,6 +101,7 @@ def parse_archive_document(payload: Any, session_id: str) -> ArchiveDocument:
         raise ArchiveIngestError("session_id должен быть непустой строкой", code="invalid_session")
     if not isinstance(payload, dict):
         raise ArchiveIngestError("Архивный документ должен быть JSON-объектом", code="invalid_document")
+    _ensure_finite_numbers(payload)
     if payload.get("format") != ARCHIVE_FORMAT:
         raise ArchiveIngestError(
             f"Поле format должно быть {ARCHIVE_FORMAT}", code="invalid_format"
@@ -194,7 +221,11 @@ class ArchiveIngestClient:
                 "Ответ сервера превышает 32 МБ", status=status, code="response_too_large"
             )
         try:
-            envelope = json.loads(raw.decode("utf-8"), parse_constant=_reject_json_constant)
+            envelope = json.loads(
+                raw.decode("utf-8"),
+                parse_constant=_reject_json_constant,
+                parse_float=_parse_json_float,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ArchiveIngestError(
                 "Сервер вернул некорректный JSON", status=status, code="invalid_json"
