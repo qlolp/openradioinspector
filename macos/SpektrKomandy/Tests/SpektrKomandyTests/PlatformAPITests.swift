@@ -236,22 +236,89 @@ final class PlatformAPITests: XCTestCase {
         }
         await XCTAssertThrowsPlatformError(try await client.listSessions())
 
-        let original = URL(string: "https://example.test/api/v1/sessions")!
-        let session = URLSession(configuration: .ephemeral)
-        sessions.append(session)
-        let task = session.dataTask(with: original)
-        let response = HTTPURLResponse(
-            url: original, statusCode: 307, httpVersion: nil, headerFields: nil
-        )!
-        let completed = expectation(description: "redirect rejected")
-        PlatformRedirectGuard().urlSession(
-            session, task: task, willPerformHTTPRedirection: response,
-            newRequest: URLRequest(url: URL(string: "http://127.0.0.1:8770/api/v1/sessions")!)
-        ) { request in
-            XCTAssertNil(request)
-            completed.fulfill()
+        #if canImport(AppKit)
+        final class ProbeRedirectGuard: PlatformRedirectGuard, @unchecked Sendable {
+            let expectation: XCTestExpectation
+            init(expectation: XCTestExpectation) {
+                self.expectation = expectation
+            }
+            override func urlSession(
+                _ session: URLSession,
+                task: URLSessionTask,
+                willPerformHTTPRedirection response: HTTPURLResponse,
+                newRequest request: URLRequest,
+                completionHandler: @escaping (URLRequest?) -> Void
+            ) {
+                expectation.fulfill()
+                super.urlSession(
+                    session, task: task, willPerformHTTPRedirection: response,
+                    newRequest: request, completionHandler: completionHandler
+                )
+            }
         }
+        let completed = expectation(description: "redirect rejected by delegate")
+        let probe = ProbeRedirectGuard(expectation: completed)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-c", """
+import http.server
+class RedirectHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(307)
+        self.send_header("Location", "http://127.0.0.1:8770/api/v1/sessions")
+        self.end_headers()
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+"""]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        defer { process.terminate() }
+        var portData = Data()
+        while !portData.contains(0x0A) {
+            portData.append(output.fileHandleForReading.readData(ofLength: 1))
+        }
+        let port = String(decoding: portData, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let session = URLSession(
+            configuration: .ephemeral, delegate: probe, delegateQueue: nil
+        )
+        sessions.append(session)
+        let guarded = try PlatformClient(
+            baseURL: "http://127.0.0.1:\(port)", session: session
+        )
+        await XCTAssertThrowsPlatformError(try await guarded.listSessions())
         await fulfillment(of: [completed], timeout: 1)
+        #endif
+    }
+
+    func testSnapshotRetriesLargeSweepHistoryWithSmallerLimit() async throws {
+        var limits: [String] = []
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/sweeps") {
+                let limit = request.url!.query!.contains("limit=40") ? "40" : "20"
+                limits.append(limit)
+                if limit == "40" { throw PlatformError.responseTooLarge }
+                let sweep = """
+                [{"id":"sw1","session_id":"session/old","stream_id":"tiny/sa","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"frequencies_hz":[100000000,100100000],"levels":[-80.5,-61.25],"level_unit":"dBm"}]
+                """
+                return (self.response(request.url!), self.envelope(sweep))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/observations")
+                || path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/investigations/next") {
+                return (self.response(request.url!), self.envelope("null"))
+            }
+            return (self.response(request.url!), self.envelope(self.sessionJSON))
+        }
+        let snapshot = try await client.snapshot(sessionID: "session/old")
+        XCTAssertEqual(snapshot.sweeps.count, 1)
+        XCTAssertEqual(snapshot.sweeps[0].levelUnit, "dBm")
+        XCTAssertEqual(limits, ["40", "20"])
     }
 
     private func XCTAssertThrowsPlatformError<T>(
