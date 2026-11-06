@@ -100,7 +100,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
     for cycle in range(args.cycles):
         trace = _synthetic_panorama(settings, emitters, rng, cycle)
         latitude = 55.75 + cycle * 0.0008
-        longitude = 37.62 + cycle * 0.0011
+        longitude = 55.62 + cycle * 0.0011
         store.append(
             trace,
             recorded_at=base_time + timedelta(seconds=cycle * 3),
@@ -242,141 +242,6 @@ def cmd_measure(args: argparse.Namespace) -> int:
     """Измерение параметров сигнала по сохранённой базе данных."""
     with PanoramaStore(args.database) as store:
         record = store.latest()
-        if record is None:
-            print("База данных пуста", file=sys.stderr)
-            return 1
-        trace = record.trace
-        if args.start or args.stop:
-            start = args.start if args.start else trace.start
-            stop = args.stop if args.stop else trace.stop
-            if start < trace.start or stop > trace.stop:
-                print(
-                    f"Запрошенный диапазон {start / 1e6:.3f}–{stop / 1e6:.3f} МГц "
-                    f"выходит за пределы измеренного диапазона "
-                    f"{trace.start / 1e6:.3f}–{trace.stop / 1e6:.3f} МГц",
-                    file=sys.stderr,
-                )
-                return 2
-            trace = trace.slice(start, stop)
-        result = measure_signal(
-            trace,
-            beta=args.beta,
-            n_db=args.n_db,
-            field_method=args.method,
-            norm_hz=args.norm,
-        )
-    if args.json:
-        _print_json(result)
-    else:
-        ob = result["occupied_bandwidth_beta2"]
-        bl = result["bandwidth_at_level"]
-        fs = result["field_strength"]
-        cf = result["center_frequency_centroid"]
-        print(f"Полоса β/2 ({ob['method']}): {ob['bandwidth_hz'] / 1e3:.3f} кГц")
-        print(f"Полоса по уровню {bl['method']}: {bl['bandwidth_hz'] / 1e3:.3f} кГц")
-        print(f"Напряжённость поля: {fs['value']:.1f} дБ")
-        if math.isfinite(cf["value"]):
-            print(f"Центральная частота: {cf['value'] / 1e6:.6f} МГц")
-        for block in (ob, bl, fs, cf):
-            for warning in block.get("warnings", []):
-                print(f"  ! {warning}", file=sys.stderr)
-    return 0
-
-
-def cmd_signals(args: argparse.Namespace) -> int:
-    """Анализ списка обнаруженных сигналов."""
-    signals = SignalList.load(args.file)
-    rows = signals.to_rows()
-    if args.json:
-        _print_json(rows)
-    else:
-        print(f"{'№':>3} {'Частота, МГц':>14} {'Полоса, кГц':>12} {'Обнаружений':>12}  Время")
-        for index, row in enumerate(rows, 1):
-            print(
-                f"{index:>3} {row['frequency_hz'] / 1e6:>14.6f} "
-                f"{row['bandwidth_hz'] / 1e3:>12.2f} {row['event_count']:>12} "
-                f"  {row['first_seen']}"
-            )
-    if args.export:
-        export_signals_csv(signals, args.export)
-        print(f"Выгружено: {args.export}")
-    return 0
-
-
-def cmd_assignments(args: argparse.Namespace) -> int:
-    """Работа с базой данных частотных присвоений."""
-    with AssignmentDatabase(args.database) as db:
-        if args.import_csv:
-            count = db.import_csv(args.import_csv)
-            print(f"Загружено передатчиков: {count}")
-        if args.export_csv:
-            db.export_csv(args.export_csv)
-            print(f"Выгружено: {args.export_csv}")
-        if args.list:
-            for item in db.assignments():
-                print(
-                    f"{item.tx_frequency_hz / 1e6:>12.6f} МГц  "
-                    f"{item.bandwidth_hz / 1e3:>10.1f} кГц  {item.name}"
-                )
-    return 0
-
-
-def cmd_coverage(args: argparse.Namespace) -> int:
-    """Построение карты распределения напряжённости поля."""
-    with PanoramaStore(args.database) as store:
-        points = [
-            MeasurementPoint(
-                latitude=rec.latitude,
-                longitude=rec.longitude,
-                level_db=rec.trace.peak,
-            )
-            for rec in store.iter_panoramas()
-            if rec.latitude is not None and rec.longitude is not None
-        ]
-    if not points:
-        print("В базе нет измерений с координатами", file=sys.stderr)
-        return 1
-    coverage = build_coverage_map(
-        points, rows=args.rows, cols=args.cols, aggregation=args.aggregation
-    )
-    if args.geojson:
-        Path(args.geojson).write_text(
-            json_dumps(coverage.to_geojson(), indent=2), encoding="utf-8"
-        )
-        print(f"Карта сохранена: {args.geojson}")
-    else:
-        print(f"Ячеек: {len(coverage.cells)}")
-        print(
-            f"Уровень: от {coverage.min_level_db:.1f} до {coverage.max_level_db:.1f} дБ"
-        )
-    return 0
-
-
-def cmd_df(args: argparse.Namespace) -> int:
-    """Амплитудная пеленгация по введённым пеленгам."""
-    bearings: list[Bearing] = []
-    for item in args.bearing:
-        parts = [p.strip() for p in item.split(",")]
-        if len(parts) < 3:
-            print(f"Некорректный пеленг: {item}", file=sys.stderr)
-            return 1
-        lat, lon, azimuth = float(parts[0]), float(parts[1]), float(parts[2])
-        declination = float(parts[3]) if len(parts) > 3 else args.declination
-        bearings.append(Bearing(lat, lon, azimuth, declination))
-
-    fix = triangulate_bearings(bearings)
-    if fix is None:
-        print("Недостаточно пеленгов: требуется не менее трёх", file=sys.stderr)
-        return 1
-    print(f"Координаты источника: {fix.latitude:.6f}, {fix.longitude:.6f}")
-    print(f"Максимальное отклонение пеленгов: {fix.residual_deg:.2f}°")
-    return 0
-
-
-def cmd_report(args: argparse.Namespace) -> int:
-    """Формирование протокола измерений."""
-    with PanoramaStore(args.database) as store:
-        record = store.latest()
         trace = record.trace if record else None
         measurements = measure_signal(trace) if trace is not None else {}
         signals = []
@@ -436,6 +301,36 @@ def cmd_serve(args: argparse.Namespace) -> int:
         database=args.database,
         session_database=args.session_database,
     )
+    return 0
+
+
+def cmd_archive_import(args: argparse.Namespace) -> int:
+    """Импорт внешнего JSON-архива через атомарный batch API общего ядра."""
+    from .archive_ingest import (
+        ArchiveIngestClient,
+        ArchiveIngestError,
+        import_archive,
+        load_archive_document,
+    )
+
+    try:
+        if args.input == "-":
+            document = load_archive_document(sys.stdin, args.session)
+        else:
+            with open(args.input, "r", encoding="utf-8") as source:
+                document = load_archive_document(source, args.session)
+        client = ArchiveIngestClient(args.server, timeout=args.timeout)
+        result = import_archive(
+            client,
+            document,
+            args.session,
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+        )
+    except (ArchiveIngestError, OSError, ValueError) as exc:
+        print(f"Ошибка импорта архива: {exc}", file=sys.stderr)
+        return 2
+    _print_json(result)
     return 0
 
 
@@ -574,7 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--list", action="store_true")
     p.set_defaults(func=cmd_assignments)
 
-    p = sub.add_parser("coverage", help="карта распределения напряжённости поля")
+    p = sub.add_parser("coverage", help="построение карты распределения напряжённости")
     p.add_argument("--database", required=True)
     p.add_argument("--rows", type=int, default=40)
     p.add_argument("--cols", type=int, default=40)
@@ -594,7 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--declination", type=float, default=0.0)
     p.set_defaults(func=cmd_df)
 
-    p = sub.add_parser("report", help="формирование протокола")
+    p = sub.add_parser("report", help="формирование протокола измерений")
     p.add_argument("--database", required=True)
     p.add_argument("--template")
     p.add_argument("--output")
@@ -609,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--place", default="Unknown")
     p.set_defaults(func=cmd_export)
 
-    p = sub.add_parser("convert", help="преобразование единиц измерения")
+    p = sub.add_parser("convert", help="преобразование величин между единицами")
     p.add_argument("value", type=float)
     p.add_argument("--from", dest="from_unit", required=True)
     p.add_argument("--to", dest="to_unit", required=True)
@@ -625,6 +520,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite-архив общих сеансов и измерений; без него используется память",
     )
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser(
+        "archive-import",
+        help="импортировать внешние sweeps/observations через атомарный batch API",
+    )
+    p.add_argument("--server", default="http://127.0.0.1:8770", help="базовый URL ядра")
+    p.add_argument("--session", required=True, help="ID существующего сеанса")
+    p.add_argument("--input", required=True, help="версионированный JSON-файл или - для stdin")
+    p.add_argument("--batch-size", type=int, help="размер пакета не больше лимита сервера")
+    p.add_argument("--timeout", type=float, default=10.0)
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="проверить документ, capabilities и сеанс без POST-запросов",
+    )
+    p.set_defaults(func=cmd_archive_import)
 
     p = sub.add_parser(
         "keywords", help="словарь ключевых слов шаблонов протоколов измерений"
