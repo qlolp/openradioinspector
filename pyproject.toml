@@ -50,7 +50,7 @@ all = [
 
 [project.scripts]
 radioinspector = "radioinspector.cli:main"
-radioinspector-windows = "radioinspector.windows.app:main"
+radioinspector-windows = "radioinspector.windows.completion_app:main"
 radioinspector-archive-import = "radioinspector.archive_ingest:main"
 radioinspector-archive-export = "radioinspector.archive_export:main"
 radioinspector-archive-stream = "radioinspector.archive_stream:main"
