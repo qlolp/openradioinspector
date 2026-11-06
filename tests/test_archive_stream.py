@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import socket
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from radioinspector import archive_stream as archive_stream_module
 from radioinspector.archive_export import build_archive_document
 from radioinspector.archive_ingest import ArchiveIngestClient, ArchiveIngestError
 from radioinspector.archive_stream import STREAM_FORMAT, import_stream
@@ -49,9 +52,10 @@ def write_stream(
 
 
 class FakeClient:
-    def __init__(self, session: dict, *, limit: int = 2) -> None:
+    def __init__(self, session: dict, *, limit: int = 2, base_url: str = "http://fake") -> None:
         self.session = session
         self.limit = limit
+        self.base_url = base_url
         self.calls = []
 
     def capabilities(self) -> dict:
@@ -190,23 +194,78 @@ class ArchiveStreamTests(unittest.TestCase):
     def test_stream_uses_two_passes_and_batches_over_hundred(self) -> None:
         write_stream(self.path, self.session, sweep_count=205, observation_count=0)
         client = FakeClient(self.session, limit=2)
-        original_open = Path.open
-        calls = 0
-
-        def counted_open(self, *args, **kwargs):
-            nonlocal calls
-            calls += 1
-            return original_open(self, *args, **kwargs)
-
-        with patch.object(Path, "open", counted_open):
+        with patch(
+            "radioinspector.archive_stream._records",
+            wraps=archive_stream_module._records,
+        ) as records:
             result = import_stream(client, self.path, self.session["id"])
         self.assertEqual(result["sweeps"], 205)
         self.assertEqual(result["batches"], 103)
         self.assertEqual(len(client.posts), 103)
-        self.assertEqual(calls, 2)
+        self.assertEqual(records.call_count, 2)
+
+    def test_resume_requires_existing_checkpoint(self) -> None:
+        missing = Path(self.temporary.name) / "missing.json"
+        client = FakeClient(self.session)
+        with self.assertRaises(ArchiveIngestError) as caught:
+            import_stream(
+                client,
+                self.path,
+                self.session["id"],
+                checkpoint_path=missing,
+                resume=True,
+            )
+        self.assertEqual(caught.exception.code, "checkpoint_not_found")
+        self.assertEqual(client.calls, [])
+
+    def test_import_uses_immutable_input_snapshot(self) -> None:
+        expected_hash = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        original_scan = archive_stream_module._scan
+
+        def scan_and_modify_source(*args):
+            result = original_scan(*args)
+            with self.path.open("a", encoding="utf-8") as target:
+                target.write(json.dumps({
+                    "kind": "observation",
+                    "measurement": {
+                        **observation_payload(
+                            self.session["id"],
+                            self.session["streams"][1]["id"],
+                            99,
+                        ),
+                        "level_unit": "dBm",
+                    },
+                }) + "\n")
+            return result
+
+        client = FakeClient(self.session)
+        with patch("radioinspector.archive_stream._scan", side_effect=scan_and_modify_source):
+            result = import_stream(client, self.path, self.session["id"])
+        self.assertEqual(result["sweeps"], 5)
+        self.assertEqual(result["observations"], 2)
+        self.assertEqual(result["sha256"], expected_hash)
+        self.assertEqual(len(client.posts), 4)
+
+    def test_checkpoint_rejects_other_destination(self) -> None:
+        checkpoint = Path(self.temporary.name) / "resume.json"
+        import_stream(FakeClient(self.session), self.path, self.session["id"], checkpoint_path=checkpoint)
+        other = FakeClient(self.session, base_url="http://other-node")
+        with self.assertRaises(ArchiveIngestError) as caught:
+            import_stream(
+                other,
+                self.path,
+                self.session["id"],
+                checkpoint_path=checkpoint,
+                resume=True,
+            )
+        self.assertEqual(caught.exception.code, "destination_mismatch")
+        self.assertEqual(other.posts, [])
 
     def test_real_http_sqlite_resume_and_restart(self) -> None:
-        node = HttpNode(str(Path(self.temporary.name) / "node.sqlite"))
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        node = HttpNode(str(Path(self.temporary.name) / "node.sqlite"), port=port)
         try:
             session = node.service.create_session(session_payload())
             stream_path = Path(self.temporary.name) / "http.ndjson"
