@@ -175,6 +175,12 @@ class WorkflowPayloadTests(unittest.TestCase):
         )
         self.assertFalse(disabled["enabled"])
         self.assertIsNone(disabled["receiver_stream_id"])
+        saved = automatic_completion_payload(
+            **{**payload, "enabled": None, "receiver_stream_id": ""}
+        )
+        self.assertNotIn("enabled", saved)
+        self.assertEqual(saved["minimum_observations"], 2)
+        self.assertIsNone(saved["receiver_stream_id"])
         with self.assertRaisesRegex(ValueError, "boolean"):
             automatic_completion_payload(**{**payload, "enabled": 1})
         with self.assertRaisesRegex(ValueError, "диапазоне"):
