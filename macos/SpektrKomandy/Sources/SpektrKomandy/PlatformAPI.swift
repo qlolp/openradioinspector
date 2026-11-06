@@ -43,6 +43,9 @@ public struct PlatformBaseURL: Equatable {
         guard components.user == nil, components.password == nil else {
             throw PlatformError.invalidURL("Учётные данные в адресе сервера не поддерживаются")
         }
+        if scheme == "http", !platformLoopbackHost(components.host!) {
+            throw PlatformError.invalidURL("Для не-loopback сервера требуется https://")
+        }
         guard components.query == nil, components.fragment == nil else {
             throw PlatformError.invalidURL("Адрес сервера не должен содержать query или fragment")
         }
@@ -77,6 +80,29 @@ public struct PlatformBaseURL: Equatable {
             throw PlatformError.invalidURL("Не удалось сформировать адрес API")
         }
         return url
+    }
+}
+
+private func platformLoopbackHost(_ host: String) -> Bool {
+    let normalized = host.lowercased()
+    return normalized == "localhost" || normalized == "::1" || normalized.hasPrefix("127.")
+}
+
+private func platformSameOrigin(_ first: URL, _ second: URL) -> Bool {
+    first.scheme?.lowercased() == second.scheme?.lowercased()
+        && first.host?.lowercased() == second.host?.lowercased()
+        && first.port == second.port
+}
+
+final class PlatformRedirectGuard: NSObject, URLSessionDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 }
 
@@ -284,9 +310,17 @@ public final class PlatformClient {
     private let session: URLSession
     private let maximumResponseBytes = 2_000_000
 
-    public init(baseURL: String, session: URLSession = .shared) throws {
+    public init(baseURL: String, session: URLSession? = nil) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
-        self.session = session
+        if let session {
+            self.session = session
+        } else {
+            self.session = URLSession(
+                configuration: .ephemeral,
+                delegate: PlatformRedirectGuard(),
+                delegateQueue: nil
+            )
+        }
     }
 
     deinit {
@@ -542,6 +576,10 @@ public final class PlatformClient {
             (data, response) = try await session.data(for: request)
         } catch {
             throw PlatformError.connection(error.localizedDescription)
+        }
+        if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
+           !platformSameOrigin(original, final) {
+            throw PlatformError.connection("Перенаправление на другой origin отклонено")
         }
         guard data.count <= maximumResponseBytes else { throw PlatformError.responseTooLarge }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0

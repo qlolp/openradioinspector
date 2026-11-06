@@ -36,7 +36,7 @@ final class PlatformAPITests: XCTestCase {
     }
 
     private func client(
-        _ url: String = "http://example.test/root/api/v1/",
+        _ url: String = "https://example.test/root/api/v1/",
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) throws -> PlatformClient {
         Stub.handler = handler
@@ -64,21 +64,26 @@ final class PlatformAPITests: XCTestCase {
 
     func testBaseURLNormalizationAndValidation() throws {
         XCTAssertEqual(
-            try PlatformBaseURL(" http://example.test/root/api/v1/ ").root.absoluteString,
-            "http://example.test/root"
+            try PlatformBaseURL(" https://example.test/root/api/v1/ ").root.absoluteString,
+            "https://example.test/root"
         )
         XCTAssertEqual(
-            try PlatformBaseURL("http://example.test/").endpoint(path: "/sessions").absoluteString,
-            "http://example.test/api/v1/sessions"
+            try PlatformBaseURL("https://example.test/").endpoint(path: "/sessions").absoluteString,
+            "https://example.test/api/v1/sessions"
         )
         XCTAssertThrowsError(try PlatformBaseURL("127.0.0.1:8770"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://example.test"))
         XCTAssertThrowsError(try PlatformBaseURL("http://user:secret@example.test"))
-        XCTAssertThrowsError(try PlatformBaseURL("http://example.test/?token=x"))
+        XCTAssertThrowsError(try PlatformBaseURL("https://example.test/?token=x"))
+        XCTAssertEqual(
+            try PlatformBaseURL("http://127.0.0.1:8770").root.absoluteString,
+            "http://127.0.0.1:8770"
+        )
     }
 
     func testListSessionsChecksEnvelopeAndDecodesRawUnits() async throws {
         let client = try client { request in
-            XCTAssertEqual(request.url?.absoluteString, "http://example.test/root/api/v1/sessions")
+            XCTAssertEqual(request.url?.absoluteString, "https://example.test/root/api/v1/sessions")
             return (self.response(request.url!), self.envelope("[\(self.sessionJSON)]"))
         }
         let sessions = try await client.listSessions()
@@ -137,7 +142,7 @@ final class PlatformAPITests: XCTestCase {
         let client = try client { request in
             XCTAssertEqual(
                 request.url?.absoluteString,
-                "http://example.test/root/api/v1/sessions/session%2Fold/streams/ar%2Fdv1/tune"
+                "https://example.test/root/api/v1/sessions/session%2Fold/streams/ar%2Fdv1/tune"
             )
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             XCTAssertEqual(body["frequency_hz"] as? Int, 433075000)
@@ -219,6 +224,34 @@ final class PlatformAPITests: XCTestCase {
         await XCTAssertThrowsPlatformError(
             try await malformed.listSweeps(sessionID: "s", streamID: "tiny")
         )
+    }
+
+    func testRedirectGuardAndFinalOriginAreRejected() async throws {
+        let client = try client { request in
+            let redirected = HTTPURLResponse(
+                url: URL(string: "http://127.0.0.1:8770/api/v1/sessions")!,
+                statusCode: 307, httpVersion: nil, headerFields: nil
+            )!
+            return (redirected, self.envelope("[]"))
+        }
+        await XCTAssertThrowsPlatformError(try await client.listSessions())
+
+        let original = URL(string: "https://example.test/api/v1/sessions")!
+        let session = URLSession(configuration: .ephemeral)
+        sessions.append(session)
+        let task = session.dataTask(with: original)
+        let response = HTTPURLResponse(
+            url: original, statusCode: 307, httpVersion: nil, headerFields: nil
+        )!
+        let completed = expectation(description: "redirect rejected")
+        PlatformRedirectGuard().urlSession(
+            session, task: task, willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: URL(string: "http://127.0.0.1:8770/api/v1/sessions")!)
+        ) { request in
+            XCTAssertNil(request)
+            completed.fulfill()
+        }
+        await fulfillment(of: [completed], timeout: 1)
     }
 
     private func XCTAssertThrowsPlatformError<T>(
