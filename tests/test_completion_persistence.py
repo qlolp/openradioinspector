@@ -18,7 +18,7 @@ from tests.test_platform import BASE, session_payload
 class CompletionPersistenceTests(unittest.TestCase):
     def test_matching_observations_uses_sql_threshold_and_expression_index(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            store = SQLiteSessionStore(str(Path(temporary) / "completion.sqlite")
+            store = SQLiteSessionStore(str(Path(temporary) / "completion.sqlite"))
             service = SessionService(store=store)
             try:
                 session = service.create_session(session_payload())
