@@ -22,9 +22,8 @@ def build_archive_document(
     service: Any, session_id: str, *, stream_id: Optional[str] = None
 ) -> dict[str, Any]:
     """Читает весь архив явно без list-limit, не создавая измерений или событий."""
-    sweeps = service.list_sweeps(session_id, stream_id=stream_id, limit=None)
-    observations = service.list_observations(
-        session_id, stream_id=stream_id, limit=None
+    sweeps, observations = service.archive_measurements(
+        session_id, stream_id=stream_id
     )
     return {
         "format": ARCHIVE_FORMAT,
