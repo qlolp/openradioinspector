@@ -143,6 +143,20 @@ class ArchiveDocumentTests(unittest.TestCase):
             load_archive_document(io.StringIO(raw), self.session_id)
         self.assertEqual(caught.exception.code, "invalid_json")
 
+    def test_overflowing_nested_number_is_rejected_before_posts(self) -> None:
+        payload = self.document(sweep_count=2)
+        payload["sweeps"][1]["settings"]["nested"] = [1.0, {"overflow": float("inf")}]
+        with self.assertRaises(ArchiveIngestError) as caught:
+            parse_archive_document(payload, self.session_id)
+        self.assertEqual(caught.exception.code, "non_finite_number")
+
+        raw = json.dumps(self.document(sweep_count=2)).replace(
+            '"rbw_hz": 10000', '"rbw_hz": 1e999'
+        )
+        with self.assertRaises(ArchiveIngestError) as caught:
+            load_archive_document(io.StringIO(raw), self.session_id)
+        self.assertEqual(caught.exception.code, "invalid_json")
+
 
 class ArchivePreflightTests(unittest.TestCase):
     def setUp(self) -> None:
