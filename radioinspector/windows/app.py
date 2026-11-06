@@ -460,36 +460,51 @@ class WindowsApp:
                 ),
                 streams[0],
             )
-            self.streams_tree.selection_set(str(preferred.get("id"))
-        self.candidates_tree.delete(*self.candidates_tree.get_children())
-        for candidate in snapshot.candidates:
-            self.candidates_tree.insert("", "end", iid=str(candidate.get("id")), values=candidate_row(candidate))
-        self.investigations_tree.delete(*self.investigations_tree.get_children())
-        for investigation in snapshot.investigations:
-            self.investigations_tree.insert("", "end", iid=str(investigation.get("id")), values=investigation_row(investigation))
+            self.streams_tree.selection_set(str(preferred.get("id")))
+        # Восстановление выделения не является новым пользовательским выбором.
+        self._last_selected_stream_id = self.selected_stream_id()
+        self._fill(self.candidates_tree, snapshot.candidates, candidate_row)
+        self._fill(self.investigations_tree, snapshot.investigations, investigation_row)
         next_investigation = snapshot.next_investigation
-        if next_investigation:
-            self.next_investigation_var.set(
-                f"Следующее: {next_investigation.get('id')} · приоритет {next_investigation.get('priority')} · "
-                f"{next_investigation.get('target_frequency_hz')} Гц · {next_investigation.get('mode') or '—'}"
+        self.next_investigation_var.set(
+            "Следующее: очередь пуста"
+            if next_investigation is None
+            else "Следующее: {id} · приоритет {priority} · {frequency} Гц · receiver {receiver}".format(
+                id=next_investigation.get("id"),
+                priority=next_investigation.get("priority", 0),
+                frequency=next_investigation.get("target_frequency_hz"),
+                receiver=next_investigation.get("target_stream_id"),
             )
-        else:
-            self.next_investigation_var.set("Следующее: очередь пуста")
-        self.detection_var.set(policy_text(snapshot.automatic_detection))
-        self.handoff_var.set(policy_text(snapshot.automatic_handoff))
-        self._render_controls()
+        )
+        self.detection_var.set(f"Обнаружение: {policy_text(snapshot.automatic_detection)}")
+        self.handoff_var.set(f"Handoff: {policy_text(snapshot.automatic_handoff)}")
+        spectrum_stream_id = self._spectrum_stream_id()
+        needs_spectrum_refresh = (
+            snapshot.session is not None
+            and spectrum_stream_id != snapshot.spectrum_stream_id
+        )
         self._render_spectrum()
-        if needs_details:
+        self._render_controls()
+        if needs_details or needs_spectrum_refresh:
             self.refresh()
 
+    def _clear_spectrum(self, message: str) -> None:
+        self._spectrum_draw_key = None
+        self._waterfall_draw_key = None
+        self.spectrum_canvas.delete("all")
+        self.waterfall_canvas.delete("all")
+        self._waterfall_photo = None
+        self.spectrum_info_var.set(message)
+        self.waterfall_info_var.set("Водопад: ожидание данных")
+
     def _render_spectrum(self) -> None:
-        stream = self._selected_stream()
-        if not stream or stream.get("role") != "spectrum_analyzer" or stream.get("level_unit") != "dBm":
+        if self._spectrum_stream_id() is None:
             self._clear_spectrum(
                 "Выберите поток spectrum_analyzer с исходными dBm на вкладке «Потоки». "
                 "Отсчёты s_meter_count в dBm не преобразуются."
             )
             return
+        stream = self._selected_stream()
         if self.snapshot.spectrum_stream_id != stream.get("id"):
             self._clear_spectrum(f"Загрузка реальных sweeps потока {stream.get('id')}…")
             return
