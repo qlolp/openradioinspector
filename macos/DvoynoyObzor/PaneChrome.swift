@@ -289,6 +289,7 @@ struct RemoteDetectionPolicyPane: View {
             VStack(alignment: .leading, spacing: 7) {
                 WorkflowPolicyStatus(status: model.automaticDetectionStatus)
                 Picker("Поток dBm", selection: $model.detectionStreamID) {
+                    Text("Любой dBm analyzer сеанса").tag("")
                     if let analyzer = model.analyzer {
                         Text("\(analyzer.device) · \(analyzer.id)").tag(analyzer.id)
                     } else {
