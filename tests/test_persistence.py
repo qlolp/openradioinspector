@@ -356,6 +356,32 @@ class AnalyticsTests(unittest.TestCase):
                     finally:
                         restored.close()
 
+    def test_sqlite_summary_aggregates_without_materializing_archive_rows(self) -> None:
+        store = SQLiteSessionStore(self.path)
+        service = SessionService(store=store)
+        session, _spectrum_id, receiver_id = self.populate(service)
+        statements: list[str] = []
+        store._connection.set_trace_callback(statements.append)
+        try:
+            summary = analytics_summary(service, session.id, stream_id=receiver_id)
+        finally:
+            store._connection.set_trace_callback(None)
+            service.close()
+        self.assertEqual(summary["observations"]["count"], 3)
+        normalized = [" ".join(statement.split()) for statement in statements]
+        self.assertTrue(
+            any(
+                "SELECT COUNT(*) AS count" in statement
+                and "MIN(" in statement
+                and "MAX(" in statement
+                and "SUM(squelch_open" in statement
+                for statement in normalized
+            )
+        )
+        self.assertFalse(
+            any("SELECT started_at, squelch_open FROM observations" in statement for statement in normalized)
+        )
+
 
 class PersistentHttpApiTests(unittest.TestCase):
     def setUp(self) -> None:

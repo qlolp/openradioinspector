@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from typing import Any, Optional
 
 from .contracts import parse_time, to_primitive
@@ -106,10 +105,22 @@ def _sqlite_analytics(
     store: SQLiteSessionStore, session_id: str, *, stream_id: Optional[str]
 ) -> dict[str, Any]:
     clause, parameters = store._filters(session_id, stream_id)
+    # Нормализация нужна для старых строк без долей секунды: лексикографические
+    # MIN/MAX тогда совпадают с хронологией ISO-UTC и не материализуют архив.
+    sort_time = (
+        "CASE WHEN instr(started_at, '.') = 0 "
+        "THEN replace(started_at, 'Z', '.000000Z') ELSE started_at END"
+    )
     with store._lock:
-        sweep_rows = store._connection.execute(
-            f"SELECT started_at FROM sweeps WHERE {clause}", parameters
-        ).fetchall()
+        sweep_totals = store._connection.execute(
+            f"""
+            SELECT COUNT(*) AS count,
+                   MIN({sort_time}) AS first_started_at,
+                   MAX({sort_time}) AS last_started_at
+            FROM sweeps WHERE {clause}
+            """,
+            parameters,
+        ).fetchone()
         sweep_units = [
             row["level_unit"]
             for row in store._connection.execute(
@@ -117,10 +128,17 @@ def _sqlite_analytics(
                 parameters,
             ).fetchall()
         ]
-        observation_rows = store._connection.execute(
-            f"SELECT started_at, squelch_open FROM observations WHERE {clause}",
+        observation_totals = store._connection.execute(
+            f"""
+            SELECT COUNT(*) AS count,
+                   MIN({sort_time}) AS first_started_at,
+                   MAX({sort_time}) AS last_started_at,
+                   COALESCE(SUM(squelch_open IS NOT NULL), 0) AS squelch_known,
+                   COALESCE(SUM(squelch_open = 1), 0) AS squelch_open
+            FROM observations WHERE {clause}
+            """,
             parameters,
-        ).fetchall()
+        ).fetchone()
         observation_units = [
             row["level_unit"]
             for row in store._connection.execute(
@@ -133,31 +151,29 @@ def _sqlite_analytics(
             session_id, stream_id=stream_id, limit=1
         )
 
-    def bounds(rows: list[sqlite3.Row]) -> tuple[Optional[str], Optional[str]]:
-        times = [parse_time(row["started_at"]) for row in rows]
-        if not times:
+    def bounds(row: Any) -> tuple[Optional[str], Optional[str]]:
+        first, last = row["first_started_at"], row["last_started_at"]
+        if first is None or last is None:
             return None, None
-        return to_primitive(min(times)), to_primitive(max(times))
+        return to_primitive(parse_time(first)), to_primitive(parse_time(last))
 
-    first_sweep, last_sweep = bounds(sweep_rows)
-    first_observation, last_observation = bounds(observation_rows)
-    known_squelch = sum(row["squelch_open"] is not None for row in observation_rows)
-    open_squelch = sum(row["squelch_open"] == 1 for row in observation_rows)
+    first_sweep, last_sweep = bounds(sweep_totals)
+    first_observation, last_observation = bounds(observation_totals)
     return {
         "sweeps": {
-            "count": len(sweep_rows),
+            "count": sweep_totals["count"],
             "first_started_at": first_sweep,
             "last_started_at": last_sweep,
             "level_units": sweep_units,
             "latest": to_primitive(latest_sweep[0]) if latest_sweep else None,
         },
         "observations": {
-            "count": len(observation_rows),
+            "count": observation_totals["count"],
             "first_started_at": first_observation,
             "last_started_at": last_observation,
             "level_units": observation_units,
             "latest": to_primitive(latest_observation[0]) if latest_observation else None,
-            "squelch_known": known_squelch,
-            "squelch_open": open_squelch,
+            "squelch_known": observation_totals["squelch_known"],
+            "squelch_open": observation_totals["squelch_open"],
         },
     }
