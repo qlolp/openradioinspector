@@ -74,8 +74,9 @@ def session_payload(
     receiver_frequency_hz: Any,
     mode: Any,
     simulated: bool,
+    serial: bool = False,
 ) -> dict[str, Any]:
-    """Создаёт двухприборный профиль; симуляторы выбираются только явно."""
+    """Создаёт двухприборный профиль; симуляторы и serial выбираются явно."""
     selected_name = required_text(name, "Название сеанса")
     spectrum_port = required_text(tinysa_port, "Порт tinySA")
     target_port = required_text(receiver_port, "Порт AR-DV1")
@@ -89,6 +90,14 @@ def session_payload(
     selected_mode = required_text(mode, "Режим receiver")
     if not isinstance(simulated, bool):
         raise ValueError("Признак симуляторов должен быть boolean")
+    if not isinstance(serial, bool):
+        raise ValueError("Признак serial-профиля должен быть boolean")
+    if serial and simulated:
+        raise ValueError("serial и simulated нельзя выбрать одновременно")
+    if serial:
+        for label, port in (("Порт tinySA", spectrum_port), ("Порт AR-DV1", target_port)):
+            if port.startswith("sim://"):
+                raise ValueError(f"{label} serial не должен использовать sim://")
     spectrum_settings: dict[str, Any] = {
         "start_hz": first_hz,
         "stop_hz": last_hz,
@@ -106,6 +115,13 @@ def session_payload(
         )
         receiver_settings.update(
             {"adapter": "ardv1-sim", "period_s": 0.25, "seed": 17}
+        )
+    if serial:
+        spectrum_settings.update(
+            {"adapter": "tinysa-serial", "period_s": 0.25}
+        )
+        receiver_settings.update(
+            {"adapter": "ardv1-serial", "period_s": 0.25}
         )
     return {
         "name": selected_name,
@@ -127,7 +143,7 @@ def session_payload(
                 "settings": receiver_settings,
             },
         ],
-        "metadata": {"created_by": "windows-gui", "simulated": simulated},
+        "metadata": {"created_by": "windows-gui", "simulated": simulated, "serial": serial},
     }
 
 

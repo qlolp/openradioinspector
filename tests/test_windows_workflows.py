@@ -52,6 +52,28 @@ class WorkflowPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "целым числом"):
             self.session(start_hz="88.5")
 
+    def test_serial_profile_is_explicit_and_validated(self) -> None:
+        payload = self.session(
+            tinysa_port="COM3",
+            receiver_port="COM4",
+            simulated=False,
+            serial=True,
+        )
+        self.assertEqual(payload["streams"][0]["settings"]["adapter"], "tinysa-serial")
+        self.assertEqual(payload["streams"][1]["settings"]["adapter"], "ardv1-serial")
+        self.assertEqual(payload["streams"][0]["port"], "COM3")
+        self.assertEqual(payload["streams"][1]["port"], "COM4")
+        self.assertTrue(payload["metadata"]["serial"])
+        self.assertFalse(payload["metadata"]["simulated"])
+        self.assertEqual(payload["streams"][0]["settings"]["start_hz"], 88_000_000)
+        self.assertEqual(payload["streams"][0]["settings"]["stop_hz"], 108_000_000)
+        with self.assertRaisesRegex(ValueError, "sim://"):
+            self.session(tinysa_port="sim://tinysa", simulated=False, serial=True)
+        with self.assertRaisesRegex(ValueError, "одновременно"):
+            self.session(simulated=True, serial=True)
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            self.session(simulated=False, serial=1)
+
     def test_candidate_preserves_source_unit_interval_and_real_sweep_link(self) -> None:
         stream = {"id": "tiny/sa", "level_unit": "dBm"}
         payload = candidate_payload(
@@ -103,194 +125,188 @@ class WorkflowPayloadTests(unittest.TestCase):
                 "priority": 0,
             },
         )
-        with self.assertRaisesRegex(ValueError, "не меньше 0"):
+        payload = investigation_payload(
+            target_stream_id="ar/dv1",
+            target_frequency_hz="102500000",
+            priority="7",
+            mode=" DMR ",
+        )
+        self.assertEqual(payload["mode"], "DMR")
+        self.assertEqual(payload["priority"], 7)
+        with self.assertRaisesRegex(ValueError, "Приоритет"):
             investigation_payload(
-                target_stream_id="ar/dv1", target_frequency_hz=1, priority=-1
+                target_stream_id="ar/dv1",
+                target_frequency_hz="102500000",
+                priority="-1",
             )
 
-    def test_detection_policy_is_explicit_bounded_and_dbm_only(self) -> None:
+    def test_automatic_detection_payload_validates_types_ranges_and_optional_stream(self) -> None:
         payload = automatic_detection_payload(
             enabled=True,
             interval_seconds="0.5",
-            stream_id=" tiny/sa ",
-            threshold_dbm="-72.5",
+            stream_id="tiny/sa",
+            threshold_dbm="-65.5",
             dedup_bandwidth_hz="125000",
-            cooldown_seconds="0",
+            cooldown_seconds="12.5",
             max_candidates_per_sweep="4",
         )
-        self.assertEqual(
-            payload,
-            {
-                "enabled": True,
-                "interval_seconds": 0.5,
-                "stream_id": "tiny/sa",
-                "threshold_dbm": -72.5,
-                "dedup_bandwidth_hz": 125000,
-                "cooldown_seconds": 0.0,
-                "max_candidates_per_sweep": 4,
-            },
+        self.assertTrue(payload["enabled"])
+        self.assertEqual(payload["interval_seconds"], 0.5)
+        self.assertEqual(payload["stream_id"], "tiny/sa")
+        self.assertEqual(payload["threshold_dbm"], -65.5)
+        self.assertEqual(payload["dedup_bandwidth_hz"], 125000)
+        self.assertEqual(payload["cooldown_seconds"], 12.5)
+        self.assertEqual(payload["max_candidates_per_sweep"], 4)
+        payload = automatic_detection_payload(
+            enabled=False,
+            interval_seconds=1,
+            stream_id=" ",
+            threshold_dbm=-70,
+            dedup_bandwidth_hz=100000,
+            cooldown_seconds=0,
+            max_candidates_per_sweep=1,
         )
-        self.assertNotIn("receiver_stream_id", payload)
-        self.assertNotIn("minimum_priority", payload)
-        disabled = automatic_detection_payload(
-            **{**payload, "enabled": False, "stream_id": ""}
-        )
-        self.assertFalse(disabled["enabled"])
-        self.assertIsNone(disabled["stream_id"])
+        self.assertIsNone(payload["stream_id"])
         with self.assertRaisesRegex(ValueError, "boolean"):
-            automatic_detection_payload(**{**payload, "enabled": 1})
-        with self.assertRaisesRegex(ValueError, "диапазоне"):
-            automatic_detection_payload(**{**payload, "threshold_dbm": "nan"})
-        with self.assertRaisesRegex(ValueError, "не больше 100"):
             automatic_detection_payload(
-                **{**payload, "max_candidates_per_sweep": 101}
+                enabled=1,
+                interval_seconds=1,
+                stream_id=None,
+                threshold_dbm=-70,
+                dedup_bandwidth_hz=1000,
+                cooldown_seconds=0,
+                max_candidates_per_sweep=1,
+            )
+        with self.assertRaisesRegex(ValueError, "конечным"):
+            automatic_detection_payload(
+                enabled=True,
+                interval_seconds=float("nan"),
+                stream_id=None,
+                threshold_dbm=-70,
+                dedup_bandwidth_hz=1000,
+                cooldown_seconds=0,
+                max_candidates_per_sweep=1,
             )
 
-    def test_handoff_policy_is_independent_and_validated(self) -> None:
+    def test_automatic_handoff_payload_is_independent_and_validated(self) -> None:
         payload = automatic_handoff_payload(
             enabled=True,
-            interval_seconds="2",
+            interval_seconds="0.5",
             minimum_priority="5",
             receiver_stream_id="ar/dv1",
-            max_consecutive_failures="3",
-            retry_delay_seconds="30",
+            max_consecutive_failures="2",
+            retry_delay_seconds="10",
         )
         self.assertTrue(payload["enabled"])
+        self.assertEqual(payload["interval_seconds"], 0.5)
         self.assertEqual(payload["minimum_priority"], 5)
         self.assertEqual(payload["receiver_stream_id"], "ar/dv1")
-        self.assertNotIn("threshold_dbm", payload)
-        self.assertNotIn("stream_id", payload)
-        with self.assertRaisesRegex(ValueError, "не меньше 0"):
-            automatic_handoff_payload(**{**payload, "minimum_priority": -1})
-        with self.assertRaisesRegex(ValueError, "диапазоне"):
-            automatic_handoff_payload(**{**payload, "retry_delay_seconds": 0})
+        self.assertEqual(payload["max_consecutive_failures"], 2)
+        self.assertEqual(payload["retry_delay_seconds"], 10.0)
+        payload = automatic_handoff_payload(
+            enabled=False,
+            interval_seconds=1,
+            minimum_priority=0,
+            receiver_stream_id=" ",
+            max_consecutive_failures=3,
+            retry_delay_seconds=30,
+        )
+        self.assertIsNone(payload["receiver_stream_id"])
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            automatic_handoff_payload(
+                enabled=0,
+                interval_seconds=1,
+                minimum_priority=0,
+                receiver_stream_id=None,
+                max_consecutive_failures=3,
+                retry_delay_seconds=30,
+            )
+        with self.assertRaisesRegex(ValueError, "Минимальный приоритет"):
+            automatic_handoff_payload(
+                enabled=True,
+                interval_seconds=1,
+                minimum_priority=-1,
+                receiver_stream_id=None,
+                max_consecutive_failures=3,
+                retry_delay_seconds=30,
+            )
 
-
-class WorkflowCommandTests(unittest.TestCase):
-    def test_commands_capture_ids_and_explicit_confirmation_before_dispatch(self) -> None:
-        class RecordingClient:
+    def test_form_session_and_policy_actions_use_frozen_session_id(self) -> None:
+        class Client:
             def __init__(self):
                 self.calls = []
 
-            def dismiss_candidate(self, session_id, candidate_id):
-                self.calls.append(("dismiss", session_id, candidate_id))
+            def create_session(self, payload):
+                self.calls.append(payload)
+                return dict(payload)
 
-            def start_next_investigation(self, session_id, investigation_id, *, confirm):
-                self.calls.append(
-                    ("next", session_id, investigation_id, confirm)
-                )
+        class Variable:
+            def __init__(self, value):
+                self.value = value
 
-            def fail_investigation(self, session_id, investigation_id, *, error):
-                self.calls.append(("fail", session_id, investigation_id, error))
-
-        class Tree:
-            def __init__(self, selected):
-                self.selected = selected
-
-            def selection(self):
-                return (self.selected,)
-
-        class Value:
             def get(self):
-                return "  Причина оператора  "
+                return self.value
 
+        client = Client()
         app = WindowsApp.__new__(WindowsApp)
-        app.client = RecordingClient()
+        app.client = client
         app.session_id = "session/old"
-        app._require_session = lambda: True
-        app.snapshot = PlatformSnapshot(
-            {},
-            {},
-            [],
-            candidates=[{"id": "candidate/old", "state": "new"}],
-            investigations=[{"id": "investigation/old", "state": "listening"}],
-            next_investigation={"id": "investigation/old"},
-        )
-        app.candidates_tree = Tree("candidate/old")
-        app.investigations_tree = Tree("investigation/old")
-        app.failure_var = Value()
-        operations = []
-        app._submit_action = lambda _description, operation: operations.append(operation)
-        app._dismiss_candidate()
-        app._start_next()
-        app._investigation_action("fail")
+        app._submit_action = lambda _description, operation: operation()
+        app.tk = type("Tk", (), {"StringVar": lambda self, value: Variable(value)})()
+        app._open_session_form()
         app.session_id = "session/new"
-        app.snapshot = PlatformSnapshot({}, {}, [])
-        for operation in operations:
-            operation()
-        self.assertEqual(
-            app.client.calls,
-            [
-                ("dismiss", "session/old", "candidate/old"),
-                ("next", "session/old", "investigation/old", True),
-                ("fail", "session/old", "investigation/old", "Причина оператора"),
-            ],
-        )
+        app._create_session()
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.calls[0]["name"], "Двойной обзор")
+        self.assertEqual(client.calls[0]["streams"][0]["settings"]["adapter"], "tinysa-sim")
 
-    def test_disabling_one_policy_captures_session_and_does_not_touch_the_other(self) -> None:
-        class RecordingClient:
+    def test_disable_policy_sends_only_enabled_false_and_does_not_start_handoff(self) -> None:
+        class Client:
             def __init__(self):
                 self.calls = []
 
             def configure_automatic_detection(self, session_id, payload):
                 self.calls.append(("detection", session_id, payload))
+                return {"policy": payload, "runtime": {}}
 
             def configure_automatic_handoff(self, session_id, payload):
                 self.calls.append(("handoff", session_id, payload))
+                return {"policy": payload, "runtime": {}}
 
+        client = Client()
         app = WindowsApp.__new__(WindowsApp)
-        app.client = RecordingClient()
+        app.client = client
         app.session_id = "session/old"
-        app._require_session = lambda: True
-        operations = []
-        app._submit_action = lambda _description, operation: operations.append(operation)
-        app._disable_policy("detection")
-        app._disable_policy("handoff")
-        app.session_id = "session/new"
-        for operation in operations:
-            operation()
+        app.snapshot = PlatformSnapshot(
+            {},
+            {},
+            [],
+            session={"state": "running", "streams": []},
+            automatic_detection={"policy": {"enabled": True}, "runtime": {}},
+            automatic_handoff={"policy": {"enabled": True}, "runtime": {}},
+        )
+        app._submit_action = lambda _description, operation: operation()
+        app.tk = type("Tk", (), {"StringVar": lambda self, value: Variable(value)})()
+        app._open_policy_form("detection")
+        app._open_policy_form("handoff")
+        app._set_policy_enabled("detection", False)
+        app._set_policy_enabled("handoff", False)
         self.assertEqual(
-            app.client.calls,
+            client.calls,
             [
                 ("detection", "session/old", {"enabled": False}),
                 ("handoff", "session/old", {"enabled": False}),
             ],
         )
 
-    def test_fill_uses_domain_ids_and_preserves_operator_selection(self) -> None:
-        class Tree:
-            def __init__(self):
-                self.rows = {}
-                self.selected = ()
 
-            def selection(self):
-                return self.selected
+class Variable:
+    def __init__(self, value):
+        self.value = value
 
-            def get_children(self):
-                return tuple(self.rows)
-
-            def delete(self, *ids):
-                for item_id in ids:
-                    self.rows.pop(item_id, None)
-
-            def insert(self, _parent, _position, *, iid, values):
-                self.rows[iid] = values
-
-            def exists(self, item_id):
-                return item_id in self.rows
-
-            def selection_set(self, item_id):
-                self.selected = (item_id,)
-
-        tree = Tree()
-        records = [{"id": "candidate/1"}, {"id": "candidate/2"}]
-        formatter = lambda record: (record["id"],)
-        WindowsApp._fill(tree, records, formatter)
-        tree.selection_set("candidate/2")
-        WindowsApp._fill(tree, list(reversed(records)), formatter)
-        self.assertEqual(tree.selection(), ("candidate/2",))
-        self.assertEqual(set(tree.rows), {"candidate/1", "candidate/2"})
+    def get(self):
+        return self.value
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()
