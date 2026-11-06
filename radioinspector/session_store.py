@@ -132,12 +132,6 @@ class SQLiteSessionStore:
             );
             CREATE INDEX IF NOT EXISTS observations_stream_time
                 ON observations(stream_id, started_at, id);
-            CREATE INDEX IF NOT EXISTS observations_target_time ON observations (
-                session_id, stream_id, frequency_hz,
-                (CASE WHEN instr(started_at, '.') = 0
-                    THEN replace(started_at, 'Z', '.000000Z')
-                    ELSE started_at END)
-            );
             CREATE TABLE IF NOT EXISTS events (
                 sequence INTEGER PRIMARY KEY,
                 event_type TEXT NOT NULL,
@@ -517,24 +511,38 @@ class SQLiteSessionStore:
         stream_id: str,
         frequency_hz: int,
         started_at: datetime,
+        limit: Optional[int] = None,
     ) -> tuple[str, ...]:
-        """ID всех наблюдений цели от начала исследования без скрытого limit."""
+        """ID наблюдений цели; preflight может ограничить строки явным limit."""
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
+        ):
+            raise ValueError("limit должен быть положительным целым или None")
+        limit_sql = "LIMIT ?" if limit is not None else ""
+        parameters: list[Any] = [
+            session_id,
+            stream_id,
+            frequency_hz,
+            _archive_time(started_at),
+        ]
+        if limit is not None:
+            parameters.append(limit)
         with self._lock:
             rows = self._connection.execute(
-                """
-                SELECT id, started_at FROM observations
-                WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
-                  AND (
-                    CASE WHEN instr(started_at, '.') = 0
-                        THEN replace(started_at, 'Z', '.000000Z')
-                        ELSE started_at END
-                  ) >= ?
+                f"""
+                SELECT id, started_at FROM (
+                    SELECT id, started_at,
+                        CASE WHEN instr(started_at, '.') = 0
+                            THEN replace(started_at, 'Z', '.000000Z')
+                            ELSE started_at END AS sort_started_at
+                    FROM observations
+                    WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
+                ) WHERE sort_started_at >= ?
+                ORDER BY sort_started_at, id {limit_sql}
                 """,
-                (session_id, stream_id, frequency_hz, _archive_time(started_at)),
+                parameters,
             ).fetchall()
-        selected = [row for row in rows if parse_time(row["started_at"]) >= started_at]
-        selected.sort(key=lambda row: (parse_time(row["started_at"]), row["id"]))
-        return tuple(row["id"] for row in selected)
+        return tuple(row["id"] for row in rows)
 
     def save_candidate(
         self, candidate: Candidate, *, event: Optional[SessionEvent] = None
