@@ -1,88 +1,116 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 public enum PlatformError: Error, Equatable {
     case invalidURL(String)
-    case invalidCommand(String)
     case connection(String)
     case http(status: Int, code: String, message: String)
-    case invalidResponse(String)
     case responseTooLarge
+    case invalidResponse(String)
+    case invalidCommand(String)
+}
+
+extension PlatformError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .invalidURL(let message), .invalidResponse(let message),
+             .invalidCommand(let message):
+            return message
+        case .connection(let message):
+            return "Сервер недоступен: \(message)"
+        case .http(_, _, let message):
+            return message
+        case .responseTooLarge:
+            return "Ответ сервера превышает 2 МБ"
+        }
+    }
 }
 
 public struct PlatformBaseURL: Equatable {
-    public let value: String
+    public let root: URL
+    private let apiRootPath: String
 
-    public init(_ raw: String) throws {
-        guard var components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+    public init(_ text: String) throws {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: value),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host != nil else {
             throw PlatformError.invalidURL("Адрес сервера должен начинаться с http:// или https://")
         }
-        guard let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              components.host != nil, components.user == nil, components.password == nil,
-              components.query == nil, components.fragment == nil else {
-            throw PlatformError.invalidURL("Некорректный адрес сервера или учётные данные в URL")
+        guard components.user == nil, components.password == nil else {
+            throw PlatformError.invalidURL("Учётные данные в адресе сервера не поддерживаются")
         }
-        var path = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
+        guard components.query == nil, components.fragment == nil else {
+            throw PlatformError.invalidURL("Адрес сервера не должен содержать query или fragment")
+        }
+        var path = components.percentEncodedPath
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
         if path.hasSuffix("/api/v1") { path.removeLast("/api/v1".count) }
-        components.path = path
-        value = components.string ?? raw
+        if path == "/" { path = "" }
+        components.percentEncodedPath = path
+        guard let url = components.url else {
+            throw PlatformError.invalidURL("Некорректный адрес сервера")
+        }
+        root = url
+        apiRootPath = path
     }
 
-    public func endpoint(path: String, query: [URLQueryItem] = []) throws -> URL {
-        var components = URLComponents(string: value)!
-        components.path = "\(components.path)/api/v1\(path)"
-        components.queryItems = query.isEmpty ? nil : query
-        guard let url = components.url else { throw PlatformError.invalidURL("Некорректный путь API") }
+    func endpoint(path: String, query: [URLQueryItem] = []) throws -> URL {
+        var components = URLComponents(url: root, resolvingAgainstBaseURL: false)
+        components?.percentEncodedPath = apiRootPath + "/api/v1" + path
+        if query.isEmpty {
+            components?.percentEncodedQuery = nil
+        } else {
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-._~")
+            func escaped(_ value: String) -> String {
+                value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+            }
+            components?.percentEncodedQuery = query.map {
+                "\(escaped($0.name))=\(escaped($0.value ?? ""))"
+            }.joined(separator: "&")
+        }
+        guard let url = components?.url else {
+            throw PlatformError.invalidURL("Не удалось сформировать адрес API")
+        }
         return url
     }
 }
 
+public struct PlatformInterval: Codable, Equatable {
+    public let startedAt: String
+    public let endedAt: String
+}
+
 public struct PlatformStream: Decodable, Identifiable, Equatable {
     public let id: String
-    public let sessionId: String
     public let device: String
     public let role: String
     public let levelUnit: String
-    public let label: String
-    public let port: String?
-    public let model: String?
-    public let serialNumber: String?
-    public let firmware: String?
     public let state: String
     public let capabilities: [String]
-    public let settings: [String: String]
 
-    public var isDbmAnalyzer: Bool { role == "spectrum_analyzer" && levelUnit == "dBm" }
     public var isReceiver: Bool { role == "receiver" }
+    public var isDbmAnalyzer: Bool {
+        role == "spectrum_analyzer" && levelUnit == "dBm"
+    }
 }
 
 public struct PlatformSession: Decodable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let state: String
-    public let createdAt: String
-    public let startedAt: String?
-    public let endedAt: String?
-    public let metadata: [String: String]
-    public let contractVersion: Int
     public let streams: [PlatformStream]
 }
 
 public struct PlatformWorker: Decodable, Equatable {
-    public let sessionId: String
     public let streamId: String
     public let state: String
     public let alive: Bool
     public let lastError: String?
-}
-
-public struct PlatformInterval: Decodable, Equatable {
-    public let startedAt: String
-    public let endedAt: String
-
-    public init(startedAt: String, endedAt: String) {
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-    }
 }
 
 public struct PlatformSweep: Decodable, Identifiable, Equatable {
