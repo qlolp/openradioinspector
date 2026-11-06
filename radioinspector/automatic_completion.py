@@ -77,6 +77,7 @@ class AutomaticInvestigationCompletion:
         self._monotonic = monotonic
         self._start_background = start_background
         self._policies: dict[str, dict[str, Any]] = {}
+        self._policy_versions: dict[str, int] = {}
         self._runtime: dict[str, dict[str, Any]] = {}
         self._next_run: dict[str, float] = {}
         self._dispatch_locks: dict[str, threading.Lock] = {}
@@ -164,6 +165,7 @@ class AutomaticInvestigationCompletion:
 
         with self._lock:
             self._policies[session_id] = copy.deepcopy(policy)
+            self._policy_versions[session_id] = self._policy_versions.get(session_id, 0) + 1
             runtime["last_result"] = "enabled" if policy["enabled"] else "disabled"
             runtime["last_error"] = None
             self._next_run[session_id] = (
@@ -201,6 +203,7 @@ class AutomaticInvestigationCompletion:
         with dispatch_lock:
             with self._lock:
                 policy = copy.deepcopy(self._policies.get(session_id, DEFAULT_POLICY))
+                policy_version = self._policy_versions.get(session_id, 0)
                 if self._closed or not policy["enabled"]:
                     return None
                 runtime = self._runtime.setdefault(session_id, _runtime())
@@ -235,6 +238,12 @@ class AutomaticInvestigationCompletion:
                 if len(observation_ids) < policy["minimum_observations"]:
                     continue
                 with self._lock:
+                    current_version = self._policy_versions.get(session_id, 0)
+                    current_enabled = self._policies.get(session_id, DEFAULT_POLICY)["enabled"]
+                    if current_version != policy_version or not current_enabled:
+                        runtime["last_result"] = "policy_changed"
+                        runtime["skipped_investigations"] += 1
+                        return None
                     runtime["last_investigation_id"] = investigation.id
                     runtime["last_result"] = "completing"
                 try:
