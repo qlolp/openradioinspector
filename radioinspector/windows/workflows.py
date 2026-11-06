@@ -74,9 +74,8 @@ def session_payload(
     receiver_frequency_hz: Any,
     mode: Any,
     simulated: bool,
-    serial: bool = False,
 ) -> dict[str, Any]:
-    """Создаёт двухприборный профиль; симуляторы и serial выбираются явно."""
+    """Создаёт двухприборный профиль; симуляторы выбираются только явно."""
     selected_name = required_text(name, "Название сеанса")
     spectrum_port = required_text(tinysa_port, "Порт tinySA")
     target_port = required_text(receiver_port, "Порт AR-DV1")
@@ -90,14 +89,6 @@ def session_payload(
     selected_mode = required_text(mode, "Режим receiver")
     if not isinstance(simulated, bool):
         raise ValueError("Признак симуляторов должен быть boolean")
-    if not isinstance(serial, bool):
-        raise ValueError("Признак serial-профиля должен быть boolean")
-    if serial and simulated:
-        raise ValueError("serial и simulated нельзя выбрать одновременно")
-    if serial:
-        for label, port in (("Порт tinySA", spectrum_port), ("Порт AR-DV1", target_port)):
-            if port.startswith("sim://"):
-                raise ValueError(f"{label} serial не должен использовать sim://")
     spectrum_settings: dict[str, Any] = {
         "start_hz": first_hz,
         "stop_hz": last_hz,
@@ -116,16 +107,6 @@ def session_payload(
         receiver_settings.update(
             {"adapter": "ardv1-sim", "period_s": 0.25, "seed": 17}
         )
-    if serial:
-        spectrum_settings.update(
-            {"adapter": "tinysa-serial", "period_s": 0.25}
-        )
-        receiver_settings.update(
-            {"adapter": "ardv1-serial", "period_s": 0.25}
-        )
-    receiver_capabilities = ["tune", "audio"]
-    if not serial:
-        receiver_capabilities.append("hardware_decode")
     return {
         "name": selected_name,
         "streams": [
@@ -142,11 +123,11 @@ def session_payload(
                 "role": "receiver",
                 "level_unit": "s_meter_count",
                 "port": target_port,
-                "capabilities": receiver_capabilities,
+                "capabilities": ["tune", "audio", "hardware_decode"],
                 "settings": receiver_settings,
             },
         ],
-        "metadata": {"created_by": "windows-gui", "simulated": simulated, "serial": serial},
+        "metadata": {"created_by": "windows-gui", "simulated": simulated},
     }
 
 
@@ -168,7 +149,7 @@ def candidate_payload(
         "source_stream_id": stream_id,
         "interval": {
             "started_at": required_text(started_at, "Начало интервала"),
-            "ended_at": required_text(ended_at, "Окончание интервала"),
+            "ended_at": required_text(ended_at, "Конец интервала"),
         },
         "center_frequency_hz": required_int(
             center_frequency_hz, "Центральная частота"
@@ -194,7 +175,7 @@ def investigation_payload(
     mode: Any = "",
     priority: Any = 0,
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "target_stream_id": required_text(target_stream_id, "Receiver"),
         "target_frequency_hz": required_int(target_frequency_hz, "Частота handoff"),
         "priority": required_int(priority, "Приоритет", minimum=0),

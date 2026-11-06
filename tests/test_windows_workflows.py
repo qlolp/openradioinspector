@@ -39,7 +39,6 @@ class WorkflowPayloadTests(unittest.TestCase):
         self.assertEqual(payload["streams"][1]["level_unit"], "s_meter_count")
         self.assertEqual(payload["streams"][0]["settings"]["adapter"], "tinysa-sim")
         self.assertEqual(payload["streams"][1]["settings"]["adapter"], "ardv1-sim")
-        self.assertIn("hardware_decode", payload["streams"][1]["capabilities"])
         self.assertTrue(payload["metadata"]["simulated"])
 
         profile = self.session(
@@ -54,29 +53,6 @@ class WorkflowPayloadTests(unittest.TestCase):
             self.session(stop_hz="88000000")
         with self.assertRaisesRegex(ValueError, "целым числом"):
             self.session(start_hz="88.5")
-
-    def test_serial_profile_is_explicit_and_validated(self) -> None:
-        payload = self.session(
-            tinysa_port="COM3",
-            receiver_port="COM4",
-            simulated=False,
-            serial=True,
-        )
-        self.assertEqual(payload["streams"][0]["settings"]["adapter"], "tinysa-serial")
-        self.assertEqual(payload["streams"][1]["settings"]["adapter"], "ardv1-serial")
-        self.assertNotIn("hardware_decode", payload["streams"][1]["capabilities"])
-        self.assertEqual(payload["streams"][0]["port"], "COM3")
-        self.assertEqual(payload["streams"][1]["port"], "COM4")
-        self.assertTrue(payload["metadata"]["serial"])
-        self.assertFalse(payload["metadata"]["simulated"])
-        self.assertEqual(payload["streams"][0]["settings"]["start_hz"], 88_000_000)
-        self.assertEqual(payload["streams"][0]["settings"]["stop_hz"], 108_000_000)
-        with self.assertRaisesRegex(ValueError, "sim://"):
-            self.session(tinysa_port="sim://tinysa", simulated=False, serial=True)
-        with self.assertRaisesRegex(ValueError, "одновременно"):
-            self.session(simulated=True, serial=True)
-        with self.assertRaisesRegex(ValueError, "boolean"):
-            self.session(simulated=False, serial=1)
 
     def test_candidate_preserves_source_unit_interval_and_real_sweep_link(self) -> None:
         stream = {"id": "tiny/sa", "level_unit": "dBm"}

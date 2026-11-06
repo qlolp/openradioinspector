@@ -43,8 +43,6 @@ class PlatformSnapshot:
     automatic_completion: Optional[dict[str, Any]] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
     spectrum_stream_id: Optional[str] = None
-    analytics: Optional[dict[str, Any]] = None
-    analytics_error: Optional[str] = None
 
 
 def _segment(value: str, name: str) -> str:
@@ -227,9 +225,7 @@ class PlatformClient:
             f"/sessions/{session}/candidates/{candidate}/investigations", payload
         )
 
-    def list_investigations(
-        self, session_id: str
-    ) -> list[dict[str, Any]]:
+    def list_investigations(self, session_id: str) -> list[dict[str, Any]]:
         return self._request(
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/investigations"
         )
@@ -319,10 +315,6 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         return self._post(f"/sessions/{session}/automatic-completion", payload)
 
-    def analytics_summary(self, session_id: str) -> dict[str, Any]:
-        session = _segment(session_id, "session_id")
-        return self._request("GET", f"/sessions/{session}/analytics/summary")
-
     def snapshot(
         self,
         session_id: Optional[str] = None,
@@ -341,12 +333,6 @@ class PlatformClient:
             if spectrum_stream_id is not None
             else []
         )
-        analytics = None
-        analytics_error = None
-        try:
-            analytics = self.analytics_summary(session_id)
-        except PlatformClientError as exc:
-            analytics_error = str(exc)
         return PlatformSnapshot(
             health=health,
             capabilities=capabilities,
@@ -361,8 +347,6 @@ class PlatformClient:
             automatic_completion=self.automatic_completion(session_id),
             sweeps=sweeps,
             spectrum_stream_id=spectrum_stream_id,
-            analytics=analytics,
-            analytics_error=analytics_error,
         )
 
     def _post(self, path: str, payload: Optional[dict[str, Any]] = None) -> Any:
