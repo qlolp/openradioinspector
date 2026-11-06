@@ -53,6 +53,7 @@ radioinspector = "radioinspector.cli:main"
 radioinspector-windows = "radioinspector.windows.app:main"
 radioinspector-archive-import = "radioinspector.archive_ingest:main"
 radioinspector-archive-export = "radioinspector.archive_export:main"
+radioinspector-archive-stream = "radioinspector.archive_stream:main"
 
 [project.urls]
 Homepage = "https://github.com/qlolp/openradioinspector"
