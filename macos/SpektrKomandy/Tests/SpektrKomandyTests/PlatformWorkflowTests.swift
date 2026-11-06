@@ -43,7 +43,7 @@ final class PlatformWorkflowTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         sessions.append(session)
         return try PlatformClient(
-            baseURL: "http://example.test", session: session
+            baseURL: "https://example.test", session: session
         )
     }
 
