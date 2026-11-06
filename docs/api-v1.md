@@ -38,6 +38,8 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
+| `GET` | `/api/v1/sessions/{id}/archive/export.ndjson?stream_id=` | Потоковый NDJSON-экспорт неизменного snapshot архива |
+| `GET` | `/api/v1/sessions/{id}/analytics/summary?stream_id=` | Read-only агрегаты всего архива сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
 | `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
 | `GET` | `/api/v1/sessions/{id}/candidates/{candidate_id}` | Один кандидат |
@@ -129,13 +131,15 @@ curl -N http://127.0.0.1:8770/api/v1/events -H 'Last-Event-ID: 2'
 
 Визуализация ограничена 40 свипами и не более чем 1000 отображаемыми точками спектра с сохранением первой, последней и пиковой точки. Водопад использует max-агрегацию по пиксельным столбцам. Полные частоты остаются целыми Гц, `dBm` и `s_meter_count` отображаются в исходных единицах. Динамические строки вставляются через текстовые DOM-узлы; mock-данных и автоматического пересчёта единиц нет.
 
+Панель «Сводка всего архива» запрашивает `/analytics/summary` вместе с остальными данными сеанса и показывает число sweeps/observations, исходные единицы, долю открытого шумодава и фактический пик последнего sweep. Ошибка этого read-only запроса изолируется и отображается отдельно, не прерывая live-измерения или остальной refresh.
+
 ## Windows GUI-клиент
 
 `radioinspector-windows --server http://127.0.0.1:8770` и `python3 -m radioinspector.windows --server …` запускают тонкий Tkinter-клиент. Он использует `GET /health`, `/capabilities`, `/sessions`, детали выбранного сеанса, `/workers`, `/candidates`, `/investigations`, `/investigations/next`, `/sweeps?stream_id=…&limit=40` и GET обеих автоматических политик. Команды охватывают создание сеанса и кандидата, start/stop сеанса, start/stop всех workers, start/stop выбранного stream, `tune` выбранного receiver, постановку и отклонение кандидата, ручной и подтверждённый полуавтоматический handoff, complete/fail/cancel исследования и POST обеих автоматических политик. Ответ tune содержит `data.tuned` с фактическими `frequency_hz` и `mode`, а также `data.worker` с состоянием исполнителя.
 
 Базовый URL может включать завершающий `/api/v1`; клиент не добавляет его дважды. Учётные данные в URL, query и fragment отклоняются. Идентификаторы в путях кодируются как один URL-сегмент; `stream_id` в query выборки sweeps кодируется как обычный query-параметр. Ответ ограничен 2 МБ и принимается только при совпадении `contract=openradioinspector-platform` и `contract_version=1`. Частота tune должна быть положительным целым числом Гц, режим — непустой строкой; преобразования МГц и единиц уровня клиент не выполняет.
 
-Форма нового сеанса создаёт пару tinySA/AR-DV1 в `draft`. Симуляторы добавляются в `settings` только при явном opt-in; иначе сохраняются профили без поддерживаемых workers. Кандидат из пика использует реальные частоту, исходный уровень, интервал и ID последнего sweep; ручная форма сохраняет `level_unit` выбранного потока. Постановка в очередь не запускает receiver. Вкладка исследований отдельно показывает рекомендацию `next`; кнопка подтверждения отправляет её ID с `confirm=true`, а сервер повторно проверяет актуальность очереди. Complete не синтезирует наблюдения и успешен только по правилам ядра.
+Форма нового сеанса создаёт пару tinySA/AR-DV1 в `draft`. Симуляторы добавляются в `settings` только при явном opt-in; иначе сохраняются профили без поддерживаемых workers. Отдельный serial-профиль назначает `tinysa-serial` и `ardv1-serial` с проверкой непустых разных портов и запретом `sim://`; одновременный `serial+simulated` отклоняется. Он не объявляет `hardware_decode`: serial-адаптер принимает только FM/AM и не подтверждает цифровое декодирование. Кандидат из пика использует реальные частоту, исходный уровень, интервал и ID последнего sweep; ручная форма сохраняет `level_unit` выбранного потока. Постановка в очередь не запускает receiver. Вкладка исследований отдельно показывает рекомендацию `next`; кнопка подтверждения отправляет её ID с `confirm=true`, а сервер повторно проверяет актуальность очереди. Complete не синтезирует наблюдения и успешен только по правилам ядра.
 
 Формы detector и handoff проверяют все диапазоны и типы параметров до POST, включая boolean `enabled`, конечные числа, целые лимиты и принадлежность выбранного потока нужной роли. У выключенной политики сохранение параметров и кнопка `Включить явно` являются разными действиями; включение разрешено только в running-сеансе. У включённой политики можно сохранить параметры или отправить только `{"enabled":false}`. Операции одной политики не содержат полей другой: detector не вызывает queue/handoff, scheduler не вызывает detector или complete/fail/cancel. Выключение handoff не отменяет активное исследование.
 
@@ -143,11 +147,13 @@ HTTP работает в одном фоновом executor, обновлени�
 
 Визуализация использует до 40 последних sweeps и не более 1000 точек спектра с сохранением первой, последней и фактической пиковой точки. Водопад применяет max-агрегацию по пиксельным столбцам и располагает старые sweeps сверху, новые снизу. Команды ручного или полуавтоматического handoff не включают scheduler/detector. Обе автоматические политики остаются runtime-only и после перезапуска сервера требуют независимых новых opt-in.
 
+Windows-клиент дополнительно запрашивает `/analytics/summary` и показывает архивные счётчики, исходные единицы, долю шумодава и пик последнего sweep. Ошибка аналитики сохраняется в `analytics_error` и не прерывает остальной snapshot.
+
 ## macOS SwiftUI-клиент
 
 Существующее окно `macos/DvoynoyObzor` подключается к ядру через `SpektrKomandy/PlatformAPI.swift`. Оно использует `GET /sessions`, детали сеанса, `/workers`, `/sweeps?stream_id=…&limit=40`, `/observations?stream_id=…&limit=40`, кандидатов, очередь исследований, рекомендацию `next` и GET обеих автоматических политик. Команды охватывают создание сеанса, start/stop сеанса, всех workers и независимых потоков, `tune` только receiver, создание/отклонение кандидата и постановку в очередь, ручной и подтверждённый полуавтоматический handoff, complete/fail/cancel и изменение независимых политик. Базовый URL проверяется так же, как в Windows-клиенте; ID в путях и query кодируются, конверт и версия ответа обязательны. Ответ ограничен 2 МБ после загрузки.
 
-Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 40 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
+Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. В workflow-панели `RemoteAnalyticsPane` показывается та же read-only сводка с раздельными `dBm` и `s_meter_count`; ошибка `/analytics/summary` хранится отдельно от `workflowErrors` и не блокирует остальные данные. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 44 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
 
 ## Независимые исполнители и симуляторы
 
@@ -300,9 +306,84 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps/batch \
 
 Успешный ответ имеет HTTP 201 и `data={"items":[...],"count":2}`. Порядок элементов сохраняется. Для каждого измерения создаётся своё обычное событие `sweep.received` или `observation.received` с монотонной последовательностью. В SQLite весь пакет и все его события записываются одной транзакцией; replay и SSE обновляются только после commit. Ошибка любого элемента, дубликат ID внутри пакета или конфликт с архивом отклоняет весь пакет: частичные измерения и события не сохраняются. Memory-only режим применяет ту же проверку «всё или ничего» до изменения списков. Capabilities сообщают `measurement_batch_ingest=true`, `measurement_batch_atomic=true` и `measurement_batch_limit=100`.
 
+### Внешний импорт архива
+
+Команда `archive-import` позволяет внешнему сборщику передать подготовленные sweeps и observations в существующий сеанс. Она использует только capabilities, чтение сеанса и перечисленные выше batch-маршруты: прямой доступ к SQLite и приборным портам не нужен. Единственным писателем архива остаётся серверный `SessionService`.
+
+Вход — строгий JSON версии 1. Поля `format` и `format_version` обязательны, неизвестные поля отклоняются. Каждое измерение должно иметь стабильный непустой `id`; автоматическая генерация ID при импорте не используется. Поле `session_id` внутри записи можно опустить, но если оно задано, то должно совпадать с `--session`.
+
+```json
+{
+  "format": "openradioinspector-archive",
+  "format_version": 1,
+  "sweeps": [
+    {
+      "id": "external-sweep-0001",
+      "stream_id": "TINYSA_STREAM_ID",
+      "interval": {
+        "started_at": "2026-11-05T10:00:00Z",
+        "ended_at": "2026-11-05T10:00:01Z"
+      },
+      "frequencies_hz": [100000000, 100100000],
+      "levels": [-80.5, -42.0],
+      "level_unit": "dBm"
+    }
+  ],
+  "observations": [
+    {
+      "id": "external-observation-0001",
+      "stream_id": "RECEIVER_STREAM_ID",
+      "interval": {
+        "started_at": "2026-11-05T10:00:00Z",
+        "ended_at": "2026-11-05T10:00:01Z"
+      },
+      "frequency_hz": 145500000,
+      "mode": "FM",
+      "level": 37,
+      "level_unit": "s_meter_count",
+      "squelch_open": true
+    }
+  ]
+}
+```
+
+```bash
+# Полная проверка документа, capabilities, сеанса, потоков и единиц без POST.
+python3 -m radioinspector.archive_ingest \
+  --server http://127.0.0.1:8770 \
+  --session SESSION_ID --input archive.json --dry-run
+
+# Импорт пакетами по 50 записей; вместо файла можно указать - для stdin.
+python3 -m radioinspector.archive_ingest \
+  --server http://127.0.0.1:8770 \
+  --session SESSION_ID --input archive.json --batch-size 50
+```
+
+До первого POST проверяются весь документ, `measurement_batch_ingest=true`, `measurement_batch_atomic=true`, серверный `measurement_batch_limit`, существование сеанса, принадлежность каждого потока и совпадение исходной `level_unit`. Поэтому ошибка даже в последней записи или чужой поток не позволяет записать предыдущие пакеты. `--batch-size` может только уменьшить серверный лимит. Порядок записей сохраняется: сначала sweeps, затем observations; ответ каждого пакета сверяется по числу и ID.
+
+Результат содержит `sweeps`, `observations`, `batches`, `batch_size`, `dry_run`, `atomic_per_batch=true` и `whole_file_atomic=false`. **Атомарен каждый HTTP-пакет, а не весь много-пакетный файл.** При сетевом сбое или отказе сервера после уже подтверждённых пакетов ранее принятые записи остаются в архиве. Повторный импорт не пропускает дубликаты молча: сервер отклоняет конфликтующий пакет. Частоты остаются целыми Гц, время приводится к UTC, `dBm` и `s_meter_count` не пересчитываются друг в друга.
+
+### Read-only аналитика архива
+
+`GET /api/v1/sessions/{id}/analytics/summary` возвращает агрегаты всего архива сеанса, а не только последние 40 или 100 измерений HTTP-выборки. Необязательный `stream_id` ограничивает расчёт одним потоком того же сеанса; неизвестный сеанс возвращает 404, чужой поток — 400.
+
+```bash
+curl -sS 'http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/analytics/summary?stream_id=TINYSA_STREAM_ID'
+```
+
+Отдельные объекты `sweeps` и `observations` содержат `count`, `first_started_at`, `last_started_at`, `level_units` и полное последнее измерение `latest`. Для последнего sweep дополнительно возвращается `latest_peak` с фактическими `sweep_id`, `frequency_hz`, `level` и `level_unit`. Для observations публикуются `squelch_known`, `squelch_open` и `squelch_open_ratio`; если состояние шумодава неизвестно у всех записей, ratio равно `null`.
+
+Поле `archive_wide=true` подчёркивает область расчёта. Memory-only и SQLite возвращают одинаковую структуру; после перезапуска SQLite-архив сохраняет агрегаты. Расчёт выполняется под блокировкой службы и read-only: он не создаёт измерений, событий или преобразования `s_meter_count` в `dBm`. Capabilities сообщают `session_analytics=true` и `session_analytics_archive_wide=true`. Это сводка архива, а не автоматическая классификация сигнала или точное измерение занимаемой полосы.
+
+### Потоковый NDJSON-экспорт snapshot
+
+`GET /api/v1/sessions/{id}/archive/export.ndjson` возвращает `application/x-ndjson` с header `openradioinspector-archive-ndjson`, версия 1, и записями `sweep`/`observation`, совместимыми с `radioinspector-archive-stream`. Необязательный `stream_id` ограничивает экспорт одним потоком. Headers `X-Archive-Sweeps` и `X-Archive-Observations` содержат точные счётчики того же snapshot, который сериализуется в ответ.
+
+SQLite сначала копируется во временный файл на диске, после чего writer освобождается, а строки читаются пакетами без полной материализации архива в Python. Записи после создания snapshot не попадают в ответ и не меняют счётчики. Ответ закрывается соединением и не имеет `Content-Length`; обрыв или несовпадение счётчиков считается ошибкой экспорта. Capabilities сообщают `session_archive_export_ndjson=true` и `session_archive_export_streaming=true`. Частоты остаются целыми Гц, `dBm` и `s_meter_count` не преобразуются. Подробности и CLI описаны в [`archive-export-stream.md`](archive-export-stream.md).
+
 ## Кандидаты и режимы handoff
 
-Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматического завершения исследований нет. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false` и `automatic_investigation_completion=false`.
+Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматическое завершение доступно по независимой runtime-политике для `listening`/`decoding` после заданных времени и числа подходящих observations и использует общий `SessionService.complete_investigation`; automatic fail/cancel отсутствует. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false`, `automatic_investigation_completion=true`, `automatic_investigation_completion_opt_in_required=true` и `automatic_investigation_completion_policy_persistent=false`.
 
 Состояния кандидата:
 
