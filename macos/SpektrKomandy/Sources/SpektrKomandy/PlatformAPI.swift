@@ -169,6 +169,41 @@ public struct PlatformTuneResult: Decodable, Equatable {
     public let worker: PlatformWorker
 }
 
+public struct PlatformPeak: Decodable, Equatable {
+    public let sweepId: String
+    public let frequencyHz: Int64
+    public let level: Double
+    public let levelUnit: String
+}
+
+public struct PlatformSweepSummary: Decodable, Equatable {
+    public let count: Int
+    public let firstStartedAt: String?
+    public let lastStartedAt: String?
+    public let levelUnits: [String]
+    public let latest: PlatformSweep?
+    public let latestPeak: PlatformPeak?
+}
+
+public struct PlatformObservationSummary: Decodable, Equatable {
+    public let count: Int
+    public let firstStartedAt: String?
+    public let lastStartedAt: String?
+    public let levelUnits: [String]
+    public let latest: PlatformObservation?
+    public let squelchKnown: Int
+    public let squelchOpen: Int
+    public let squelchOpenRatio: Double?
+}
+
+public struct PlatformAnalyticsSummary: Decodable, Equatable {
+    public let sessionId: String
+    public let streamId: String?
+    public let archiveWide: Bool
+    public let sweeps: PlatformSweepSummary
+    public let observations: PlatformObservationSummary
+}
+
 public struct PlatformSnapshot: Equatable {
     public var session: PlatformSession
     public var workers: [PlatformWorker]
@@ -179,6 +214,8 @@ public struct PlatformSnapshot: Equatable {
     public var nextInvestigation: PlatformInvestigation?
     public var automaticHandoff: PlatformAutomaticStatus?
     public var automaticDetection: PlatformAutomaticStatus?
+    public var analytics: PlatformAnalyticsSummary?
+    public var analyticsError: String?
     public var workflowErrors: [String] = []
 }
 
@@ -379,6 +416,10 @@ public final class PlatformClient {
         try await measurements(kind: "observations", sessionID: sessionID, streamID: streamID)
     }
 
+    public func analyticsSummary(sessionID: String) async throws -> PlatformAnalyticsSummary {
+        try await get("/sessions/\(Self.segment(sessionID))/analytics/summary")
+    }
+
     public func snapshot(sessionID: String) async throws -> PlatformSnapshot {
         let session = try await getSession(sessionID)
         async let workersRequest: [PlatformWorker] = get(
@@ -428,12 +469,22 @@ public final class PlatformClient {
             detection = nil
             workflowErrors.append("automatic detection: \(error.localizedDescription)")
         }
+        let analytics: PlatformAnalyticsSummary?
+        let analyticsError: String?
+        do {
+            analytics = try await analyticsSummary(sessionID: sessionID)
+            analyticsError = nil
+        } catch {
+            analytics = nil
+            analyticsError = error.localizedDescription
+        }
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
             sweeps: sweepsRequest, observations: observationsRequest,
             candidates: candidates, investigations: investigations,
             nextInvestigation: next,
             automaticHandoff: handoff, automaticDetection: detection,
+            analytics: analytics, analyticsError: analyticsError,
             workflowErrors: workflowErrors
         )
     }
