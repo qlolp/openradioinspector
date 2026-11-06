@@ -78,6 +78,22 @@ final class SweepTests: XCTestCase {
         XCTAssertTrue(restarted.observe(2))
     }
 
+    func testExtremeFrequencySpanDoesNotOverflowWidthChecks() {
+        let first = ExceedanceList.update(
+            existing: [],
+            bins: [LevelBin(frequency: 0, level: 5), LevelBin(frequency: Int64.max, level: 6)],
+            threshold: 5
+        )
+        XCTAssertEqual(first.count, 1)
+        XCTAssertEqual(first[0].width, Int64.max)
+        let again = ExceedanceList.update(
+            existing: first,
+            bins: [LevelBin(frequency: 0, level: 5), LevelBin(frequency: Int64.max, level: 6)],
+            threshold: 5
+        )
+        XCTAssertEqual(again[0].hits, 2)
+    }
+
     func testEnvelopeKeepsMinimumAndMaximum() {
         var envelope = TraceEnvelope()
         envelope.absorb([LevelBin(frequency: 10, level: 3), LevelBin(frequency: 20, level: -5)])

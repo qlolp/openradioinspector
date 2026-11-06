@@ -54,7 +54,8 @@ public enum ExceedanceList {
             let width = span > 0 ? span : neighborSpacing(ordered, start: start, end: end)
             let center = low + (high - low) / 2
             if let match = rows.firstIndex(where: { row in
-                center >= row.low && center <= row.high && width <= row.width * 5
+                center >= row.low && center <= row.high
+                    && (row.width > Int64.max / 5 || width <= row.width * 5)
             }) {
                 rows[match].hits += 1
             } else {
