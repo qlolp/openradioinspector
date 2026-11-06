@@ -50,7 +50,7 @@ struct UltraPane: View {
                 }
                 GroupBox("Обзор") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Команды при подключении: \(UltraSessionScript.identityTexts.joined(separator: ", ")). ")
+                        Text("Команды при подключении: \(UltraSessionScript.identityTexts.joined(separator: ", "))."))
                             .font(.caption)
                         Text("Команды обзора:")
                             .font(.caption)
