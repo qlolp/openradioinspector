@@ -59,6 +59,10 @@ final class PlatformWorkflowTests: XCTestCase {
     {"policy":{"enabled":true,"interval_seconds":0.5,"minimum_listening_seconds":10.0,"minimum_observations":2,"receiver_stream_id":"ar/1"},"runtime":{"last_result":"completed","last_error":null,"last_investigation_id":"i/1","completed_investigations":1,"skipped_investigations":0},"scheduler_alive":true,"policy_persistent":false,"restart_requires_opt_in":true,"automatic_fail_or_cancel":false}
     """
 
+    private let taskSchedulerJSON = """
+    {"enabled":true,"scheduler_alive":true,"policy_persistent":false,"restart_requires_opt_in":true,"runtime":{"last_result":"completed","last_error":null,"last_task_name":"task/1","started_tasks":1,"completed_tasks":1,"aborted_tasks":0},"tasks":{"total":1,"running":0,"completed":1}}
+    """
+
     private let candidateJSON = """
     {"id":"c/1","session_id":"s/1","source_stream_id":"tiny/1","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"center_frequency_hz":433075000,"bandwidth_hz":null,"peak_level":-42.5,"level_unit":"dBm","score":null,"observation_ids":["sw/1"],"state":"new"}
     """
@@ -227,6 +231,63 @@ final class PlatformWorkflowTests: XCTestCase {
                 minimumObservations: 1, receiverStreamId: nil
             )
         )
+    }
+
+    func testTaskSchedulerPayloadSnapshotAndErrorIsolation() async throws {
+        let session = """
+        {"id":"s/1","name":"Обзор","state":"running","streams":[{"id":"tiny/1","device":"tinySA","role":"spectrum_analyzer","level_unit":"dBm","state":"connected","capabilities":["sweep"]},{"id":"ar/1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}]}
+        """
+        var schedulerAvailable = true
+        let client = try client { request in
+            let path = request.url!.path
+            if path == "/api/v1/task-scheduler" {
+                if !schedulerAvailable {
+                    let response = HTTPURLResponse(
+                        url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil
+                    )!
+                    let data = Data("{\"error\":{\"code\":\"not_found\",\"message\":\"old server\"}}".utf8)
+                    return (response, data)
+                }
+                if request.httpMethod == "POST" {
+                    let object = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+                    XCTAssertEqual(object.count, 1)
+                    XCTAssertEqual(object["enabled"] as? Bool, true)
+                }
+                return (self.response(request.url!), self.envelope(self.taskSchedulerJSON))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/sweeps") || path.hasSuffix("/observations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/investigations/next") { return (self.response(request.url!), self.envelope("null")) }
+            if path.hasSuffix("/automatic-handoff") || path.hasSuffix("/automatic-detection")
+                || path.hasSuffix("/automatic-completion") {
+                return (self.response(request.url!), self.envelope(self.statusJSON(enabled: false)))
+            }
+            if path.hasSuffix("/analytics/summary") {
+                let summary = """
+                {"session_id":"s/1","stream_id":null,"archive_wide":true,"sweeps":{"count":0,"first_started_at":null,"last_started_at":null,"level_units":[],"latest":null,"latest_peak":null},"observations":{"count":0,"first_started_at":null,"last_started_at":null,"level_units":[],"latest":null,"squelch_known":0,"squelch_open":0,"squelch_open_ratio":null}}
+                """
+                return (self.response(request.url!), self.envelope(summary))
+            }
+            return (self.response(request.url!), self.envelope(session))
+        }
+        let configured = try await client.configureTaskScheduler(enabled: true)
+        XCTAssertTrue(configured.enabled)
+        XCTAssertEqual(configured.runtime.completedTasks, 1)
+        XCTAssertEqual(configured.tasks.completed, 1)
+        let snapshot = try await client.snapshot(sessionID: "s/1")
+        XCTAssertEqual(snapshot.taskScheduler?.enabled, true)
+        XCTAssertEqual(snapshot.taskScheduler?.tasks.completed, 1)
+        XCTAssertNil(snapshot.taskSchedulerError)
+        schedulerAvailable = false
+        let isolated = try await client.snapshot(sessionID: "s/1")
+        XCTAssertNil(isolated.taskScheduler)
+        XCTAssertEqual(isolated.taskSchedulerError, "old server")
+        XCTAssertEqual(isolated.session.id, "s/1")
+        XCTAssertEqual(isolated.workflowErrors, [])
     }
 
     func testSnapshotDecodesWorkflowAndIndependentPolicies() async throws {

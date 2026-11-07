@@ -35,6 +35,12 @@ WebUI не создаёт и не редактирует `ControlTask`, не ч�
 
 Форма не создаёт задания и не подтверждает измерения. Переподключение к другому серверу не меняет уже захваченную клиентскую команду; включение и выключение остаются отдельными действиями оператора.
 
+## macOS SwiftUI
+
+`PlatformTaskSchedulerStatus` и `RemoteTaskSchedulerPane` показывают фактические enabled, scheduler_alive, runtime и счётчики. Polling загружает глобальный status и без выбранного сеанса; `configureTaskScheduler(enabled)` отправляет только JSON boolean. Ошибка endpoint сохраняется отдельно в `taskSchedulerError` и не блокирует workers, измерения или другие политики. Действия enable/disable не требуют session ID и захватывают client/generation, поэтому поздний ответ прежнего подключения не применяется.
+
+Панель не создаёт задания, не читает TaskBook и не подтверждает аппаратный результат.
+
 ## CLI
 
 ```bash
