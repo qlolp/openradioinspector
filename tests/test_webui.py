@@ -147,6 +147,33 @@ class WebUiTests(unittest.TestCase):
         self.assertNotIn("innerHTML", javascript)
         self.assertNotIn("outerHTML", javascript)
 
+    def test_task_scheduler_panel_is_global_opt_in_and_isolated(self) -> None:
+        html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
+        javascript = (STATIC_DIR / "scheduler.js").read_text(encoding="utf-8")
+        self.assertIn('src="/static/scheduler.js"', html)
+        for element_id in (
+            "task-scheduler-editor", "task-scheduler-status", "task-scheduler-total",
+            "task-scheduler-running", "task-scheduler-completed",
+            "task-scheduler-enable", "task-scheduler-disable",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+            self.assertIn(f'byId("{element_id}")', javascript)
+        self.assertIn('Runtime-only · по умолчанию выключен', html)
+        self.assertIn('не связан с выбранным сеансом', html)
+        self.assertIn('api("/task-scheduler")', javascript)
+        self.assertIn('body: { enabled }', javascript)
+        self.assertIn('state.actionPending', javascript)
+        self.assertIn('state.generation', javascript)
+        self.assertIn('Остальные панели продолжают работать', javascript)
+        self.assertNotIn('interval_seconds', javascript)
+        self.assertNotIn('automatic-completion', javascript)
+        self.assertNotIn("innerHTML", javascript)
+        self.assertNotIn("outerHTML", javascript)
+        status, content_type, body = self.request("/static/scheduler.js")
+        self.assertEqual(status, 200)
+        self.assertTrue(content_type.startswith("text/javascript"))
+        self.assertEqual(body, javascript)
+
 
 if __name__ == "__main__":
     unittest.main()
