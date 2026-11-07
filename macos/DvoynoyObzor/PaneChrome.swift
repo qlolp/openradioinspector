@@ -235,6 +235,34 @@ struct RemoteTaskSchedulerPane: View {
                 if let error = model.taskSchedulerError, !error.isEmpty {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
+                Text("TaskBook · read-only").font(.caption).foregroundStyle(.secondary)
+                if let error = model.taskSchedulerTasksError, !error.isEmpty {
+                    Text("Список ControlTask недоступен: \(error)")
+                        .font(.caption).foregroundStyle(.red)
+                } else if model.taskSchedulerTasks.isEmpty {
+                    Text("В TaskBook нет задач.").font(.caption).foregroundStyle(.secondary)
+                }
+                if !model.taskSchedulerTasks.isEmpty {
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(model.taskSchedulerTasks.indices, id: \.self) { index in
+                                let task = model.taskSchedulerTasks[index]
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(task.name).font(.caption).bold()
+                                    Text("\(task.status) · \(task.startAt ?? "время не задано")")
+                                        .font(.caption)
+                                    if !task.outcome.isEmpty {
+                                        Text(task.outcome).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Text(task.equipment.isEmpty ? "Оборудование не указано" : task.equipment)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                }
                 HStack {
                     Button("Включить scheduler") { model.enableTaskScheduler() }
                         .disabled(model.taskSchedulerStatus == nil || model.taskSchedulerStatus?.enabled == true || model.busy)

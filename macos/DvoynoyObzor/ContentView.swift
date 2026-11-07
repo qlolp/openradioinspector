@@ -120,6 +120,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var automaticCompletionStatus: PlatformAutomaticStatus?
     @Published var taskSchedulerStatus: PlatformTaskSchedulerStatus?
     @Published var taskSchedulerError: String?
+    @Published var taskSchedulerTasks: [PlatformControlTask] = []
+    @Published var taskSchedulerTasksError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var workflowErrors: [String] = []
@@ -439,7 +441,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticDetection() {
-        configureAutomaticDetection(enabled: automaticDetectionStatus?.policy.enabled ?? false)
+        configureAutomaticDetection(enabled: nil)
     }
 
     func enableAutomaticDetection() {
@@ -451,7 +453,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticHandoff() {
-        configureAutomaticHandoff(enabled: automaticHandoffStatus?.policy.enabled ?? false)
+        configureAutomaticHandoff(enabled: nil)
     }
 
     func enableAutomaticHandoff() {
@@ -516,6 +518,17 @@ final class RemoteDualModel: ObservableObject {
                   schedulerRevision == taskSchedulerCommandRevision else { return }
             taskSchedulerError = describeSession(error)
         }
+        do {
+            let tasks = try await client.taskSchedulerTasks()
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
+            taskSchedulerTasks = tasks
+            taskSchedulerTasksError = nil
+        } catch {
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
+            taskSchedulerTasksError = describeSession(error)
+        }
     }
 
     private func configureAutomaticCompletion(enabled: Bool?) {
@@ -533,7 +546,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticDetection(enabled: Bool) {
+    private func configureAutomaticDetection(enabled: Bool?) {
         do {
             let draft = try PlatformDetectionPolicyDraft(
                 enabled: enabled,
@@ -550,7 +563,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticHandoff(enabled: Bool) {
+    private func configureAutomaticHandoff(enabled: Bool?) {
         do {
             let draft = try PlatformHandoffPolicyDraft(
                 enabled: enabled,
@@ -655,6 +668,8 @@ final class RemoteDualModel: ObservableObject {
         automaticCompletionStatus = nil
         taskSchedulerStatus = nil
         taskSchedulerError = nil
+        taskSchedulerTasks = []
+        taskSchedulerTasksError = nil
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         workflowErrors = []
@@ -675,6 +690,8 @@ final class RemoteDualModel: ObservableObject {
         if schedulerRevision == taskSchedulerCommandRevision {
             taskSchedulerStatus = snapshot.taskScheduler
             taskSchedulerError = snapshot.taskSchedulerError
+            taskSchedulerTasks = snapshot.taskSchedulerTasks
+            taskSchedulerTasksError = snapshot.taskSchedulerTasksError
         }
         archiveAnalytics = snapshot.analytics
         archiveAnalyticsError = snapshot.analyticsError
