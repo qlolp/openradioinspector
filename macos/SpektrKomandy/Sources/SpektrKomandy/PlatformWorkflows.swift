@@ -124,6 +124,30 @@ public struct PlatformAutomaticStatus: Decodable, Equatable {
     public let automaticFailOrCancel: Bool?
 }
 
+public struct PlatformTaskRuntime: Decodable, Equatable {
+    public let lastResult: String?
+    public let lastError: String?
+    public let lastTaskName: String?
+    public let startedTasks: Int?
+    public let completedTasks: Int?
+    public let abortedTasks: Int?
+}
+
+public struct PlatformTaskCounters: Decodable, Equatable {
+    public let total: Int
+    public let running: Int
+    public let completed: Int
+}
+
+public struct PlatformTaskSchedulerStatus: Decodable, Equatable {
+    public let enabled: Bool
+    public let schedulerAlive: Bool
+    public let policyPersistent: Bool
+    public let restartRequiresOptIn: Bool
+    public let runtime: PlatformTaskRuntime
+    public let tasks: PlatformTaskCounters
+}
+
 private enum PlatformWorkflowValidation {
     static func text(_ value: String, _ label: String) throws -> String {
         let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -453,6 +477,14 @@ public extension PlatformClient {
             "/sessions/\(Self.segment(sessionID))/automatic-detection",
             body: PlatformEnabledDraft(enabled: false)
         )
+    }
+
+    func taskScheduler() async throws -> PlatformTaskSchedulerStatus {
+        try await get("/task-scheduler")
+    }
+
+    func configureTaskScheduler(enabled: Bool) async throws -> PlatformTaskSchedulerStatus {
+        try await post("/task-scheduler", body: PlatformEnabledDraft(enabled: enabled))
     }
 
     private func investigationAction(
