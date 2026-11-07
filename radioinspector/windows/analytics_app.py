@@ -41,6 +41,13 @@ class AnalyticsWindowsApp(CompletionWindowsApp):
         super().__init__(*args, **kwargs)
         self._analytics_session_id: Optional[str] = None
         self.analytics_var = self.tk.StringVar(value=analytics_text(None))
+        self.analytics_label = self.tk.Label(
+            self.root,
+            textvariable=self.analytics_var,
+            wraplength=1100,
+            justify="left",
+        )
+        self.analytics_label.pack(side="top", fill="x", padx=10, pady=(0, 8))
         self.analytics_button = self.tk.Button(
             self.root,
             text="Запросить сводку всего архива",
