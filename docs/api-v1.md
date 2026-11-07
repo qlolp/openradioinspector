@@ -389,7 +389,7 @@ SQLite сначала копируется во временный файл на
 
 `POST /api/v1/task-scheduler` принимает ровно одно поле `enabled` с JSON boolean. Дополнительные поля и не-boolean значения отклоняются. Включение и выключение — отдельные команды оператора, а не побочный эффект выбора сеанса или сохранения параметров.
 
-`GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook без перечитывания или изменения файла. Это read-only снимок под scheduler lock: он не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths не считаются файлами.
+`GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook без перечитывания или изменения файла. Это read-only снимок под scheduler lock: он не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths не считаются файлами. Локальные пути `task_file` и `panorama_file` в ответ не включаются.
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8770/api/v1/task-scheduler \
