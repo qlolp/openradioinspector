@@ -95,20 +95,14 @@
     for (const task of state.tasks) {
       const article = document.createElement("article");
       article.className = "record";
-      const topline = document.createElement("div");
-      topline.className = "record-topline";
       const title = document.createElement("strong");
-      title.className = "record-title";
       title.textContent = task.name;
-      topline.append(title);
-      const details = document.createElement("div");
-      details.className = "record-meta";
+      const details = document.createElement("small");
       const outcome = task.outcome ? ` · ${task.outcome}` : "";
       details.textContent = `${task.status} · ${task.start_at || "время не задано"}${outcome}`;
-      const equipment = document.createElement("div");
-      equipment.className = "record-meta";
+      const equipment = document.createElement("small");
       equipment.textContent = task.equipment || "Оборудование не указано";
-      article.append(topline, details, equipment);
+      article.append(title, details, equipment);
       dom.list.append(article);
     }
   }
