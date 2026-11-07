@@ -174,7 +174,7 @@ class TaskSchedulerTests(unittest.TestCase):
         first.enqueue(self.task())
         before = self.path.read_text()
         with self.assertRaisesRegex(RuntimeError, "другим scheduler"):
-            TaskScheduler(TaskBook(self.path))
+            TaskScheduler(TaskBook(self.path).load())
         self.assertEqual(self.path.read_text(), before)
         first.configure(True)
         first.run_once(BASE)
@@ -183,6 +183,28 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertEqual(self.book_task()["status"], STATUS_COMPLETED)
         second = self.scheduler()
         self.assertFalse(second.status()["enabled"])
+
+    def test_closed_scheduler_cannot_overwrite_new_owner(self) -> None:
+        first = self.scheduler()
+        first.enqueue(self.task())
+        first.close()
+        second = self.scheduler()
+        second.enqueue(self.task("new-owner"))
+        with self.assertRaisesRegex(RuntimeError, "закрыт"):
+            first.enqueue(self.task("stale-owner"))
+        tasks = json.loads(self.path.read_text())["tasks"]
+        self.assertEqual({item["name"] for item in tasks}, {"monitor", "new-owner"})
+
+    def test_empty_optional_input_path_is_absent(self) -> None:
+        scheduler = self.scheduler()
+        scheduler.enqueue(
+            self.task(task_file="", panorama_file=str(self.input_file))
+        )
+        scheduler.configure(True)
+        status = scheduler.run_once(BASE)
+        self.assertEqual(status["tasks"]["running"], 1)
+        self.assertEqual(self.book_task()["status"], STATUS_RUNNING)
+        self.assertFalse(self.book_task()["outcome"])
 
     def test_cli_requires_enable_and_supports_once(self) -> None:
         with redirect_stderr(io.StringIO()) as errors:
