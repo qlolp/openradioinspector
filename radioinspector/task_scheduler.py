@@ -52,10 +52,15 @@ from .tasks import (
     OUTCOME_FILE_NOT_FOUND,
     OUTCOME_STOPPED_BY_OPERATOR,
     STATUS_COMPLETED,
+    STATUS_QUEUED,
     STATUS_RUNNING,
     ControlTask,
     TaskBook,
 )
+
+
+class TaskNotFoundError(LookupError):
+    """Задача с запрошенным именем отсутствует в текущей TaskBook."""
 
 
 class TaskScheduler:
@@ -138,6 +143,24 @@ class TaskScheduler:
         if item["start_at"] is not None:
             item["start_at"] = to_primitive(parse_time(item["start_at"]))
         return item
+
+    def cancel_task(self, name: str) -> dict[str, Any]:
+        """Переводит queued задачу в aborted и атомарно сохраняет TaskBook."""
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
+            task = self.book.get(name)
+            if task is None:
+                raise TaskNotFoundError(f"Задача не найдена: {name}")
+            if task.status != STATUS_QUEUED:
+                raise ValueError("Отменить можно только задачу в статусе «В очереди на выполнение»")
+            task.abort(OUTCOME_STOPPED_BY_OPERATOR)
+            self._runtime["aborted_tasks"] += 1
+            self._runtime["last_task_name"] = task.name
+            self._runtime["last_result"] = "cancelled"
+            self._dirty = True
+            self._save_locked()
+            return self._public_task(task)
 
     def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Создаёт queued-задачу атомарно и возвращает только публичные поля."""
