@@ -255,6 +255,54 @@ class TaskSchedulerTests(unittest.TestCase):
         tasks = json.loads(self.path.read_text())["tasks"]
         self.assertEqual({item["name"] for item in tasks}, {"monitor", "new-owner"})
 
+    def test_reenable_waits_for_previous_thread_to_finish(self) -> None:
+        scheduler = self.scheduler()
+        wait_returned = threading.Event()
+        allow_exit = threading.Event()
+
+        class GateEvent:
+            def __init__(self) -> None:
+                self.first = True
+                self.actual = threading.Event()
+
+            def wait(self, timeout):
+                if self.first:
+                    self.first = False
+                    wait_returned.set()
+                    if not allow_exit.wait(2):
+                        raise TimeoutError("background gate timeout")
+                    return True
+                return self.actual.wait(timeout)
+
+            def set(self) -> None:
+                self.actual.set()
+
+            def clear(self) -> None:
+                self.actual.clear()
+
+            def is_set(self) -> bool:
+                return self.actual.is_set()
+
+        scheduler._stop = GateEvent()
+        scheduler._enabled = True
+        scheduler._thread = threading.Thread(target=scheduler._background, daemon=True)
+        scheduler._thread.start()
+        old_thread = scheduler._thread
+        self.assertTrue(wait_returned.wait(2))
+        disable = threading.Thread(target=lambda: scheduler.configure(False))
+        enable = threading.Thread(target=lambda: scheduler.configure(True))
+        disable.start()
+        enable.start()
+        allow_exit.set()
+        disable.join(3)
+        enable.join(3)
+        self.assertFalse(disable.is_alive())
+        self.assertFalse(enable.is_alive())
+        status = scheduler.status()
+        self.assertTrue(status["enabled"])
+        self.assertTrue(status["scheduler_alive"])
+        self.assertIsNot(scheduler._thread, old_thread)
+
     @unittest.skipIf(os.name == "nt", "POSIX permission bits")
     def test_atomic_save_preserves_permissions_and_defaults_to_owner_only(self) -> None:
         book = TaskBook(self.path)
