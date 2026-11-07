@@ -124,6 +124,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskSchedulerTasksError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
+    @Published var archiveAnalyticsPending = false
     @Published var workflowErrors: [String] = []
     @Published var detectionInterval = "1"
     @Published var detectionStreamID = ""
@@ -484,6 +485,30 @@ final class RemoteDualModel: ObservableObject {
         configureTaskScheduler(enabled: false)
     }
 
+    func refreshArchiveAnalytics() {
+        guard let client, !selectedSessionID.isEmpty, !archiveAnalyticsPending else { return }
+        let sessionID = selectedSessionID
+        let requestGeneration = generation
+        archiveAnalyticsPending = true
+        archiveAnalyticsError = nil
+        Task {
+            do {
+                let summary = try await client.analyticsSummary(sessionID: sessionID)
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveAnalytics = summary
+            } catch {
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveAnalytics = nil
+                archiveAnalyticsError = describeSession(error)
+            }
+            guard requestGeneration == generation, sessionID == selectedSessionID,
+                  self.client === client else { return }
+            archiveAnalyticsPending = false
+        }
+    }
+
     private func configureTaskScheduler(enabled: Bool) {
         guard let client else { return }
         let requestGeneration = generation
@@ -672,6 +697,7 @@ final class RemoteDualModel: ObservableObject {
         taskSchedulerTasksError = nil
         archiveAnalytics = nil
         archiveAnalyticsError = nil
+        archiveAnalyticsPending = false
         workflowErrors = []
         detectionFormInitialized = false
         handoffFormInitialized = false
@@ -693,8 +719,6 @@ final class RemoteDualModel: ObservableObject {
             taskSchedulerTasks = snapshot.taskSchedulerTasks
             taskSchedulerTasksError = snapshot.taskSchedulerTasksError
         }
-        archiveAnalytics = snapshot.analytics
-        archiveAnalyticsError = snapshot.analyticsError
         workflowErrors = snapshot.workflowErrors
         if !candidates.contains(where: { $0.id == selectedCandidateID }) {
             selectedCandidateID = candidates.first(where: { $0.state == "new" })?.id ?? candidates.first?.id ?? ""
@@ -722,7 +746,7 @@ final class RemoteDualModel: ObservableObject {
             handoffMinimumPriority = policy.minimumPriority.map { String($0) } ?? "0"
             handoffReceiverStreamID = policy.receiverStreamId ?? ""
             handoffMaximumFailures = policy.maxConsecutiveFailures.map { String($0) } ?? "3"
-            handoffRetryDelay = policy.retryDelaySeconds.map { String(describing: $0) } ?? "30"
+            handoffRetryDelay = policy.retryDelaySeconds.map { String($0) } ?? "30"
             handoffFormInitialized = true
         }
         if !completionFormInitialized, let policy = automaticCompletionStatus?.policy {
