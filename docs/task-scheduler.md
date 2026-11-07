@@ -25,7 +25,7 @@ TaskBook сохраняется атомарным replace. Новый файл 
 
 После `close()` серверного scheduler book lock освобождается. Другой scheduler может открыть ту же книгу повторно. HTTP-изменения не создают `SessionEvent`: TaskBook имеет собственный атомарный JSON, а не `SessionService`.
 
-`GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook. Это read-only снимок под scheduler lock: он не перечитывает и не изменяет файл, не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths сохраняются без попытки файлового доступа.
+`GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook. Это read-only снимок под scheduler lock: он не перечитывает и не изменяет файл, не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths сохраняются без попытки файлового доступа. Локальные пути `task_file` и `panorama_file` в ответ не включаются; организационные поля, equipment, status, outcome и остальные публичные параметры сохраняются.
 
 ## Raspberry Pi WebUI
 

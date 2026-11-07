@@ -138,6 +138,10 @@ class TaskSchedulerApiTests(unittest.TestCase):
         self.assertEqual(items[0]["operator"], "Оператор")
         self.assertEqual(items[1]["equipment"], "AR-DV1")
         self.assertEqual(items[0]["start_at"], "2026-11-07T12:00:00Z")
+        self.assertNotIn("task_file", items[0])
+        self.assertNotIn("panorama_file", items[0])
+        self.assertNotIn("task_file", items[1])
+        self.assertNotIn("panorama_file", items[1])
         self.assertEqual(self.book_path.read_bytes(), before)
 
         status, capabilities = self.request("GET", "/api/v1/capabilities")

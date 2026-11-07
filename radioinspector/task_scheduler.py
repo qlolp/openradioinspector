@@ -130,13 +130,15 @@ class TaskScheduler:
             return task
 
     def list_tasks(self) -> list[dict[str, Any]]:
-        """Возвращает задачи книги без изменения lifecycle или файла."""
+        """Возвращает публичные поля задач без lifecycle, файла и локальных путей."""
         with self._lock:
             if self._closed:
                 raise RuntimeError("Scheduler уже закрыт")
             items = []
             for task in self.book.tasks:
                 item = task.as_dict()
+                item.pop("task_file", None)
+                item.pop("panorama_file", None)
                 if item["start_at"] is not None:
                     item["start_at"] = to_primitive(parse_time(item["start_at"]))
                 items.append(item)
