@@ -232,6 +232,9 @@ struct RemoteTaskSchedulerPane: View {
                     Text(model.taskSchedulerError ?? "Состояние scheduler запрашивается у ядра…")
                         .foregroundStyle(.secondary)
                 }
+                if let error = model.taskSchedulerError, !error.isEmpty {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
                 HStack {
                     Button("Включить scheduler") { model.enableTaskScheduler() }
                         .disabled(model.taskSchedulerStatus == nil || model.taskSchedulerStatus?.enabled == true || model.busy)
