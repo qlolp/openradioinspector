@@ -177,12 +177,20 @@ public struct PlatformControlTaskDraft: Encodable {
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let started = formatter.date(from: startAt) else {
+        var parsed = formatter.date(from: startAt)
+        if parsed == nil {
+            let fallback = ISO8601DateFormatter()
+            fallback.formatOptions = [.withInternetDateTime]
+            parsed = fallback.date(from: startAt)
+        }
+        guard let started = parsed else {
             throw PlatformError.invalidCommand("start_at должен быть ISO 8601")
         }
+        let canonical = ISO8601DateFormatter()
+        canonical.formatOptions = [.withInternetDateTime]
         self.name = trimmedName
         self.taskFile = trimmedFile
-        self.startAt = formatter.string(from: started)
+        self.startAt = canonical.string(from: started)
         self.durationS = durationS
         self.equipment = equipment.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -548,6 +556,14 @@ public extension PlatformClient {
 
     func createTask(draft: PlatformControlTaskDraft) async throws -> PlatformControlTask {
         try await post("/task-scheduler/tasks", body: draft)
+    }
+
+    func cancelTask(name: String) async throws -> PlatformControlTask {
+        let task = try PlatformWorkflowValidation.text(name, "name")
+        return try await post(
+            "/task-scheduler/tasks/\(Self.segment(task))/cancel",
+            body: PlatformEmptyBody()
+        )
     }
 
     func configureTaskScheduler(enabled: Bool) async throws -> PlatformTaskSchedulerStatus {
