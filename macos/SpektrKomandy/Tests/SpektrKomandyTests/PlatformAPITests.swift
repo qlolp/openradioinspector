@@ -3,6 +3,11 @@ import XCTest
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import SpektrKomandy
 
 final class PlatformAPITests: XCTestCase {
@@ -120,8 +125,8 @@ final class PlatformAPITests: XCTestCase {
             let streams = body["streams"] as! [[String: Any]]
             XCTAssertEqual(streams[0]["port"] as? String, "/dev/ttyACM0")
             XCTAssertEqual(streams[1]["port"] as? String, "/dev/ttyUSB0")
-            XCTAssertEqual((streams[0]["settings"] as? [String: Any])?["adapter"] as? String, "tinysa-serial")
-            XCTAssertEqual((streams[1]["settings"] as? [String: Any])?["adapter"] as? String, "ardv1-serial")
+            XCTAssertEqual((streams[0]["settings"] as? [String: Any])?["adapter"], "tinysa-serial")
+            XCTAssertEqual((streams[1]["settings"] as? [String: Any])?["adapter"], "ardv1-serial")
             XCTAssertFalse((streams[1]["capabilities"] as? [String])?.contains("hardware_decode") ?? true)
             return (self.response(request.url!), self.envelope(self.sessionJSON))
         }
@@ -315,6 +320,50 @@ server.serve_forever()
         await XCTAssertThrowsPlatformError(try await guarded.listSessions())
         await fulfillment(of: [completed], timeout: 1)
         #endif
+    }
+
+    func testDefaultClientReadsAndLimitsRealHTTPResponses() async throws {
+        let port = Int.random(in: 20000...60000)
+        let script = """
+import http.server
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/v1/sessions":
+            body = b'{"contract":"openradioinspector-platform","contract_version":1,"data":[]}'
+        else:
+            body = b'x' * 2000001
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", \(port)), Handler)
+server.serve_forever()
+"""
+        let arguments = ["env", "python3", "-c", script].map {
+            $0.withCString { strdup($0) }
+        }
+        var argv = arguments + [nil]
+        let pid = fork()
+        if pid == 0 {
+            argv.withUnsafeMutableBufferPointer { buffer in
+                _ = execv("/usr/bin/env", buffer.baseAddress!)
+            }
+            _exit(127)
+        }
+        for argument in arguments { free(argument) }
+        XCTAssertGreaterThan(pid, 0)
+        defer {
+            kill(pid, SIGKILL)
+            _ = waitpid(pid, nil, 0)
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let client = try PlatformClient(baseURL: "http://127.0.0.1:\(port)")
+        let sessions = try await client.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+        do {
+            _ = try await client.listSweeps(sessionID: "s", streamID: "tiny")
+            XCTFail("Ожидался responseTooLarge")
+        } catch PlatformError.responseTooLarge {}
     }
 
     func testSnapshotRetriesLargeSweepHistoryWithSmallerLimit() async throws {
