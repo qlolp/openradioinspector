@@ -18,7 +18,7 @@
 
 Сформировать протокол измерений::
 
-    python -m radioinspector report --database ./data/<файл>.pan --output protocol.md
+    python -m radioinspector report --database ./data/<файл>.pan --format docx --output protocol.docx
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ from .interference import detect_interference
 from .measurements import measure_signal
 from .occupancy import efficiency_from_store, occupancy_from_store
 from .panorama import PanoramaLibrary, PanoramaStore, ScanSettings
+from .docx_report import write_docx_report
 from .reporting import DEFAULT_TEMPLATE, ProtocolTemplate, build_context
 from .signals import SignalList
 from .tasks import TaskBook
@@ -396,12 +397,20 @@ def cmd_report(args: argparse.Namespace) -> int:
     else:
         template = ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Стандартный протокол")
 
-    text = template.render(context)
-    if args.output:
-        Path(args.output).write_text(text, encoding="utf-8")
-        print(f"Протокол сохранён: {args.output}")
+    if args.format == "docx":
+        if not args.output:
+            print("Для формата docx требуется --output", file=sys.stderr)
+            return 2
+        path = write_docx_report(template, context, args.output)
     else:
-        print(text)
+        text = template.render(context)
+        if args.output:
+            path = Path(args.output)
+            path.write_text(text, encoding="utf-8")
+        else:
+            print(text)
+            return 0
+    print(f"Протокол сохранён: {path}")
     return 0
 
 
@@ -596,6 +605,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("report", help="формирование протокола")
     p.add_argument("--database", required=True)
+    p.add_argument("--format", choices=["md", "docx"], default="md")
     p.add_argument("--template")
     p.add_argument("--output")
     p.add_argument("--operator", default="")
