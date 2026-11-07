@@ -336,6 +336,36 @@ final class PlatformWorkflowTests: XCTestCase {
         }
     }
 
+    func testCreateTaskUsesValidatedPayloadAndSanitizedResponse() async throws {
+        let client = try client { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url!.path, "/api/v1/task-scheduler/tasks")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertEqual(body["name"] as? String, "macos-task")
+            XCTAssertEqual(body["task_file"] as? String, "/tmp/scan.json")
+            XCTAssertEqual(body["start_at"] as? String, "2026-11-07T12:00:00Z")
+            XCTAssertEqual(body["duration_s"] as? Double, 15.0)
+            XCTAssertEqual(body["equipment"] as? String, "tinySA Ultra")
+            XCTAssertFalse(body.keys.contains("status"))
+            XCTAssertFalse(body.keys.contains("outcome"))
+            return (self.response(request.url!), self.envelope(self.taskListJSON))
+        }
+        let draft = try PlatformControlTaskDraft(
+            name: " macos-task ", taskFile: " /tmp/scan.json ",
+            startAt: "2026-11-07T14:00:00+02:00", durationS: 15, equipment: " tinySA Ultra "
+        )
+        let created = try await client.createTask(draft: draft)
+        XCTAssertEqual(created.name, "macos-monitor")
+        XCTAssertEqual(created.status, "completed")
+        XCTAssertEqual(created.startAt, "2026-11-07T12:00:00Z")
+        XCTAssertThrowsError(try PlatformControlTaskDraft(
+            name: "bad", taskFile: "x", startAt: "not-a-date", durationS: 1
+        ))
+        XCTAssertThrowsError(try PlatformControlTaskDraft(
+            name: "bad", taskFile: "x", startAt: "2026-11-07T12:00:00Z", durationS: 0
+        ))
+    }
+
     func testSnapshotDecodesWorkflowAndIndependentPolicies() async throws {
         let session = """
         {"id":"s/1","name":"Обзор","state":"running","streams":[{"id":"tiny/1","device":"tinySA","role":"spectrum_analyzer","level_unit":"dBm","state":"connected","capabilities":["sweep"]},{"id":"ar/1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}]}
