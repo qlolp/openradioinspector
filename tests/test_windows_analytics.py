@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from inspect import getsource
 
 from radioinspector.windows.analytics_app import AnalyticsWindowsApp, analytics_text
 from radioinspector.windows.client import PlatformClient, PlatformClientError
@@ -123,6 +124,11 @@ class WindowsAnalyticsTests(unittest.TestCase):
         self.assertIn("100100000 Гц", text)
         self.assertIn("dBm", text)
         self.assertNotIn("s_meter_count ·", text)
+
+    def test_analytics_variable_has_visible_label(self) -> None:
+        source = getsource(AnalyticsWindowsApp.__init__)
+        self.assertIn("textvariable=self.analytics_var", source)
+        self.assertIn("self.analytics_label.pack", source)
 
     def test_installed_scheduler_inherits_on_demand_analytics(self) -> None:
         self.assertTrue(issubclass(SchedulerWindowsApp, AnalyticsWindowsApp))
