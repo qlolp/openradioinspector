@@ -131,24 +131,39 @@ class TaskScheduler:
     def configure(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
+        if enabled:
+            for _attempt in range(2):
+                self._join()
+                with self._lock:
+                    if self._closed:
+                        raise RuntimeError("Scheduler уже закрыт")
+                    thread = self._thread
+                    stopping = (
+                        self._stop.is_set()
+                        and thread is not None
+                        and thread.is_alive()
+                    )
+                    if stopping:
+                        continue
+                    self._enabled = True
+                    self._runtime["last_result"] = "enabled"
+                    self._stop.clear()
+                    if thread is None or not thread.is_alive():
+                        self._thread = threading.Thread(
+                            target=self._background,
+                            name="control-task-scheduler",
+                            daemon=True,
+                        )
+                        self._thread.start()
+                    return self.status()
+            raise RuntimeError("Прежний thread scheduler не остановился")
         with self._lock:
             if self._closed:
                 raise RuntimeError("Scheduler уже закрыт")
-            self._enabled = enabled
-            self._runtime["last_result"] = "enabled" if enabled else "disabled"
-            if enabled:
-                self._stop.clear()
-                if self._thread is None or not self._thread.is_alive():
-                    self._thread = threading.Thread(
-                        target=self._background,
-                        name="control-task-scheduler",
-                        daemon=True,
-                    )
-                    self._thread.start()
-            else:
-                self._stop.set()
-        if not enabled:
-            self._join()
+            self._enabled = False
+            self._runtime["last_result"] = "disabled"
+            self._stop.set()
+        self._join()
         return self.status()
 
     def _join(self) -> None:
