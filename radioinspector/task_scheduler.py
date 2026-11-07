@@ -118,6 +118,8 @@ class TaskScheduler:
     def enqueue(self, task: ControlTask) -> ControlTask:
         """Добавляет задачу оператора без автоматического включения scheduler."""
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
             if self.book.get(task.name) is not None:
                 raise ValueError(f"Задание уже существует: {task.name}")
             task.enqueue()
@@ -209,7 +211,7 @@ class TaskScheduler:
     @staticmethod
     def _require_input_files(task: ControlTask) -> None:
         for value in (task.task_file, task.panorama_file):
-            if value is not None and not Path(value).is_file():
+            if value and not Path(value).is_file():
                 raise FileNotFoundError(OUTCOME_FILE_NOT_FOUND)
 
     def status(self) -> dict[str, Any]:
