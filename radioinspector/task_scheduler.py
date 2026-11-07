@@ -79,7 +79,7 @@ class TaskScheduler:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._enabled = False
-        self._closed = False
+        self._closed = True
         self._dirty = False
         self._runtime: dict[str, Any] = {
             "last_result": "idle",
@@ -96,6 +96,7 @@ class TaskScheduler:
         except Exception:
             _release_book_lock(self._book_lock)
             raise
+        self._closed = False
 
     def _save_locked(self) -> None:
         if self._dirty:
