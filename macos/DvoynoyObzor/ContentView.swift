@@ -133,6 +133,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var archiveAnalyticsPending = false
+    @Published var archiveExportStatus = "NDJSON snapshot ещё не выгружен"
+    @Published var archiveExportPending = false
     @Published var workflowErrors: [String] = []
     @Published var detectionInterval = "1"
     @Published var detectionStreamID = ""
@@ -517,6 +519,38 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
+    func exportArchive() {
+        guard let client, !selectedSessionID.isEmpty, !archiveExportPending else { return }
+        let sessionID = selectedSessionID
+        let safeName = sessionID.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+        let panel = NSSavePanel()
+        panel.title = "Сохранить NDJSON snapshot"
+        panel.nameFieldStringValue = "archive-\(safeName).ndjson"
+        panel.allowedFileTypes = ["ndjson"]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let requestGeneration = generation
+        archiveExportPending = true
+        archiveExportStatus = "Сервер формирует NDJSON snapshot…"
+        Task {
+            do {
+                let result = try await client.exportArchive(
+                    sessionID: sessionID, destination: destination
+                )
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveExportStatus = "NDJSON сохранён: \(result.sweeps) sweeps, \(result.observations) observations · \(result.fileURL.lastPathComponent)"
+            } catch {
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveExportStatus = "NDJSON не сохранён: \(describeSession(error))"
+            }
+            guard requestGeneration == generation, sessionID == selectedSessionID,
+                  self.client === client else { return }
+            archiveExportPending = false
+        }
+    }
+
     func createTask() {
         guard let client, !taskCreatePending else { return }
         let requestGeneration = generation
@@ -743,6 +777,8 @@ final class RemoteDualModel: ObservableObject {
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         archiveAnalyticsPending = false
+        archiveExportStatus = "NDJSON snapshot ещё не выгружен"
+        archiveExportPending = false
         workflowErrors = []
         detectionFormInitialized = false
         handoffFormInitialized = false
