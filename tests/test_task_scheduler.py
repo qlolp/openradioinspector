@@ -303,6 +303,30 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertTrue(status["scheduler_alive"])
         self.assertIsNot(scheduler._thread, old_thread)
 
+    def test_repeated_enable_does_not_join_healthy_thread(self) -> None:
+        scheduler = self.scheduler(interval_seconds=0.1)
+        scheduler.configure(True)
+        with patch.object(
+            scheduler, "_join", side_effect=AssertionError("healthy thread joined")
+        ):
+            status = scheduler.configure(True)
+        self.assertTrue(status["enabled"])
+        self.assertTrue(status["scheduler_alive"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_atomic_save_does_not_follow_predictable_tmp_symlink(self) -> None:
+        target = Path(self.temporary.name) / "victim.txt"
+        target.write_text("do not truncate", encoding="utf-8")
+        predictable = self.path.with_name(self.path.name + ".tmp")
+        predictable.symlink_to(target)
+        TaskBook(self.path).save()
+        self.assertEqual(target.read_text(encoding="utf-8"), "do not truncate")
+        self.assertTrue(predictable.is_symlink())
+        self.assertFalse(self.path.is_symlink())
+        self.assertEqual(
+            json.loads(self.path.read_text())["format"], TaskBook.FORMAT
+        )
+
     @unittest.skipIf(os.name == "nt", "POSIX permission bits")
     def test_atomic_save_preserves_permissions_and_defaults_to_owner_only(self) -> None:
         book = TaskBook(self.path)
