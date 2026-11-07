@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/platform.css">
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
+  <script src="/static/archive-export.js" defer></script>
   <script src="/static/completion.js" defer></script>
   <script src="/static/scheduler.js" defer></script>
 </head>
@@ -77,6 +78,17 @@
           <div><dt>Шумодав открыт</dt><dd id="analytics-squelch">—</dd></div>
         </dl>
         <p id="analytics-latest" class="session-meta">Сводка появится после выбора сеанса.</p>
+      </section>
+
+      <section class="panel export-panel" aria-labelledby="export-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">SNAPSHOT</span>
+            <h2 id="export-heading">Экспорт архива</h2>
+          </div>
+        </div>
+        <p class="unit-lock">NDJSON со стабильными ID, целыми Гц и исходными единицами. Сервер формирует неизменный snapshot; браузер не собирает записи сам.</p>
+        <a id="archive-export" class="button" aria-disabled="true">Скачать NDJSON snapshot</a>
       </section>
 
       <section class="panel scheduler-panel" aria-labelledby="task-scheduler-heading">
