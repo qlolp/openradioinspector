@@ -323,7 +323,6 @@ server.serve_forever()
     }
 
     func testDefaultClientReadsAndLimitsRealHTTPResponses() async throws {
-        let port = Int.random(in: 20000...60000)
         let script = """
 import http.server
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -336,27 +335,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-server = http.server.ThreadingHTTPServer(("127.0.0.1", \(port)), Handler)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print(server.server_address[1], flush=True)
 server.serve_forever()
 """
+        var descriptors: [Int32] = [-1, -1]
+        XCTAssertEqual(pipe(&descriptors), 0)
         let arguments = ["env", "python3", "-c", script].map {
             $0.withCString { strdup($0) }
         }
         var argv = arguments + [nil]
         let pid = fork()
         if pid == 0 {
+            close(descriptors[0])
+            if dup2(descriptors[1], STDOUT_FILENO) < 0 { _exit(126) }
+            close(descriptors[1])
             argv.withUnsafeMutableBufferPointer { buffer in
                 _ = execv("/usr/bin/env", buffer.baseAddress!)
             }
             _exit(127)
         }
         for argument in arguments { free(argument) }
-        XCTAssertGreaterThan(pid, 0)
+        guard pid > 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+            XCTFail("Не удалось запустить HTTP-сервер")
+            return
+        }
+        close(descriptors[1])
         defer {
+            close(descriptors[0])
             kill(pid, SIGKILL)
             _ = waitpid(pid, nil, 0)
         }
-        try await Task.sleep(nanoseconds: 200_000_000)
+        var readiness = pollfd(fd: descriptors[0], events: Int16(POLLIN), revents: 0)
+        guard poll(&readiness, 1, 5000) == 1 else {
+            XCTFail("HTTP-сервер не сообщил готовность за 5 секунд")
+            return
+        }
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = read(descriptors[0], &buffer, buffer.count)
+        let portText = String(decoding: buffer.prefix(max(0, Int(count))), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard count > 0, let port = Int(portText) else {
+            XCTFail("HTTP-сервер не сообщил порт")
+            return
+        }
         let client = try PlatformClient(baseURL: "http://127.0.0.1:\(port)")
         let sessions = try await client.listSessions()
         XCTAssertTrue(sessions.isEmpty)
