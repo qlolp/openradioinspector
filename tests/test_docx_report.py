@@ -55,6 +55,27 @@ class DocxReportTests(unittest.TestCase):
             for target in ["styles.xml", "header1.xml", "footer1.xml", "settings.xml"]:
                 self.assertIn(f'Target="{target}"', relationships)
 
+    def test_invalid_xml_characters_are_removed_from_all_parts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "control.docx"
+            context = ReportContext().set("operator", "Иванов\x00\x0b\ud800 & Co")
+            write_docx_report(
+                ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Стандартный протокол"),
+                context,
+                output,
+            )
+            with zipfile.ZipFile(output) as package:
+                for name in package.namelist():
+                    if name.endswith((".xml", ".rels")):
+                        with self.subTest(part=name):
+                            ET.fromstring(package.read(name))
+                document = package.read("word/document.xml").decode()
+            self.assertIn("Иванов", document)
+            self.assertIn(" &amp; Co", document)
+            self.assertNotIn("\x00", document)
+            self.assertNotIn("\x0b", document)
+            self.assertNotIn("\ud800", document)
+
     def test_docx_format_requires_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "sample.pan"

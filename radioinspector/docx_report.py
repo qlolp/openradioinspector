@@ -22,7 +22,17 @@ CONTENT_WIDTH_DXA = 9354
 
 
 def _text(value: object) -> str:
-    return escape(str(value), {'"': "&quot;"})
+    """Экранирует текст и удаляет кодпоинты, запрещённые в XML 1.0."""
+    text = str(value)
+    sanitized = "".join(
+        char
+        for char in text
+        if ord(char) in (0x9, 0xA, 0xD)
+        or 0x20 <= ord(char) <= 0xD7FF
+        or 0xE000 <= ord(char) <= 0xFFFD
+        or 0x10000 <= ord(char) <= 0x10FFFF
+    )
+    return escape(sanitized, {'"': "&quot;"})
 
 
 def _paragraph(
