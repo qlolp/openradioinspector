@@ -475,6 +475,7 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"]["control_task_scheduler_opt_in_required"] = True
                 capabilities["features"]["control_task_scheduler_policy_persistent"] = False
                 capabilities["features"]["control_task_scheduler_task_list"] = True
+                capabilities["features"]["control_task_scheduler_task_create"] = True
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
@@ -655,6 +656,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Разрешено только поле enabled")
                 result = self.control_scheduler.configure(payload["enabled"])
                 self._send_json(api_payload(result))
+                return
+            if route == "/api/v1/task-scheduler/tasks":
+                created = self.control_scheduler.create_task(payload)
+                self._send_json(api_payload(created), 201)
                 return
             if route == "/api/v1/sessions":
                 session = self.sessions.create_session(payload)
