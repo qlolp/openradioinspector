@@ -70,7 +70,6 @@
           <div>
             <span class="section-index">READ-ONLY</span>
             <h2 id="analytics-heading">Сводка всего архива</h2>
-          </div>
           <button id="analytics-refresh" type="button" class="button" disabled>Запросить сводку</button>
         </div>
         <dl id="analytics-summary" class="measurement-strip">
@@ -102,7 +101,7 @@
         <details id="task-scheduler-editor" class="editor automatic-editor">
           <summary>Runtime-only · по умолчанию выключен</summary>
           <p id="task-scheduler-status" class="automatic-runtime" role="status" aria-live="polite">Состояние scheduler запрашивается у ядра…</p>
-          <p class="unit-lock">Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Браузер не создаёт задания, измерения и не открывает приборные порты.</p>
+          <p class="unit-lock">Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Браузер создаёт и отменяет queued-задачи только через API, не создаёт измерения и не открывает приборные порты.</p>
           <details id="task-create-editor" class="editor">
             <summary>Новая ControlTask</summary>
             <form id="task-create-form">
