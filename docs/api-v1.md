@@ -20,6 +20,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 |---|---|---|
 | `GET` | `/api/v1/health` | Состояние службы, число сеансов, последний ID события |
 | `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
+| `GET`, `POST` | `/api/v1/task-scheduler` | Глобальный runtime-only TaskScheduler, статус и opt-in |
 | `POST` | `/api/v1/sessions` | Создание сеанса с независимыми потоками |
 | `GET` | `/api/v1/sessions` | Список сеансов |
 | `GET` | `/api/v1/sessions/{id}` | Один сеанс |
@@ -153,7 +154,7 @@ Windows-клиент дополнительно запрашивает `/analyti
 
 Существующее окно `macos/DvoynoyObzor` подключается к ядру через `SpektrKomandy/PlatformAPI.swift`. Оно использует `GET /sessions`, детали сеанса, `/workers`, `/sweeps?stream_id=…&limit=40`, `/observations?stream_id=…&limit=40`, кандидатов, очередь исследований, рекомендацию `next` и GET обеих автоматических политик. Команды охватывают создание сеанса, start/stop сеанса, всех workers и независимых потоков, `tune` только receiver, создание/отклонение кандидата и постановку в очередь, ручной и подтверждённый полуавтоматический handoff, complete/fail/cancel и изменение независимых политик. Базовый URL проверяется так же, как в Windows-клиенте; ID в путях и query кодируются, конверт и версия ответа обязательны. Ответ ограничен 2 МБ после загрузки.
 
-Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. В workflow-панели `RemoteAnalyticsPane` показывается та же read-only сводка с раздельными `dBm` и `s_meter_count`; ошибка `/analytics/summary` хранится отдельно от `workflowErrors` и не блокирует остальные данные. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 45 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
+Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. В workflow-панели `RemoteAnalyticsPane` показывается та же read-only сводка с раздельными `dBm` и `s_meter_count`; ошибка `/analytics/summary` хранится отдельно от `workflowErrors` и не блокирует остальные данные. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 50 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
 
 ## Независимые исполнители и симуляторы
 
@@ -162,7 +163,7 @@ Windows-клиент дополнительно запрашивает `/analyti
 - `tinysa-sim` — периодические свипы в `dBm`, целые частоты в Гц, генератор всегда `off`;
 - `ardv1-sim` — наблюдения в исходных `s_meter_count`, настройка частоты и режима через индивидуальную очередь команд.
 
-Адаптер не выбирается автоматически по названию прибора или строке порта. Явные `tinysa-serial` и `ardv1-serial` открывают отдельный последовательный порт только после выбора через `settings.adapter`. Поэтому `hardware_control=true`, а `hardware_validation_not_run=true` сообщает, что scripted-проверки выполнены, но аппаратный стенд не проводился. Дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся к программному стенду.
+Адаптер не выбирается автоматически по названию прибора или строки порта. Явные `tinysa-serial` и `ardv1-serial` открывают отдельный последовательный порт только после выбора через `settings.adapter`. Поэтому `hardware_control=true`, а `hardware_validation_not_run=true` сообщает, что scripted-проверки выполнены, но аппаратный стенд не проводился. Дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся к программному стенду.
 
 Пример настроек двух потоков при создании сеанса:
 
@@ -380,6 +381,20 @@ curl -sS 'http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/analytics/summary?str
 `GET /api/v1/sessions/{id}/archive/export.ndjson` возвращает `application/x-ndjson` с header `openradioinspector-archive-ndjson`, версия 1, и записями `sweep`/`observation`, совместимыми с `radioinspector-archive-stream`. Необязательный `stream_id` ограничивает экспорт одним потоком. Headers `X-Archive-Sweeps` и `X-Archive-Observations` содержат точные счётчики того же snapshot, который сериализуется в ответ.
 
 SQLite сначала копируется во временный файл на диске, после чего writer освобождается, а строки читаются пакетами без полной материализации архива в Python. Записи после создания snapshot не попадают в ответ и не меняют счётчики. Ответ закрывается соединением и не имеет `Content-Length`; обрыв или несовпадение счётчиков считается ошибкой экспорта. Capabilities сообщают `session_archive_export_ndjson=true` и `session_archive_export_streaming=true`. Частоты остаются целыми Гц, `dBm` и `s_meter_count` не преобразуются. Подробности и CLI описаны в [`archive-export-stream.md`](archive-export-stream.md).
+
+### Глобальный TaskScheduler
+
+`GET /api/v1/task-scheduler` возвращает фактические `enabled`, `scheduler_alive`, `policy_persistent=false`, `restart_requires_opt_in=true`, runtime и счётчики задач `total`, `running`, `completed`. Scheduler выключен по умолчанию и после перезапуска требует нового явного включения.
+
+`POST /api/v1/task-scheduler` принимает ровно одно поле `enabled` с JSON boolean. Дополнительные поля и не-boolean значения отклоняются. Включение и выключение — отдельные команды оператора, а не побочный эффект выбора сеанса или сохранения параметров.
+
+```bash
+curl -sS -X POST http://127.0.0.1:8770/api/v1/task-scheduler \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":true}'
+```
+
+Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true` и `control_task_scheduler_policy_persistent=false`. Клиенты Raspberry Pi, Windows и macOS показывают фактические runtime и счётчики независимо от выбранного сеанса. Они не создают и не редактируют `ControlTask`, не читают путь к TaskBook и не подтверждают аппаратный результат. Изменения scheduler не создают `SessionEvent`; книга имеет собственный атомарный JSON. Подробности в [`task-scheduler.md`](task-scheduler.md).
 
 ## Кандидаты и режимы handoff
 
