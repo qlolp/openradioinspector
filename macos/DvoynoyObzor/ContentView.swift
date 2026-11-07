@@ -746,7 +746,7 @@ final class RemoteDualModel: ObservableObject {
             handoffMinimumPriority = policy.minimumPriority.map { String($0) } ?? "0"
             handoffReceiverStreamID = policy.receiverStreamId ?? ""
             handoffMaximumFailures = policy.maxConsecutiveFailures.map { String($0) } ?? "3"
-            handoffRetryDelay = policy.retryDelaySeconds.map { String($0) } ?? "30"
+            handoffRetryDelay = policy.retryDelaySeconds.map { String(describing: $0) } ?? "30"
             handoffFormInitialized = true
         }
         if !completionFormInitialized, let policy = automaticCompletionStatus?.policy {
