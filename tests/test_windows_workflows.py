@@ -343,7 +343,7 @@ class WorkflowCommandTests(unittest.TestCase):
             scripts = tomllib.load(stream)["project"]["scripts"]
         self.assertEqual(
             scripts["radioinspector-windows"],
-            "radioinspector.windows.completion_app:main",
+            "radioinspector.windows.scheduler_app:main",
         )
 
     def test_disabling_completion_uses_only_completion_api(self) -> None:
