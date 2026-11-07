@@ -13,8 +13,8 @@
 контролируемой частоте.
 
 Модуль реализует модель задания, машину состояний и правила проверки
-профиля. Планировщик с таймером и сетевой протокол удалённого контроля
-комплексов в объём модуля не входят — см. ``docs/feature-map.md``.
+профиля. Фоновый runtime-only планировщик находится в ``task_scheduler.py``;
+сетевой протокол удалённого контроля комплексов в объём не входит.
 """
 
 from __future__ import annotations
@@ -365,9 +365,11 @@ class TaskBook:
             "version": self.VERSION,
             "tasks": [task.as_dict() for task in self.tasks],
         }
-        self.path.write_text(
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        temporary.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        temporary.replace(self.path)
         return self.path
 
     def add(self, task: ControlTask) -> ControlTask:
