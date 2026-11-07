@@ -45,6 +45,8 @@ WebUI не создаёт и не редактирует `ControlTask`, не ч�
 
 `PlatformTaskSchedulerStatus` и `RemoteTaskSchedulerPane` показывают фактические enabled, scheduler_alive, runtime и счётчики. Polling загружает глобальный status и без выбранного сеанса; `configureTaskScheduler(enabled)` отправляет только JSON boolean. Ошибка endpoint сохраняется отдельно в `taskSchedulerError` и не блокирует workers, измерения или другие политики. Действия enable/disable не требуют session ID и захватывают client/generation, поэтому поздний ответ прежнего подключения не применяется.
 
+`taskSchedulerTasks()` декодирует только публичные поля `PlatformControlTask`: name, status, UTC `startAt`, outcome и equipment; файловые пути TaskBook в клиентскую модель не переносятся. Decoder проверяет `count == items.count`. Список запрашивается независимо от status и имеет собственный `taskSchedulerTasksError`. SwiftUI показывает его в read-only `LazyVStack` с `textSelection(.enabled)`, без редактирования и команд записи.
+
 Панель не создаёт задания, не читает TaskBook и не подтверждает аппаратный результат.
 
 ## CLI
