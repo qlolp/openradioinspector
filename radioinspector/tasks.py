@@ -13,13 +13,16 @@
 контролируемой частоте.
 
 Модуль реализует модель задания, машину состояний и правила проверки
-профиля. Планировщик с таймером и сетевой протокол удалённого контроля
-комплексов в объём модуля не входят — см. ``docs/feature-map.md``.
+профиля. Фоновый runtime-only планировщик находится в ``task_scheduler.py``;
+сетевой протокол удалённого контроля комплексов в объём не входит.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -365,9 +368,24 @@ class TaskBook:
             "version": self.VERSION,
             "tasks": [task.as_dict() for task in self.tasks],
         }
-        self.path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        try:
+            mode = stat.S_IMODE(self.path.stat().st_mode)
+        except FileNotFoundError:
+            mode = 0o600
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
         )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                output.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            os.chmod(temporary, mode)
+            temporary.replace(self.path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
         return self.path
 
     def add(self, task: ControlTask) -> ControlTask:
