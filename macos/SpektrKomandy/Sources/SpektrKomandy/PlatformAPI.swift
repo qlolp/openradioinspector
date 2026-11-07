@@ -244,6 +244,8 @@ public struct PlatformSnapshot: Equatable {
     public var automaticHandoff: PlatformAutomaticStatus?
     public var automaticDetection: PlatformAutomaticStatus?
     public var automaticCompletion: PlatformAutomaticStatus?
+    public var taskScheduler: PlatformTaskSchedulerStatus?
+    public var taskSchedulerError: String?
     public var analytics: PlatformAnalyticsSummary?
     public var analyticsError: String?
     public var workflowErrors: [String] = []
@@ -514,6 +516,15 @@ public final class PlatformClient {
             completion = nil
             workflowErrors.append("automatic completion: \(error.localizedDescription)")
         }
+        let scheduler: PlatformTaskSchedulerStatus?
+        let schedulerError: String?
+        do {
+            scheduler = try await taskScheduler()
+            schedulerError = nil
+        } catch {
+            scheduler = nil
+            schedulerError = error.localizedDescription
+        }
         let analytics: PlatformAnalyticsSummary?
         let analyticsError: String?
         do {
@@ -530,6 +541,7 @@ public final class PlatformClient {
             nextInvestigation: next,
             automaticHandoff: handoff, automaticDetection: detection,
             automaticCompletion: completion,
+            taskScheduler: scheduler, taskSchedulerError: schedulerError,
             analytics: analytics, analyticsError: analyticsError,
             workflowErrors: workflowErrors
         )
