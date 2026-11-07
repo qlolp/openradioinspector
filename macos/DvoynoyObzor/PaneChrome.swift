@@ -283,6 +283,14 @@ struct RemoteAnalyticsPane: View {
     var body: some View {
         GroupBox("Сводка всего архива · read-only") {
             VStack(alignment: .leading, spacing: 6) {
+                Button(model.archiveAnalyticsPending ? "Запрос сводки…" : "Запросить сводку") {
+                    model.refreshArchiveAnalytics()
+                }
+                .disabled(model.session == nil || model.archiveAnalyticsPending)
+                if model.archiveAnalyticsPending {
+                    Text("Сводка запрашивается один раз; обычный polling её не выполняет")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let summary = model.archiveAnalytics {
                     Text("Sweeps: \(summary.sweeps.count) · \(summary.sweeps.levelUnits.joined(separator: ", "))")
                     Text("Observations: \(summary.observations.count) · \(summary.observations.levelUnits.joined(separator: ", "))")

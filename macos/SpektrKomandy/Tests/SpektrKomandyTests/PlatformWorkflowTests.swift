@@ -340,6 +340,7 @@ final class PlatformWorkflowTests: XCTestCase {
         let session = """
         {"id":"s/1","name":"Обзор","state":"running","streams":[{"id":"tiny/1","device":"tinySA","role":"spectrum_analyzer","level_unit":"dBm","state":"connected","capabilities":["sweep"]},{"id":"ar/1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}]}
         """
+        var analyticsCalls = 0
         let client = try client { request in
             let path = request.url!.path
             if path.hasSuffix("/workers") { return (self.response(request.url!), self.envelope("[]")) }
@@ -351,6 +352,7 @@ final class PlatformWorkflowTests: XCTestCase {
             if path.hasSuffix("/automatic-handoff") { return (self.response(request.url!), self.envelope(self.statusJSON(enabled: false))) }
             if path.hasSuffix("/automatic-detection") { return (self.response(request.url!), self.envelope(self.statusJSON(enabled: true))) }
             if path.hasSuffix("/analytics/summary") {
+                analyticsCalls += 1
                 let summary = """
                 {"session_id":"s/1","stream_id":null,"archive_wide":true,"sweeps":{"count":1,"first_started_at":"2026-01-01T00:00:00Z","last_started_at":"2026-01-01T00:00:01Z","level_units":["dBm"],"latest":null,"latest_peak":{"sweep_id":"sw/1","frequency_hz":433075000,"level":-42.5,"level_unit":"dBm"}},"observations":{"count":2,"first_started_at":null,"last_started_at":null,"level_units":["s_meter_count"],"latest":null,"squelch_known":2,"squelch_open":1,"squelch_open_ratio":0.5}}
                 """
@@ -365,11 +367,15 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(snapshot.automaticDetection?.runtime.candidatesCreated, 1)
         XCTAssertEqual(snapshot.automaticHandoff?.policy.enabled, false)
         XCTAssertEqual(snapshot.automaticHandoff?.policyPersistent, false)
-        XCTAssertEqual(snapshot.analytics?.sweeps.count, 1)
-        XCTAssertEqual(snapshot.analytics?.sweeps.latestPeak?.levelUnit, "dBm")
-        XCTAssertEqual(snapshot.analytics?.observations.levelUnits, ["s_meter_count"])
-        XCTAssertEqual(snapshot.analytics?.observations.squelchOpenRatio, 0.5)
+        XCTAssertNil(snapshot.analytics)
         XCTAssertNil(snapshot.analyticsError)
+        XCTAssertEqual(analyticsCalls, 0)
+        let analytics = try await client.analyticsSummary(sessionID: "s/1")
+        XCTAssertEqual(analyticsCalls, 1)
+        XCTAssertEqual(analytics.sweeps.count, 1)
+        XCTAssertEqual(analytics.sweeps.latestPeak?.levelUnit, "dBm")
+        XCTAssertEqual(analytics.observations.levelUnits, ["s_meter_count"])
+        XCTAssertEqual(analytics.observations.squelchOpenRatio, 0.5)
     }
 
     func testOptionalPolicyStreamsEncodeExplicitNull() async throws {
