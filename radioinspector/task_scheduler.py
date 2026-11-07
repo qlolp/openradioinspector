@@ -131,9 +131,9 @@ class TaskScheduler:
     def configure(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
-        if self._closed:
-            raise RuntimeError("Scheduler уже закрыт")
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
             self._enabled = enabled
             self._runtime["last_result"] = "enabled" if enabled else "disabled"
             if enabled:
@@ -169,7 +169,7 @@ class TaskScheduler:
     def run_once(self, moment: Optional[datetime] = None) -> Optional[dict[str, Any]]:
         """Выполняет один проход без ожидания и возвращает фактический status."""
         with self._lock:
-            if not self._enabled:
+            if self._closed or not self._enabled:
                 return None
             now = moment or self._clock()
             if now.tzinfo is None:
@@ -241,11 +241,14 @@ class TaskScheduler:
             pass
 
     def close(self) -> None:
-        """Останавливает thread и явно фиксирует operator abort активных задач."""
-        if self._closed:
-            return
-        self.configure(False)
-        self._closed = True
+        """Атомарно закрывает вход, останавливает thread и фиксирует abort."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._enabled = False
+            self._stop.set()
+        self._join()
         changed = False
         try:
             with self._lock:
