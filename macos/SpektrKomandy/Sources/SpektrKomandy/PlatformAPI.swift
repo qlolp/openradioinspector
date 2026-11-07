@@ -717,16 +717,28 @@ public final class PlatformClient {
     }
 
     private func receiveWithDelegate(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        if Task.isCancelled { throw CancellationError() }
         let delegate = PlatformResponseDelegate(maximumBytes: maximumResponseBytes)
         let session = URLSession(
             configuration: .ephemeral, delegate: delegate, delegateQueue: nil
         )
         defer { session.invalidateAndCancel() }
-        return try await withCheckedThrowingContinuation { continuation in
-            delegate.completion = { result in
-                continuation.resume(with: result)
+        return try await withTaskCancellationHandler {
+            if Task.isCancelled { throw CancellationError() }
+            return try await withCheckedThrowingContinuation { continuation in
+                let task = session.dataTask(with: request)
+                delegate.completion = { result in
+                    continuation.resume(with: result)
+                }
+                if Task.isCancelled {
+                    task.cancel()
+                    delegate.completion?(.failure(CancellationError()))
+                } else {
+                    task.resume()
+                }
             }
-            session.dataTask(with: request).resume()
+        } onCancel: {
+            session.invalidateAndCancel()
         }
     }
 
