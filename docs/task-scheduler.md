@@ -17,6 +17,12 @@
 
 TaskBook сохраняется атомарным replace. Счётчики runtime содержат started/completed/aborted, последнюю задачу, результат и ошибку. Старые записи не дублируются благодаря проверке имени при `enqueue`.
 
+## HTTP API
+
+`create_server` создаёт `control_scheduler` и связывает его с `BoundHandler`. `GET /api/v1/task-scheduler` возвращает `enabled`, `scheduler_alive`, `policy_persistent=false`, `restart_requires_opt_in=true`, runtime и счётчики задач. `POST` принимает ровно одно поле `enabled` с JSON boolean и вызывает `configure`; дополнительные поля отклоняются. Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true`, `control_task_scheduler_policy_persistent=false`.
+
+После `close()` серверного scheduler book lock освобождается. Другой scheduler может открыть ту же книгу повторно. HTTP-изменения не создают `SessionEvent`: TaskBook имеет собственный атомарный JSON, а не `SessionService`.
+
 ## CLI
 
 ```bash

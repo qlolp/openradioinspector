@@ -231,6 +231,12 @@ class TaskScheduler:
                 },
             }
 
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def close(self) -> None:
         """Останавливает thread и явно фиксирует operator abort активных задач."""
         if self._closed:
