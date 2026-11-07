@@ -38,6 +38,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
+| `GET` | `/api/v1/sessions/{id}/archive/export.ndjson?stream_id=` | Потоковый NDJSON-экспорт неизменного snapshot архива |
 | `POST` | `/api/v1/sessions/{id}/candidates` | Создание кандидата в исходных единицах потока |
 | `GET` | `/api/v1/sessions/{id}/candidates?state=` | Список кандидатов сеанса |
 | `GET` | `/api/v1/sessions/{id}/candidates/{candidate_id}` | Один кандидат |
@@ -300,9 +301,72 @@ curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps/batch \
 
 Успешный ответ имеет HTTP 201 и `data={"items":[...],"count":2}`. Порядок элементов сохраняется. Для каждого измерения создаётся своё обычное событие `sweep.received` или `observation.received` с монотонной последовательностью. В SQLite весь пакет и все его события записываются одной транзакцией; replay и SSE обновляются только после commit. Ошибка любого элемента, дубликат ID внутри пакета или конфликт с архивом отклоняет весь пакет: частичные измерения и события не сохраняются. Memory-only режим применяет ту же проверку «всё или ничего» до изменения списков. Capabilities сообщают `measurement_batch_ingest=true`, `measurement_batch_atomic=true` и `measurement_batch_limit=100`.
 
+### Внешний импорт архива
+
+Команда `archive-import` позволяет внешнему сборщику передать подготовленные sweeps и observations в существующий сеанс. Она использует только capabilities, чтение сеанса и перечисленные выше batch-маршруты: прямой доступ к SQLite и приборным портам не нужен. Единственным писателем архива остаётся серверный `SessionService`.
+
+Вход — строгий JSON версии 1. Поля `format` и `format_version` обязательны, неизвестные поля отклоняются. Каждое измерение должно иметь стабильный непустой `id`; автоматическая генерация ID при импорте не используется. Поле `session_id` внутри записи можно опустить, но если оно задано, то должно совпадать с `--session`.
+
+```json
+{
+  "format": "openradioinspector-archive",
+  "format_version": 1,
+  "sweeps": [
+    {
+      "id": "external-sweep-0001",
+      "stream_id": "TINYSA_STREAM_ID",
+      "interval": {
+        "started_at": "2026-11-05T10:00:00Z",
+        "ended_at": "2026-11-05T10:00:01Z"
+      },
+      "frequencies_hz": [100000000, 100100000],
+      "levels": [-80.5, -42.0],
+      "level_unit": "dBm"
+    }
+  ],
+  "observations": [
+    {
+      "id": "external-observation-0001",
+      "stream_id": "RECEIVER_STREAM_ID",
+      "interval": {
+        "started_at": "2026-11-05T10:00:00Z",
+        "ended_at": "2026-11-05T10:00:01Z"
+      },
+      "frequency_hz": 145500000,
+      "mode": "FM",
+      "level": 37,
+      "level_unit": "s_meter_count",
+      "squelch_open": true
+    }
+  ]
+}
+```
+
+```bash
+# Полная проверка документа, capabilities, сеанса, потоков и единиц без POST.
+python3 -m radioinspector.archive_ingest \
+  --server http://127.0.0.1:8770 \
+  --session SESSION_ID --input archive.json --dry-run
+
+# Импорт пакетами по 50 записей; вместо файла можно указать - для stdin.
+python3 -m radioinspector.archive_ingest \
+  --server http://127.0.0.1:8770 \
+  --session SESSION_ID --input archive.json --batch-size 50
+```
+
+До первого POST проверяются весь документ, `measurement_batch_ingest=true`, `measurement_batch_atomic=true`, серверный `measurement_batch_limit`, существование сеанса, принадлежность каждого потока и совпадение исходной `level_unit`. Поэтому ошибка даже в последней записи или чужой поток не позволяет записать предыдущие пакеты. `--batch-size` может только уменьшить серверный лимит. Порядок записей сохраняется: сначала sweeps, затем observations; ответ каждого пакета сверяется по числу и ID.
+
+Результат содержит `sweeps`, `observations`, `batches`, `batch_size`, `dry_run`, `atomic_per_batch=true` и `whole_file_atomic=false`. **Атомарен каждый HTTP-пакет, а не весь много-пакетный файл.** При сетевом сбое или отказе сервера после уже подтверждённых пакетов ранее принятые записи остаются в архиве. Повторный импорт не пропускает дубликаты молча: сервер отклоняет конфликтующий пакет. Частоты остаются целыми Гц, время приводится к UTC, `dBm` и `s_meter_count` не пересчитываются друг в друга.
+
+### Потоковый NDJSON-экспорт snapshot
+
+`GET /api/v1/sessions/{id}/archive/export.ndjson` возвращает `application/x-ndjson` с header `openradioinspector-archive-ndjson`, версия 1, и записями `sweep`/`observation`, совместимыми с `radioinspector-archive-stream`. Необязательный `stream_id` ограничивает экспорт одним потоком. Headers `X-Archive-Sweeps` и `X-Archive-Observations` содержат точные счётчики того же snapshot, который сериализуется в ответ.
+
+SQLite сначала копируется во временный файл на диске, после чего writer освобождается, а строки читаются пакетами без полной материализации архива в Python. Записи после создания snapshot не попадают в ответ и не меняют счётчики. Ответ закрывается соединением и не имеет `Content-Length`; обрыв или несовпадение счётчиков считается ошибкой экспорта. Capabilities сообщают `session_archive_export_ndjson=true` и `session_archive_export_streaming=true`. Частоты остаются целыми Гц, `dBm` и `s_meter_count` не преобразуются. Подробности и CLI описаны в [`archive-export-stream.md`](archive-export-stream.md).
+
 ## Кандидаты и режимы handoff
 
-Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматического завершения исследований нет. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false` и `automatic_investigation_completion=false`.
+Реестр кандидатов и очередь исследований работают в memory-only и SQLite режимах. Ручной handoff запускает явно выбранное исследование; полуавтоматический сначала рекомендует следующее по приоритету, но также требует подтверждения оператора. Автоматический handoff запускает подходящие ожидающие записи только после отдельного opt-in. Автоматическое обнаружение кандидатов доступно по самостоятельной opt-in политике для новых спектральных sweeps; оно не ставит исследования в очередь. Автоматическое завершение доступно по независимой runtime-политике для `listening`/`decoding` после заданных времени и числа подходящих observations и использует общий `SessionService.complete_investigation`; automatic fail/cancel отсутствует. Capabilities сообщают `candidate_investigations=true`, `manual_investigation_handoff=true`, `semi_automatic_handoff=true`, `automatic_handoff=true`, `automatic_handoff_opt_in_required=true`, `automatic_handoff_policy_persistent=false`, `automatic_candidate_detection=true`, `automatic_candidate_detection_opt_in_required=true`, `automatic_candidate_detection_policy_persistent=false`, `automatic_investigation_completion=true`, `automatic_investigation_completion_opt_in_required=true` и `automatic_investigation_completion_policy_persistent=false`.
 
 Состояния кандидата:
 
@@ -421,7 +485,7 @@ curl -sS -X POST \
 curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/automatic-handoff
 ```
 
-Ответ содержит `policy`, `runtime`, `scheduler_alive`, `policy_persistent=false` и `restart_requires_opt_in=true`. В `runtime` доступны время последнего прохода, ID последнего выбранного исследования, `last_result`, `last_error`, число успешных и неуспешных запусков и текущая серия последовательных сбоев.
+Ответ содержит `policy`, `runtime`, `scheduler_alive`, `policy_persistent=false` и `restart_requires_opt_in=true`. В `runtime` доступны время последнего прохода, ID последнего выбранного исследования, `last_result`, `last_error`, числа успешных и неуспешных запусков и текущая серия последовательных сбоев.
 
 Включение с полным набором ограничений:
 
