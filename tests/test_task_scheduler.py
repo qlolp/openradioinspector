@@ -174,7 +174,7 @@ class TaskSchedulerTests(unittest.TestCase):
         first.enqueue(self.task())
         before = self.path.read_text()
         with self.assertRaisesRegex(RuntimeError, "другим scheduler"):
-            TaskScheduler(TaskBook(self.path))
+            TaskScheduler(TaskBook(self.path).load())
         self.assertEqual(self.path.read_text(), before)
         first.configure(True)
         first.run_once(BASE)
