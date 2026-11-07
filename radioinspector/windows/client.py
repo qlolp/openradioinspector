@@ -43,8 +43,12 @@ class PlatformSnapshot:
     automatic_completion: Optional[dict[str, Any]] = None
     task_scheduler: Optional[dict[str, Any]] = None
     task_scheduler_error: Optional[str] = None
+    task_scheduler_tasks: list[dict[str, Any]] = field(default_factory=list)
+    task_scheduler_tasks_error: Optional[str] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
     spectrum_stream_id: Optional[str] = None
+    analytics: Optional[dict[str, Any]] = None
+    analytics_error: Optional[str] = None
 
 
 def _segment(value: str, name: str) -> str:
@@ -227,7 +231,9 @@ class PlatformClient:
             f"/sessions/{session}/candidates/{candidate}/investigations", payload
         )
 
-    def list_investigations(self, session_id: str) -> list[dict[str, Any]]:
+    def list_investigations(
+        self, session_id: str
+    ) -> list[dict[str, Any]]:
         return self._request(
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/investigations"
         )
@@ -320,10 +326,33 @@ class PlatformClient:
     def task_scheduler(self) -> dict[str, Any]:
         return self._request("GET", "/task-scheduler")
 
+    def task_scheduler_tasks(self) -> list[dict[str, Any]]:
+        data = self._request("GET", "/task-scheduler/tasks")
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise PlatformClientError(
+                "В ответе отсутствует список ControlTask", code="invalid_task_list"
+            )
+        items = data["items"]
+        if (
+            isinstance(data.get("count"), bool)
+            or not isinstance(data.get("count"), int)
+            or data["count"] != len(items)
+            or any(not isinstance(item, dict) for item in items)
+        ):
+            raise PlatformClientError(
+                "Список ControlTask имеет некорректный контракт",
+                code="invalid_task_list",
+            )
+        return items
+
     def configure_task_scheduler(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
         return self._post("/task-scheduler", {"enabled": enabled})
+
+    def analytics_summary(self, session_id: str) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._request("GET", f"/sessions/{session}/analytics/summary")
 
     def snapshot(
         self,
@@ -338,10 +367,16 @@ class PlatformClient:
         sessions = self.list_sessions()
         scheduler_status = None
         scheduler_error = None
+        scheduler_tasks: list[dict[str, Any]] = []
+        scheduler_tasks_error = None
         try:
             scheduler_status = self.task_scheduler()
         except PlatformClientError as exc:
             scheduler_error = str(exc)
+        try:
+            scheduler_tasks = self.task_scheduler_tasks()
+        except PlatformClientError as exc:
+            scheduler_tasks_error = str(exc)
         if session_id is None:
             return PlatformSnapshot(
                 health,
@@ -349,12 +384,20 @@ class PlatformClient:
                 sessions,
                 task_scheduler=scheduler_status,
                 task_scheduler_error=scheduler_error,
+                task_scheduler_tasks=scheduler_tasks,
+                task_scheduler_tasks_error=scheduler_tasks_error,
             )
         sweeps = (
             self.list_sweeps(session_id, spectrum_stream_id, limit=40)
             if spectrum_stream_id is not None
             else []
         )
+        analytics = None
+        analytics_error = None
+        try:
+            analytics = self.analytics_summary(session_id)
+        except PlatformClientError as exc:
+            analytics_error = str(exc)
         return PlatformSnapshot(
             health=health,
             capabilities=capabilities,
@@ -369,8 +412,12 @@ class PlatformClient:
             automatic_completion=self.automatic_completion(session_id),
             task_scheduler=scheduler_status,
             task_scheduler_error=scheduler_error,
+            task_scheduler_tasks=scheduler_tasks,
+            task_scheduler_tasks_error=scheduler_tasks_error,
             sweeps=sweeps,
             spectrum_stream_id=spectrum_stream_id,
+            analytics=analytics,
+            analytics_error=analytics_error,
         )
 
     def _post(self, path: str, payload: Optional[dict[str, Any]] = None) -> Any:
