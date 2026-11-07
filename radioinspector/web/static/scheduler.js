@@ -9,11 +9,13 @@
     total: byId("task-scheduler-total"),
     running: byId("task-scheduler-running"),
     completed: byId("task-scheduler-completed"),
+    list: byId("task-scheduler-list"),
     enable: byId("task-scheduler-enable"),
     disable: byId("task-scheduler-disable"),
   };
   const state = {
     status: null,
+    tasks: [],
     error: null,
     actionPending: false,
     generation: 0,
@@ -78,16 +80,48 @@
     dom.completed.textContent = status ? String(status.tasks?.completed ?? 0) : "—";
     dom.enable.disabled = !status || enabled || state.actionPending;
     dom.disable.disabled = !status || !enabled || state.actionPending;
+    renderTasks();
+  }
+
+  function renderTasks() {
+    dom.list.replaceChildren();
+    if (!state.tasks.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = "В TaskBook нет задач.";
+      dom.list.append(empty);
+      return;
+    }
+    for (const task of state.tasks) {
+      const article = document.createElement("article");
+      article.className = "record";
+      const title = document.createElement("strong");
+      title.textContent = task.name;
+      const details = document.createElement("small");
+      const outcome = task.outcome ? ` · ${task.outcome}` : "";
+      details.textContent = `${task.status} · ${task.start_at || "время не задано"}${outcome}`;
+      const equipment = document.createElement("small");
+      equipment.textContent = task.equipment || "Оборудование не указано";
+      article.append(title, details, equipment);
+      dom.list.append(article);
+    }
   }
 
   async function refreshScheduler() {
     if (state.actionPending) return;
     const generation = state.generation;
     try {
-      const status = await api("/task-scheduler");
+      const [statusResult, tasksResult] = await Promise.allSettled([
+        api("/task-scheduler"),
+        api("/task-scheduler/tasks"),
+      ]);
       if (generation !== state.generation) return;
-      state.status = status;
-      state.error = null;
+      if (statusResult.status === "fulfilled") state.status = statusResult.value;
+      if (tasksResult.status === "fulfilled") state.tasks = tasksResult.value.items;
+      state.error = [statusResult, tasksResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason.message)
+        .join(" · ") || null;
     } catch (error) {
       if (generation !== state.generation) return;
       state.error = error.message;

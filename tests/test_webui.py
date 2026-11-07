@@ -123,6 +123,23 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('payload.stream_id = dom.detectionStream.value || null', javascript)
         self.assertIn('payload.threshold_dbm = requiredNumber', javascript)
 
+    def test_archive_analytics_is_read_only_and_isolated_from_live_refresh(self) -> None:
+        html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
+        javascript = (STATIC_DIR / "platform.js").read_text(encoding="utf-8")
+        for element_id in (
+            "analytics-sweeps", "analytics-observations",
+            "analytics-squelch", "analytics-latest",
+        ):
+            self.assertIn(f'id="{element_id}"', html)
+            self.assertIn(f'byId("{element_id}")', javascript)
+        self.assertIn('/analytics/summary', javascript)
+        self.assertIn('.catch((error) => ({ error: error.message }))', javascript)
+        self.assertIn('state.analytics = analytics', javascript)
+        self.assertIn('Live-измерения продолжаются', javascript)
+        self.assertNotIn('method: "POST"', javascript.split('renderAnalytics()')[1].split('function renderSession()')[0])
+        self.assertNotIn("innerHTML", javascript)
+        self.assertNotIn("outerHTML", javascript)
+
     def test_automatic_completion_form_is_opt_in_and_isolated(self) -> None:
         html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
         javascript = (STATIC_DIR / "completion.js").read_text(encoding="utf-8")
@@ -153,7 +170,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('src="/static/scheduler.js"', html)
         for element_id in (
             "task-scheduler-editor", "task-scheduler-status", "task-scheduler-total",
-            "task-scheduler-running", "task-scheduler-completed",
+            "task-scheduler-running", "task-scheduler-completed", "task-scheduler-list",
             "task-scheduler-enable", "task-scheduler-disable",
         ):
             self.assertIn(f'id="{element_id}"', html)
@@ -161,6 +178,8 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('Runtime-only · по умолчанию выключен', html)
         self.assertIn('не связан с выбранным сеансом', html)
         self.assertIn('api("/task-scheduler")', javascript)
+        self.assertIn('api("/task-scheduler/tasks")', javascript)
+        self.assertIn('Promise.allSettled', javascript)
         self.assertIn('body: { enabled }', javascript)
         self.assertIn('state.actionPending', javascript)
         self.assertIn('state.generation', javascript)
