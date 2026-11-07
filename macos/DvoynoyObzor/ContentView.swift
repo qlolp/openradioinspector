@@ -493,6 +493,30 @@ final class RemoteDualModel: ObservableObject {
         configureTaskScheduler(enabled: false)
     }
 
+    func refreshArchiveAnalytics() {
+        guard let client, !selectedSessionID.isEmpty, !archiveAnalyticsPending else { return }
+        let sessionID = selectedSessionID
+        let requestGeneration = generation
+        archiveAnalyticsPending = true
+        archiveAnalyticsError = nil
+        Task {
+            do {
+                let summary = try await client.analyticsSummary(sessionID: sessionID)
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveAnalytics = summary
+            } catch {
+                guard requestGeneration == generation, sessionID == selectedSessionID,
+                      self.client === client else { return }
+                archiveAnalytics = nil
+                archiveAnalyticsError = describeSession(error)
+            }
+            guard requestGeneration == generation, sessionID == selectedSessionID,
+                  self.client === client else { return }
+            archiveAnalyticsPending = false
+        }
+    }
+
     func createTask() {
         guard let client, !taskCreatePending else { return }
         let requestGeneration = generation
