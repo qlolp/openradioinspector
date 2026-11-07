@@ -153,7 +153,7 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('src="/static/scheduler.js"', html)
         for element_id in (
             "task-scheduler-editor", "task-scheduler-status", "task-scheduler-total",
-            "task-scheduler-running", "task-scheduler-completed",
+            "task-scheduler-running", "task-scheduler-completed", "task-scheduler-list",
             "task-scheduler-enable", "task-scheduler-disable",
         ):
             self.assertIn(f'id="{element_id}"', html)
@@ -161,6 +161,8 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('Runtime-only · по умолчанию выключен', html)
         self.assertIn('не связан с выбранным сеансом', html)
         self.assertIn('api("/task-scheduler")', javascript)
+        self.assertIn('api("/task-scheduler/tasks")', javascript)
+        self.assertIn('Promise.allSettled', javascript)
         self.assertIn('body: { enabled }', javascript)
         self.assertIn('state.actionPending', javascript)
         self.assertIn('state.generation', javascript)
