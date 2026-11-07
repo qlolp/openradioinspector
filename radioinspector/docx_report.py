@@ -276,7 +276,10 @@ def _markdown_blocks(text: str) -> Iterable[tuple[str, object]]:
         if line.startswith("|"):
             rows = []
             while index < len(lines) and lines[index].startswith("|"):
-                row = [cell.strip() for cell in lines[index].strip("|").split("|")]
+                row_text = lines[index][1:]
+                if row_text.endswith("|"):
+                    row_text = row_text[:-1]
+                row = [cell.strip() for cell in row_text.split("|")]
                 if not _is_table_delimiter(row):
                     rows.append(row)
                 index += 1

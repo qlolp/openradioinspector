@@ -87,6 +87,28 @@ class DocxReportTests(unittest.TestCase):
             self.assertNotIn("---:", texts)
             self.assertIn("PAGEREF _ori_heading_", document)
 
+    def test_empty_outer_table_cells_keep_their_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "empty-cells.docx"
+            template = ProtocolTemplate(
+                "protocol",
+                "# Report\n| A | B | C |\n| --- | --- | --- |\n||10|20|\n|30|40||",
+                "Тестовый протокол",
+            )
+            write_docx_report(template, ReportContext(), output)
+            with zipfile.ZipFile(output) as package:
+                root = ET.fromstring(package.read("word/document.xml"))
+            rows = [
+                [
+                    "".join(cell.itertext())
+                    for cell in row.findall(f"{{{W_NS}}}tc")
+                ]
+                for row in root.iter(f"{{{W_NS}}}tr")
+            ]
+            self.assertEqual(rows[0], ["A", "B", "C"])
+            self.assertEqual(rows[1], ["", "10", "20"])
+            self.assertEqual(rows[2], ["30", "40", ""])
+
     def test_concurrent_writes_use_independent_staging_files(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
