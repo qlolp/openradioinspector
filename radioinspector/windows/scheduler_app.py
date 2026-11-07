@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .analytics_app import AnalyticsWindowsApp
@@ -46,6 +48,33 @@ def task_scheduler_tasks_text(
     return "\n".join(lines)
 
 
+def task_create_payload(values: dict[str, Any]) -> dict[str, Any]:
+    """Проверяет поля формы и нормализует start_at к UTC Z."""
+    name = str(values.get("name", "")).strip()
+    task_file = str(values.get("task_file", "")).strip()
+    start_text = str(values.get("start_at", "")).strip()
+    duration = values.get("duration_s")
+    if not name or not task_file or not start_text:
+        raise ValueError("Заполните name, task_file и start_at")
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+        raise ValueError("duration_s обязано быть числом")
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("duration_s обязано быть положительным")
+    try:
+        started = datetime.fromisoformat(start_text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("start_at должен быть ISO 8601") from exc
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    return {
+        "name": name,
+        "task_file": task_file,
+        "start_at": started.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "duration_s": float(duration),
+        "equipment": str(values.get("equipment", "")).strip(),
+    }
+
+
 class SchedulerWindowsApp(AnalyticsWindowsApp):
     """Добавляет независимый opt-in глобального TaskScheduler."""
 
@@ -60,6 +89,20 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
             command=self._open_task_scheduler,
         )
         self.task_scheduler_button.pack(side="top", fill="x", padx=10, pady=(0, 8))
+        self.task_create_var = self.tk.StringVar(value="Новая ControlTask ещё не создана")
+        self.task_create_label = self.tk.Label(
+            self.root,
+            textvariable=self.task_create_var,
+            wraplength=1100,
+            justify="left",
+        )
+        self.task_create_label.pack(side="top", fill="x", padx=10, pady=(0, 8))
+        self.task_create_button = self.tk.Button(
+            self.root,
+            text="Новая ControlTask…",
+            command=self._open_task_create,
+        )
+        self.task_create_button.pack(side="top", fill="x", padx=10, pady=(0, 8))
 
     def _apply_snapshot(self, snapshot) -> None:
         super()._apply_snapshot(snapshot)
@@ -73,6 +116,12 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
         super()._render_controls()
         if hasattr(self, "task_scheduler_button"):
             self.task_scheduler_button.configure(
+                state="normal"
+                if self.client is not None and not self._action_running
+                else "disabled"
+            )
+        if hasattr(self, "task_create_button"):
+            self.task_create_button.configure(
                 state="normal"
                 if self.client is not None and not self._action_running
                 else "disabled"
@@ -133,6 +182,63 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
         self.ttk.Button(
             buttons, text="Закрыть", command=lambda: self._destroy_form(window)
         ).pack(side="left", padx=(8, 0))
+
+    def _open_task_create(self) -> None:
+        window, frame, _error_var = self._new_form("Новая ControlTask")
+        values = {
+            "name": self.tk.StringVar(),
+            "task_file": self.tk.StringVar(),
+            "start_at": self.tk.StringVar(),
+            "duration_s": self.tk.StringVar(value="60"),
+            "equipment": self.tk.StringVar(),
+        }
+        fields = (
+            ("name", "Имя"),
+            ("task_file", "task_file"),
+            ("start_at", "Начало ISO 8601"),
+            ("duration_s", "Длительность, с"),
+            ("equipment", "Оборудование"),
+        )
+        for row, (key, label) in enumerate(fields):
+            self._form_entry(frame, row, label, values[key])
+        self.ttk.Label(
+            frame,
+            text="status/outcome назначает сервер; локальные пути в ответ не включаются.",
+            wraplength=560,
+        ).grid(row=len(fields), column=0, columnspan=2, sticky="ew", pady=6)
+        self.ttk.Button(
+            frame,
+            text="Создать задачу",
+            command=lambda: self._create_task(window, values),
+        ).grid(row=len(fields) + 1, column=0, sticky="w", pady=(10, 4))
+        self.ttk.Button(
+            frame, text="Закрыть", command=lambda: self._destroy_form(window)
+        ).grid(row=len(fields) + 1, column=1, sticky="e", pady=(10, 4))
+
+    def _create_task(self, window: Any, values: dict[str, Any]) -> None:
+        client = self.client
+        if client is None:
+            return
+        try:
+            payload = task_create_payload({
+                key: value.get() for key, value in values.items()
+            })
+        except ValueError as exc:
+            self.task_create_var.set(str(exc))
+            return
+        self._destroy_form(window)
+        self.task_create_var.set("ControlTask создаётся через API…")
+        self._submit_action(
+            "Создание ControlTask",
+            lambda: client.create_task(payload),
+            self._show_created_task,
+        )
+
+    def _show_created_task(self, created: dict[str, Any]) -> None:
+        self.task_create_var.set(
+            f"Создано: {created.get('name')} · {created.get('status')} · "
+            f"{created.get('start_at')}"
+        )
 
     def _configure_task_scheduler(self, enabled: bool, window: Any) -> None:
         if not isinstance(enabled, bool):
