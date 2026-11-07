@@ -604,15 +604,6 @@ public final class PlatformClient {
             schedulerTasks = []
             schedulerTasksError = error.localizedDescription
         }
-        let analytics: PlatformAnalyticsSummary?
-        let analyticsError: String?
-        do {
-            analytics = try await analyticsSummary(sessionID: sessionID)
-            analyticsError = nil
-        } catch {
-            analytics = nil
-            analyticsError = error.localizedDescription
-        }
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
             sweeps: sweepsRequest, observations: observationsRequest,
@@ -622,7 +613,6 @@ public final class PlatformClient {
             automaticCompletion: completion,
             taskScheduler: scheduler, taskSchedulerError: schedulerError,
             taskSchedulerTasks: schedulerTasks, taskSchedulerTasksError: schedulerTasksError,
-            analytics: analytics, analyticsError: analyticsError,
             workflowErrors: workflowErrors
         )
     }
