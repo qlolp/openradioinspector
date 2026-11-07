@@ -21,6 +21,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/health` | Состояние службы, число сеансов, последний ID события |
 | `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
 | `GET`, `POST` | `/api/v1/task-scheduler` | Глобальный runtime-only TaskScheduler, статус и opt-in |
+| `GET` | `/api/v1/task-scheduler/tasks` | Read-only список ControlTask из текущей TaskBook |
 | `POST` | `/api/v1/sessions` | Создание сеанса с независимыми потоками |
 | `GET` | `/api/v1/sessions` | Список сеансов |
 | `GET` | `/api/v1/sessions/{id}` | Один сеанс |
@@ -148,13 +149,11 @@ HTTP работает в одном фоновом executor, обновлени�
 
 Визуализация использует до 40 последних sweeps и не более 1000 точек спектра с сохранением первой, последней и фактической пиковой точки. Водопад применяет max-агрегацию по пиксельным столбцам и располагает старые sweeps сверху, новые снизу. Команды ручного или полуавтоматического handoff не включают scheduler/detector. Обе автоматические политики остаются runtime-only и после перезапуска сервера требуют независимых новых opt-in.
 
-Windows-клиент дополнительно запрашивает `/analytics/summary` и показывает архивные счётчики, исходные единицы, долю шумодава и пик последнего sweep. Ошибка аналитики сохраняется в `analytics_error` и не прерывает остальной snapshot.
-
 ## macOS SwiftUI-клиент
 
 Существующее окно `macos/DvoynoyObzor` подключается к ядру через `SpektrKomandy/PlatformAPI.swift`. Оно использует `GET /sessions`, детали сеанса, `/workers`, `/sweeps?stream_id=…&limit=40`, `/observations?stream_id=…&limit=40`, кандидатов, очередь исследований, рекомендацию `next` и GET обеих автоматических политик. Команды охватывают создание сеанса, start/stop сеанса, всех workers и независимых потоков, `tune` только receiver, создание/отклонение кандидата и постановку в очередь, ручной и подтверждённый полуавтоматический handoff, complete/fail/cancel и изменение независимых политик. Базовый URL проверяется так же, как в Windows-клиенте; ID в путях и query кодируются, конверт и версия ответа обязательны. Ответ ограничен 2 МБ после загрузки.
 
-Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. В workflow-панели `RemoteAnalyticsPane` показывается та же read-only сводка с раздельными `dBm` и `s_meter_count`; ошибка `/analytics/summary` хранится отдельно от `workflowErrors` и не блокирует остальные данные. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 50 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
+Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. В workflow-панели `RemoteAnalyticsPane` показывается та же read-only сводка с раздельными `dBm` и `s_meter_count`; ошибка `/analytics/summary` хранится отдельно от `workflowErrors` и не блокирует остальные данные. Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 51 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
 
 ## Независимые исполнители и симуляторы
 
@@ -388,13 +387,15 @@ SQLite сначала копируется во временный файл на
 
 `POST /api/v1/task-scheduler` принимает ровно одно поле `enabled` с JSON boolean. Дополнительные поля и не-boolean значения отклоняются. Включение и выключение — отдельные команды оператора, а не побочный эффект выбора сеанса или сохранения параметров.
 
+`GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook без перечитывания или изменения файла. Это read-only снимок под scheduler lock: он не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths не считаются файлами.
+
 ```bash
 curl -sS -X POST http://127.0.0.1:8770/api/v1/task-scheduler \
   -H 'Content-Type: application/json' \
   -d '{"enabled":true}'
 ```
 
-Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true` и `control_task_scheduler_policy_persistent=false`. Клиенты Raspberry Pi, Windows и macOS показывают фактические runtime и счётчики независимо от выбранного сеанса. Они не создают и не редактируют `ControlTask`, не читают путь к TaskBook и не подтверждают аппаратный результат. Изменения scheduler не создают `SessionEvent`; книга имеет собственный атомарный JSON. Подробности в [`task-scheduler.md`](task-scheduler.md).
+Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true`, `control_task_scheduler_policy_persistent=false` и `control_task_scheduler_task_list=true`. Клиенты Raspberry Pi, Windows и macOS показывают фактические runtime, счётчики и read-only список `ControlTask` независимо от выбранного сеанса. Запросы status/list имеют раздельную изоляцию ошибок. Клиенты не создают и не редактируют `ControlTask`, не читают путь к TaskBook и не подтверждают аппаратный результат. Изменения scheduler не создают `SessionEvent`; книга имеет собственный атомарный JSON. Подробности в [`task-scheduler.md`](task-scheduler.md).
 
 ## Кандидаты и режимы handoff
 
