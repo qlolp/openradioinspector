@@ -133,7 +133,6 @@ class TaskScheduler:
             raise TypeError("enabled должен быть JSON boolean")
         if enabled:
             for _attempt in range(2):
-                self._join()
                 with self._lock:
                     if self._closed:
                         raise RuntimeError("Scheduler уже закрыт")
@@ -143,19 +142,19 @@ class TaskScheduler:
                         and thread is not None
                         and thread.is_alive()
                     )
-                    if stopping:
-                        continue
-                    self._enabled = True
-                    self._runtime["last_result"] = "enabled"
-                    self._stop.clear()
-                    if thread is None or not thread.is_alive():
-                        self._thread = threading.Thread(
-                            target=self._background,
-                            name="control-task-scheduler",
-                            daemon=True,
-                        )
-                        self._thread.start()
-                    return self.status()
+                    if not stopping:
+                        self._enabled = True
+                        self._runtime["last_result"] = "enabled"
+                        self._stop.clear()
+                        if thread is None or not thread.is_alive():
+                            self._thread = threading.Thread(
+                                target=self._background,
+                                name="control-task-scheduler",
+                                daemon=True,
+                            )
+                            self._thread.start()
+                        return self.status()
+                self._join()
             raise RuntimeError("Прежний thread scheduler не остановился")
         with self._lock:
             if self._closed:
