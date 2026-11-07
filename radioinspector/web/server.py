@@ -474,6 +474,7 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"]["control_task_scheduler"] = True
                 capabilities["features"]["control_task_scheduler_opt_in_required"] = True
                 capabilities["features"]["control_task_scheduler_policy_persistent"] = False
+                capabilities["features"]["control_task_scheduler_task_list"] = True
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
@@ -481,6 +482,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if route == "/api/v1/task-scheduler":
                 self._send_json(api_payload(self.control_scheduler.status()))
+                return
+            if route == "/api/v1/task-scheduler/tasks":
+                items = self.control_scheduler.list_tasks()
+                self._send_json(api_payload({"items": items, "count": len(items)}))
                 return
             if route == "/api/v1/sessions":
                 self._send_json(api_payload(self.sessions.list_sessions()))
