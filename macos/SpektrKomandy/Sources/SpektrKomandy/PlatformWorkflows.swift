@@ -156,6 +156,38 @@ public struct PlatformControlTask: Decodable, Equatable {
     public let equipment: String
 }
 
+public struct PlatformControlTaskDraft: Encodable {
+    public let name: String
+    public let taskFile: String
+    public let startAt: String
+    public let durationS: Double
+    public let equipment: String
+
+    public init(
+        name: String, taskFile: String, startAt: String,
+        durationS: Double, equipment: String = ""
+    ) throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFile = taskFile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedFile.isEmpty else {
+            throw PlatformError.invalidCommand("name и task_file обязательны")
+        }
+        guard durationS.isFinite, durationS > 0 else {
+            throw PlatformError.invalidCommand("duration_s должно быть положительным конечным числом")
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let started = formatter.date(from: startAt) else {
+            throw PlatformError.invalidCommand("start_at должен быть ISO 8601")
+        }
+        self.name = trimmedName
+        self.taskFile = trimmedFile
+        self.startAt = formatter.string(from: started)
+        self.durationS = durationS
+        self.equipment = equipment.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 private struct PlatformControlTaskList: Decodable {
     let items: [PlatformControlTask]
     let count: Int
@@ -512,6 +544,10 @@ public extension PlatformClient {
     func taskSchedulerTasks() async throws -> [PlatformControlTask] {
         let list: PlatformControlTaskList = try await get("/task-scheduler/tasks")
         return list.items
+    }
+
+    func createTask(draft: PlatformControlTaskDraft) async throws -> PlatformControlTask {
+        try await post("/task-scheduler/tasks", body: draft)
     }
 
     func configureTaskScheduler(enabled: Bool) async throws -> PlatformTaskSchedulerStatus {
