@@ -307,6 +307,11 @@ struct RemoteAnalyticsPane: View {
                     Text("Сводка запрашивается один раз; обычный polling её не выполняет")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Button(model.archiveExportPending ? "Экспорт NDJSON…" : "Скачать NDJSON snapshot…") {
+                    model.exportArchive()
+                }
+                .disabled(model.session == nil || model.archiveExportPending)
+                Text(model.archiveExportStatus).font(.caption).foregroundStyle(.secondary)
                 if let summary = model.archiveAnalytics {
                     Text("Sweeps: \(summary.sweeps.count) · \(summary.sweeps.levelUnits.joined(separator: ", "))")
                     Text("Observations: \(summary.observations.count) · \(summary.observations.levelUnits.joined(separator: ", "))")
