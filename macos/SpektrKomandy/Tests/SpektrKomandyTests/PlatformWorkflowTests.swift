@@ -408,6 +408,53 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(analytics.observations.squelchOpenRatio, 0.5)
     }
 
+    func testArchiveExportStreamsValidNDJSONAndRejectsIncomplete() async throws {
+        let header = "{\"format\":\"openradioinspector-archive-ndjson\",\"format_version\":1,\"session_id\":\"s/1\"}\n"
+        let sweep = "{\"kind\":\"sweep\",\"measurement\":{\"id\":\"sw/1\",\"level_unit\":\"dBm\"}}\n"
+        let observation = "{\"kind\":\"observation\",\"measurement\":{\"id\":\"ob/1\",\"level_unit\":\"s_meter_count\"}}\n"
+        let client = try client { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/x-ndjson",
+                    "X-Archive-Sweeps": "1",
+                    "X-Archive-Observations": "1",
+                ]
+            )!
+            return (response, Data((header + sweep + observation).utf8))
+        }
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-export-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = folder.appendingPathComponent("archive.ndjson")
+        let result = try await client.exportArchive(sessionID: "s/1", destination: destination)
+        XCTAssertEqual(result.sweeps, 1)
+        XCTAssertEqual(result.observations, 1)
+        let text = try String(contentsOf: destination, encoding: .utf8)
+        XCTAssertTrue(text.contains("dBm"))
+        XCTAssertTrue(text.contains("s_meter_count"))
+
+        let incomplete = try client { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/x-ndjson",
+                    "X-Archive-Sweeps": "2",
+                    "X-Archive-Observations": "1",
+                ]
+            )!
+            return (response, Data((header + sweep + observation).utf8))
+        }
+        try "old".write(to: destination, atomically: true, encoding: .utf8)
+        do {
+            _ = try await incomplete.exportArchive(sessionID: "s/1", destination: destination)
+            XCTFail("Incomplete snapshot должен быть отклонён")
+        } catch PlatformError.invalidResponse {
+            XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "old")
+        }
+    }
+
     func testOptionalPolicyStreamsEncodeExplicitNull() async throws {
         let client = try client { request in
             let object = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
