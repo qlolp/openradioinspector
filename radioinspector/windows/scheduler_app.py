@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Any, Optional
 
-from .completion_app import CompletionWindowsApp
+from .analytics_app import AnalyticsWindowsApp
 
 
 def task_scheduler_text(
@@ -46,7 +46,7 @@ def task_scheduler_tasks_text(
     return "\n".join(lines)
 
 
-class SchedulerWindowsApp(CompletionWindowsApp):
+class SchedulerWindowsApp(AnalyticsWindowsApp):
     """Добавляет независимый opt-in глобального TaskScheduler."""
 
     def __init__(self, *args, **kwargs) -> None:
