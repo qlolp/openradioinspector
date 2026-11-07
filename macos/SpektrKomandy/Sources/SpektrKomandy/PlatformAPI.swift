@@ -624,10 +624,16 @@ public final class PlatformClient {
         )
         defer { try? FileManager.default.removeItem(at: temporary) }
         let delegate = PlatformDownloadDelegate()
-        let session = URLSession(
-            configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+        let downloadConfiguration: URLSessionConfiguration
+        if usesInjectedSession {
+            downloadConfiguration = session.configuration
+        } else {
+            downloadConfiguration = .ephemeral
+        }
+        let downloadSession = URLSession(
+            configuration: downloadConfiguration, delegate: delegate, delegateQueue: nil
         )
-        defer { session.finishTasksAndInvalidate() }
+        defer { downloadSession.finishTasksAndInvalidate() }
         let response: URLResponse?
         let location: URL?
         let failure: Error?
@@ -636,7 +642,7 @@ public final class PlatformClient {
                 delegate.completion = { response, location, error in
                     continuation.resume(returning: (response, location, error))
                 }
-                session.downloadTask(with: request).resume()
+                downloadSession.downloadTask(with: request).resume()
             }
         } catch {
             throw PlatformError.connection(error.localizedDescription)
