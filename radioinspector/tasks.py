@@ -20,6 +20,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -366,9 +368,16 @@ class TaskBook:
             "tasks": [task.as_dict() for task in self.tasks],
         }
         temporary = self.path.with_name(self.path.name + ".tmp")
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        try:
+            mode = stat.S_IMODE(self.path.stat().st_mode)
+        except FileNotFoundError:
+            mode = 0o600
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600
         )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        os.chmod(temporary, mode)
         temporary.replace(self.path)
         return self.path
 
