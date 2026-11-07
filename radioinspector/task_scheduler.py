@@ -4,11 +4,46 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+
+def _acquire_book_lock(path: Path) -> Any:
+    """Удерживает OS-level lock до close, не полагаясь на наличие lock-файла."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    handle = lock_path.open("a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return handle
+    except (OSError, IOError) as exc:
+        handle.close()
+        raise RuntimeError(f"TaskBook уже используется другим scheduler: {path}") from exc
+
+
+def _release_book_lock(handle: Any) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 from .tasks import (
     OUTCOME_APPLICATION_CRASH,
@@ -44,6 +79,8 @@ class TaskScheduler:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._enabled = False
+        self._closed = False
+        self._dirty = False
         self._runtime: dict[str, Any] = {
             "last_result": "idle",
             "last_error": None,
@@ -52,8 +89,18 @@ class TaskScheduler:
             "completed_tasks": 0,
             "aborted_tasks": 0,
         }
-        self.book.load()
-        self._recover_interrupted()
+        self._book_lock = _acquire_book_lock(self.book.path)
+        try:
+            self.book.load()
+            self._recover_interrupted()
+        except Exception:
+            _release_book_lock(self._book_lock)
+            raise
+
+    def _save_locked(self) -> None:
+        if self._dirty:
+            self.book.save()
+            self._dirty = False
 
     def _recover_interrupted(self) -> None:
         changed = False
@@ -63,7 +110,8 @@ class TaskScheduler:
                 self._runtime["aborted_tasks"] += 1
                 changed = True
         if changed:
-            self.book.save()
+            self._dirty = True
+            self._save_locked()
             self._runtime["last_result"] = "interrupted_recovered"
 
     def enqueue(self, task: ControlTask) -> ControlTask:
@@ -73,12 +121,15 @@ class TaskScheduler:
                 raise ValueError(f"Задание уже существует: {task.name}")
             task.enqueue()
             self.book.add(task)
-            self.book.save()
+            self._dirty = True
+            self._save_locked()
             return task
 
     def configure(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
+        if self._closed:
+            raise RuntimeError("Scheduler уже закрыт")
         with self._lock:
             self._enabled = enabled
             self._runtime["last_result"] = "enabled" if enabled else "disabled"
@@ -150,7 +201,8 @@ class TaskScheduler:
                     self._runtime["last_error"] = str(exc)
                     changed = True
             if changed:
-                self.book.save()
+                self._dirty = True
+            self._save_locked()
             return self.status()
 
     @staticmethod
@@ -181,17 +233,24 @@ class TaskScheduler:
 
     def close(self) -> None:
         """Останавливает thread и явно фиксирует operator abort активных задач."""
+        if self._closed:
+            return
         self.configure(False)
+        self._closed = True
         changed = False
-        with self._lock:
-            for task in self.book.tasks:
-                if task.status == STATUS_RUNNING:
-                    task.abort(OUTCOME_STOPPED_BY_OPERATOR)
-                    self._runtime["aborted_tasks"] += 1
-                    changed = True
-            if changed:
-                self.book.save()
-            self._runtime["last_result"] = "closed"
+        try:
+            with self._lock:
+                for task in self.book.tasks:
+                    if task.status == STATUS_RUNNING:
+                        task.abort(OUTCOME_STOPPED_BY_OPERATOR)
+                        self._runtime["aborted_tasks"] += 1
+                        changed = True
+                if changed:
+                    self._dirty = True
+                self._save_locked()
+                self._runtime["last_result"] = "closed"
+        finally:
+            _release_book_lock(self._book_lock)
 
 
 def build_parser() -> argparse.ArgumentParser:

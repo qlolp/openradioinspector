@@ -10,6 +10,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from radioinspector.task_scheduler import TaskScheduler, main
 from radioinspector.tasks import (
@@ -134,6 +135,54 @@ class TaskSchedulerTests(unittest.TestCase):
         scheduler.close()
         self.assertFalse(scheduler.status()["scheduler_alive"])
         self.assertEqual(self.book_task()["status"], STATUS_COMPLETED)
+
+    def test_failed_save_is_retried_until_terminal_state_persists(self) -> None:
+        scheduler = self.scheduler()
+        scheduler.enqueue(self.task())
+        scheduler.configure(True)
+        scheduler.run_once(BASE)
+        scheduler.run_once(BASE + timedelta(seconds=10)
+        )
+        # Переводим в running повторно, чтобы проверить именно completion-time failure.
+        stored = self.book_task()
+        self.assertEqual(stored["status"], STATUS_COMPLETED)
+
+        scheduler.enqueue(self.task("retry", start_at=BASE, duration_s=10))
+        original_save = scheduler.book.save
+        calls = 0
+
+        def flaky_save():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError("temporary write failure")
+            return original_save()
+
+        with patch.object(scheduler.book, "save", side_effect=flaky_save) as save:
+            with self.assertRaises(OSError):
+                scheduler.run_once(BASE + timedelta(seconds=20))
+            scheduler.run_once(BASE + timedelta(seconds=30))
+            self.assertEqual(scheduler.book.get("retry").status, STATUS_COMPLETED)
+            self.assertEqual(save.call_count, 2)
+        scheduler.close()
+        self.assertEqual(self.book_task("retry")["status"], STATUS_COMPLETED)
+        self.assertEqual(save.call_count, 2)
+        self.assertIsNotNone(original_save)
+
+    def test_second_owner_cannot_recover_or_overwrite_book(self) -> None:
+        first = self.scheduler()
+        first.enqueue(self.task())
+        before = self.path.read_text()
+        with self.assertRaisesRegex(RuntimeError, "другим scheduler"):
+            TaskScheduler(TaskBook(self.path))
+        self.assertEqual(self.path.read_text(), before)
+        first.configure(True)
+        first.run_once(BASE)
+        first.run_once(BASE + timedelta(seconds=10))
+        first.close()
+        self.assertEqual(self.book_task()["status"], STATUS_COMPLETED)
+        second = self.scheduler()
+        self.assertFalse(second.status()["enabled"])
 
     def test_cli_requires_enable_and_supports_once(self) -> None:
         with redirect_stderr(io.StringIO()) as errors:
