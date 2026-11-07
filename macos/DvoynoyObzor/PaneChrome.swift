@@ -235,7 +235,7 @@ struct RemoteTaskSchedulerPane: View {
                 if let error = model.taskSchedulerError, !error.isEmpty {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
-                Text("TaskBook · read-only").font(.caption).foregroundStyle(.secondary)
+                Text("TaskBook · публичный снимок").font(.caption).foregroundStyle(.secondary)
                 if let error = model.taskSchedulerTasksError, !error.isEmpty {
                     Text("Список ControlTask недоступен: \(error)")
                         .font(.caption).foregroundStyle(.red)
@@ -290,7 +290,7 @@ struct RemoteTaskSchedulerPane: View {
                     Button("Выключить") { model.disableTaskScheduler() }
                         .disabled(model.taskSchedulerStatus?.enabled != true || model.busy)
                 }
-                Text("Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Клиент не создаёт задания и не открывает приборные порты.")
+                Text("Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Клиент создаёт и отменяет queued-задачи только через API и не открывает приборные порты.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(4)
