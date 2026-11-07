@@ -111,6 +111,7 @@ struct RemoteWorkflowPane: View {
                 candidates.frame(width: 390, alignment: .leading)
                 investigations.frame(width: 430, alignment: .leading)
                 VStack(spacing: 12) {
+                    RemoteTaskSchedulerPane(model: model)
                     RemoteAnalyticsPane(model: model)
                     RemoteCompletionPolicyPane(model: model)
                     RemoteDetectionPolicyPane(model: model)
@@ -210,6 +211,40 @@ struct RemoteWorkflowPane: View {
 }
 
 private let workflowOpenStates: Set<String> = ["queued", "tuning", "listening", "decoding"]
+
+struct RemoteTaskSchedulerPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        GroupBox("Control tasks · глобальный runtime-only opt-in") {
+            VStack(alignment: .leading, spacing: 7) {
+                if let status = model.taskSchedulerStatus {
+                    Text("\(status.enabled ? "Включён" : "Выключен") · thread \(status.schedulerAlive ? "active" : "stopped")")
+                    Text("Всего \(status.tasks.total) · в работе \(status.tasks.running) · готово \(status.tasks.completed)")
+                    if let result = status.runtime.lastResult {
+                        Text("Результат: \(result) · задача \(status.runtime.lastTaskName ?? "—")")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let error = status.runtime.lastError, !error.isEmpty {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                } else {
+                    Text(model.taskSchedulerError ?? "Состояние scheduler запрашивается у ядра…")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Button("Включить scheduler") { model.enableTaskScheduler() }
+                        .disabled(model.taskSchedulerStatus == nil || model.taskSchedulerStatus?.enabled == true || model.busy)
+                    Button("Выключить") { model.disableTaskScheduler() }
+                        .disabled(model.taskSchedulerStatus?.enabled != true || model.busy)
+                }
+                Text("Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Клиент не создаёт задания и не открывает приборные порты.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(4)
+        }
+    }
+}
 
 struct RemoteAnalyticsPane: View {
     @ObservedObject var model: RemoteDualModel
