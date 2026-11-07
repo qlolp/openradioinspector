@@ -55,6 +55,7 @@ radioinspector-archive-import = "radioinspector.archive_ingest:main"
 radioinspector-archive-export = "radioinspector.archive_export:main"
 radioinspector-archive-stream = "radioinspector.archive_stream:main"
 radioinspector-archive-export-stream = "radioinspector.archive_export_stream:main"
+radioinspector-task-scheduler = "radioinspector.task_scheduler:main"
 
 [project.urls]
 Homepage = "https://github.com/qlolp/openradioinspector"
