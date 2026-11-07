@@ -47,7 +47,7 @@ from ..session_service import (
 )
 from ..session_analytics import analytics_summary
 from ..session_store import SQLiteSessionStore
-from ..task_scheduler import TaskScheduler
+from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -476,6 +476,7 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"]["control_task_scheduler_policy_persistent"] = False
                 capabilities["features"]["control_task_scheduler_task_list"] = True
                 capabilities["features"]["control_task_scheduler_task_create"] = True
+                capabilities["features"]["control_task_scheduler_task_cancel"] = True
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
@@ -642,6 +643,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except TaskNotFoundError as exc:
+            self._send_api_error(404, "task_not_found", str(exc.args[0]))
         except CandidateNotFoundError as exc:
             self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
         except InvestigationNotFoundError as exc:
@@ -660,6 +663,14 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/task-scheduler/tasks":
                 created = self.control_scheduler.create_task(payload)
                 self._send_json(api_payload(created), 201)
+                return
+            if (
+                route.startswith("/api/v1/task-scheduler/tasks/")
+                and route.endswith("/cancel")
+            ):
+                name = unquote(route[len("/api/v1/task-scheduler/tasks/"):-len("/cancel")].rstrip("/"))
+                result = self.control_scheduler.cancel_task(name)
+                self._send_json(api_payload(result))
                 return
             if route == "/api/v1/sessions":
                 session = self.sessions.create_session(payload)
@@ -849,6 +860,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except TaskNotFoundError as exc:
+            self._send_api_error(404, "task_not_found", str(exc.args[0]))
         except CandidateNotFoundError as exc:
             self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
         except InvestigationNotFoundError as exc:
