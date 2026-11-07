@@ -350,6 +350,12 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         return self._request("GET", f"/sessions/{session}/analytics/summary")
 
+    def export_archive(self, session_id: str, output: str) -> dict[str, Any]:
+        """Атомарно сохраняет серверный NDJSON snapshot через существующий verifier."""
+        from ..archive_export_stream import fetch_archive_ndjson
+
+        return fetch_archive_ndjson(self, session_id, output)
+
     def snapshot(
         self,
         session_id: Optional[str] = None,
