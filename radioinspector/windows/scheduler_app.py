@@ -103,6 +103,20 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
             command=self._open_task_create,
         )
         self.task_create_button.pack(side="top", fill="x", padx=10, pady=(0, 8))
+        self.task_cancel_var = self.tk.StringVar(value="Queued ControlTask не отменена")
+        self.task_cancel_label = self.tk.Label(
+            self.root,
+            textvariable=self.task_cancel_var,
+            wraplength=1100,
+            justify="left",
+        )
+        self.task_cancel_label.pack(side="top", fill="x", padx=10, pady=(0, 8))
+        self.task_cancel_button = self.tk.Button(
+            self.root,
+            text="Отменить queued задачу…",
+            command=self._open_task_cancel,
+        )
+        self.task_cancel_button.pack(side="top", fill="x", padx=10, pady=(0, 8))
 
     def _apply_snapshot(self, snapshot) -> None:
         super()._apply_snapshot(snapshot)
@@ -122,6 +136,12 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
             )
         if hasattr(self, "task_create_button"):
             self.task_create_button.configure(
+                state="normal"
+                if self.client is not None and not self._action_running
+                else "disabled"
+            )
+        if hasattr(self, "task_cancel_button"):
+            self.task_cancel_button.configure(
                 state="normal"
                 if self.client is not None and not self._action_running
                 else "disabled"
@@ -238,6 +258,58 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
         self.task_create_var.set(
             f"Создано: {created.get('name')} · {created.get('status')} · "
             f"{created.get('start_at')}"
+        )
+
+    def _open_task_cancel(self) -> None:
+        queued = [
+            task for task in self.snapshot.task_scheduler_tasks
+            if task.get("status") == "В очереди на выполнение"
+        ]
+        if not queued:
+            self.task_cancel_var.set("Нет задач в очереди; running не отменяется этой формой")
+            return
+        window, frame, _error_var = self._new_form("Отменить queued задачу")
+        selected = self.tk.StringVar(value=str(queued[0].get("name", "")))
+        self.ttk.Label(frame, text="Задача").grid(
+            row=0, column=0, sticky="w", padx=(0, 8), pady=4
+        )
+        self.ttk.Combobox(
+            frame,
+            textvariable=selected,
+            values=[str(task.get("name", "")) for task in queued],
+            state="readonly",
+            width=56,
+        ).grid(row=0, column=1, sticky="ew", pady=4)
+        self.ttk.Label(
+            frame,
+            text="Отменяется только queued-задача; приборные потоки не останавливаются.",
+            wraplength=560,
+        ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=6)
+        self.ttk.Button(
+            frame,
+            text="Отменить задачу",
+            command=lambda: self._cancel_task(window, selected.get()),
+        ).grid(row=2, column=0, sticky="w", pady=(10, 4))
+        self.ttk.Button(
+            frame, text="Закрыть", command=lambda: self._destroy_form(window)
+        ).grid(row=2, column=1, sticky="e", pady=(10, 4))
+
+    def _cancel_task(self, window: Any, name: str) -> None:
+        client = self.client
+        if client is None or not name:
+            return
+        self._destroy_form(window)
+        self.task_cancel_var.set(f"Отмена {name} через API…")
+        self._submit_action(
+            "Отмена queued ControlTask",
+            lambda: client.cancel_task(name),
+            self._show_cancelled_task,
+        )
+
+    def _show_cancelled_task(self, cancelled: dict[str, Any]) -> None:
+        self.task_cancel_var.set(
+            f"Отменено: {cancelled.get('name')} · {cancelled.get('status')} · "
+            f"{cancelled.get('outcome')}"
         )
 
     def _configure_task_scheduler(self, enabled: bool, window: Any) -> None:

@@ -344,6 +344,10 @@ class PlatformClient:
     def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post("/task-scheduler/tasks", payload)
 
+    def cancel_task(self, name: str) -> dict[str, Any]:
+        task = _segment(name, "name")
+        return self._post(f"/task-scheduler/tasks/{task}/cancel", {})
+
     def configure_task_scheduler(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
