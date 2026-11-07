@@ -346,6 +346,10 @@ class PlatformClient:
             raise TypeError("enabled должен быть JSON boolean")
         return self._post("/task-scheduler", {"enabled": enabled})
 
+    def analytics_summary(self, session_id: str) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        return self._request("GET", f"/sessions/{session}/analytics/summary")
+
     def snapshot(
         self,
         session_id: Optional[str] = None,
