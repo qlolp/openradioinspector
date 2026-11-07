@@ -10,6 +10,7 @@
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
+  <script src="/static/task-create.js" defer></script>
   <script src="/static/completion.js" defer></script>
   <script src="/static/scheduler.js" defer></script>
 </head>
@@ -102,6 +103,22 @@
           <summary>Runtime-only · по умолчанию выключен</summary>
           <p id="task-scheduler-status" class="automatic-runtime" role="status" aria-live="polite">Состояние scheduler запрашивается у ядра…</p>
           <p class="unit-lock">Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Браузер не создаёт задания, измерения и не открывает приборные порты.</p>
+          <details id="task-create-editor" class="editor">
+            <summary>Новая ControlTask</summary>
+            <form id="task-create-form">
+              <div class="form-grid">
+                <label>Имя<input id="task-create-name" type="text" required></label>
+                <label>task_file<input id="task-create-file" type="text" required placeholder="/path/to/scan.json"></label>
+                <label>Начало<input id="task-create-start" type="datetime-local" required></label>
+                <label>Длительность, с<input id="task-create-duration" type="number" min="0.001" step="any" value="60" required></label>
+                <label>Оборудование<input id="task-create-equipment" type="text" placeholder="tinySA Ultra + AR-DV1"></label>
+              </div>
+              <div class="form-actions">
+                <button id="task-create-submit" type="submit" class="button primary">Создать задачу</button>
+              </div>
+              <p id="task-create-status" class="automatic-runtime" role="status" aria-live="polite">Статус и outcome назначает сервер; локальные пути в ответ не включаются.</p>
+            </form>
+          </details>
           <dl class="measurement-strip">
             <div><dt>Всего</dt><dd id="task-scheduler-total">—</dd></div>
             <div><dt>В работе</dt><dd id="task-scheduler-running">—</dd></div>

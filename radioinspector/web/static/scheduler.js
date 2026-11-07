@@ -95,14 +95,20 @@
     for (const task of state.tasks) {
       const article = document.createElement("article");
       article.className = "record";
+      const topline = document.createElement("div");
+      topline.className = "record-topline";
       const title = document.createElement("strong");
+      title.className = "record-title";
       title.textContent = task.name;
-      const details = document.createElement("small");
+      topline.append(title);
+      const details = document.createElement("div");
+      details.className = "record-meta";
       const outcome = task.outcome ? ` · ${task.outcome}` : "";
       details.textContent = `${task.status} · ${task.start_at || "время не задано"}${outcome}`;
-      const equipment = document.createElement("small");
+      const equipment = document.createElement("div");
+      equipment.className = "record-meta";
       equipment.textContent = task.equipment || "Оборудование не указано";
-      article.append(title, details, equipment);
+      article.append(topline, details, equipment);
       dom.list.append(article);
     }
   }
@@ -166,6 +172,7 @@
   dom.editor.addEventListener("toggle", () => {
     if (dom.editor.open) refreshScheduler();
   });
+  window.addEventListener("ori:tasks-changed", () => refreshScheduler());
   state.timer = window.setInterval(refreshScheduler, 2000);
   window.addEventListener("pagehide", () => window.clearInterval(state.timer));
   refreshScheduler();
