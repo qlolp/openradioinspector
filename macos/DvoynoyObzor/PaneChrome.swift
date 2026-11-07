@@ -263,6 +263,22 @@ struct RemoteTaskSchedulerPane: View {
                     }
                     .frame(maxHeight: 180)
                 }
+                Button(model.showTaskCreate ? "Скрыть создание" : "Новая ControlTask…") {
+                    model.showTaskCreate.toggle()
+                }
+                .disabled(model.taskCreatePending)
+                if model.showTaskCreate {
+                    VStack(alignment: .leading, spacing: 5) {
+                        TextField("Имя", text: $model.newTaskName).textFieldStyle(.roundedBorder)
+                        TextField("task_file", text: $model.newTaskFile).textFieldStyle(.roundedBorder)
+                        TextField("Начало ISO 8601", text: $model.newTaskStartAt).textFieldStyle(.roundedBorder)
+                        TextField("Длительность, с", text: $model.newTaskDuration).textFieldStyle(.roundedBorder)
+                        TextField("Оборудование", text: $model.newTaskEquipment).textFieldStyle(.roundedBorder)
+                        Button("Создать задачу") { model.createTask() }
+                            .disabled(model.taskCreatePending)
+                    }
+                }
+                Text(model.newTaskStatus).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Включить scheduler") { model.enableTaskScheduler() }
                         .disabled(model.taskSchedulerStatus == nil || model.taskSchedulerStatus?.enabled == true || model.busy)
