@@ -165,7 +165,7 @@ HTTP работает в одном фоновом executor, обновлени�
 - `tinysa-sim` — периодические свипы в `dBm`, целые частоты в Гц, генератор всегда `off`;
 - `ardv1-sim` — наблюдения в исходных `s_meter_count`, настройка частоты и режима через индивидуальную очередь команд.
 
-Адаптер не выбирается автоматически по названию прибора или строке порта. Явные `tinysa-serial` и `ardv1-serial` открывают отдельный последовательный порт только после выбора через `settings.adapter`. Поэтому `hardware_control=true`, а `hardware_validation_not_run=true` сообщает, что scripted-проверки выполнены, но аппаратный стенд не проводился. Дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся к программному стенду.
+Адаптер не выбирается автоматически по названию прибора или строки порта. Явные `tinysa-serial` и `ardv1-serial` открывают отдельный последовательный порт только после выбора через `settings.adapter`. Поэтому `hardware_control=true`, а `hardware_validation_not_run=true` сообщает, что scripted-проверки выполнены, но аппаратный стенд не проводился. Дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся к программному стенду.
 
 Пример настроек двух потоков при создании сеанса:
 
