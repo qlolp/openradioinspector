@@ -79,7 +79,7 @@ class TaskScheduler:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._enabled = False
-        self._closed = False
+        self._closed = True
         self._dirty = False
         self._runtime: dict[str, Any] = {
             "last_result": "idle",
@@ -96,6 +96,7 @@ class TaskScheduler:
         except Exception:
             _release_book_lock(self._book_lock)
             raise
+        self._closed = False
 
     def _save_locked(self) -> None:
         if self._dirty:
@@ -117,6 +118,8 @@ class TaskScheduler:
     def enqueue(self, task: ControlTask) -> ControlTask:
         """Добавляет задачу оператора без автоматического включения scheduler."""
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
             if self.book.get(task.name) is not None:
                 raise ValueError(f"Задание уже существует: {task.name}")
             task.enqueue()
@@ -208,7 +211,7 @@ class TaskScheduler:
     @staticmethod
     def _require_input_files(task: ControlTask) -> None:
         for value in (task.task_file, task.panorama_file):
-            if value is not None and not Path(value).is_file():
+            if value and not Path(value).is_file():
                 raise FileNotFoundError(OUTCOME_FILE_NOT_FOUND)
 
     def status(self) -> dict[str, Any]:
@@ -230,6 +233,12 @@ class TaskScheduler:
                     ),
                 },
             }
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def close(self) -> None:
         """Останавливает thread и явно фиксирует operator abort активных задач."""
