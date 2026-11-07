@@ -378,7 +378,7 @@ final class PlatformWorkflowTests: XCTestCase {
         let client = try client { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(
-                request.url!.path,
+                URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.percentEncodedPath,
                 "/api/v1/task-scheduler/tasks/macos%2Fmonitor/cancel"
             )
             let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
