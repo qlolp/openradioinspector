@@ -256,6 +256,10 @@ struct RemoteTaskSchedulerPane: View {
                                     }
                                     Text(task.equipment.isEmpty ? "Оборудование не указано" : task.equipment)
                                         .font(.caption).foregroundStyle(.secondary)
+                                    if task.status == "В очереди на выполнение" {
+                                        Button("Отменить") { model.cancelTask(name: task.name) }
+                                            .disabled(model.taskCancelPending)
+                                    }
                                 }
                                 .textSelection(.enabled)
                             }
@@ -279,6 +283,7 @@ struct RemoteTaskSchedulerPane: View {
                     }
                 }
                 Text(model.newTaskStatus).font(.caption).foregroundStyle(.secondary)
+                Text(model.taskCancelStatus).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Включить scheduler") { model.enableTaskScheduler() }
                         .disabled(model.taskSchedulerStatus == nil || model.taskSchedulerStatus?.enabled == true || model.busy)
