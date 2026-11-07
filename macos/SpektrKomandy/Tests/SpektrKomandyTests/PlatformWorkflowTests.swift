@@ -67,6 +67,14 @@ final class PlatformWorkflowTests: XCTestCase {
     {"items":[{"name":"macos-monitor","status":"completed","start_at":"2026-11-07T12:00:00Z","outcome":"OUTCOME_SUCCESS","equipment":"tinySA Ultra + AR-DV1"}],"count":1}
     """
 
+    private let cancelledTaskJSON = """
+    {"name":"macos/monitor","status":"Снято с выполнения","start_at":"2026-11-07T12:00:00Z","outcome":"принудительно завершено оператором","equipment":""}
+    """
+
+    private let createdTaskJSON = """
+    {"name":"macos-monitor","status":"В очереди на выполнение","start_at":"2026-11-07T12:00:00Z","outcome":"","equipment":"tinySA Ultra"}
+    """
+
     private let candidateJSON = """
     {"id":"c/1","session_id":"s/1","source_stream_id":"tiny/1","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"center_frequency_hz":433075000,"bandwidth_hz":null,"peak_level":-42.5,"level_unit":"dBm","score":null,"observation_ids":["sw/1"],"state":"new"}
     """
@@ -348,7 +356,7 @@ final class PlatformWorkflowTests: XCTestCase {
             XCTAssertEqual(body["equipment"] as? String, "tinySA Ultra")
             XCTAssertFalse(body.keys.contains("status"))
             XCTAssertFalse(body.keys.contains("outcome"))
-            return (self.response(request.url!), self.envelope(self.taskListJSON))
+            return (self.response(request.url!), self.envelope(self.createdTaskJSON))
         }
         let draft = try PlatformControlTaskDraft(
             name: " macos-task ", taskFile: " /tmp/scan.json ",
@@ -356,7 +364,7 @@ final class PlatformWorkflowTests: XCTestCase {
         )
         let created = try await client.createTask(draft: draft)
         XCTAssertEqual(created.name, "macos-monitor")
-        XCTAssertEqual(created.status, "completed")
+        XCTAssertEqual(created.status, "В очереди на выполнение")
         XCTAssertEqual(created.startAt, "2026-11-07T12:00:00Z")
         XCTAssertThrowsError(try PlatformControlTaskDraft(
             name: "bad", taskFile: "x", startAt: "not-a-date", durationS: 1
@@ -364,6 +372,29 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertThrowsError(try PlatformControlTaskDraft(
             name: "bad", taskFile: "x", startAt: "2026-11-07T12:00:00Z", durationS: 0
         ))
+    }
+
+    func testCancelTaskUsesEncodedNameAndSanitizedResponse() async throws {
+        let client = try client { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.url!.path,
+                "/api/v1/task-scheduler/tasks/macos%2Fmonitor/cancel"
+            )
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertTrue(body.isEmpty)
+            return (self.response(request.url!), self.envelope(self.cancelledTaskJSON))
+        }
+        let cancelled = try await client.cancelTask(name: " macos/monitor ")
+        XCTAssertEqual(cancelled.name, "macos/monitor")
+        XCTAssertEqual(cancelled.status, "Снято с выполнения")
+        XCTAssertEqual(cancelled.outcome, "принудительно завершено оператором")
+        do {
+            _ = try await client.cancelTask(name: "   ")
+            XCTFail("Пустое имя должно быть отклонено до запроса")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("name"))
+        }
     }
 
     func testSnapshotDecodesWorkflowAndIndependentPolicies() async throws {
@@ -408,6 +439,9 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(analytics.observations.squelchOpenRatio, 0.5)
     }
 
+    #if !os(Linux)
+    // URLSessionDownloadTask с кастомным URLProtocol падает в corelibs-foundation
+    // на Linux (SIGILL в FoundationNetworking); тест предназначен для macOS.
     func testArchiveExportStreamsValidNDJSONAndRejectsIncomplete() async throws {
         let header = "{\"format\":\"openradioinspector-archive-ndjson\",\"format_version\":1,\"session_id\":\"s/1\"}\n"
         let sweep = "{\"kind\":\"sweep\",\"measurement\":{\"id\":\"sw/1\",\"level_unit\":\"dBm\"}}\n"
@@ -435,7 +469,7 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertTrue(text.contains("dBm"))
         XCTAssertTrue(text.contains("s_meter_count"))
 
-        let incomplete = try client { request in
+        let incomplete = try self.client { request in
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: 200, httpVersion: nil,
                 headerFields: [
@@ -454,6 +488,7 @@ final class PlatformWorkflowTests: XCTestCase {
             XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "old")
         }
     }
+    #endif
 
     func testOptionalPolicyStreamsEncodeExplicitNull() async throws {
         let client = try client { request in
@@ -464,6 +499,7 @@ final class PlatformWorkflowTests: XCTestCase {
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else if request.url!.absoluteString.hasSuffix("/automatic-completion") {
                 XCTAssertFalse(object.keys.contains("enabled"))
+                XCTAssertTrue(object.keys.contains("receiver_stream_id"))
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else {
                 XCTAssertFalse(object.keys.contains("enabled"))
