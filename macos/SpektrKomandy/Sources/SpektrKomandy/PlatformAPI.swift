@@ -170,6 +170,36 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
     }
 }
 
+final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    var completion: ((URLResponse?, URL?, Error?) -> Void)?
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        completion?(downloadTask.response, location, nil)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        completion?(task.response, nil, error)
+    }
+}
+
 public struct PlatformInterval: Codable, Equatable {
     public let startedAt: String
     public let endedAt: String
@@ -298,6 +328,13 @@ public struct PlatformAnalyticsSummary: Decodable, Equatable {
     public let observations: PlatformObservationSummary
 }
 
+public struct PlatformArchiveExport: Equatable {
+    public let sessionId: String
+    public let fileURL: URL
+    public let sweeps: Int
+    public let observations: Int
+}
+
 public struct PlatformSnapshot: Equatable {
     public var session: PlatformSession
     public var workers: [PlatformWorker]
@@ -372,6 +409,48 @@ private struct StreamDraft: Encodable {
     let port: String?
     let capabilities: [String]
     let settings: [String: PlatformSettingValue]?
+}
+
+private func platformArchiveCount(_ response: URLResponse, name: String) throws -> Int {
+    guard let text = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: name),
+          let value = Int(text), value >= 0, String(value) == text else {
+        throw PlatformError.invalidResponse("Ответ не содержит корректный \(name)")
+    }
+    return value
+}
+
+private func platformValidateNDJSON(
+    at fileURL: URL, sessionID: String, sweeps: Int, observations: Int
+) throws {
+    let handle = try FileHandle(forReadingFrom: fileURL)
+    defer { try? handle.close() }
+    var header: [String: Any]?
+    var tail = Data()
+    var sweepCount = 0
+    var observationCount = 0
+    while true {
+        let chunk = try handle.read(upToCount: 256 * 1024) ?? Data()
+        if chunk.isEmpty { break }
+        var lines = (tail + chunk).split(separator: 0x0A)
+        tail = lines.removeLast()
+        for line in lines {
+            if header == nil {
+                header = try JSONSerialization.jsonObject(with: line, options: []) as? [String: Any]
+            }
+            let text = String(decoding: line, as: UTF8.self)
+            if text.contains(#""kind":"sweep""#) { sweepCount += 1 }
+            if text.contains(#""kind":"observation""#) { observationCount += 1 }
+        }
+    }
+    guard tail.isEmpty, let header,
+          header["format"] as? String == "openradioinspector-archive-ndjson",
+          header["format_version"] as? Int == 1,
+          header["session_id"] as? String == sessionID else {
+        throw PlatformError.invalidResponse("Некорректный NDJSON snapshot")
+    }
+    guard sweepCount == sweeps, observationCount == observations else {
+        throw PlatformError.invalidResponse("Число записей не совпадает с headers snapshot")
+    }
 }
 
 public final class PlatformClient {
@@ -528,6 +607,76 @@ public final class PlatformClient {
 
     public func analyticsSummary(sessionID: String) async throws -> PlatformAnalyticsSummary {
         try await get("/sessions/\(Self.segment(sessionID))/analytics/summary")
+    }
+
+    public func exportArchive(sessionID: String, destination: URL) async throws -> PlatformArchiveExport {
+        let endpoint = try baseURL.endpoint(
+            path: "/sessions/\(Self.segment(sessionID))/archive/export.ndjson"
+        )
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30
+        request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-export-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporary, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let delegate = PlatformDownloadDelegate()
+        let session = URLSession(
+            configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+        )
+        defer { session.finishTasksAndInvalidate() }
+        let response: URLResponse?
+        let location: URL?
+        let failure: Error?
+        do {
+            (response, location, failure) = try await withCheckedThrowingContinuation { continuation in
+                delegate.completion = { response, location, error in
+                    continuation.resume(returning: (response, location, error))
+                }
+                session.downloadTask(with: request).resume()
+            }
+        } catch {
+            throw PlatformError.connection(error.localizedDescription)
+        }
+        if let failure { throw PlatformError.connection(failure.localizedDescription) }
+        guard let response, let location else {
+            throw PlatformError.connection("Ответ сервера не получен")
+        }
+        if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
+           !platformSameOrigin(original, final) {
+            throw PlatformError.connection("Перенаправление на другой origin отклонено")
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else {
+            throw PlatformError.http(status: status, code: "http_error", message: "HTTP \(status)")
+        }
+        let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        guard contentType.hasPrefix("application/x-ndjson") else {
+            throw PlatformError.invalidResponse("Сервер вернул не NDJSON")
+        }
+        let sweeps = try platformArchiveCount(response, name: "X-Archive-Sweeps")
+        let observations = try platformArchiveCount(response, name: "X-Archive-Observations")
+        let fileManager = FileManager.default
+        do {
+            try platformValidateNDJSON(
+                at: location, sessionID: sessionID,
+                sweeps: sweeps, observations: observations
+            )
+            if fileManager.fileExists(atPath: destination.path) {
+                _ = try fileManager.replaceItemAt(destination, withItemAt: location)
+            } else {
+                try fileManager.moveItem(at: location, to: destination)
+            }
+        } catch {
+            throw error
+        }
+        return PlatformArchiveExport(
+            sessionId: sessionID, fileURL: destination,
+            sweeps: sweeps, observations: observations
+        )
     }
 
     public func snapshot(sessionID: String) async throws -> PlatformSnapshot {
