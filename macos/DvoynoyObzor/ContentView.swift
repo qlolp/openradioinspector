@@ -122,6 +122,14 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskSchedulerError: String?
     @Published var taskSchedulerTasks: [PlatformControlTask] = []
     @Published var taskSchedulerTasksError: String?
+    @Published var newTaskName = ""
+    @Published var newTaskFile = ""
+    @Published var newTaskStartAt = ""
+    @Published var newTaskDuration = "60"
+    @Published var newTaskEquipment = ""
+    @Published var newTaskStatus = "Новая ControlTask ещё не создана"
+    @Published var showTaskCreate = false
+    @Published var taskCreatePending = false
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var archiveAnalyticsPending = false
@@ -485,27 +493,33 @@ final class RemoteDualModel: ObservableObject {
         configureTaskScheduler(enabled: false)
     }
 
-    func refreshArchiveAnalytics() {
-        guard let client, !selectedSessionID.isEmpty, !archiveAnalyticsPending else { return }
-        let sessionID = selectedSessionID
+    func createTask() {
+        guard let client, !taskCreatePending else { return }
         let requestGeneration = generation
-        archiveAnalyticsPending = true
-        archiveAnalyticsError = nil
+        taskCreatePending = true
+        newTaskStatus = "ControlTask создаётся через API…"
         Task {
             do {
-                let summary = try await client.analyticsSummary(sessionID: sessionID)
-                guard requestGeneration == generation, sessionID == selectedSessionID,
-                      self.client === client else { return }
-                archiveAnalytics = summary
+                let duration = try numberField(newTaskDuration, "duration_s", 0.001...86_400.0)
+                let draft = try PlatformControlTaskDraft(
+                    name: newTaskName, taskFile: newTaskFile, startAt: newTaskStartAt,
+                    durationS: duration, equipment: newTaskEquipment
+                )
+                let created = try await client.createTask(draft: draft)
+                guard requestGeneration == generation, self.client === client else { return }
+                newTaskStatus = "Создано: \(created.name) · \(created.status) · \(created.startAt ?? "время не задано")"
+                showTaskCreate = false
+                newTaskName = ""
+                newTaskFile = ""
+                newTaskStartAt = ""
+                newTaskEquipment = ""
+                await refreshTaskScheduler(client)
             } catch {
-                guard requestGeneration == generation, sessionID == selectedSessionID,
-                      self.client === client else { return }
-                archiveAnalytics = nil
-                archiveAnalyticsError = describeSession(error)
+                guard requestGeneration == generation, self.client === client else { return }
+                newTaskStatus = describeSession(error)
             }
-            guard requestGeneration == generation, sessionID == selectedSessionID,
-                  self.client === client else { return }
-            archiveAnalyticsPending = false
+            guard requestGeneration == generation, self.client === client else { return }
+            taskCreatePending = false
         }
     }
 
@@ -695,6 +709,13 @@ final class RemoteDualModel: ObservableObject {
         taskSchedulerError = nil
         taskSchedulerTasks = []
         taskSchedulerTasksError = nil
+        newTaskName = ""
+        newTaskFile = ""
+        newTaskStartAt = ""
+        newTaskEquipment = ""
+        newTaskStatus = "Новая ControlTask ещё не создана"
+        showTaskCreate = false
+        taskCreatePending = false
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         archiveAnalyticsPending = false
