@@ -45,6 +45,7 @@ def _release_book_lock(handle: Any) -> None:
     finally:
         handle.close()
 
+from .contracts import parse_time, to_primitive
 from .tasks import (
     OUTCOME_APPLICATION_CRASH,
     OUTCOME_FILE_NOT_FOUND,
@@ -127,6 +128,19 @@ class TaskScheduler:
             self._dirty = True
             self._save_locked()
             return task
+
+    def list_tasks(self) -> list[dict[str, Any]]:
+        """Возвращает задачи книги без изменения lifecycle или файла."""
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
+            items = []
+            for task in self.book.tasks:
+                item = task.as_dict()
+                if item["start_at"] is not None:
+                    item["start_at"] = to_primitive(parse_time(item["start_at"]))
+                items.append(item)
+            return items
 
     def configure(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
