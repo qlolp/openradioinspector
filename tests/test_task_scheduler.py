@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import stat
 import tempfile
 import threading
 import unittest
@@ -205,6 +207,66 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertEqual(status["tasks"]["running"], 1)
         self.assertEqual(self.book_task()["status"], STATUS_RUNNING)
         self.assertFalse(self.book_task()["outcome"])
+
+    def test_concurrent_enable_cannot_reopen_closed_scheduler(self) -> None:
+        first = self.scheduler()
+        first.enqueue(self.task())
+        entered = threading.Event()
+        proceed = threading.Event()
+        real_lock = first._lock
+
+        class GateLock:
+            def __init__(self) -> None:
+                self.first = True
+
+            def __enter__(self):
+                if self.first:
+                    self.first = False
+                    entered.set()
+                    if not proceed.wait(2):
+                        raise TimeoutError("configure gate timeout")
+                return real_lock.__enter__()
+
+            def __exit__(self, *args):
+                return real_lock.__exit__(*args)
+
+        first._lock = GateLock()
+        errors = []
+
+        def enable() -> None:
+            try:
+                first.configure(True)
+            except Exception as exc:  # noqa: BLE001 - проверка типа ошибки ниже
+                errors.append(exc)
+
+        thread = threading.Thread(target=enable)
+        thread.start()
+        self.assertTrue(entered.wait(2))
+        first.close()
+        second = self.scheduler()
+        second.enqueue(self.task("new-owner"))
+        proceed.set()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], RuntimeError)
+        self.assertFalse(first.status()["enabled"])
+        self.assertIsNone(first.run_once(BASE))
+        tasks = json.loads(self.path.read_text())["tasks"]
+        self.assertEqual({item["name"] for item in tasks}, {"monitor", "new-owner"})
+
+    @unittest.skipIf(os.name == "nt", "POSIX permission bits")
+    def test_atomic_save_preserves_permissions_and_defaults_to_owner_only(self) -> None:
+        book = TaskBook(self.path)
+        previous_umask = os.umask(0o022)
+        try:
+            book.save()
+            self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+            os.chmod(self.path, 0o600)
+            book.save()
+        finally:
+            os.umask(previous_umask)
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
     def test_cli_requires_enable_and_supports_once(self) -> None:
         with redirect_stderr(io.StringIO()) as errors:
