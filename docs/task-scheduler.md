@@ -27,6 +27,8 @@ TaskBook сохраняется атомарным replace. Новый файл 
 
 `GET /api/v1/task-scheduler/tasks` возвращает `items` и `count` в порядке TaskBook. Это read-only снимок под scheduler lock: он не перечитывает и не изменяет файл, не запускает worker и не создаёт `SessionEvent`. Значение `start_at` публикуется в UTC с суффиксом `Z`; пустые optional paths сохраняются без попытки файлового доступа. Локальные пути `task_file` и `panorama_file` в ответ не включаются; организационные поля, equipment, status, outcome и остальные публичные параметры сохраняются.
 
+`POST /api/v1/task-scheduler/tasks` создаёт queued-задачу через `create_task()` и возвращает её sanitized представление с HTTP 201. Обязательны непустое `name`, ровно один `task_file` или `panorama_file`, ISO 8601 `start_at` и положительное конечное `duration_s`. Допускаются только организационные `purpose`, `work_type`, `basis`, `operator`, `place`, `equipment`, `created_by`. Поля `status`, `outcome`, `completed_cycles` и `profiles` не принимаются. Дубликат имени или любая ошибка валидации возвращает HTTP 400 без изменения файла и событий. Capability: `control_task_scheduler_task_create=true`.
+
 ## Raspberry Pi WebUI
 
 Панель «Планировщик заданий» на `/platform` показывает фактические `enabled`, `scheduler_alive`, runtime и счётчики total/running/completed независимо от выбранного сеанса. Список ниже этих счётчиков показывает `name`, `status`, `start_at` и `outcome` каждой задачи из `GET /task-scheduler/tasks`, не смешивая их с выбранным сеансом. Отдельные кнопки отправляют только `{"enabled":true}` или `{"enabled":false}`; сохранение и включение не объединены в одну команду. Ошибка запроса отображается в панели и не блокирует live-измерения или остальные политики.

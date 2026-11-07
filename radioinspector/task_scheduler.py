@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import threading
@@ -129,6 +130,64 @@ class TaskScheduler:
             self._save_locked()
             return task
 
+    @staticmethod
+    def _public_task(task: ControlTask) -> dict[str, Any]:
+        item = task.as_dict()
+        item.pop("task_file", None)
+        item.pop("panorama_file", None)
+        if item["start_at"] is not None:
+            item["start_at"] = to_primitive(parse_time(item["start_at"]))
+        return item
+
+    def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Создаёт queued-задачу атомарно и возвращает только публичные поля."""
+        if not isinstance(payload, dict):
+            raise ValueError("Задача должна быть JSON-объектом")
+        allowed = {
+            "name", "task_file", "panorama_file", "start_at", "duration_s",
+            "purpose", "work_type", "basis", "operator", "place", "equipment", "created_by",
+        }
+        unknown = set(payload) - allowed
+        if unknown:
+            raise ValueError(f"Неизвестные поля задачи: {', '.join(sorted(unknown))}")
+        name = payload.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("name обязано быть непустой строкой")
+        start_at = payload.get("start_at")
+        if not isinstance(start_at, str):
+            raise ValueError("start_at обязано быть ISO 8601 временем")
+        duration_s = payload.get("duration_s")
+        if (
+            isinstance(duration_s, bool)
+            or not isinstance(duration_s, (int, float))
+            or not math.isfinite(duration_s)
+            or duration_s <= 0
+        ):
+            raise ValueError("duration_s обязано быть положительным конечным числом")
+        task_file = payload.get("task_file")
+        panorama_file = payload.get("panorama_file")
+        if bool(task_file) == bool(panorama_file):
+            raise ValueError("Укажите ровно один task_file или panorama_file")
+        for value in (task_file, panorama_file):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError("Путь входного файла должен быть непустой строкой")
+        optional = {}
+        for key in ("purpose", "work_type", "basis", "operator", "place", "equipment", "created_by"):
+            value = payload.get(key, "")
+            if not isinstance(value, str):
+                raise ValueError(f"{key} должно быть строкой")
+            optional[key] = value
+        task = ControlTask(
+            name=name.strip(),
+            task_file=task_file,
+            panorama_file=panorama_file,
+            start_at=parse_time(start_at),
+            duration_s=float(duration_s),
+            **optional,
+        )
+        self.enqueue(task)
+        return self._public_task(task)
+
     def list_tasks(self) -> list[dict[str, Any]]:
         """Возвращает публичные поля задач без lifecycle, файла и локальных путей."""
         with self._lock:
@@ -136,12 +195,7 @@ class TaskScheduler:
                 raise RuntimeError("Scheduler уже закрыт")
             items = []
             for task in self.book.tasks:
-                item = task.as_dict()
-                item.pop("task_file", None)
-                item.pop("panorama_file", None)
-                if item["start_at"] is not None:
-                    item["start_at"] = to_primitive(parse_time(item["start_at"]))
-                items.append(item)
+                items.append(self._public_task(task))
             return items
 
     def configure(self, enabled: bool) -> dict[str, Any]:
