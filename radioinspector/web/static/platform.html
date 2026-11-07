@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/platform.css">
   <script src="/static/platform.js" defer></script>
   <script src="/static/completion.js" defer></script>
+  <script src="/static/scheduler.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">К рабочей области</a>
@@ -59,6 +60,29 @@
           <button id="workers-start" type="button" class="button" disabled>Запустить приборы</button>
           <button id="workers-stop" type="button" class="button" disabled>Остановить приборы</button>
         </div>
+      </section>
+
+      <section class="panel scheduler-panel" aria-labelledby="task-scheduler-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">CONTROL TASKS</span>
+            <h2 id="task-scheduler-heading">Планировщик заданий</h2>
+          </div>
+        </div>
+        <details id="task-scheduler-editor" class="editor automatic-editor">
+          <summary>Runtime-only · по умолчанию выключен</summary>
+          <p id="task-scheduler-status" class="automatic-runtime" role="status" aria-live="polite">Состояние scheduler запрашивается у ядра…</p>
+          <p class="unit-lock">Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Браузер не создаёт задания, измерения и не открывает приборные порты.</p>
+          <dl class="measurement-strip">
+            <div><dt>Всего</dt><dd id="task-scheduler-total">—</dd></div>
+            <div><dt>В работе</dt><dd id="task-scheduler-running">—</dd></div>
+            <div><dt>Готово</dt><dd id="task-scheduler-completed">—</dd></div>
+          </dl>
+          <div class="form-actions">
+            <button id="task-scheduler-enable" type="button" class="button primary" disabled>Включить scheduler</button>
+            <button id="task-scheduler-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
+          </div>
+        </details>
       </section>
 
       <section class="panel devices-panel" aria-labelledby="devices-heading">
