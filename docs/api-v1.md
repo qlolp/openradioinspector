@@ -22,6 +22,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
 | `GET`, `POST` | `/api/v1/task-scheduler` | Глобальный runtime-only TaskScheduler, статус и opt-in |
 | `GET`, `POST` | `/api/v1/task-scheduler/tasks` | Read-only список и создание ControlTask в текущей TaskBook |
+| `POST` | `/api/v1/task-scheduler/tasks/{name}/cancel` | Отмена queued-задачи без остановки приборов |
 | `POST` | `/api/v1/sessions` | Создание сеанса с независимыми потоками |
 | `GET` | `/api/v1/sessions` | Список сеансов |
 | `GET` | `/api/v1/sessions/{id}` | Один сеанс |
@@ -393,13 +394,15 @@ SQLite сначала копируется во временный файл на
 
 `POST /api/v1/task-scheduler/tasks` создаёт queued-задачу и возвращает HTTP 201 с её sanitized представлением. Обязательны `name`, ровно один `task_file` или `panorama_file`, `start_at` и положительное `duration_s`. Дополнительные поля отклоняются; дубликат имени и ошибка валидации не изменяют файл и не создают `SessionEvent`.
 
+`POST /api/v1/task-scheduler/tasks/{name}/cancel` переводит только queued-задачу в aborted с `OUTCOME_STOPPED_BY_OPERATOR`. Повторная отмена и отмена running возвращают HTTP 400, неизвестное имя — HTTP 404 `task_not_found`.
+
 ```bash
 curl -sS -X POST http://127.0.0.1:8770/api/v1/task-scheduler \
   -H 'Content-Type: application/json' \
   -d '{"enabled":true}'
 ```
 
-Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true`, `control_task_scheduler_policy_persistent=false`, `control_task_scheduler_task_list=true` и `control_task_scheduler_task_create=true`. Клиенты Raspberry Pi, Windows и macOS показывают фактические runtime, счётчики и read-only список `ControlTask` независимо от выбранного сеанса. Запросы status/list имеют раздельную изоляцию ошибок. Клиенты не создают и не редактируют `ControlTask`, не читают путь к TaskBook и не подтверждают аппаратный результат. Изменения scheduler не создают `SessionEvent`; книга имеет собственный атомарный JSON. Подробности в [`task-scheduler.md`](task-scheduler.md).
+Capabilities сообщают `control_task_scheduler=true`, `control_task_scheduler_opt_in_required=true`, `control_task_scheduler_policy_persistent=false`, `control_task_scheduler_task_list=true`, `control_task_scheduler_task_create=true` и `control_task_scheduler_task_cancel=true`. Клиенты Raspberry Pi, Windows и macOS показывают фактические runtime, счётчики и read-only список `ControlTask` независимо от выбранного сеанса. Запросы status/list имеют раздельную изоляцию ошибок. Клиенты не создают и не редактируют `ControlTask`, не читают путь к TaskBook и не подтверждают аппаратный результат. Изменения scheduler не создают `SessionEvent`; книга имеет собственный атомарный JSON. Подробности в [`task-scheduler.md`](task-scheduler.md).
 
 ## Кандидаты и режимы handoff
 
