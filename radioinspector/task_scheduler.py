@@ -79,7 +79,7 @@ class TaskScheduler:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._enabled = False
-        self._closed = False
+        self._closed = True
         self._dirty = False
         self._runtime: dict[str, Any] = {
             "last_result": "idle",
@@ -96,6 +96,7 @@ class TaskScheduler:
         except Exception:
             _release_book_lock(self._book_lock)
             raise
+        self._closed = False
 
     def _save_locked(self) -> None:
         if self._dirty:
@@ -117,6 +118,8 @@ class TaskScheduler:
     def enqueue(self, task: ControlTask) -> ControlTask:
         """Добавляет задачу оператора без автоматического включения scheduler."""
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
             if self.book.get(task.name) is not None:
                 raise ValueError(f"Задание уже существует: {task.name}")
             task.enqueue()
@@ -128,24 +131,38 @@ class TaskScheduler:
     def configure(self, enabled: bool) -> dict[str, Any]:
         if not isinstance(enabled, bool):
             raise TypeError("enabled должен быть JSON boolean")
-        if self._closed:
-            raise RuntimeError("Scheduler уже закрыт")
-        with self._lock:
-            self._enabled = enabled
-            self._runtime["last_result"] = "enabled" if enabled else "disabled"
-            if enabled:
-                self._stop.clear()
-                if self._thread is None or not self._thread.is_alive():
-                    self._thread = threading.Thread(
-                        target=self._background,
-                        name="control-task-scheduler",
-                        daemon=True,
+        if enabled:
+            for _attempt in range(2):
+                with self._lock:
+                    if self._closed:
+                        raise RuntimeError("Scheduler уже закрыт")
+                    thread = self._thread
+                    stopping = (
+                        self._stop.is_set()
+                        and thread is not None
+                        and thread.is_alive()
                     )
-                    self._thread.start()
-            else:
-                self._stop.set()
-        if not enabled:
-            self._join()
+                    if not stopping:
+                        self._enabled = True
+                        self._runtime["last_result"] = "enabled"
+                        self._stop.clear()
+                        if thread is None or not thread.is_alive():
+                            self._thread = threading.Thread(
+                                target=self._background,
+                                name="control-task-scheduler",
+                                daemon=True,
+                            )
+                            self._thread.start()
+                        return self.status()
+                self._join()
+            raise RuntimeError("Прежний thread scheduler не остановился")
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Scheduler уже закрыт")
+            self._enabled = False
+            self._runtime["last_result"] = "disabled"
+            self._stop.set()
+        self._join()
         return self.status()
 
     def _join(self) -> None:
@@ -166,7 +183,7 @@ class TaskScheduler:
     def run_once(self, moment: Optional[datetime] = None) -> Optional[dict[str, Any]]:
         """Выполняет один проход без ожидания и возвращает фактический status."""
         with self._lock:
-            if not self._enabled:
+            if self._closed or not self._enabled:
                 return None
             now = moment or self._clock()
             if now.tzinfo is None:
@@ -208,7 +225,7 @@ class TaskScheduler:
     @staticmethod
     def _require_input_files(task: ControlTask) -> None:
         for value in (task.task_file, task.panorama_file):
-            if value is not None and not Path(value).is_file():
+            if value and not Path(value).is_file():
                 raise FileNotFoundError(OUTCOME_FILE_NOT_FOUND)
 
     def status(self) -> dict[str, Any]:
@@ -231,12 +248,21 @@ class TaskScheduler:
                 },
             }
 
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def close(self) -> None:
-        """Останавливает thread и явно фиксирует operator abort активных задач."""
-        if self._closed:
-            return
-        self.configure(False)
-        self._closed = True
+        """Атомарно закрывает вход, останавливает thread и фиксирует abort."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._enabled = False
+            self._stop.set()
+        self._join()
         changed = False
         try:
             with self._lock:
