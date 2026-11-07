@@ -112,7 +112,7 @@ class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendab
     }
 }
 
-final class PlatformResponseDelegate: PlatformRedirectGuard, @unchecked Sendable {
+final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private let maximumBytes: Int
     private var response: URLResponse?
     private var body = Data()
@@ -121,6 +121,16 @@ final class PlatformResponseDelegate: PlatformRedirectGuard, @unchecked Sendable
 
     init(maximumBytes: Int) {
         self.maximumBytes = maximumBytes
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
     }
 
     private func finish(_ result: Result<(Data, URLResponse), Error>) {
@@ -133,10 +143,10 @@ final class PlatformResponseDelegate: PlatformRedirectGuard, @unchecked Sendable
         _ session: URLSession,
         dataTask: URLSessionDataTask,
         didReceive response: URLResponse,
-        completionHandler: @escaping () -> Void
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
         self.response = response
-        completionHandler()
+        completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
