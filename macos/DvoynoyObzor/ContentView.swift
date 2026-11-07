@@ -120,6 +120,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var automaticCompletionStatus: PlatformAutomaticStatus?
     @Published var taskSchedulerStatus: PlatformTaskSchedulerStatus?
     @Published var taskSchedulerError: String?
+    @Published var taskSchedulerTasks: [PlatformControlTask] = []
+    @Published var taskSchedulerTasksError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var workflowErrors: [String] = []
@@ -149,6 +151,7 @@ final class RemoteDualModel: ObservableObject {
     private var detectionFormInitialized = false
     private var handoffFormInitialized = false
     private var completionFormInitialized = false
+    private var taskSchedulerCommandRevision = 0
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -283,6 +286,7 @@ final class RemoteDualModel: ObservableObject {
         }
         let id = selectedSessionID
         let requestGeneration = generation
+        let schedulerRevision = taskSchedulerCommandRevision
         do {
             let snapshot = try await client.snapshot(sessionID: id)
             guard requestGeneration == generation, id == selectedSessionID else { return }
@@ -292,7 +296,7 @@ final class RemoteDualModel: ObservableObject {
             }
             workers = snapshot.workers
             applyMeasurements(snapshot)
-            applyWorkflow(snapshot)
+            applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
             errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
@@ -437,7 +441,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticDetection() {
-        configureAutomaticDetection(enabled: automaticDetectionStatus?.policy.enabled ?? false)
+        configureAutomaticDetection(enabled: nil)
     }
 
     func enableAutomaticDetection() {
@@ -449,7 +453,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func saveAutomaticHandoff() {
-        configureAutomaticHandoff(enabled: automaticHandoffStatus?.policy.enabled ?? false)
+        configureAutomaticHandoff(enabled: nil)
     }
 
     func enableAutomaticHandoff() {
@@ -483,6 +487,7 @@ final class RemoteDualModel: ObservableObject {
     private func configureTaskScheduler(enabled: Bool) {
         guard let client else { return }
         let requestGeneration = generation
+        taskSchedulerCommandRevision += 1
         busy = true
         Task {
             do {
@@ -501,14 +506,28 @@ final class RemoteDualModel: ObservableObject {
 
     private func refreshTaskScheduler(_ client: PlatformClient) async {
         let requestGeneration = generation
+        let schedulerRevision = taskSchedulerCommandRevision
         do {
             let status = try await client.taskScheduler()
-            guard requestGeneration == generation, self.client === client else { return }
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
             taskSchedulerStatus = status
             taskSchedulerError = nil
         } catch {
-            guard requestGeneration == generation, self.client === client else { return }
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
             taskSchedulerError = describeSession(error)
+        }
+        do {
+            let tasks = try await client.taskSchedulerTasks()
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
+            taskSchedulerTasks = tasks
+            taskSchedulerTasksError = nil
+        } catch {
+            guard requestGeneration == generation, self.client === client,
+                  schedulerRevision == taskSchedulerCommandRevision else { return }
+            taskSchedulerTasksError = describeSession(error)
         }
     }
 
@@ -527,7 +546,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticDetection(enabled: Bool) {
+    private func configureAutomaticDetection(enabled: Bool?) {
         do {
             let draft = try PlatformDetectionPolicyDraft(
                 enabled: enabled,
@@ -544,7 +563,7 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func configureAutomaticHandoff(enabled: Bool) {
+    private func configureAutomaticHandoff(enabled: Bool?) {
         do {
             let draft = try PlatformHandoffPolicyDraft(
                 enabled: enabled,
@@ -649,6 +668,8 @@ final class RemoteDualModel: ObservableObject {
         automaticCompletionStatus = nil
         taskSchedulerStatus = nil
         taskSchedulerError = nil
+        taskSchedulerTasks = []
+        taskSchedulerTasksError = nil
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         workflowErrors = []
@@ -657,15 +678,21 @@ final class RemoteDualModel: ObservableObject {
         completionFormInitialized = false
     }
 
-    private func applyWorkflow(_ snapshot: PlatformSnapshot) {
+    private func applyWorkflow(
+        _ snapshot: PlatformSnapshot, schedulerRevision: Int
+    ) {
         candidates = snapshot.candidates
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
         automaticDetectionStatus = snapshot.automaticDetection
         automaticCompletionStatus = snapshot.automaticCompletion
-        taskSchedulerStatus = snapshot.taskScheduler
-        taskSchedulerError = snapshot.taskSchedulerError
+        if schedulerRevision == taskSchedulerCommandRevision {
+            taskSchedulerStatus = snapshot.taskScheduler
+            taskSchedulerError = snapshot.taskSchedulerError
+            taskSchedulerTasks = snapshot.taskSchedulerTasks
+            taskSchedulerTasksError = snapshot.taskSchedulerTasksError
+        }
         archiveAnalytics = snapshot.analytics
         archiveAnalyticsError = snapshot.analyticsError
         workflowErrors = snapshot.workflowErrors

@@ -63,6 +63,10 @@ final class PlatformWorkflowTests: XCTestCase {
     {"enabled":true,"scheduler_alive":true,"policy_persistent":false,"restart_requires_opt_in":true,"runtime":{"last_result":"completed","last_error":null,"last_task_name":"task/1","started_tasks":1,"completed_tasks":1,"aborted_tasks":0},"tasks":{"total":1,"running":0,"completed":1}}
     """
 
+    private let taskListJSON = """
+    {"items":[{"name":"macos-monitor","status":"completed","start_at":"2026-11-07T12:00:00Z","outcome":"OUTCOME_SUCCESS","equipment":"tinySA Ultra + AR-DV1"}],"count":1}
+    """
+
     private let candidateJSON = """
     {"id":"c/1","session_id":"s/1","source_stream_id":"tiny/1","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"center_frequency_hz":433075000,"bandwidth_hz":null,"peak_level":-42.5,"level_unit":"dBm","score":null,"observation_ids":["sw/1"],"state":"new"}
     """
@@ -238,8 +242,19 @@ final class PlatformWorkflowTests: XCTestCase {
         {"id":"s/1","name":"Обзор","state":"running","streams":[{"id":"tiny/1","device":"tinySA","role":"spectrum_analyzer","level_unit":"dBm","state":"connected","capabilities":["sweep"]},{"id":"ar/1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}]}
         """
         var schedulerAvailable = true
+        var tasksAvailable = true
         let client = try client { request in
             let path = request.url!.path
+            if path == "/api/v1/task-scheduler/tasks" {
+                if !tasksAvailable {
+                    let response = HTTPURLResponse(
+                        url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil
+                    )!
+                    let data = Data("{\"error\":{\"code\":\"not_found\",\"message\":\"old task list\"}}".utf8)
+                    return (response, data)
+                }
+                return (self.response(request.url!), self.envelope(self.taskListJSON))
+            }
             if path == "/api/v1/task-scheduler" {
                 if !schedulerAvailable {
                     let response = HTTPURLResponse(
@@ -282,12 +297,43 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertEqual(snapshot.taskScheduler?.enabled, true)
         XCTAssertEqual(snapshot.taskScheduler?.tasks.completed, 1)
         XCTAssertNil(snapshot.taskSchedulerError)
+        XCTAssertEqual(snapshot.taskSchedulerTasks.count, 1)
+        XCTAssertEqual(snapshot.taskSchedulerTasks[0].name, "macos-monitor")
+        XCTAssertEqual(snapshot.taskSchedulerTasks[0].startAt, "2026-11-07T12:00:00Z")
+        XCTAssertEqual(snapshot.taskSchedulerTasks[0].outcome, "OUTCOME_SUCCESS")
+        XCTAssertEqual(snapshot.taskSchedulerTasks[0].equipment, "tinySA Ultra + AR-DV1")
+        XCTAssertNil(snapshot.taskSchedulerTasksError)
         schedulerAvailable = false
         let isolated = try await client.snapshot(sessionID: "s/1")
         XCTAssertNil(isolated.taskScheduler)
         XCTAssertEqual(isolated.taskSchedulerError, "old server")
+        XCTAssertEqual(isolated.taskSchedulerTasks.count, 1)
+        XCTAssertNil(isolated.taskSchedulerTasksError)
         XCTAssertEqual(isolated.session.id, "s/1")
         XCTAssertEqual(isolated.workflowErrors, [])
+        schedulerAvailable = true
+        tasksAvailable = false
+        let listIsolated = try await client.snapshot(sessionID: "s/1")
+        XCTAssertEqual(listIsolated.taskScheduler?.enabled, true)
+        XCTAssertNil(listIsolated.taskSchedulerError)
+        XCTAssertEqual(listIsolated.taskSchedulerTasks, [])
+        XCTAssertEqual(listIsolated.taskSchedulerTasksError, "old task list")
+    }
+
+    func testTaskListRejectsInconsistentCount() async throws {
+        let client = try client { request in
+            XCTAssertEqual(request.url!.path, "/api/v1/task-scheduler/tasks")
+            return (
+                self.response(request.url!),
+                self.envelope("{\"items\":[],\"count\":1}")
+            )
+        }
+        do {
+            _ = try await client.taskSchedulerTasks()
+            XCTFail("Несогласованный count должен быть отклонён")
+        } catch PlatformError.invalidResponse(let message) {
+            XCTAssertTrue(message.contains("count"))
+        }
     }
 
     func testSnapshotDecodesWorkflowAndIndependentPolicies() async throws {
@@ -330,12 +376,14 @@ final class PlatformWorkflowTests: XCTestCase {
         let client = try client { request in
             let object = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
             if request.url!.absoluteString.hasSuffix("/automatic-handoff") {
+                XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object.keys.contains("receiver_stream_id"))
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else if request.url!.absoluteString.hasSuffix("/automatic-completion") {
                 XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object["receiver_stream_id"] is NSNull)
             } else {
+                XCTAssertFalse(object.keys.contains("enabled"))
                 XCTAssertTrue(object.keys.contains("stream_id"))
                 XCTAssertTrue(object["stream_id"] is NSNull)
             }
@@ -344,14 +392,14 @@ final class PlatformWorkflowTests: XCTestCase {
         _ = try await client.configureAutomaticHandoff(
             sessionID: "s/1",
             draft: PlatformHandoffPolicyDraft(
-                enabled: false, intervalSeconds: 1, minimumPriority: 0,
+                enabled: nil, intervalSeconds: 1, minimumPriority: 0,
                 receiverStreamId: nil, maxConsecutiveFailures: 3, retryDelaySeconds: 30
             )
         )
         _ = try await client.configureAutomaticDetection(
             sessionID: "s/1",
             draft: PlatformDetectionPolicyDraft(
-                enabled: false, intervalSeconds: 1, streamId: nil, thresholdDbm: -70,
+                enabled: nil, intervalSeconds: 1, streamId: nil, thresholdDbm: -70,
                 dedupBandwidthHz: 100000, cooldownSeconds: 60, maxCandidatesPerSweep: 10
             )
         )
