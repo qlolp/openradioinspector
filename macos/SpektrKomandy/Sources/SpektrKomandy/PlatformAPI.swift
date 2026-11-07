@@ -85,7 +85,13 @@ public struct PlatformBaseURL: Equatable {
 
 private func platformLoopbackHost(_ host: String) -> Bool {
     let normalized = host.lowercased()
-    return normalized == "localhost" || normalized == "::1" || normalized.hasPrefix("127.")
+    if normalized == "localhost" || normalized == "::1" { return true }
+    let octets = normalized.split(separator: ".", omittingEmptySubsequences: false)
+    guard octets.count == 4, octets[0] == "127" else { return false }
+    return octets.allSatisfy { part in
+        guard let value = Int(part), (0...255).contains(value) else { return false }
+        return true
+    }
 }
 
 private func platformSameOrigin(_ first: URL, _ second: URL) -> Bool {
@@ -94,7 +100,7 @@ private func platformSameOrigin(_ first: URL, _ second: URL) -> Bool {
         && first.port == second.port
 }
 
-final class PlatformRedirectGuard: NSObject, URLSessionDelegate {
+class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -103,6 +109,64 @@ final class PlatformRedirectGuard: NSObject, URLSessionDelegate {
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
         completionHandler(nil)
+    }
+}
+
+final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let maximumBytes: Int
+    private var response: URLResponse?
+    private var body = Data()
+    private var finished = false
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)?
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+
+    private func finish(_ result: Result<(Data, URLResponse), Error>) {
+        guard !finished else { return }
+        finished = true
+        completion?(result)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        self.response = response
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        body.append(data)
+        if body.count > maximumBytes {
+            finish(.failure(PlatformError.responseTooLarge))
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error {
+            finish(.failure(PlatformError.connection(error.localizedDescription)))
+            return
+        }
+        guard let response else {
+            finish(.failure(PlatformError.connection("Ответ сервера не получен")))
+            return
+        }
+        finish(.success((body, response)))
     }
 }
 
@@ -165,6 +229,7 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
         levels = try container.decode([Double].self, forKey: .levels)
         levelUnit = try container.decode(String.self, forKey: .levelUnit)
         guard !frequenciesHz.isEmpty, frequenciesHz.count == levels.count,
+              frequenciesHz.allSatisfy({ $0 >= 0 }),
               levels.allSatisfy({ $0.isFinite }),
               zip(frequenciesHz, frequenciesHz.dropFirst()).allSatisfy({ $0 <= $1 }) else {
             throw DecodingError.dataCorruptedError(
@@ -246,6 +311,8 @@ public struct PlatformSnapshot: Equatable {
     public var automaticCompletion: PlatformAutomaticStatus?
     public var taskScheduler: PlatformTaskSchedulerStatus?
     public var taskSchedulerError: String?
+    public var taskSchedulerTasks: [PlatformControlTask] = []
+    public var taskSchedulerTasksError: String?
     public var analytics: PlatformAnalyticsSummary?
     public var analyticsError: String?
     public var workflowErrors: [String] = []
@@ -310,18 +377,21 @@ private struct StreamDraft: Encodable {
 public final class PlatformClient {
     public let baseURL: PlatformBaseURL
     private let session: URLSession
+    private let usesInjectedSession: Bool
     private let maximumResponseBytes = 2_000_000
 
     public init(baseURL: String, session: URLSession? = nil) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
         if let session {
             self.session = session
+            self.usesInjectedSession = true
         } else {
             self.session = URLSession(
                 configuration: .ephemeral,
                 delegate: PlatformRedirectGuard(),
                 delegateQueue: nil
             )
+            self.usesInjectedSession = false
         }
     }
 
@@ -465,7 +535,7 @@ public final class PlatformClient {
         async let workersRequest: [PlatformWorker] = get(
             "/sessions/\(Self.segment(sessionID))/workers"
         )
-        async let sweepsRequest: [PlatformSweep] = measurements(
+        async let sweepsRequest: [PlatformSweep] = measurementsWithResponseFallback(
             kind: "sweeps", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isDbmAnalyzer })?.id
         )
@@ -525,6 +595,15 @@ public final class PlatformClient {
             scheduler = nil
             schedulerError = error.localizedDescription
         }
+        let schedulerTasks: [PlatformControlTask]
+        let schedulerTasksError: String?
+        do {
+            schedulerTasks = try await taskSchedulerTasks()
+            schedulerTasksError = nil
+        } catch {
+            schedulerTasks = []
+            schedulerTasksError = error.localizedDescription
+        }
         let analytics: PlatformAnalyticsSummary?
         let analyticsError: String?
         do {
@@ -542,18 +621,35 @@ public final class PlatformClient {
             automaticHandoff: handoff, automaticDetection: detection,
             automaticCompletion: completion,
             taskScheduler: scheduler, taskSchedulerError: schedulerError,
+            taskSchedulerTasks: schedulerTasks, taskSchedulerTasksError: schedulerTasksError,
             analytics: analytics, analyticsError: analyticsError,
             workflowErrors: workflowErrors
         )
     }
 
-    private func measurements<Value: Decodable>(
+    private func measurementsWithResponseFallback<Value: Decodable>(
         kind: String, sessionID: String, streamID: String?
+    ) async throws -> [Value] {
+        var limit = 40
+        while true {
+            do {
+                return try await measurements(
+                    kind: kind, sessionID: sessionID, streamID: streamID, limit: limit
+                )
+            } catch PlatformError.responseTooLarge {
+                guard limit > 1 else { throw PlatformError.responseTooLarge }
+                limit = max(1, limit / 2)
+            }
+        }
+    }
+
+    private func measurements<Value: Decodable>(
+        kind: String, sessionID: String, streamID: String?, limit: Int = 40
     ) async throws -> [Value] {
         guard let streamID else { return [] }
         return try await get(
             "/sessions/\(Self.segment(sessionID))/\(kind)",
-            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: "40")]
+            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: String(limit))]
         )
     }
 
@@ -585,13 +681,19 @@ public final class PlatformClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            if usesInjectedSession {
+                (data, response) = try await session.data(for: request)
+            } else {
+                (data, response) = try await receiveWithDelegate(request)
+            }
+            if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
+               !platformSameOrigin(original, final) {
+                throw PlatformError.connection("Перенаправление на другой origin отклонено")
+            }
+        } catch let error as PlatformError {
+            throw error
         } catch {
             throw PlatformError.connection(error.localizedDescription)
-        }
-        if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
-           !platformSameOrigin(original, final) {
-            throw PlatformError.connection("Перенаправление на другой origin отклонено")
         }
         guard data.count <= maximumResponseBytes else { throw PlatformError.responseTooLarge }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -611,6 +713,20 @@ public final class PlatformClient {
             throw error
         } catch {
             throw PlatformError.invalidResponse("Некорректный ответ API: \(error.localizedDescription)")
+        }
+    }
+
+    private func receiveWithDelegate(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let delegate = PlatformResponseDelegate(maximumBytes: maximumResponseBytes)
+        let session = URLSession(
+            configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+        )
+        defer { session.invalidateAndCancel() }
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.completion = { result in
+                continuation.resume(with: result)
+            }
+            session.dataTask(with: request).resume()
         }
     }
 
