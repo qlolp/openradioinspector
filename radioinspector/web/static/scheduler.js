@@ -103,30 +103,43 @@
       const equipment = document.createElement("small");
       equipment.textContent = task.equipment || "Оборудование не указано";
       article.append(title, details, equipment);
+      if (task.status === "В очереди на выполнение") {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "button small danger-quiet";
+        cancel.textContent = "Отменить";
+        cancel.disabled = state.actionPending;
+        cancel.addEventListener("click", () => cancelTask(task.name));
+        article.append(cancel);
+      }
       dom.list.append(article);
     }
   }
 
-  async function refreshScheduler() {
+  async function cancelTask(name) {
     if (state.actionPending) return;
+    state.actionPending = true;
+    state.generation += 1;
     const generation = state.generation;
+    state.error = null;
+    renderScheduler();
     try {
-      const [statusResult, tasksResult] = await Promise.allSettled([
-        api("/task-scheduler"),
-        api("/task-scheduler/tasks"),
-      ]);
+      await api(`/task-scheduler/tasks/${encodeURIComponent(name)}/cancel`, {
+        method: "POST", body: {},
+      });
       if (generation !== state.generation) return;
-      if (statusResult.status === "fulfilled") state.status = statusResult.value;
-      if (tasksResult.status === "fulfilled") state.tasks = tasksResult.value.items;
-      state.error = [statusResult, tasksResult]
-        .filter((result) => result.status === "rejected")
-        .map((result) => result.reason.message)
-        .join(" · ") || null;
+      state.actionPending = false;
+      await refreshScheduler();
     } catch (error) {
       if (generation !== state.generation) return;
       state.error = error.message;
+      renderScheduler();
+    } finally {
+      if (generation === state.generation) {
+        state.actionPending = false;
+        renderScheduler();
+      }
     }
-    renderScheduler();
   }
 
   async function configureScheduler(enabled) {
