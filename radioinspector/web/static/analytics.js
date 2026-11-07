@@ -85,6 +85,7 @@
     state.sessionId = sessionId;
     state.summary = null;
     state.error = null;
+    state.pending = false;
     state.generation += 1;
     render();
   }

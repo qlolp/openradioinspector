@@ -40,6 +40,7 @@ class WebUiAnalyticsTests(unittest.TestCase):
         self.assertIn('new MutationObserver', analytics)
         self.assertIn('/analytics/summary', analytics)
         self.assertIn('state.generation += 1', analytics)
+        self.assertIn('state.pending = false;\n    state.generation += 1;', analytics)
         self.assertIn('Live-измерения продолжаются', analytics)
         self.assertNotIn('method: "POST"', analytics)
         self.assertNotIn("innerHTML", analytics)
