@@ -130,6 +130,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var newTaskStatus = "Новая ControlTask ещё не создана"
     @Published var showTaskCreate = false
     @Published var taskCreatePending = false
+    @Published var taskCancelStatus = "Queued ControlTask не отменена"
+    @Published var taskCancelPending = false
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var archiveAnalyticsPending = false
@@ -578,6 +580,26 @@ final class RemoteDualModel: ObservableObject {
             }
             guard requestGeneration == generation, self.client === client else { return }
             taskCreatePending = false
+        }
+    }
+
+    func cancelTask(name: String) {
+        guard let client, !taskCancelPending else { return }
+        let requestGeneration = generation
+        taskCancelPending = true
+        taskCancelStatus = "Отмена \(name) через API…"
+        Task {
+            do {
+                let cancelled = try await client.cancelTask(name: name)
+                guard requestGeneration == generation, self.client === client else { return }
+                taskCancelStatus = "Отменено: \(cancelled.name) · \(cancelled.status) · \(cancelled.outcome)"
+                await refreshTaskScheduler(client)
+            } catch {
+                guard requestGeneration == generation, self.client === client else { return }
+                taskCancelStatus = describeSession(error)
+            }
+            guard requestGeneration == generation, self.client === client else { return }
+            taskCancelPending = false
         }
     }
 
