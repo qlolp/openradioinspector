@@ -41,6 +41,8 @@ class PlatformSnapshot:
     automatic_handoff: Optional[dict[str, Any]] = None
     automatic_detection: Optional[dict[str, Any]] = None
     automatic_completion: Optional[dict[str, Any]] = None
+    task_scheduler: Optional[dict[str, Any]] = None
+    task_scheduler_error: Optional[str] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
     spectrum_stream_id: Optional[str] = None
 
@@ -315,6 +317,14 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         return self._post(f"/sessions/{session}/automatic-completion", payload)
 
+    def task_scheduler(self) -> dict[str, Any]:
+        return self._request("GET", "/task-scheduler")
+
+    def configure_task_scheduler(self, enabled: bool) -> dict[str, Any]:
+        if not isinstance(enabled, bool):
+            raise TypeError("enabled должен быть JSON boolean")
+        return self._post("/task-scheduler", {"enabled": enabled})
+
     def snapshot(
         self,
         session_id: Optional[str] = None,
@@ -326,8 +336,20 @@ class PlatformClient:
         health = self.health()
         capabilities = self.capabilities()
         sessions = self.list_sessions()
+        scheduler_status = None
+        scheduler_error = None
+        try:
+            scheduler_status = self.task_scheduler()
+        except PlatformClientError as exc:
+            scheduler_error = str(exc)
         if session_id is None:
-            return PlatformSnapshot(health, capabilities, sessions)
+            return PlatformSnapshot(
+                health,
+                capabilities,
+                sessions,
+                task_scheduler=scheduler_status,
+                task_scheduler_error=scheduler_error,
+            )
         sweeps = (
             self.list_sweeps(session_id, spectrum_stream_id, limit=40)
             if spectrum_stream_id is not None
@@ -345,6 +367,8 @@ class PlatformClient:
             automatic_handoff=self.automatic_handoff(session_id),
             automatic_detection=self.automatic_detection(session_id),
             automatic_completion=self.automatic_completion(session_id),
+            task_scheduler=scheduler_status,
+            task_scheduler_error=scheduler_error,
             sweeps=sweeps,
             spectrum_stream_id=spectrum_stream_id,
         )
