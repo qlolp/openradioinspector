@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,7 @@ def _paragraph(
     align: str | None = None,
     indent: int | None = None,
     tabs: bool = False,
+    bookmark: tuple[int, str] | None = None,
 ) -> str:
     properties = []
     if style:
@@ -54,9 +56,19 @@ def _paragraph(
     if align:
         properties.append(f'<w:jc w:val="{align}"/>')
     ppr = f"<w:pPr>{''.join(properties)}</w:pPr>" if properties else ""
+    bookmark_start = bookmark_end = ""
+    if bookmark is not None:
+        bookmark_id, bookmark_name = bookmark
+        bookmark_start = (
+            f'<w:bookmarkStart w:id="{bookmark_id}" w:name="{_text(bookmark_name)}"/>'
+        )
+        bookmark_end = f'<w:bookmarkEnd w:id="{bookmark_id}"/>'
     if not text:
-        return "<w:p/>"
-    return f"<w:p>{ppr}<w:r><w:t xml:space=\"preserve\">{_text(text)}</w:t></w:r></w:p>"
+        return f"<w:p>{ppr}{bookmark_start}{bookmark_end}</w:p>"
+    return (
+        f"<w:p>{ppr}{bookmark_start}<w:r>"
+        f"<w:t xml:space=\"preserve\">{_text(text)}</w:t></w:r>{bookmark_end}</w:p>"
+    )
 
 
 def _cell(text: str, width: int, *, header: bool = False) -> str:
@@ -93,7 +105,7 @@ def _table(rows: list[list[str]]) -> str:
     )
 
 
-def _toc_entry(title: str, level: int, page: int) -> str:
+def _toc_entry(title: str, level: int, bookmark: str) -> str:
     properties = (
         f'<w:pPr><w:pStyle w:val="TOC{level}"/>'
         '<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9000"/></w:tabs>'
@@ -102,14 +114,17 @@ def _toc_entry(title: str, level: int, page: int) -> str:
     return (
         f'<w:p>{properties}<w:r><w:t xml:space="preserve">{_text(title)}</w:t></w:r>'
         '<w:r><w:tab/></w:r>'
-        f'<w:r><w:t>{page}</w:t></w:r></w:p>'
+        '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>'
+        f'<w:r><w:instrText xml:space="preserve"> PAGEREF {_text(bookmark)} \\h </w:instrText></w:r>'
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r>'
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>'
     )
 
 
-def _toc(entries: list[tuple[int, str]]) -> str:
+def _toc(entries: list[tuple[int, str, str]]) -> str:
     result = [_paragraph("Содержание", style="Heading1")]
-    for level, title in entries:
-        result.append(_toc_entry(title, level, level + 1))
+    for level, title, bookmark in entries:
+        result.append(_toc_entry(title, level, bookmark))
     return "".join(result)
 
 
@@ -245,6 +260,14 @@ def _parts(title: str) -> dict[str, str]:
     }
 
 
+def _is_table_delimiter(row: list[str]) -> bool:
+    """Распознаёт Markdown-разделитель `---`, включая маркеры выравнивания."""
+    return bool(row) and all(
+        cell and "-" in cell and not set(cell) - {"-", ":", " "}
+        for cell in row
+    )
+
+
 def _markdown_blocks(text: str) -> Iterable[tuple[str, object]]:
     lines = text.splitlines()
     index = 0
@@ -253,7 +276,9 @@ def _markdown_blocks(text: str) -> Iterable[tuple[str, object]]:
         if line.startswith("|"):
             rows = []
             while index < len(lines) and lines[index].startswith("|"):
-                rows.append([cell.strip() for cell in lines[index].strip("|").split("|")])
+                row = [cell.strip() for cell in lines[index].strip("|").split("|")]
+                if not _is_table_delimiter(row):
+                    rows.append(row)
                 index += 1
             yield "table", rows
             continue
@@ -275,31 +300,54 @@ def write_docx_report(
     rendered = template.render(context)
     blocks = list(_markdown_blocks(rendered))
     headings = [
-        (1 if kind == "heading1" else 2 if kind == "heading2" else 3, value)
-        for kind, value in blocks
+        (
+            index,
+            1 if kind == "heading1" else 2 if kind == "heading2" else 3,
+            str(value),
+        )
+        for index, (kind, value) in enumerate(blocks)
         if kind in ("heading1", "heading2", "heading3")
     ]
-    title = headings[0][1] if headings else "Протокол измерений"
+    title = headings[0][2] if headings else "Протокол измерений"
     body = [_paragraph(title, style="Title")]
-    body.append(_toc(headings[1:] if len(headings) > 1 else []))
-    for kind, value in blocks:
+    body.append(
+        _toc(
+            [
+                (level, heading, f"_ori_heading_{index + 1}")
+                for index, level, heading in headings[1:]
+            ]
+        )
+    )
+    for index, (kind, value) in enumerate(blocks):
         if kind == "table":
             body.append(_table(value))  # type: ignore[arg-type]
         elif kind == "paragraph":
             body.append(_paragraph(str(value)))
         else:
-            body.append(_paragraph(str(value), style=str(kind).capitalize()))
+            bookmark = (index + 1, f"_ori_heading_{index + 1}")
+            body.append(
+                _paragraph(
+                    str(value), style=str(kind).capitalize(), bookmark=bookmark
+                )
+            )
     parts = _parts(title)
     parts["word/document.xml"] = _document("".join(body))
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp")
+    temporary = None
     try:
+        with tempfile.NamedTemporaryFile(
+            prefix=destination.name + ".",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as staged:
+            temporary = Path(staged.name)
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as package:
             for name, data in parts.items():
                 package.writestr(name, data.encode("utf-8"))
         temporary.replace(destination)
     finally:
-        if temporary.exists():
+        if temporary is not None and temporary.exists():
             temporary.unlink()
     return destination
