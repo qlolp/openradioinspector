@@ -110,6 +110,42 @@ class TaskSchedulerApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("enabled", response["error"]["message"])
 
+    def test_task_list_is_read_only_and_uses_utc_contract(self) -> None:
+        first = ControlTask(
+            name="api-monitor",
+            task_file=str(self.input_path),
+            start_at=BASE,
+            duration_s=10,
+            operator="Оператор",
+            place="Пункт А",
+        )
+        second = ControlTask(
+            name="api-panorama",
+            panorama_file=str(self.input_path),
+            start_at=BASE + timedelta(minutes=5),
+            duration_s=20,
+            equipment="AR-DV1",
+        )
+        self.scheduler.enqueue(first)
+        self.scheduler.enqueue(second)
+        before = self.book_path.read_bytes()
+
+        status, response = self.request("GET", "/api/v1/task-scheduler/tasks")
+        self.assertEqual(status, 200)
+        items = response["data"]["items"]
+        self.assertEqual(response["data"]["count"], 2)
+        self.assertEqual([item["name"] for item in items], ["api-monitor", "api-panorama"])
+        self.assertEqual(items[0]["operator"], "Оператор")
+        self.assertEqual(items[1]["equipment"], "AR-DV1")
+        self.assertEqual(items[0]["start_at"], "2026-11-07T12:00:00Z")
+        self.assertEqual(self.book_path.read_bytes(), before)
+
+        status, capabilities = self.request("GET", "/api/v1/capabilities")
+        self.assertEqual(status, 200)
+        self.assertTrue(
+            capabilities["data"]["features"]["control_task_scheduler_task_list"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
