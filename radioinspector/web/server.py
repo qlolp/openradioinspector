@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import queue
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,7 +45,10 @@ from ..session_service import (
     SessionNotFoundError,
     SessionService,
 )
+from ..session_analytics import analytics_summary
 from ..session_store import SQLiteSessionStore
+from ..task_scheduler import TaskScheduler
+from ..tasks import TaskBook
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
@@ -461,14 +465,22 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
+                capabilities["features"]["session_analytics"] = True
+                capabilities["features"]["session_analytics_archive_wide"] = True
                 capabilities["features"]["session_archive_export"] = True
                 capabilities["features"]["session_archive_export_archive_wide"] = True
                 capabilities["features"]["session_archive_export_ndjson"] = True
                 capabilities["features"]["session_archive_export_streaming"] = True
+                capabilities["features"]["control_task_scheduler"] = True
+                capabilities["features"]["control_task_scheduler_opt_in_required"] = True
+                capabilities["features"]["control_task_scheduler_policy_persistent"] = False
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
                 self._send_json(api_payload(capabilities))
+                return
+            if route == "/api/v1/task-scheduler":
+                self._send_json(api_payload(self.control_scheduler.status()))
                 return
             if route == "/api/v1/sessions":
                 self._send_json(api_payload(self.sessions.list_sessions()))
@@ -589,6 +601,19 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "analytics"
+                and parts[5] == "summary"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                self._send_json(
+                    api_payload(
+                        analytics_summary(self.sessions, parts[3], stream_id=stream_id)
+                    )
+                )
+                return
+            if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in ("sweeps", "observations")
@@ -620,6 +645,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_post(self, route: str, payload: dict) -> None:
         try:
+            if route == "/api/v1/task-scheduler":
+                if set(payload) != {"enabled"}:
+                    raise ValueError("Разрешено только поле enabled")
+                result = self.control_scheduler.configure(payload["enabled"])
+                self._send_json(api_payload(result))
+                return
             if route == "/api/v1/sessions":
                 session = self.sessions.create_session(payload)
                 self._send_json(api_payload(session), 201)
@@ -892,6 +923,8 @@ def create_server(
     automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
     automatic_detection: Optional[AutomaticCandidateDetector] = None,
     automatic_completion: Optional[AutomaticInvestigationCompletion] = None,
+    task_book: Optional[TaskBook] = None,
+    task_scheduler: Optional[TaskScheduler] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -919,6 +952,15 @@ def create_server(
     completion_scheduler = automatic_completion or AutomaticInvestigationCompletion(
         session_service
     )
+    if task_book is not None and task_scheduler is not None:
+        raise ValueError("Передайте либо task_book, либо task_scheduler, но не оба")
+    if task_scheduler is not None:
+        control_scheduler = task_scheduler
+    else:
+        book = task_book or TaskBook(
+            Path(tempfile.gettempdir()) / f"openradioinspector-task-book-{id(state)}.json"
+        )
+        control_scheduler = TaskScheduler(book)
     handler = type(
         "BoundHandler",
         (Handler,),
@@ -929,6 +971,7 @@ def create_server(
             "automatic_handoff": automatic_scheduler,
             "automatic_detection": detection_scheduler,
             "automatic_completion": completion_scheduler,
+            "control_scheduler": control_scheduler,
         },
     )
     httpd = ThreadingHTTPServer((host, port), handler)
@@ -938,6 +981,7 @@ def create_server(
     httpd.automatic_handoff = automatic_scheduler
     httpd.automatic_detection = detection_scheduler
     httpd.automatic_completion = completion_scheduler
+    httpd.control_scheduler = control_scheduler
     return httpd
 
 
@@ -947,6 +991,8 @@ def serve(
     database: Optional[str] = None,
     library: Optional[str] = None,
     session_database: Optional[str] = None,
+    task_book: Optional[TaskBook] = None,
+    task_scheduler: Optional[TaskScheduler] = None,
 ) -> None:
     """Запуск веб-интерфейса."""
     httpd = create_server(
@@ -955,6 +1001,8 @@ def serve(
         database=database,
         library=library,
         session_database=session_database,
+        task_book=task_book,
+        task_scheduler=task_scheduler,
     )
     print(f"Веб-интерфейс: http://{host}:{port}")
     if database:
@@ -969,6 +1017,7 @@ def serve(
         httpd.automatic_completion.close()
         httpd.automatic_detection.close()
         httpd.automatic_handoff.close()
+        httpd.control_scheduler.close()
         httpd.worker_manager.close()
         httpd.server_close()
         httpd.session_service.close()
