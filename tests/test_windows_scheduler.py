@@ -10,6 +10,7 @@ from pathlib import Path
 from radioinspector.windows.client import PlatformClient, PlatformClientError
 from radioinspector.windows.scheduler_app import (
     SchedulerWindowsApp,
+    task_scheduler_tasks_text,
     task_scheduler_text,
 )
 from radioinspector.web.server import create_server
@@ -31,6 +32,28 @@ class WindowsSchedulerTests(unittest.TestCase):
         self.assertIn("готово 2", text)
         self.assertIn("остальные функции", task_scheduler_text(None, "old server"))
 
+    def test_task_list_text_preserves_taskbook_fields_and_isolates_error(self) -> None:
+        text = task_scheduler_tasks_text([
+            {
+                "name": "windows-monitor",
+                "status": "completed",
+                "start_at": "2026-11-07T12:00:00Z",
+                "outcome": "OUTCOME_SUCCESS",
+                "equipment": "tinySA Ultra + AR-DV1",
+            },
+            {"name": "windows-queued", "status": "queued"},
+        ])
+        self.assertIn("windows-monitor · completed · 2026-11-07T12:00:00Z", text)
+        self.assertIn("OUTCOME_SUCCESS", text)
+        self.assertIn("tinySA Ultra + AR-DV1", text)
+        self.assertIn("windows-queued · queued · время не задано", text)
+        self.assertIn("Оборудование не указано", text)
+        self.assertIn("нет задач", task_scheduler_tasks_text([]))
+        self.assertIn(
+            "статус scheduler продолжает обновляться",
+            task_scheduler_tasks_text([], "old server"),
+        )
+
     def test_real_http_status_enable_disable_and_boolean_validation(self) -> None:
         server = create_server(host="127.0.0.1", port=0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -42,6 +65,7 @@ class WindowsSchedulerTests(unittest.TestCase):
             self.assertFalse(initial["enabled"])
             self.assertFalse(initial["policy_persistent"])
             self.assertTrue(initial["restart_requires_opt_in"])
+            self.assertEqual(client.task_scheduler_tasks(), [])
             enabled = client.configure_task_scheduler(True)
             self.assertTrue(enabled["enabled"])
             self.assertTrue(enabled["scheduler_alive"])
@@ -75,7 +99,16 @@ class WindowsSchedulerTests(unittest.TestCase):
             snapshot = client.snapshot()
             self.assertIsNone(snapshot.task_scheduler)
             self.assertEqual(snapshot.task_scheduler_error, "unsupported route")
+            self.assertEqual(snapshot.task_scheduler_tasks, [])
+            self.assertIsNone(snapshot.task_scheduler_tasks_error)
             self.assertEqual(snapshot.sessions, [])
+
+            client.task_scheduler = lambda: {"enabled": False}
+            client.task_scheduler_tasks = unavailable
+            snapshot = client.snapshot()
+            self.assertEqual(snapshot.task_scheduler, {"enabled": False})
+            self.assertIsNone(snapshot.task_scheduler_error)
+            self.assertEqual(snapshot.task_scheduler_tasks_error, "unsupported route")
         finally:
             server.automatic_detection.close()
             server.automatic_handoff.close()
@@ -109,6 +142,13 @@ class WindowsSchedulerTests(unittest.TestCase):
         self.assertEqual(app.client.calls, [True])
         with self.assertRaisesRegex(TypeError, "JSON boolean"):
             app._configure_task_scheduler(1, object())
+
+    def test_task_list_rejects_inconsistent_contract(self) -> None:
+        client = PlatformClient("http://127.0.0.1:8770")
+        client._request = lambda *_args: {"items": [{}], "count": 2}
+        with self.assertRaises(PlatformClientError) as caught:
+            client.task_scheduler_tasks()
+        self.assertEqual(caught.exception.code, "invalid_task_list")
 
     def test_installed_launcher_uses_scheduler_app(self) -> None:
         root = Path(__file__).resolve().parents[1]

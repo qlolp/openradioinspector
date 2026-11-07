@@ -27,6 +27,25 @@ def task_scheduler_text(
     )
 
 
+def task_scheduler_tasks_text(
+    tasks: Optional[list[dict[str, Any]]], error: Optional[str] = None
+) -> str:
+    """Форматирует read-only снимок TaskBook без обращения к её файлу."""
+    if error:
+        return f"Список ControlTask недоступен ({error}); статус scheduler продолжает обновляться"
+    if not tasks:
+        return "В TaskBook нет задач."
+    lines = []
+    for task in tasks:
+        outcome = f" · {task['outcome']}" if task.get("outcome") else ""
+        lines.append(
+            f"{task.get('name') or 'Без имени'} · {task.get('status') or 'unknown'} · "
+            f"{task.get('start_at') or 'время не задано'}{outcome}"
+        )
+        lines.append(f"  {task.get('equipment') or 'Оборудование не указано'}")
+    return "\n".join(lines)
+
+
 class SchedulerWindowsApp(CompletionWindowsApp):
     """Добавляет независимый opt-in глобального TaskScheduler."""
 
@@ -76,8 +95,31 @@ class SchedulerWindowsApp(CompletionWindowsApp):
             ),
             wraplength=560,
         ).grid(row=1, column=0, columnspan=2, sticky="ew", pady=6)
+        list_frame = self.ttk.Frame(frame)
+        list_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=6)
+        task_text = self.tk.Text(
+            list_frame,
+            width=70,
+            height=9,
+            wrap="word",
+            exportselection=False,
+        )
+        scrollbar = self.ttk.Scrollbar(
+            list_frame, orient="vertical", command=task_text.yview
+        )
+        task_text.configure(yscrollcommand=scrollbar.set)
+        task_text.insert(
+            "1.0",
+            task_scheduler_tasks_text(
+                self.snapshot.task_scheduler_tasks,
+                self.snapshot.task_scheduler_tasks_error,
+            ),
+        )
+        task_text.configure(state="disabled")
+        task_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         buttons = self.ttk.Frame(frame)
-        buttons.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 4))
+        buttons.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(10, 4))
         self.ttk.Button(
             buttons,
             text="Включить scheduler",
