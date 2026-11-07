@@ -796,6 +796,8 @@ final class RemoteDualModel: ObservableObject {
         newTaskStatus = "Новая ControlTask ещё не создана"
         showTaskCreate = false
         taskCreatePending = false
+        taskCancelStatus = "Queued ControlTask не отменена"
+        taskCancelPending = false
         archiveAnalytics = nil
         archiveAnalyticsError = nil
         archiveAnalyticsPending = false
