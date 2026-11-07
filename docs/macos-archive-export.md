@@ -1,6 +1,6 @@
-# macOS: экспорт архива в NDJSON
+# macOS: экспорт NDJSON snapshot
 
-`PlatformClient.exportArchive(sessionID:destination:)` вызывает streaming `GET /sessions/{id}/archive/export.ndjson` через `URLSessionDownloadTask` и не собирает архив в памяти. Клиент проверяет origin, HTTP status, `Content-Type: application/x-ndjson` и counters `X-Archive-Sweeps` / `X-Archive-Observations` до замены файла.
+`PlatformClient.exportArchive()` использует `URLSessionDownloadTask` вместо JSON-запроса с лимитом 2 МБ. Redirects отклоняются, проверяются final origin, HTTP status, `application/x-ndjson`, `X-Archive-Sweeps` и `X-Archive-Observations`.
 
 Перед заменой файла потоковый validator проверяет header `openradioinspector-archive-ndjson`, `format_version=1`, `session_id` и точное число записей. Incomplete snapshot не заменяет существующий файл. Перенос выполняется через `replaceItemAt` либо `moveItem`, временный каталог удаляется после завершения.
 
