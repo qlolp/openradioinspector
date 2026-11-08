@@ -576,11 +576,27 @@ struct RemoteSerialSessionPane: View {
                 .font(.title2.weight(.semibold))
             Text("Порты указываются явно. Адаптеры tinysa-serial и ardv1-serial назначаются только этому профилю; обычный draft и симуляторы не изменяются.")
                 .foregroundStyle(.secondary)
-            TextField("Порт tinySA", text: $model.tinySAPort)
-                .textFieldStyle(.roundedBorder)
-            TextField("Порт AR-DV1", text: $model.receiverPort)
-                .textFieldStyle(.roundedBorder)
-            Text("Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. Они должны различаться и не использовать sim://. Аппаратный стенд не проверен.")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Порт tinySA:").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    if let modem = SerialPort.availablePaths().first(where: { $0.contains("usbmodem") }) {
+                        Button("Найдено: \(modem)") {
+                            model.tinySAPort = modem
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+                TextField("Порт tinySA (напр. /dev/cu.usbmodem4001)", text: $model.tinySAPort)
+                    .textFieldStyle(.roundedBorder)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Порт AR-DV1 (необязательно):").font(.caption).foregroundStyle(.secondary)
+                TextField("Порт AR-DV1 (оставьте пустым, если не подключён)", text: $model.receiverPort)
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. Если AR-DV1 не подключён, оставьте поле пустым — будет создан сеанс только со спектроанализатором tinySA. Приборы не должны использовать sim://.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Отмена") { model.showSerialForm = false }
@@ -596,5 +612,8 @@ struct RemoteSerialSessionPane: View {
         }
         .padding(20)
         .frame(width: 520)
+        .onAppear {
+            model.refreshSerialPorts()
+        }
     }
 }
