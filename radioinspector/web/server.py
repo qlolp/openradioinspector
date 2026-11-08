@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
 from ..contracts import api_payload
@@ -436,6 +436,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_session_events(int(raw_after))
                 return
             parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Decode only the ID after splitting, so encoded slashes stay in it.
+                parts[3] = unquote(parts[3])
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -469,6 +472,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(session), 201)
                 return
             parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Decode only the ID after splitting, so encoded slashes stay in it.
+                parts[3] = unquote(parts[3])
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
