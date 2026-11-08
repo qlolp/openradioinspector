@@ -283,9 +283,14 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
     time.sleep(0.1)
     assert trace.read_text() == before, 'Watchdog continued after cancellation'
 """
-        with redirect_stdout(io.StringIO()):
-            output = release.run_command([sys.executable, "-c", body, str(self.directory/'owned-watchdog.log')], name="watchdog-regression",
-                                         environment=self.environment, directory=self.directory, timeout=5)
+        # This case tests the watchdog, not nested Job Object teardown. Its
+        # one Python child inherits the outer command's ownership; it spawns no
+        # other processes. Capture errors even when the child exits abnormally.
+        completed = subprocess.run([sys.executable, "-c", body, str(self.directory/'owned-watchdog.log')],
+                                   cwd=release.ROOT, env=self.environment,
+                                   capture_output=True, text=True, timeout=5)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        output = completed.stdout + completed.stderr
         before, after = output.split("WATCHDOG_CANCELLED", 1)
         self.assertIn("Timeout", before)
         self.assertIn("synthetic_blocked_test", before)

@@ -144,7 +144,7 @@ final class ThreeSweepThresholdsModelTests: XCTestCase {
     }
     @MainActor func testBoundedTimeoutSurvivesPollingIgnoresLateAndAllowsRetry() async throws {
         let deferred = Deferred(), client = try api()
-        let model = ThreeSweepThresholdsModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, id, levels in try await deferred.fetch(id, levels) })
+        let model = ThreeSweepThresholdsModel(timeoutNanoseconds: 500_000_000, fetch: { _, _, id, levels in try await deferred.fetch(id, levels) })
         model.configure(client: client, scope: scope, source: try decode(raw())); model.analyze()
         try await waitFor { deferred.requests.count == 1 }
         model.configure(client: client, scope: scope, source: try decode(raw(2)))

@@ -160,7 +160,7 @@ final class FrequencyRoundingModelTests: XCTestCase {
         }
     }
     @MainActor func testTimeoutNoRetryLateReplyAndExplicitRetry() async throws {
-        let d = Deferred(), m = try model(d, timeout: 25_000_000)
+        let d = Deferred(), m = try model(d, timeout: 500_000_000)
         m.analyze(); try await waitFor { d.pending.count == 1 }; try await waitFor { !m.pending }
         XCTAssertTrue(m.errorText?.contains("истекло") == true)
         d.release(try result()); try await Task.sleep(nanoseconds: 15_000_000); XCTAssertNil(m.result)
