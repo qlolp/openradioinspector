@@ -370,69 +370,72 @@ class SQLiteSessionStore:
             self._insert_event(event)
         return reference, True
 
-    def save_session(
+    def _write_session(
         self, session: MonitoringSession, *, event: Optional[SessionEvent] = None
     ) -> None:
         data = to_primitive(session)
-        with self._lock, self._connection:
+        self._connection.execute(
+            """
+            INSERT INTO sessions (
+                id, contract_version, name, state, created_at,
+                started_at, ended_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                contract_version = excluded.contract_version,
+                name = excluded.name,
+                state = excluded.state,
+                created_at = excluded.created_at,
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                data["id"], data["contract_version"], data["name"], data["state"],
+                data["created_at"], data["started_at"], data["ended_at"],
+                _json(data["metadata"]),
+            ),
+        )
+        for stream in data["streams"]:
+            owner = self._connection.execute(
+                "SELECT session_id FROM streams WHERE id = ?", (stream["id"],)
+            ).fetchone()
+            if owner is not None and owner["session_id"] != session.id:
+                raise ValueError(f"Поток уже принадлежит другому сеансу: {stream['id']}")
             self._connection.execute(
                 """
-                INSERT INTO sessions (
-                    id, contract_version, name, state, created_at,
-                    started_at, ended_at, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO streams (
+                    id, session_id, device, role, level_unit, label, port,
+                    model, serial_number, firmware, state,
+                    capabilities_json, settings_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    contract_version = excluded.contract_version,
-                    name = excluded.name,
+                    device = excluded.device,
+                    role = excluded.role,
+                    level_unit = excluded.level_unit,
+                    label = excluded.label,
+                    port = excluded.port,
+                    model = excluded.model,
+                    serial_number = excluded.serial_number,
+                    firmware = excluded.firmware,
                     state = excluded.state,
-                    created_at = excluded.created_at,
-                    started_at = excluded.started_at,
-                    ended_at = excluded.ended_at,
-                    metadata_json = excluded.metadata_json
+                    capabilities_json = excluded.capabilities_json,
+                    settings_json = excluded.settings_json
                 """,
                 (
-                    data["id"], data["contract_version"], data["name"], data["state"],
-                    data["created_at"], data["started_at"], data["ended_at"],
-                    _json(data["metadata"]),
+                    stream["id"], stream["session_id"], stream["device"],
+                    stream["role"], stream["level_unit"], stream["label"],
+                    stream["port"], stream["model"], stream["serial_number"],
+                    stream["firmware"], stream["state"],
+                    _json(stream["capabilities"]), _json(stream["settings"]),
                 ),
             )
-            for stream in data["streams"]:
-                owner = self._connection.execute(
-                    "SELECT session_id FROM streams WHERE id = ?", (stream["id"],)
-                ).fetchone()
-                if owner is not None and owner["session_id"] != session.id:
-                    raise ValueError(f"Поток уже принадлежит другому сеансу: {stream['id']}")
-                self._connection.execute(
-                    """
-                    INSERT INTO streams (
-                        id, session_id, device, role, level_unit, label, port,
-                        model, serial_number, firmware, state,
-                        capabilities_json, settings_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        device = excluded.device,
-                        role = excluded.role,
-                        level_unit = excluded.level_unit,
-                        label = excluded.label,
-                        port = excluded.port,
-                        model = excluded.model,
-                        serial_number = excluded.serial_number,
-                        firmware = excluded.firmware,
-                        state = excluded.state,
-                        capabilities_json = excluded.capabilities_json,
-                        settings_json = excluded.settings_json
-                    """,
-                    (
-                        stream["id"], stream["session_id"], stream["device"],
-                        stream["role"], stream["level_unit"], stream["label"],
-                        stream["port"], stream["model"], stream["serial_number"],
-                        stream["firmware"], stream["state"],
-                        _json(stream["capabilities"]), _json(stream["settings"]),
-                    ),
-                )
 
-            if event is not None:
-                self._insert_event(event)
+        if event is not None:
+            self._insert_event(event)
+
+    def save_session(self, session: MonitoringSession, *, event: Optional[SessionEvent] = None) -> None:
+        with self._lock, self._connection:
+            self._write_session(session, event=event)
 
     def load_sessions(self) -> list[MonitoringSession]:
         with self._lock:
@@ -633,6 +636,21 @@ class SQLiteSessionStore:
                 "settings": _object(row["settings_json"]),
             }
         )
+
+    def measurement_owners(self, identifiers: tuple[str, ...]) -> dict[str, set[tuple[str, str]]]:
+        """Resolve only referenced primary keys, never load a measurement archive."""
+        result = {identifier: set() for identifier in identifiers}
+        with self._lock:
+            for offset in range(0, len(identifiers), 400):
+                batch = identifiers[offset:offset + 400]
+                placeholders = ",".join("?" for _ in batch)
+                for table in ("sweeps", "observations"):
+                    rows = self._connection.execute(
+                        f"SELECT id, session_id, stream_id FROM {table} WHERE id IN ({placeholders})", batch
+                    ).fetchall()
+                    for row in rows:
+                        result[row["id"]].add((row["session_id"], row["stream_id"]))
+        return result
 
     def get_sweep(self, sweep_id: str, *, session_id: Optional[str] = None) -> Optional[Sweep]:
         """Read one immutable measurement via its primary key, without a scan."""
@@ -845,7 +863,7 @@ class SQLiteSessionStore:
             ),
         )
 
-    def save_investigation(
+    def _write_investigation(
         self,
         investigation: Investigation,
         *,
@@ -855,46 +873,61 @@ class SQLiteSessionStore:
         """Атомарно сохраняет исследование, состояние кандидата и событие."""
         if investigation.candidate_id != candidate.id:
             raise ValueError("Исследование ссылается на другого кандидата")
-        with self._lock, self._connection:
-            owner = self._connection.execute(
-                "SELECT session_id FROM investigations WHERE id = ?", (investigation.id,)
-            ).fetchone()
-            if owner is not None and owner["session_id"] != candidate.session_id:
-                raise ValueError(
-                    f"Исследование уже принадлежит другому сеансу: {investigation.id}"
-                )
-            self._upsert_candidate(candidate)
-            data = to_primitive(investigation)
-            self._connection.execute(
-                """
-                INSERT INTO investigations (
-                    id, session_id, candidate_id, target_stream_id,
-                    target_frequency_hz, state, priority, mode, created_at,
-                    started_at, ended_at, result_observation_ids_json, error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    target_frequency_hz = excluded.target_frequency_hz,
-                    state = excluded.state,
-                    priority = excluded.priority,
-                    mode = excluded.mode,
-                    started_at = excluded.started_at,
-                    ended_at = excluded.ended_at,
-                    result_observation_ids_json = excluded.result_observation_ids_json,
-                    error = excluded.error
-                """,
-                (
-                    data["id"], candidate.session_id, data["candidate_id"],
-                    data["target_stream_id"], data["target_frequency_hz"], data["state"],
-                    data["priority"], data["mode"], _archive_time(investigation.created_at),
-                    _archive_time(investigation.started_at)
-                    if investigation.started_at is not None else None,
-                    _archive_time(investigation.ended_at)
-                    if investigation.ended_at is not None else None,
-                    _json(data["result_observation_ids"]), data["error"],
-                ),
+        owner = self._connection.execute(
+            "SELECT session_id FROM investigations WHERE id = ?", (investigation.id,)
+        ).fetchone()
+        if owner is not None and owner["session_id"] != candidate.session_id:
+            raise ValueError(
+                f"Исследование уже принадлежит другому сеансу: {investigation.id}"
             )
-            if event is not None:
-                self._insert_event(event)
+        self._upsert_candidate(candidate)
+        data = to_primitive(investigation)
+        self._connection.execute(
+            """
+            INSERT INTO investigations (
+                id, session_id, candidate_id, target_stream_id,
+                target_frequency_hz, state, priority, mode, created_at,
+                started_at, ended_at, result_observation_ids_json, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                target_frequency_hz = excluded.target_frequency_hz,
+                state = excluded.state,
+                priority = excluded.priority,
+                mode = excluded.mode,
+                started_at = excluded.started_at,
+                ended_at = excluded.ended_at,
+                result_observation_ids_json = excluded.result_observation_ids_json,
+                error = excluded.error
+            """,
+            (
+                data["id"], candidate.session_id, data["candidate_id"],
+                data["target_stream_id"], data["target_frequency_hz"], data["state"],
+                data["priority"], data["mode"], _archive_time(investigation.created_at),
+                _archive_time(investigation.started_at)
+                if investigation.started_at is not None else None,
+                _archive_time(investigation.ended_at)
+                if investigation.ended_at is not None else None,
+                _json(data["result_observation_ids"]), data["error"],
+            ),
+        )
+        if event is not None:
+            self._insert_event(event)
+
+    def save_investigation(self, investigation: Investigation, *, candidate: Candidate,
+                           event: Optional[SessionEvent] = None) -> None:
+        with self._lock, self._connection:
+            self._write_investigation(investigation, candidate=candidate, event=event)
+
+    def save_session_stop(self, session: MonitoringSession, *, event: SessionEvent,
+                          cancellations: list[tuple[Investigation, Candidate, SessionEvent]]) -> None:
+        """Commit terminal session state, all cancellations and their events together."""
+        # Lifecycle metadata must remain writable even when measurement capacity
+        # is exhausted; stopping the service is never blocked by its own limit.
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._write_session(session, event=event)
+            for investigation, candidate, cancellation_event in cancellations:
+                self._write_investigation(investigation, candidate=candidate, event=cancellation_event)
 
     @staticmethod
     def _candidate(row: sqlite3.Row) -> Candidate:

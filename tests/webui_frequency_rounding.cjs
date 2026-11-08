@@ -322,7 +322,7 @@ async function filesAndExportRaces() {
 async function platformIntegration() {
   const app = setup(), c = app.context; app.select(); let pending = app.click('run');
   c.state = { sessionId: 'session/1', spectrumStreamId: 'tiny/1', sweeps: [], candidates: [candidate()], refreshRunning: false };
-  c.dom = { sessionSelect: { value: 'different' }, spectrumStream: { value: 'other' }, health: {} };
+  c.dom = { sessionSelect: { value: 'different' }, spectrumStream: { value: 'other' }, health: {}, candidateForm: {reset() {}, dataset: {}}, candidateEditor: {} };
   c.storeSession = () => {}; c.closeHandoff = () => {}; c.refresh = () => {};
   function load(name, async = false) {
     const start = platformCode.indexOf(`  ${async ? 'async ' : ''}function ${name}(`), end = platformCode.indexOf('\n  }', start) + 4;

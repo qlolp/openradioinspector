@@ -137,6 +137,7 @@ class WindowsClientValidationTests(unittest.TestCase):
             {},
             [],
             session={
+                "id": "session",
                 "streams": [
                     {
                         "id": "ar/dv1",
@@ -186,6 +187,7 @@ class WindowsClientValidationTests(unittest.TestCase):
             {},
             [],
             session={
+                "id": "session",
                 "streams": [
                     {
                         "id": "tiny/sa",

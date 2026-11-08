@@ -45,6 +45,10 @@ WINDOWS_SKIPPED_CLASSES = {
     "tests.test_windows_serial_transport.PendingInputPosixParityTests": "Own PTY required",
 }
 WINDOWS_SKIPPED_TESTS = {
+    "tests.test_release_v040.SerialReadCancellationTests.test_cancel_interrupts_owned_read_without_reusing_port": "POSIX serial ownership",
+    "tests.test_release_v040.TaskBookPermissionTests.test_saving_never_chmods_a_replaced_temporary_path": "POSIX permissions",
+    "tests.test_release_v040.TaskBookPermissionTests.test_world_writable_parent_is_rejected_before_saving": "POSIX permissions",
+    "tests.test_release_v040.PosixPortOwnershipTests.test_second_open_is_rejected_before_changing_terminal_settings": "POSIX serial ownership",
     "tests.test_task_scheduler.TaskSchedulerTests.test_atomic_save_does_not_follow_predictable_tmp_symlink": "POSIX permission bits",
     "tests.test_task_scheduler.TaskSchedulerTests.test_atomic_save_preserves_permissions_and_defaults_to_owner_only": "POSIX permission bits",
 }
@@ -209,9 +213,37 @@ class WindowsJob:
                 raise self.ctypes.WinError(self.ctypes.get_last_error())
 
 
+def _linux_group_has_live_members(group: int, proc_root: Path = Path("/proc")) -> bool | None:
+    """A Linux zombie has no I/O; PID 1 in containers may not reap it.
+
+    Inspect only membership/state, never signal a process found by scanning.
+    Unknown or unreadable evidence stays unknown (cleanup must fail closed).
+    """
+    try:
+        for entry in proc_root.iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                text = (entry / "stat").read_text()
+            except FileNotFoundError:
+                continue
+            fields = text[text.rfind(")") + 2:].split()
+            if len(fields) < 3:
+                return None
+            if int(fields[2]) == group and fields[0] not in ("Z", "X"):
+                return True
+        return False
+    except (OSError, ValueError):
+        return None
+
+
 def _signal_group(process: subprocess.Popen, signum: int) -> bool:
     try:
         os.killpg(process.pid, signum)
+        if signum == 0 and sys.platform.startswith("linux"):
+            running = _linux_group_has_live_members(process.pid)
+            if running is not None:
+                return running
         return True
     except ProcessLookupError:
         return False

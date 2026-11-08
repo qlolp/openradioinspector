@@ -508,7 +508,7 @@ async function completeDrawing() {
 async function platformIntegration() {
   const app = setup(); app.pin(); const pending = app.click('run'), c = app.context;
   c.state = { sessionId: 'session/1', spectrumStreamId: 'tiny/1', sweeps: group(), refreshRunning: false };
-  c.dom = { sessionSelect: { value: 'different' }, spectrumStream: { value: 'other' }, health: {} };
+  c.dom = { sessionSelect: { value: 'different' }, spectrumStream: { value: 'other' }, health: {}, candidateForm: {reset() {}, dataset: {}}, candidateEditor: {} };
   c.storeSession = () => {}; c.closeHandoff = () => {}; c.refresh = () => assert(app.requests[0].options.signal.aborted);
   for (const name of ['updateComparison', 'changeSession', 'changeSpectrumStream']) {
     const start = platformCode.indexOf(`  function ${name}(`), end = platformCode.indexOf('\n  }', start) + 4;

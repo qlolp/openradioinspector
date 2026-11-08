@@ -244,7 +244,7 @@ async function platformIntegration() {
   const app = setup(); app.update([sweep()]); const pending = app.click('run');
   const c = app.context;
   c.state = { sessionId: 'session/1', spectrumStreamId: 'tiny/1', sweeps: [sweep()] };
-  c.dom = { sessionSelect: { value: 'new' }, spectrumStream: { value: 'other' }, health: {} };
+  c.dom = { sessionSelect: { value: 'new' }, spectrumStream: { value: 'other' }, health: {}, candidateForm: {reset() {}, dataset: {}}, candidateEditor: {} };
   c.storeSession = () => {}; c.closeHandoff = () => {}; c.refresh = () => assert(app.requests[0].options.signal.aborted);
   for (const name of ['updateComparison', 'changeSession', 'changeSpectrumStream']) {
     const start = platformCode.indexOf(`  function ${name}(`), end = platformCode.indexOf('\n  }', start) + 4;

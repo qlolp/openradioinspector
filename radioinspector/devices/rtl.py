@@ -50,6 +50,13 @@ class RtlTcpInstrument(Instrument):
                 f"Не удалось подключиться к rtl_tcp {self.host}:{self.port}: {exc}"
             ) from exc
         self._socket.settimeout(10.0)
+        try:
+            header = self._recv_exact(12)
+            if header[:4] != b"RTL0":
+                raise InstrumentError("Неверный заголовок rtl_tcp")
+        except (OSError, InstrumentError) as exc:
+            self.disconnect()
+            raise InstrumentError(f"Не удалось прочитать заголовок rtl_tcp: {exc}") from exc
         self._info = InstrumentInfo(
             manufacturer="Realtek",
             model="RTL-SDR",
@@ -78,41 +85,37 @@ class RtlTcpInstrument(Instrument):
         levels = np.zeros(points)
         for index, freq in enumerate(freqs):
             levels[index] = self._measure_at(float(freq))
-        return Trace(freqs, levels, "dBm")
+        return Trace(freqs, levels, "dBFS")
 
     def _measure_at(self, frequency_hz: float) -> float:
         assert self._socket is not None
-        # set frequency, set sample rate, set gain mode, set gain, start tuner
-        self._socket.sendall(
-            bytes(
-                [
-                    0x01,
-                    *self._rtl_param(frequency_hz),
-                    0x02,
-                    *self._rtl_param(self.sample_rate),
-                    0x03,
-                    0x01,
-                    0x04,
-                    int(self.gain_db) & 0xFF,
-                    0x05,
-                ]
-            )
-        )
+        # rtl_tcp commands are one byte plus a big-endian 32-bit argument.
+        # Gain is signed and expressed in tenths of a dB; no start command exists.
+        commands = ((0x01, int(frequency_hz)), (0x02, int(self.sample_rate)),
+                    (0x03, 1), (0x04, int(round(self.gain_db * 10))))
+        self._socket.sendall(b"".join(
+            bytes([command]) + (value & 0xffffffff).to_bytes(4, "big")
+            for command, value in commands
+        ))
+        raw = self._recv_exact(FFT_SIZE * 2)
+        components = (np.frombuffer(raw, dtype=np.uint8).astype(np.float64) - 127.5) / 127.5
+        iq = components[0::2] + 1j * components[1::2]
+        # Relative to a full-scale complex sinusoid, not calibrated input dBm.
+        power = float(np.mean(np.abs(iq) ** 2))
+        return 10.0 * math.log10(max(power, 1e-30))
+
+    def _recv_exact(self, length: int) -> bytes:
+        assert self._socket is not None
         buffer = bytearray()
-        needed = FFT_SIZE * 2
-        while len(buffer) < needed:
-            chunk = self._socket.recv(needed - len(buffer))
+        while len(buffer) < length:
+            try:
+                chunk = self._socket.recv(length - len(buffer))
+            except OSError as exc:
+                raise InstrumentError(f"Ошибка чтения rtl_tcp: {exc}") from exc
             if not chunk:
-                break
+                raise InstrumentError("rtl_tcp закрыл соединение до получения полного блока")
             buffer.extend(chunk)
-        samples = (
-            np.frombuffer(bytes(buffer[:needed]), dtype=np.uint8).astype(np.float32) - 127.5
-        ) / 127.5
-        if samples.size == 0:
-            return float("-inf")
-        spectrum = np.abs(np.fft.fft(samples)) ** 2
-        power = float(np.mean(spectrum))
-        return 10.0 * math.log10(max(power, 1e-30)) - 10.0 * math.log10(FFT_SIZE)
+        return bytes(buffer)
 
     @staticmethod
     def _rtl_param(value: float) -> list[int]:

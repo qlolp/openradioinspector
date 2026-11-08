@@ -11,6 +11,7 @@ import math
 import os
 import re
 import select
+import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -32,6 +33,14 @@ HARDWARE_VALIDATION_NOT_RUN = "not_run"
 class _SerialFraming:
     """Common reply framing; backends only move raw bytes with a timeout."""
 
+    def cancel(self) -> None:
+        """Interrupt only this transport; a cancelled connection cannot be reused."""
+        self._cancelled.set()
+
+    def _check_cancelled(self) -> None:
+        if self._cancelled.is_set():
+            raise WorkerError(f"Операция на {self.path} остановлена; требуется новое соединение")
+
     def _require_clean_input(self) -> None:
         # There are no transaction IDs: pending bytes belong to an earlier
         # exchange, never to the command we are about to send. Do not flush
@@ -42,6 +51,7 @@ class _SerialFraming:
     def read_line(self, timeout: float, label: str) -> str:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self._check_cancelled()
             newline = self._stash.find(b"\n")
             if newline >= 0:
                 raw = bytes(self._stash[:newline]).rstrip(b"\r")
@@ -90,10 +100,14 @@ class PosixSerialTransport(_SerialFraming):
             raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
         self.path = path
         self._stash = bytearray()
+        self._cancelled = threading.Event()
         self._fd = -1
         self._original_settings: Optional[list[Any]] = None
         try:
             self._fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+            # Cooperating core processes must not configure/read the same tty.
+            import fcntl
+            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self._original_settings = termios.tcgetattr(self._fd)
             settings = list(self._original_settings)
             settings[6] = list(self._original_settings[6])
@@ -153,7 +167,9 @@ class PosixSerialTransport(_SerialFraming):
 
     def _read_once(self, timeout: float, label: str) -> bytes:
         try:
-            ready, _, _ = select.select([self._fd], [], [], max(0.0, timeout))
+            self._check_cancelled()
+            ready, _, _ = select.select([self._fd], [], [], min(0.1, max(0.0, timeout)))
+            self._check_cancelled()
             if not ready:
                 return b""
             chunk = os.read(self._fd, 4096)
@@ -199,6 +215,7 @@ class WindowsSerialTransport(_SerialFraming):
             raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
         self.path = name.upper()
         self._stash = bytearray()
+        self._cancelled = threading.Event()
         self._serial = None
         try:
             import serial
@@ -226,6 +243,7 @@ class WindowsSerialTransport(_SerialFraming):
             raise WorkerError(f"Не удалось открыть порт {self.path}: {exc}") from exc
 
     def _opened(self):
+        self._check_cancelled()
         if self._serial is None or not self._serial.is_open:
             raise WorkerError(f"Порт {self.path} закрыт")
         return self._serial
@@ -255,7 +273,7 @@ class WindowsSerialTransport(_SerialFraming):
     def _read_once(self, timeout: float, label: str) -> bytes:
         try:
             port = self._opened()
-            port.timeout = max(0.0, timeout)
+            port.timeout = min(0.1, max(0.0, timeout))
             # Wait for one byte, then drain only bytes already available. A 4096-byte
             # blocking read would delay a complete short reply until the timeout.
             chunk = port.read(1)
@@ -544,6 +562,11 @@ class TinySASerialAdapter(SimulatedAdapter):
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
         }
 
+    def request_stop(self) -> None:
+        cancel = getattr(self.transport, "cancel", None)
+        if cancel is not None:
+            cancel()
+
     def close(self) -> None:
         if not self._closed:
             self._closed = True
@@ -713,6 +736,11 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             "simulated": False,
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
         }
+
+    def request_stop(self) -> None:
+        cancel = getattr(self.transport, "cancel", None)
+        if cancel is not None:
+            cancel()
 
     def close(self) -> None:
         if self._closed:

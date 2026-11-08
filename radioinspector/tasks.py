@@ -362,7 +362,12 @@ class TaskBook:
 
     def save(self) -> Path:
         """Сохранение заданий в файл."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            parent = self.path.parent.lstat()
+            if (stat.S_ISLNK(parent.st_mode) or parent.st_uid != os.getuid()
+                    or stat.S_IMODE(parent.st_mode) & 0o022):
+                raise ValueError("Каталог заданий должен принадлежать пользователю и быть закрыт для чужой записи")
         payload = {
             "format": self.FORMAT,
             "version": self.VERSION,
@@ -378,8 +383,11 @@ class TaskBook:
         temporary = Path(temporary_name)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(output.fileno(), mode)
                 output.write(json.dumps(payload, ensure_ascii=False, indent=2))
-            os.chmod(temporary, mode)
+                output.flush()
+                os.fsync(output.fileno())
             temporary.replace(self.path)
         finally:
             try:

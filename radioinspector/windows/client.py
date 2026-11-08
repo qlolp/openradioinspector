@@ -103,7 +103,8 @@ class PlatformClient:
     """Небольшой синхронный клиент; GUI вызывает его только в фоновом потоке."""
 
     def __init__(
-        self, base_url: str, *, timeout: float = 5.0, opener: Any = None
+        self, base_url: str, *, timeout: float = 5.0, opener: Any = None,
+        max_response_bytes: Optional[int] = None
     ) -> None:
         parsed = urlsplit(str(base_url).strip())
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -119,13 +120,20 @@ class PlatformClient:
             path = path[: -len("/api/v1")]
         self.base_url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
         self.timeout = float(timeout)
+        if max_response_bytes is not None and (type(max_response_bytes) is not int or not 1 <= max_response_bytes <= 16 * 1024 * 1024):
+            raise ValueError("Предел ответа должен быть целым от 1 до 16777216 байт")
+        self.max_response_bytes = max_response_bytes
         self._opener = opener or urllib.request.build_opener()
 
     def _request(
         self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
         *, expected_statuses: Optional[tuple[int, ...]] = None, strict_json: bool = False,
+        response_limit: Optional[int] = None,
         timeout: Optional[float] = None, exact_envelope: bool = False, preserve_data_json: bool = False
     ) -> Any:
+        limit = response_limit if response_limit is not None else MAX_RESPONSE_BYTES
+        if self.max_response_bytes is not None:
+            limit = min(limit, self.max_response_bytes)
         body = None
         headers = {"Accept": "application/json"}
         if payload is not None:
@@ -139,13 +147,13 @@ class PlatformClient:
         )
         try:
             with self._opener.open(request, timeout=self.timeout if timeout is None else min(self.timeout, timeout)) as response:
-                raw = response.read(MAX_RESPONSE_BYTES + 1)
+                raw = response.read(limit + 1)
                 status = getattr(response, "status", 200)
         except urllib.error.HTTPError as exc:
-            raw = exc.read(MAX_RESPONSE_BYTES + 1)
+            raw = exc.read(limit + 1)
             status = exc.code
-            if len(raw) > MAX_RESPONSE_BYTES:
-                raise PlatformClientError("Ответ сервера превышает 2 МБ", status=status, code="response_too_large") from exc
+            if len(raw) > limit:
+                raise PlatformClientError(f"Ответ сервера превышает {limit} байт", status=status, code="response_too_large") from exc
             error = self._decode_error(raw, status)
             raise error from exc
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
@@ -153,8 +161,8 @@ class PlatformClient:
             raise PlatformClientError(
                 f"Сервер недоступен: {reason}", code="connection_error"
             ) from exc
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise PlatformClientError("Ответ сервера превышает 2 МБ", status=status, code="response_too_large")
+        if len(raw) > limit:
+            raise PlatformClientError(f"Ответ сервера превышает {limit} байт", status=status, code="response_too_large")
         if expected_statuses is not None and status not in expected_statuses:
             raise PlatformClientError(
                 f"Неожиданный HTTP {status}; результат запроса не подтверждён",
@@ -346,7 +354,7 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         _segment(stream_id, "stream_id")
         query = urlencode({"stream_id": stream_id, "limit": limit})
-        return self._request("GET", f"/sessions/{session}/sweeps?{query}")
+        return self._request("GET", f"/sessions/{session}/sweeps?{query}", response_limit=16 * 1024 * 1024)
 
     def list_candidates(self, session_id: str) -> list[dict[str, Any]]:
         return self._request(

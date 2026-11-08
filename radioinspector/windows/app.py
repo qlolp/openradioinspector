@@ -724,7 +724,7 @@ class WindowsApp:
         selected = self.snapshot.sessions[index].get("id")
         if selected == self.session_id:
             return
-        self.session_id = selected
+        self._use_created_session({"id": selected})
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
         if hasattr(self, "threshold_panel"):
@@ -739,7 +739,6 @@ class WindowsApp:
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
-        self._revision += 1
         self.refresh()
 
     def selected_stream_id(self) -> Optional[str]:
@@ -747,6 +746,8 @@ class WindowsApp:
         return str(selection[0]) if selection else None
 
     def _selected_stream(self) -> Optional[dict[str, Any]]:
+        if not self.session_id or (self.snapshot.session or {}).get("id") != self.session_id:
+            return None
         stream_id = self.selected_stream_id()
         return next(
             (item for item in (self.snapshot.session or {}).get("streams", []) if item.get("id") == stream_id),
@@ -797,7 +798,7 @@ class WindowsApp:
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
-        if not stream:
+        if not stream or not changed:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
         current = worker.get("current") or stream.get("settings") or {}
@@ -934,6 +935,11 @@ class WindowsApp:
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:
+        self._revision += 1
+        self._last_selected_stream_id = None
+        form = getattr(self, "_active_form", None)
+        if form is not None:
+            self._destroy_form(form)
         self.session_id = str(session["id"])
         self.snapshot = PlatformSnapshot(
             self.snapshot.health, self.snapshot.capabilities, self.snapshot.sessions
@@ -1321,7 +1327,7 @@ class WindowsApp:
                 text="Выключить",
                 command=lambda: (
                     self._destroy_form(window),
-                    self._disable_policy(kind),
+                    self._disable_policy(kind, session_id=session_id, client=client),
                 ),
             ).pack(side="left", padx=(8, 0))
         else:
@@ -1345,7 +1351,10 @@ class WindowsApp:
             frame, textvariable=error_var, foreground="#b3261e", wraplength=560
         ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4)
 
-    def _disable_policy(self, kind: str) -> None:
+    def _disable_policy(self, kind: str, *, session_id=None, client=None) -> None:
+        if ((session_id is not None and session_id != self.session_id)
+                or (client is not None and client is not self.client)):
+            return
         if not self._require_session():
             return
         if kind not in ("detection", "handoff"):
@@ -1384,7 +1393,8 @@ class WindowsApp:
         )
 
     def _stream_action(self, action: str) -> None:
-        stream_id = self.selected_stream_id()
+        stream = self._selected_stream()
+        stream_id = stream.get("id") if stream else None
         if not self._require_session() or not stream_id:
             self.action_var.set("Сначала выберите поток.")
             return

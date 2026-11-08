@@ -208,7 +208,7 @@ async function platformIntegration() {
   const pending = app.click('run');
   const context = app.context;
   context.state = { sessionId: 'session/1', spectrumStreamId: 'tiny/1', sweeps: [sweep('a')] };
-  context.dom = { sessionSelect: { value: 'session/2' }, spectrumStream: { value: 'tiny/2' } };
+  context.dom = { sessionSelect: { value: 'session/2' }, spectrumStream: { value: 'tiny/2' }, candidateForm: {reset() {}, dataset: {}}, candidateEditor: {} };
   context.storeSession = () => {}; context.closeHandoff = () => {};
   context.refresh = () => assert(app.requests[0].options.signal.aborted, 'scope invalidates before refresh is dispatched');
   for (const name of ['updateComparison', 'changeSession', 'changeSpectrumStream']) {

@@ -109,7 +109,7 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
-    @Published var serverURL = "http://127.0.0.1:8770" {
+    @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset() } }
     }
     @Published var sessions: [PlatformSession] = []

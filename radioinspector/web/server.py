@@ -19,6 +19,7 @@ Events. Внешние зависимости не требуются, что п
 from __future__ import annotations
 
 import json
+import math
 import mimetypes
 import queue
 import re
@@ -96,6 +97,12 @@ class ApplicationState:
 
         if database:
             self.load_database(database)
+
+    def close(self) -> None:
+        with self._lock:
+            if self.store is not None:
+                self.store.close()
+                self.store = None
 
     # -- работа с базой данных ---------------------------------------------
 
@@ -300,6 +307,19 @@ class ApplicationState:
         return build_coverage_map(points, rows=rows, cols=cols).to_geojson()
 
 
+class RequestError(ValueError):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
+def finite_number(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("Число должно быть конечным")
+    return number
+
+
 class Handler(BaseHTTPRequestHandler):
     """Обработчик HTTP-запросов веб-интерфейса."""
 
@@ -417,7 +437,16 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- маршруты ----------------------------------------------------------
 
-    def do_GET(self) -> None:  # noqa: N802 - имя задано базовым классом
+    def do_GET(self) -> None:  # noqa: N802
+        try:
+            self._get()
+        except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
+            if urlparse(self.path).path.startswith("/api/v1/"):
+                self._send_api_error(400, "invalid_request", str(exc))
+            else:
+                self._send_json({"ok": False, "error": str(exc)}, 400)
+
+    def _get(self) -> None:
         parsed = urlparse(self.path)
         route = parsed.path
         query = parse_qs(parsed.query)
@@ -441,26 +470,30 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/coverage":
             rows = int(query.get("rows", ["30"])[0])
             cols = int(query.get("cols", ["30"])[0])
+            if not (1 <= rows <= 100 and 1 <= cols <= 100):
+                raise ValueError("Размеры сетки должны быть от 1 до 100")
             self._send_json(self.state.coverage(rows, cols))
             return
         if route == "/api/occupancy":
             raw = query.get("threshold", [None])[0]
-            threshold = float(raw) if raw not in (None, "") else None
+            threshold = finite_number(raw) if raw not in (None, "") else None
             self._send_json(self.state.occupancy(threshold))
             return
         if route == "/api/efficiency":
             raw = query.get("threshold", [None])[0]
-            threshold = float(raw) if raw not in (None, "") else None
+            threshold = finite_number(raw) if raw not in (None, "") else None
             self._send_json(self.state.efficiency(threshold))
             return
         if route == "/api/keywords":
             self._send_json({"keywords": CATALOG, "count": len(CATALOG)})
             return
         if route == "/api/measure":
-            start = float(query.get("start", ["0"])[0])
-            stop = float(query.get("stop", ["0"])[0])
+            start = finite_number(query.get("start", ["0"])[0])
+            stop = finite_number(query.get("stop", ["0"])[0])
+            if stop <= start:
+                raise ValueError("Конец диапазона должен быть больше начала")
             raw_norm = query.get("norm", [None])[0]
-            norm = float(raw_norm) if raw_norm not in (None, "") else None
+            norm = finite_number(raw_norm) if raw_norm not in (None, "") else None
             self._send_json(self.state.measurements(start, stop, norm))
             return
         if route == "/api/stream":
@@ -476,7 +509,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_error(404, "Not found")
 
-    def do_POST(self) -> None:  # noqa: N802 - имя задано базовым классом
+    def do_POST(self) -> None:  # noqa: N802
+        try:
+            self._post()
+        except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
+            self.close_connection = True
+            status = getattr(exc, "status", 400)
+            if urlparse(self.path).path.startswith("/api/v1/"):
+                self._send_api_error(status, "invalid_request", str(exc))
+            else:
+                self._send_json({"ok": False, "error": str(exc)}, status)
+
+    def _post(self) -> None:
         parsed = urlparse(self.path)
         route = parsed.path
         parts = route.strip("/").split("/")
@@ -512,6 +556,20 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, UnicodeError) as exc:
                 self._send_api_error(400, "invalid_request", str(exc))
                 return
+        elif not route.startswith("/api/v1/"):
+            if self.headers.get_content_type() != "application/json":
+                raise RequestError("Требуется application/json", 415)
+            origin = self.headers.get("Origin")
+            host = self.headers.get("Host", "")
+            if origin and origin not in ("http://" + host, "https://" + host):
+                raise RequestError("Чужой Origin запрещён", 403)
+            self.connection.settimeout(10)
+            try:
+                payload = self._read_bounded_analysis_request(65536)
+            except OverflowError as exc:
+                raise RequestError(str(exc), 413) from exc
+            if not isinstance(payload, dict):
+                raise ValueError("Ожидается объект JSON")
         else:
             payload = self._read_json()
 
@@ -520,27 +578,33 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/threshold":
-            line = self.state.threshold
-            if line is None:
-                self._send_json({"ok": False, "error": "нет активной линии порога"}, 400)
-                return
-            if "offset_db" in payload:
-                line = line.shifted(float(payload["offset_db"]))
-            if "levels" in payload and "frequencies" in payload:
+            with self.state._lock:
                 import numpy as np
+                line = self.state.threshold
+                if line is None:
+                    self._send_json({"ok": False, "error": "нет активной линии порога"}, 400)
+                    return
+                if "offset_db" in payload:
+                    line = line.shifted(finite_number(payload["offset_db"]))
+                if "levels" in payload and "frequencies" in payload:
+                    import numpy as np
 
-                line = ThresholdLine(
-                    np.asarray(payload["frequencies"], dtype=float),
-                    np.asarray(payload["levels"], dtype=float),
-                    line.index,
-                    line.unit,
-                )
-            self.state.threshold = line
-            if self.state.store is not None:
-                self.state.store.save_threshold(line)
-            self.state.reload_signals()
-            self._send_json({"ok": True, "threshold": line.as_dict()})
-            return
+                    line = ThresholdLine(
+                        np.asarray(payload["frequencies"], dtype=float),
+                        np.asarray(payload["levels"], dtype=float),
+                        line.index,
+                        line.unit,
+                    )
+                if (line.frequencies.ndim != 1 or line.levels.ndim != 1 or line.empty
+                        or not np.all(np.isfinite(line.frequencies)) or not np.all(np.isfinite(line.levels))
+                        or np.any(np.diff(line.frequencies) <= 0)):
+                    raise ValueError("Неверные частоты или уровни порога")
+                self.state.threshold = line
+                if self.state.store is not None:
+                    self.state.store.save_threshold(line)
+                self.state.reload_signals()
+                self._send_json({"ok": True, "threshold": line.as_dict()})
+                return
 
         if route == "/api/database":
             path = payload.get("path")
@@ -831,7 +895,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
         except InvestigationNotFoundError as exc:
             self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             self._send_api_error(400, "invalid_request", str(exc))
 
     def _api_v1_post(self, route: str, payload: dict) -> None:
@@ -1131,7 +1195,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(400, "unsupported_adapter", str(exc))
         except WorkerError as exc:
             self._send_api_error(400, "worker_error", str(exc))
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             self._send_api_error(400, "invalid_request", str(exc))
 
     def _stream_session_events(self, after: int = 0) -> None:
@@ -1216,8 +1280,7 @@ def create_server(
         raise ValueError("archive_max_bytes требует session_database")
     with ExitStack() as cleanup:
         state = ApplicationState(database=database, library=library)
-        if state.store is not None:
-            cleanup.callback(state.store.close)
+        cleanup.callback(state.close)
         if sessions is not None:
             session_service = sessions
         elif session_database:
@@ -1255,9 +1318,12 @@ def create_server(
         if task_scheduler is not None:
             control_scheduler = task_scheduler
         else:
-            book = task_book or TaskBook(
-                Path(tempfile.gettempdir()) / f"openradioinspector-task-book-{id(state)}.json"
-            )
+            if task_book is None:
+                task_directory = tempfile.TemporaryDirectory(prefix="openradioinspector-tasks-")
+                cleanup.callback(task_directory.cleanup)
+                book = TaskBook(Path(task_directory.name) / "tasks.json")
+            else:
+                book = task_book
             control_scheduler = TaskScheduler(book)
             cleanup.callback(control_scheduler.close)
         handler = type(
@@ -1282,7 +1348,25 @@ def create_server(
         httpd.automatic_detection = detection_scheduler
         httpd.automatic_completion = completion_scheduler
         httpd.control_scheduler = control_scheduler
-        cleanup.pop_all()
+        resources = cleanup.pop_all()
+        # Keep the original socket close inside ExitStack; the public close also
+        # owns the resources constructed here, including private task storage.
+        def close_owned_resources():
+            if task_scheduler is None:
+                control_scheduler.close()
+            if automatic_completion is None:
+                completion_scheduler.close()
+            if automatic_detection is None:
+                detection_scheduler.close()
+            if automatic_handoff is None:
+                automatic_scheduler.close()
+            if workers is None:
+                worker_manager.close()
+            if worker_manager.active_count:
+                raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
+            resources.close()
+        httpd.resource_cleanup = resources
+        httpd.server_close = close_owned_resources
         return httpd
 
 
@@ -1324,3 +1408,4 @@ def serve(
         httpd.worker_manager.close()
         httpd.server_close()
         httpd.session_service.close()
+        httpd.resource_cleanup.close()

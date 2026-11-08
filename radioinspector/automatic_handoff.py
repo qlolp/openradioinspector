@@ -180,7 +180,11 @@ class AutomaticHandoffScheduler:
                 raise ValueError("Политика может выбирать только receiver")
 
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Планировщик уже закрыт")
             previous = self._policies.get(session_id, DEFAULT_POLICY)
+            # A validated PATCH must not replay unrelated stale policy fields.
+            policy = {**copy.deepcopy(previous), **{key: policy[key] for key in payload}}
             self._policies[session_id] = copy.deepcopy(policy)
             if policy["enabled"] != previous["enabled"]:
                 runtime["consecutive_failures"] = 0

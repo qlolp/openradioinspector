@@ -152,7 +152,7 @@ class CompletionWindowsApp(WindowsApp):
                 text="Выключить",
                 command=lambda: (
                     self._destroy_form(window),
-                    self._disable_policy("completion"),
+                    self._disable_policy("completion", session_id=session_id, client=client),
                 ),
             ).pack(side="left", padx=(8, 0))
         else:
@@ -170,9 +170,12 @@ class CompletionWindowsApp(WindowsApp):
             frame, textvariable=error_var, foreground="#b3261e", wraplength=560
         ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4)
 
-    def _disable_policy(self, kind: str) -> None:
+    def _disable_policy(self, kind: str, *, session_id=None, client=None) -> None:
         if kind != "completion":
-            return super()._disable_policy(kind)
+            return super()._disable_policy(kind, session_id=session_id, client=client)
+        if ((session_id is not None and session_id != self.session_id)
+                or (client is not None and client is not self.client)):
+            return
         if not self._require_session():
             return
         client = self.client

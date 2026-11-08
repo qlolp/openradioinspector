@@ -1,0 +1,2608 @@
+[
+  {
+    "id": "PRRT_kwDOVh2Xd86zuXpu",
+    "pr": 2,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/SpektrKomandy/Sources/SpektrKomandy/FrequencyText.swift:24"
+    ],
+    "reason": "FrequencyText.swift uses multipliedReportingOverflow and addingReportingOverflow, returning nil on overflow.",
+    "head_sha_at_snapshot": "f804caddf028b9337179a5ed5c922ff3f0ba2f27",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/FrequencyText.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zuXp8",
+    "pr": 2,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/DvoynoyObzor/SerialPort.swift:88"
+    ],
+    "reason": "SerialPort.readLine no longer exits on Task cancellation; it finishes a reply or closes descriptor on incomplete/timeout using defer, preventing reuse of an undrained transaction.",
+    "head_sha_at_snapshot": "f804caddf028b9337179a5ed5c922ff3f0ba2f27",
+    "path_at_snapshot": "macos/DvoynoyObzor/SerialPort.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zuXqB",
+    "pr": 2,
+    "disposition": "not_applicable_with_reason",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/DvoynoyObzor/ContentView.swift:3",
+      "macos/DvoynoyObzor/ContentView.swift:81",
+      "macos/DvoynoyObzor/SerialPort.swift:19"
+    ],
+    "reason": "Active ContentView is now a remote client with no local instrument models. WindowCloseObserver disconnects UI; server measurements intentionally survive UI closure. SerialPort also has deinit close.",
+    "head_sha_at_snapshot": "f804caddf028b9337179a5ed5c922ff3f0ba2f27",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zuXqH",
+    "pr": 2,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/DvoynoyObzor/UltraModel.swift:63"
+    ],
+    "reason": "UltraModel.connect clears identityMatches, override, info/version/user metadata before identification.",
+    "head_sha_at_snapshot": "f804caddf028b9337179a5ed5c922ff3f0ba2f27",
+    "path_at_snapshot": "macos/DvoynoyObzor/UltraModel.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zuXqQ",
+    "pr": 2,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/SpektrKomandy/Sources/SpektrKomandy/TraceArchive.swift:44"
+    ],
+    "reason": "TraceClock.sessionFilename adds UUID; session filenames cannot collide merely from sharing a second.",
+    "head_sha_at_snapshot": "f804caddf028b9337179a5ed5c922ff3f0ba2f27",
+    "path_at_snapshot": "macos/DvoynoyObzor/UltraModel.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zvWoL",
+    "pr": 3,
+    "disposition": "not_applicable_with_reason",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/cli.py:469",
+      "radioinspector/task_scheduler.py:17"
+    ],
+    "reason": "Original scheduler.py and tasks --watch/add/enqueue CLI no longer exist. Current CLI tasks is read-only; task_scheduler owns an OS book lock and serializes API updates. No historical stale watcher invocation remains.",
+    "head_sha_at_snapshot": "23cc0c88716dfed67c33aa65b97688860692ce53",
+    "path_at_snapshot": "radioinspector/scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zvWoc",
+    "pr": 3,
+    "disposition": "not_applicable_with_reason",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/server.py:create_server",
+      "radioinspector/task_scheduler.py:TaskScheduler.configure"
+    ],
+    "reason": "Original serve --tasks entry point removed. Current create_server builds runtime opt-in TaskScheduler and serve closes it; activation is explicit through scheduler policy.",
+    "head_sha_at_snapshot": "23cc0c88716dfed67c33aa65b97688860692ce53",
+    "path_at_snapshot": "radioinspector/web/server.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zvWom",
+    "pr": 3,
+    "disposition": "not_applicable_with_reason",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/task_scheduler.py:run_once"
+    ],
+    "reason": "Original latest-start preemption implementation removed. Current TaskScheduler.run_once independently starts each due task and does not abort an already running task when an older queued task appears.",
+    "head_sha_at_snapshot": "23cc0c88716dfed67c33aa65b97688860692ce53",
+    "path_at_snapshot": "radioinspector/scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86zvWov",
+    "pr": 3,
+    "disposition": "not_applicable_with_reason",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/static/app.js"
+    ],
+    "reason": "Original coverage map rendering no longer exists in active app.js; there is no coverage-cell null subtraction path.",
+    "head_sha_at_snapshot": "23cc0c88716dfed67c33aa65b97688860692ce53",
+    "path_at_snapshot": "radioinspector/web/static/app.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z098_",
+    "pr": 5,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_service.py:259",
+      "tests/test_archive_regressions.py:test_creation_rejects_lifecycle_injection_and_does_not_mutate_payload"
+    ],
+    "reason": "create_session rejects non-draft state and client lifecycle timestamps before deserializing creation.",
+    "head_sha_at_snapshot": "bff9e19f6e497a717c9a7880e4bf0427b91d0bb3",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z099G",
+    "pr": 5,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/server.py:GET route parsing",
+      "radioinspector/web/server.py:POST route parsing"
+    ],
+    "reason": "GET and POST route parsing unquote session segment after splitting path.",
+    "head_sha_at_snapshot": "bff9e19f6e497a717c9a7880e4bf0427b91d0bb3",
+    "path_at_snapshot": "radioinspector/web/server.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z1psq",
+    "pr": 6,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/session_service.py:290",
+      "radioinspector/session_store.py:save_session",
+      "tests/test_archive_regressions.py:test_stream_collision_rejected_without_changing_original_session",
+      "tests/test_archive_regressions.py:test_store_collision_rolls_back_session_and_earlier_stream_writes"
+    ],
+    "reason": "Service rejects IDs already owned by another session; store independently checks existing row ownership inside transaction and rolls back on collision.",
+    "head_sha_at_snapshot": "d78d903dddab5ee72b37bb5ffd79cb555dfe053e",
+    "path_at_snapshot": "radioinspector/session_store.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z1psw",
+    "pr": 6,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_store.py:list_sweeps",
+      "radioinspector/session_store.py:list_observations",
+      "tests/test_archive_regressions.py:test_measurement_order_matches_time_not_arrival_or_string_precision"
+    ],
+    "reason": "Both list queries normalize zero microseconds to .000000Z before ORDER BY and LIMIT.",
+    "head_sha_at_snapshot": "d78d903dddab5ee72b37bb5ffd79cb555dfe053e",
+    "path_at_snapshot": "radioinspector/session_store.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z1psz",
+    "pr": 6,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_service.py:_save_transition_locked",
+      "radioinspector/session_store.py:save_session",
+      "tests/test_archive_regressions.py:test_failed_event_rolls_back_every_state_or_measurement_change",
+      "tests/test_archive_regressions.py:test_process_exit_during_event_insert_does_not_commit_partial_change"
+    ],
+    "reason": "Lifecycle saves and measurement writes pass event into same store transaction; publication occurs after save.",
+    "head_sha_at_snapshot": "d78d903dddab5ee72b37bb5ffd79cb555dfe053e",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z7Kkk",
+    "pr": 8,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/device_workers.py:_start_stream",
+      "tests/test_device_worker_lifecycle.py:test_simultaneous_starts_have_exactly_one_owner"
+    ],
+    "reason": "Per-key _WorkerLifecycle.lock covers registry lookup, adapter construction, registration and worker.start. Concurrent same-stream starts are serialized.",
+    "head_sha_at_snapshot": "37bf2499620123e52a9112d817c9490ac344bd0f",
+    "path_at_snapshot": "radioinspector/device_workers.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z8mFt",
+    "pr": 9,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_service.py:_start_investigation"
+    ],
+    "reason": "_start_investigation checks other runtime investigations on same receiver under service lock before persisting TUNING reservation.",
+    "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z8mFw",
+    "pr": 9,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_service.py:enqueue_investigation"
+    ],
+    "reason": "enqueue_investigation never checks session state. Deterministic in-memory reproduction stops a running session then enqueues a new candidate investigation successfully as queued.",
+    "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z8mFy",
+    "pr": 9,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/session_service.py:321",
+      "radioinspector/session_service.py:_save_investigation_locked"
+    ],
+    "reason": "stop_session first saves/publishes stopped session, then saves each cancellation separately. Cancellation failure leaves terminal stopped session with open investigations; transactions remain split.",
+    "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z8mF1",
+    "pr": 9,
+    "disposition": "needs_validation",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/session_store.py:matching_observation_ids",
+      "radioinspector/session_service.py:complete_investigation"
+    ],
+    "reason": "Historical rows are now time-filtered inside SQL and only IDs returned, resolving Python history parsing. Query still uses CASE normalized time and complete_investigation holds service lock; index usability/performance of long archives needs measurement before asserting residual P1.",
+    "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
+    "path_at_snapshot": "radioinspector/session_store.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z9_Ai",
+    "pr": 10,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/web/static/platform.js:changeSession",
+      "radioinspector/web/static/platform.js:createCandidate",
+      "radioinspector/session_service.py:create_candidate"
+    ],
+    "reason": "changeSession clears sweeps/policies but never candidate form fields or dataset.observationId. create_candidate validates stream ownership but does not validate referenced observation IDs. Old-session measurements can be submitted under new session.",
+    "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
+    "path_at_snapshot": "radioinspector/web/static/platform.js",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z9_Al",
+    "pr": 10,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/static/platform.js:725"
+    ],
+    "reason": "drawWaterfall flattens full history and spreads levels into Math.min/Math.max. Node reproduction with 40*4096 levels throws RangeError.",
+    "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
+    "path_at_snapshot": "radioinspector/web/static/platform.js",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z9_Ao",
+    "pr": 10,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/static/platform.js:drawWaterfall"
+    ],
+    "reason": "Waterfall column calculation uses sample index/count exclusively; equal-count [100,150,200] and [100,199,200] grids assign their different center frequencies same column.",
+    "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
+    "path_at_snapshot": "radioinspector/web/static/platform.js",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z9_Av",
+    "pr": 10,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/static/platform.js:910",
+      "radioinspector/web/server.py:_stream_session_events"
+    ],
+    "reason": "SSE handler reads JSON.parse(message.data) directly as event; server emits api_payload(event). session_id/event_type are undefined at envelope level, defeating relevance and measurement throttle.",
+    "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
+    "path_at_snapshot": "radioinspector/web/static/platform.js",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86z_LCw",
+    "pr": 11,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/web/server.py:GET investigations/next",
+      "radioinspector/session_service.py:enqueue_investigation"
+    ],
+    "reason": "GET investigations/next branch precedes ID lookup, while enqueue accepts ID next. Existing record remains shadowed.",
+    "head_sha_at_snapshot": "07175bf9121e076214a0b1bb56f3a30512819e74",
+    "path_at_snapshot": "radioinspector/web/server.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860Bc-3",
+    "pr": 12,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_handoff.py:configure"
+    ],
+    "reason": "configure copies policy under lock, releases during validation and replaces whole policy under second lock. Deterministic gated _number reproduction re-enables policy after acknowledged concurrent disable.",
+    "head_sha_at_snapshot": "0cedd2b7f8a3a4577e08ef6e3f20859831bd4a7d",
+    "path_at_snapshot": "radioinspector/automatic_handoff.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860Bc-8",
+    "pr": 12,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_handoff.py:run_once",
+      "radioinspector/automatic_handoff.py:_run"
+    ],
+    "reason": "run_once holds session-wide dispatch_lock through synchronous start_investigation/tune; background _dispatching also keys whole session. Independent receiver remains queued while first tune blocks.",
+    "head_sha_at_snapshot": "0cedd2b7f8a3a4577e08ef6e3f20859831bd4a7d",
+    "path_at_snapshot": "radioinspector/automatic_handoff.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ElW2",
+    "pr": 13,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_detection.py:configure"
+    ],
+    "reason": "configure copies policy then releases lock during validation before replacing full policy. Deterministic gated _number reproduction re-enables policy after acknowledged disable.",
+    "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
+    "path_at_snapshot": "radioinspector/automatic_detection.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ElW7",
+    "pr": 13,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_detection.py:run_once"
+    ],
+    "reason": "run_once marks sweep seen in finally even when create_candidate raises, removing it from future retries after transient persistence failure.",
+    "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
+    "path_at_snapshot": "radioinspector/automatic_detection.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ElXE",
+    "pr": 13,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_detection.py:__init__",
+      "radioinspector/automatic_detection.py:configure",
+      "radioinspector/automatic_detection.py:_mark_seen"
+    ],
+    "reason": "history_limit accepts 100 while enable snapshot/run_once read 1000; _mark_seen evicts earlier snapshot IDs before first pass, treating retained archive as newly opted-in data.",
+    "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
+    "path_at_snapshot": "radioinspector/automatic_detection.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ElXJ",
+    "pr": 13,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/automatic_detection.py:_duplicate",
+      "radioinspector/automatic_detection.py:_remember"
+    ],
+    "reason": "_remember stores frequency/expiry only, while cooldown duplicate test ignores prior bandwidth; protected-state comparison correctly includes candidate bandwidth, so resolving broad candidate changes suppression radius.",
+    "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
+    "path_at_snapshot": "radioinspector/automatic_detection.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860GINO",
+    "pr": 14,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/windows/app.py:_fill",
+      "radioinspector/windows/app.py:_select_stream",
+      "radioinspector/windows/scheduler_app.py:SchedulerWindowsApp"
+    ],
+    "reason": "Active SchedulerWindowsApp inherits _select_stream unchanged; handler always resets tune fields even when changed=False. Headless reproduction preserved same selection but overwrote 102500000/AM edits with 100000000/FM.",
+    "head_sha_at_snapshot": "d4eef03e73d7cea8a1111f45f8201014e2d665d1",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860GINU",
+    "pr": 14,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/windows/app.py:_select_session",
+      "radioinspector/windows/app.py:_stream_action",
+      "radioinspector/windows/app.py:_render_controls"
+    ],
+    "reason": "Active inherited _select_session changes session_id without clearing snapshot/stream selection; stream actions combine new session with old stream. Controls only test nonempty selection and no snapshot session identity.",
+    "head_sha_at_snapshot": "d4eef03e73d7cea8a1111f45f8201014e2d665d1",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860IToV",
+    "pr": 15,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/windows/app.py:_spectrum_stream_id",
+      "radioinspector/windows/app.py:refresh",
+      "radioinspector/windows/client.py:snapshot"
+    ],
+    "reason": "Active inherited _spectrum_stream_id consults stale snapshot without checking its session ID. Headless SchedulerWindowsApp reproduction with session_id B/snapshot A returns old-spectrum; reconnect None with old stream also violates client.snapshot validation.",
+    "head_sha_at_snapshot": "6fc8ca18f6f4dcdee9f964bd13ad3f24164b60d2",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860IToc",
+    "pr": 15,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/windows/client.py:snapshot",
+      "radioinspector/windows/client.py:MAX_RESPONSE_BYTES"
+    ],
+    "reason": "Client snapshot requests 40 full sweeps before applying display decimation, while _request rejects >2MB. Supported 4096 point sweeps exceed that cap as history fills.",
+    "head_sha_at_snapshot": "6fc8ca18f6f4dcdee9f964bd13ad3f24164b60d2",
+    "path_at_snapshot": "radioinspector/windows/client.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860KM4n",
+    "pr": 16,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/windows/app.py:_use_created_session",
+      "radioinspector/windows/app.py:_drain_messages"
+    ],
+    "reason": "Active inherited _use_created_session clears snapshot/tree but does not increment _revision. Headless reproduction adopting C preserves revision 7, so pending revision-7 old-session snapshot is accepted.",
+    "head_sha_at_snapshot": "e7306c48580869f7fdf0dcede32055133f37de8a",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860LncB",
+    "pr": 17,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/windows/app.py:_open_policy_form",
+      "radioinspector/windows/app.py:_disable_policy",
+      "radioinspector/windows/completion_app.py:_disable_policy"
+    ],
+    "reason": "Form disable callback invokes _disable_policy(kind) at click time, which captures current self.session_id. CompletionWindowsApp delegates detection/handoff to this base method; SchedulerWindowsApp inherits it. Forms are not invalidated on session change.",
+    "head_sha_at_snapshot": "f225cdbf5ecd102e73c573ea84c24befdc3120e9",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860NUQY",
+    "pr": 18,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/web/server.py:PlatformHandler.do_GET",
+      "tests/test_platform.py:test_session_rest_lifecycle"
+    ],
+    "reason": "Current server implements /api/v1 sessions/workers/archive and clients share that contract. Historical missing-backend finding superseded.",
+    "head_sha_at_snapshot": "2ec4a4e2bfadadc261be0daacb062aa44cf2555f",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860NUQf",
+    "pr": 18,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift:PlatformAddress.init"
+    ],
+    "reason": "PlatformAddress explicitly converts root path / to empty before endpoint concatenation.",
+    "head_sha_at_snapshot": "2ec4a4e2bfadadc261be0daacb062aa44cf2555f",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860NUQn",
+    "pr": 18,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/DvoynoyObzor/ContentView.swift:308"
+    ],
+    "reason": "reloadSessions captures generation/client and checks both after await, including catch before applying error.",
+    "head_sha_at_snapshot": "2ec4a4e2bfadadc261be0daacb062aa44cf2555f",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860O5x9",
+    "pr": 19,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformWorkflows.swift:375"
+    ],
+    "reason": "PlatformHandoffPolicyDraft custom encode uses container.encode(optional), which encodes explicit null instead of encodeIfPresent.",
+    "head_sha_at_snapshot": "60546957f132f93c109dac374ceb4990ce88030e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformWorkflows.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860O5yA",
+    "pr": 19,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift:828"
+    ],
+    "reason": "snapshot catches candidate/investigation list failures individually into workflowErrors and continues applying measurements and worker status. Histories remain unbounded but no longer permanently freeze live snapshot.",
+    "head_sha_at_snapshot": "60546957f132f93c109dac374ceb4990ce88030e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFB2",
+    "pr": 20,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/serial_instruments.py:PosixSerialTransport.__init__"
+    ],
+    "reason": "POSIX transport builds raw termios attributes manually and assigns speed indexes 4/5; no unavailable C-only Python functions remain.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFB5",
+    "pr": 20,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/serial_instruments.py:ARDV1SerialAdapter.poll"
+    ],
+    "reason": "ARDV1SerialAdapter.poll checks unconfirmed frequency and calls _tune before LM; metadata distinguishes command acknowledgement from readback.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFB_",
+    "pr": 20,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/device_workers.py:start_session",
+      "radioinspector/device_workers.py:_start_stream"
+    ],
+    "reason": "start_session catches only UnsupportedAdapterError; synchronous WorkerError in create_device_adapter escapes and aborts remaining admissions. Mock factory reproduction with 2 streams raised after one factory call. Per-stream admission guard only serializes lifecycle, not failure handling.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/device_workers.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFCC",
+    "pr": 20,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/device_workers.py:_lifecycle",
+      "radioinspector/serial_instruments.py:PosixSerialTransport.__init__",
+      "radioinspector/session_service.py:create_session",
+      "tests/test_serial_session_validation.py"
+    ],
+    "reason": "Manager keys ownership by session/stream; POSIX opens without TIOCEXCL/flock and Windows pyserial ownership is transport-specific. Session validation rejects aliases only within single new session. Two separate tinysa-serial COM8 sessions are accepted; no cross-session physical reservation exists.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFCD",
+    "pr": 20,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/serial_instruments.py:_SerialFraming.read_until_quiet",
+      "4a4384f03442fb2b389386c772003e8b1483b533:radioinspector/serial_instruments.py",
+      "4a4384f03442fb2b389386c772003e8b1483b533:tests/test_tinysa_setup_guard_pty.py"
+    ],
+    "reason": "Base _SerialFraming.read_until_quiet still terminates after a quiet interval before prompt, so slow scans fail closed early. Pending PR89 replaces quiet-gap completion with terminal prompt/deadline; fix is absent from audited SHA.",
+    "covered_by_pending_89": true,
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFCH",
+    "pr": 20,
+    "disposition": "fixed_with_evidence",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P1",
+    "evidence": [
+      "radioinspector/serial_instruments.py:TinySASerialAdapter._acknowledge",
+      "radioinspector/serial_instruments.py:TinySASerialAdapter._prepare",
+      "tests/test_tinysa_setup_guard.py:test_every_setup_rejection_and_ambiguous_reply_stops_immediately"
+    ],
+    "reason": "_prepare runs every setup command through _acknowledge, rejecting any nonempty body and missing/ambiguous shell prompt before readiness; generator output remains unconfirmed until all setup succeeds.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860SFCJ",
+    "pr": 20,
+    "disposition": "confirmed_bug",
+    "base_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "priority": "P2",
+    "evidence": [
+      "radioinspector/device_workers.py:DeviceWorker.stop",
+      "radioinspector/serial_instruments.py:TinySASerialAdapter.poll"
+    ],
+    "reason": "DeviceWorker.stop only sets event/wakes queue/joins; adapter scan blocks in synchronous 90s _transact without stop event or interruption. Per-key lifecycle guard cannot cancel transport polling; transport closes only after worker finishes.",
+    "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
+    "path_at_snapshot": "radioinspector/serial_instruments.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860TymG",
+    "pr": 21,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/session_store.py",
+        "line": 531,
+        "anchor": "if event is None:"
+      },
+      {
+        "validation": "tests/test_archive_capacity.py::test_optional_event_single_store_writes_use_the_same_guard"
+      }
+    ],
+    "reason": "Single-record writers have explicit event=None insertion transactions; batch length check is bypassed correctly.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "3c9316a909ab398657227940ee7d39d85c2330f4",
+    "path_at_snapshot": "radioinspector/session_store.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860YKNL",
+    "pr": 22,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/Package.swift",
+        "line": 5,
+        "anchor": "Package("
+      },
+      {
+        "validation": "macos/SpektrKomandy/Package.swift; macos/DvoynoyObzor.xcodeproj/project.pbxproj; macos/DvoynoyObzor/DvoynoyObzorApp.swift"
+      }
+    ],
+    "reason": "Both Swift package manifests, shared Xcode project/scheme, and app entry point are tracked. Build scaffolding exists; macOS compilation was not available.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "92e9d28b82e10b1beef7ec5766ec171b8d3f4987",
+    "path_at_snapshot": "macos/README.md",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860YKNO",
+    "pr": 22,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 666,
+        "anchor": "port: targetPort, capabilities: [\"tune\", \"audio\"]"
+      },
+      {
+        "validation": "PlatformAPITests.testSerialProfileUsesExplicitAdaptersAndDistinctPorts (source inspected; Swift unavailable)"
+      }
+    ],
+    "reason": "createSerialSession advertises only tune/audio for the receiver; hardware_decode is excluded from this physical profile.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "92e9d28b82e10b1beef7ec5766ec171b8d3f4987",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860YTq_",
+    "pr": 23,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/session_analytics.py",
+        "line": 131,
+        "anchor": "observation_totals ="
+      },
+      {
+        "validation": "_sqlite_analytics"
+      }
+    ],
+    "reason": "SQLite analytics uses COUNT/MIN/MAX/SUM aggregates, DISTINCT units, and limit=1 latest queries instead of materializing observation history. SQL still executes under service lock, but the reviewed Python row materialization is removed.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "030680d18808fe9c82dfc273ea8ad1f11027f10b",
+    "path_at_snapshot": "radioinspector/session_analytics.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860Ze_U",
+    "pr": 24,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/analytics.js",
+        "line": 83,
+        "anchor": "function setSession"
+      },
+      {
+        "validation": "tests/test_webui_analytics.py"
+      }
+    ],
+    "reason": "Analytics state moved out of platform.js into analytics.js, whose setSession clears summary/error/pending and increments generation immediately.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "9ec1d4529061fc740595abd29846378ca8a2bb5b",
+    "path_at_snapshot": "radioinspector/web/static/platform.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860bqFq",
+    "pr": 25,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/workflows.py",
+        "line": 79,
+        "anchor": "serial: bool = False"
+      },
+      {
+        "validation": "tests/test_windows_workflows.py::test_explicit_serial_profile_assigns_adapters_without_claiming_decode"
+      }
+    ],
+    "reason": "The shared session_payload now accepts serial=False and constructs explicit serial adapter settings.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "b1dd016da765f79aa075c7d5774ff325678dd990",
+    "path_at_snapshot": "radioinspector/windows/app.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860dVDE",
+    "pr": 27,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/archive_ingest.py",
+        "line": 69,
+        "anchor": "def _ensure_finite_numbers"
+      },
+      {
+        "validation": "tests/test_archive_ingest.py::test_overflowing_nested_number_is_rejected_before_posts"
+      }
+    ],
+    "reason": "Strict parse_float and recursive finite-number traversal reject overflow throughout nested metadata before requests.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "9cfc5b6aa59ec38340367fba74f2ab81813514e3",
+    "path_at_snapshot": "radioinspector/archive_ingest.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860eGaR",
+    "pr": 28,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/archive_ingest.py",
+        "line": 293,
+        "anchor": "max_response_bytes=None"
+      },
+      {
+        "validation": "tests/test_archive_export.py"
+      }
+    ],
+    "reason": "export_archive explicitly opts out of the ingestion response cap with max_response_bytes=None.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "a6cab4f322e055a7e3650e30c8b7e93dcc48c652",
+    "path_at_snapshot": "radioinspector/archive_ingest.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860eyjL",
+    "pr": 30,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/archive_stream.py",
+        "line": 334,
+        "anchor": "if resume and not Path(checkpoint_path).exists():"
+      },
+      {
+        "validation": "tests/test_archive_stream.py::test_resume_requires_existing_checkpoint"
+      }
+    ],
+    "reason": "Public import_stream and internal snapshot import reject a missing resume checkpoint before batches.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "7a1ca01b87942828c690cd02e83f98d114908ea9",
+    "path_at_snapshot": "radioinspector/archive_stream.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860eyjN",
+    "pr": 30,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/archive_stream.py",
+        "line": 340,
+        "anchor": "shutil.copyfileobj(input_file, output_file)"
+      },
+      {
+        "validation": "tests/test_archive_stream.py::test_import_uses_immutable_input_snapshot"
+      }
+    ],
+    "reason": "Public import_stream copies input into a private temporary snapshot before both validation and ingestion passes.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "7a1ca01b87942828c690cd02e83f98d114908ea9",
+    "path_at_snapshot": "radioinspector/archive_stream.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860eyjT",
+    "pr": 30,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/archive_stream.py",
+        "line": 226,
+        "anchor": "if checkpoint.destination != destination:"
+      },
+      {
+        "validation": "tests/test_archive_stream.py::test_checkpoint_rejects_other_destination"
+      }
+    ],
+    "reason": "Checkpoint includes destination and rejects a destination mismatch before replaying progress.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "7a1ca01b87942828c690cd02e83f98d114908ea9",
+    "path_at_snapshot": "radioinspector/archive_stream.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860f0ot",
+    "pr": 31,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/automatic_completion.py",
+        "line": 245,
+        "anchor": "if current_version != policy_version or not current_enabled:"
+      },
+      {
+        "validation": "tests/test_automatic_completion.py::test_disable_during_preflight_prevents_completion"
+      }
+    ],
+    "reason": "Completion captures a policy version and rechecks version/enabled under the policy lock before completing the investigation.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "05f54d99b4ca25c8a8f63c025f91ce965d63d904",
+    "path_at_snapshot": "radioinspector/automatic_completion.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860f0o2",
+    "pr": 31,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/session_store.py",
+        "line": 232,
+        "anchor": "CREATE INDEX IF NOT EXISTS observations_target_time"
+      },
+      {
+        "validation": "tests/test_automatic_completion.py::test_sqlite_preflight_is_bounded"
+      }
+    ],
+    "reason": "Preflight supplies minimum_observations as LIMIT; store filters normalized timestamp in SQL using observations_target_time expression index.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "05f54d99b4ca25c8a8f63c025f91ce965d63d904",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860gWdA",
+    "pr": 32,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/completion.js",
+        "line": 163,
+        "anchor": "const actionPath ="
+      },
+      {
+        "validation": "configureAutomaticCompletion"
+      }
+    ],
+    "reason": "Submission captures sessionId/generation, builds actionPath from the captured ID and rejects stale continuation after awaits.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "81018fc7d501eda58c237b49cb078f5072c205c0",
+    "path_at_snapshot": "radioinspector/web/static/completion.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860gWdG",
+    "pr": 32,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/completion.js",
+        "line": 129,
+        "anchor": "if (!state.completionFormDirty)"
+      },
+      {
+        "validation": "refreshCompletion/loadReceivers"
+      }
+    ],
+    "reason": "Refresh fetches status and session together, then checks generation and current form dirty flag synchronously before loading receiver options.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "81018fc7d501eda58c237b49cb078f5072c205c0",
+    "path_at_snapshot": "radioinspector/web/static/completion.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860gWdI",
+    "pr": 32,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/server.py",
+        "line": 701,
+        "anchor": "analytics_summary(self.sessions"
+      },
+      {
+        "validation": "tests/test_webui_analytics.py; radioinspector/web/static/analytics.js"
+      }
+    ],
+    "reason": "Integrated candidate serves analytics in an independent analytics.js asset and implements the backend analytics endpoint; the former missing integration is present.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "81018fc7d501eda58c237b49cb078f5072c205c0",
+    "path_at_snapshot": "tests/test_webui.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860oxDn",
+    "pr": 33,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "tests/test_windows_client.py",
+        "line": 10,
+        "anchor": "from radioinspector.windows.app import"
+      },
+      {
+        "validation": "tests/test_windows_analytics.py::test_analytics_text_preserves_peak_and_source_units"
+      }
+    ],
+    "reason": "test_windows_client no longer imports analytics_text from app.py; the implementation and its tests live in analytics_app.py/test_windows_analytics.py.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "86694f710bdebcc50741ee752982e3765c47c02e",
+    "path_at_snapshot": "tests/test_windows_client.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860oxDt",
+    "pr": 33,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "pyproject.toml",
+        "line": 55,
+        "anchor": "radioinspector-windows ="
+      },
+      {
+        "validation": "radioinspector/windows/__main__.py; tests/test_windows_workflows.py::test_installed_windows_launcher_uses_scheduler_app"
+      }
+    ],
+    "reason": "Installed script and module launcher both call scheduler_app.main; SchedulerWindowsApp inherits completion through AnalyticsWindowsApp.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "86694f710bdebcc50741ee752982e3765c47c02e",
+    "path_at_snapshot": "radioinspector/windows/__main__.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860oxDy",
+    "pr": 33,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/completion_app.py",
+        "line": 26,
+        "anchor": "policies, textvariable=self.completion_var"
+      },
+      {
+        "validation": "tests/test_windows_workflows.py::test_completion_status_is_bound_to_a_visible_label"
+      }
+    ],
+    "reason": "completion_var is bound to a visible ttk.Label that is placed with grid.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "86694f710bdebcc50741ee752982e3765c47c02e",
+    "path_at_snapshot": "radioinspector/windows/completion_app.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860qpD3",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Package.swift",
+        "line": 4,
+        "anchor": "Package("
+      },
+      {
+        "validation": "macos/DvoynoyObzor.xcodeproj/project.pbxproj; macos/DvoynoyObzor/DvoynoyObzorApp.swift"
+      }
+    ],
+    "reason": "Tracked Swift package definitions, Xcode project and DvoynoyObzorApp entry point provide the missing build targets. Native build execution unavailable.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "docs/automatic-completion.md",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860qpEF",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 1386,
+        "anchor": "ForEach(model.receiver?.tuneModes"
+      },
+      {
+        "validation": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift::PlatformStream.tuneModes/createSerialSession"
+      }
+    ],
+    "reason": "Mode picker uses receiver.tuneModes and physical serial stream lacks hardware_decode, yielding FM/AM choices.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860qpEP",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 1261,
+        "anchor": "handoffReceiverStreamID = policy.receiverStreamId ?? \"\""
+      },
+      {
+        "validation": "macos/DvoynoyObzor/PaneChrome.swift:432"
+      }
+    ],
+    "reason": "Handoff form preserves null receiverStreamId as empty string and picker includes unrestricted empty-string option.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860sc6F",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 1251,
+        "anchor": "detectionStreamID = policy.streamId ?? \"\""
+      },
+      {
+        "validation": "macos/DvoynoyObzor/PaneChrome.swift:466"
+      }
+    ],
+    "reason": "Detection form preserves null streamId as empty string and picker includes unrestricted analyzer option.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860tF8U",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 103,
+        "anchor": "class PlatformRedirectGuard"
+      },
+      {
+        "validation": "PlatformResponseDelegate.urlSession(willPerformHTTPRedirection); PlatformDownloadDelegate redirect callback"
+      }
+    ],
+    "reason": "Production response/download delegates reject redirects before forwarding and PlatformBaseURL requires HTTPS for non-loopback hosts.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860t71g",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 103,
+        "anchor": "class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate"
+      },
+      {
+        "validation": "PlatformResponseDelegate/PlatformDownloadDelegate redirect callbacks"
+      }
+    ],
+    "reason": "Redirect guard explicitly conforms to URLSessionTaskDelegate; production delegates also conform to task-capable data/download protocols.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860t71o",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 911,
+        "anchor": "private func measurementsWithResponseFallback"
+      },
+      {
+        "validation": "snapshot(sweepsRequest)"
+      }
+    ],
+    "reason": "Snapshot sweep history uses measurementsWithResponseFallback, halves limit on responseTooLarge, and retries down to one.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860t71s",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 601,
+        "anchor": "configureAutomaticHandoff(enabled: nil)"
+      },
+      {
+        "validation": "saveAutomaticDetection -> configureAutomaticDetection(enabled:nil)"
+      }
+    ],
+    "reason": "Parameter-only save methods pass enabled:nil; explicit enable actions pass true separately.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860uh1Z",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 90,
+        "anchor": "guard octets.count == 4"
+      },
+      {
+        "validation": "platformLoopbackHost"
+      }
+    ],
+    "reason": "Loopback policy splits exactly four octets, requires first octet 127, and validates every octet as 0...255 integer; DNS suffix examples are rejected.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860uh1g",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 158,
+        "anchor": "if body.count > maximumBytes"
+      },
+      {
+        "validation": "PlatformResponseDelegate.didReceive(data)"
+      }
+    ],
+    "reason": "Production receiveWithDelegate buffers incrementally and cancels dataTask immediately when maximumBytes is exceeded. Injected test sessions use their own transport.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860uh1i",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 285,
+        "anchor": "frequenciesHz.allSatisfy({ $0 >= 0 })"
+      },
+      {
+        "validation": "PlatformSweep.init(from:)"
+      }
+    ],
+    "reason": "Sweep decoding requires all frequencies nonnegative, rejecting the Int64.min payload before downstream subtraction.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ujhK",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/server.py",
+        "line": 701,
+        "anchor": "analytics_summary(self.sessions"
+      },
+      {
+        "validation": "radioinspector/session_analytics.py"
+      }
+    ],
+    "reason": "Server routes analytics/summary to implemented session_analytics.analytics_summary.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600r-Q",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 115,
+        "anchor": "class PlatformResponseDelegate: NSObject, URLSessionDataDelegate"
+      },
+      {
+        "validation": "didReceive(response) callback source"
+      }
+    ],
+    "reason": "PlatformResponseDelegate now conforms to URLSessionDataDelegate and response callback has URLSession.ResponseDisposition signature.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601I-b",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "not_applicable_with_reason",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformAPITests.swift",
+        "line": 533,
+        "anchor": "guard poll(&readiness, 1, 5000) == 1"
+      },
+      {
+        "validation": "Swift tests not executed (compiler unavailable)"
+      }
+    ],
+    "reason": "The reviewed real-HTTP response-limit test and its fixed startup sleep are absent from current PlatformAPITests. Current real-HTTP cancellation test uses a bounded poll/read port handshake. Removal eliminates this exact flaky path but does not establish equivalent real-network response-limit coverage.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformAPITests.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601YQZ",
+    "pr": 34,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "confirmed_bug",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 87,
+        "anchor": "let normalized = host.lowercased()"
+      },
+      {
+        "validation": "PlatformBaseURL.init calls platformLoopbackHost(components.host!)"
+      }
+    ],
+    "reason": "platformLoopbackHost lowercases but does not remove IPv6 host brackets; it accepts ::1 only. Foundation URLComponents.host supplies [::1] for bracketed IPv6 URL on the platform described in the review, so HTTP IPv6 loopback remains rejected. Static confirmation; native runtime unavailable.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860uAPR",
+    "pr": 37,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/server.py",
+        "line": 701,
+        "anchor": "analytics_summary(self.sessions"
+      },
+      {
+        "validation": "radioinspector/session_analytics.py"
+      }
+    ],
+    "reason": "Integrated server and analytics module implement the documented versioned analytics endpoint.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "43bfe9dd061345d9eb7381b2ba30f9a8c11ae5e9",
+    "path_at_snapshot": "docs/api-v1.md",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860uAPU",
+    "pr": 37,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/workflows.py",
+        "line": 123,
+        "anchor": "elif serial:"
+      },
+      {
+        "validation": "tests/test_windows_workflows.py::test_explicit_serial_profile_assigns_adapters_without_claiming_decode"
+      }
+    ],
+    "reason": "Windows session payload supports explicit serial flag, physical adapter names, and FM/AM restriction without hardware_decode.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "43bfe9dd061345d9eb7381b2ba30f9a8c11ae5e9",
+    "path_at_snapshot": "docs/api-v1.md",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ynYY",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 108,
+        "anchor": "def _save_locked"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_failed_save_is_retried_until_terminal_state_persists"
+      }
+    ],
+    "reason": "Scheduler maintains _dirty until save succeeds, calls _save_locked on later passes and close, including terminal-only passes.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860ynYZ",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 99,
+        "anchor": "self._book_lock = _acquire_book_lock"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_second_owner_cannot_recover_or_overwrite_book"
+      }
+    ],
+    "reason": "Scheduler acquires exclusive book lock before book.load and crash recovery; rejected owners cannot recover or persist.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860yxzd",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 125,
+        "anchor": "def enqueue"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_closed_scheduler_cannot_overwrite_new_owner"
+      }
+    ],
+    "reason": "enqueue rejects _closed while holding scheduler lock before adding or saving.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd860yxzg",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 321,
+        "anchor": "if value and not Path(value).is_file():"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_empty_optional_input_path_is_absent"
+      }
+    ],
+    "reason": "Input-file check uses if value, treating optional empty path as absent.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600rci",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 279,
+        "anchor": "if self._closed or not self._enabled:"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_concurrent_enable_cannot_reopen_closed_scheduler"
+      }
+    ],
+    "reason": "configure checks _closed within the same lock as enable transition; run_once also rejects closed instances.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600rcm",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/tasks.py",
+        "line": 372,
+        "anchor": "mode = stat.S_IMODE"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_atomic_save_preserves_permissions_and_defaults_to_owner_only"
+      }
+    ],
+    "reason": "TaskBook captures existing mode and reapplies it on atomic staging file; new books default to 0600. A separate pathname race remains tracked in PR40 security finding.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/tasks.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601InB",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 233,
+        "anchor": "stopping = ("
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_reenable_waits_for_previous_thread_to_finish"
+      }
+    ],
+    "reason": "Enable detects a stopping live thread under lock, joins it outside lock, and retries before clearing stop or starting replacement.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601XrS",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/tasks.py",
+        "line": 375,
+        "anchor": "descriptor, temporary_name = tempfile.mkstemp("
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_atomic_save_does_not_follow_predictable_tmp_symlink"
+      }
+    ],
+    "reason": "TaskBook staging now uses mkstemp unique exclusive creation rather than predictable tasks.json.tmp. A different post-close pathname substitution remains separately confirmed.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/tasks.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601Xzk",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 238,
+        "anchor": "if not stopping:"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_repeated_enable_does_not_join_healthy_thread"
+      }
+    ],
+    "reason": "Already-enabled healthy threads return status immediately; join is restricted to the stopping branch.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601jyG",
+    "pr": 38,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "confirmed_bug",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/tasks.py",
+        "line": 382,
+        "anchor": "os.chmod(temporary, mode)"
+      },
+      {
+        "validation": "Executed candidate source via in-memory module; patched chmod entry to simulate watcher replacing temporary path; target_mode_after=0o644, book_is_symlink=true"
+      }
+    ],
+    "reason": "mkstemp descriptor is closed at end of fdopen context before os.chmod(temporary, mode). Temporary-only deterministic substitution immediately before chmod changed a target fixture mode from 0600 to 0644 and installed the symlink as TaskBook. Parent ownership/writeability is not checked.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
+    "path_at_snapshot": "radioinspector/tasks.py",
+    "server_resolved": false,
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600E3R",
+    "pr": 40,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/docx_report.py",
+        "line": 119,
+        "anchor": "PAGEREF"
+      },
+      {
+        "validation": "tests/test_docx_report.py::test_document_has_valid_package_and_report_content"
+      }
+    ],
+    "reason": "TOC uses PAGEREF fields associated with heading bookmarks, allowing layout-dependent page references to resolve.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "b363991abf66e8f7969c0903564ef0c45a84abfe",
+    "path_at_snapshot": "radioinspector/docx_report.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600E3V",
+    "pr": 40,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/docx_report.py",
+        "line": 264,
+        "anchor": "def _is_table_delimiter"
+      },
+      {
+        "validation": "tests/test_docx_report.py::test_markdown_alignment_delimiters_are_not_table_rows"
+      }
+    ],
+    "reason": "Markdown parser recognizes delimiter rows including colon alignment markers and excludes them from table data.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "b363991abf66e8f7969c0903564ef0c45a84abfe",
+    "path_at_snapshot": "radioinspector/docx_report.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600E3X",
+    "pr": 40,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/docx_report.py",
+        "line": 358,
+        "anchor": "with tempfile.NamedTemporaryFile("
+      },
+      {
+        "validation": "tests/test_docx_report.py::test_concurrent_writes_use_independent_staging_files"
+      }
+    ],
+    "reason": "Each report uses NamedTemporaryFile in destination directory and independently cleans only its staging file.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "b363991abf66e8f7969c0903564ef0c45a84abfe",
+    "path_at_snapshot": "radioinspector/docx_report.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600Lew",
+    "pr": 40,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/docx_report.py",
+        "line": 280,
+        "anchor": "row_text = lines[index][1:]"
+      },
+      {
+        "validation": "tests/test_docx_report.py::test_empty_outer_table_cells_keep_their_columns"
+      }
+    ],
+    "reason": "Parser removes exactly one leading and optional trailing outer separator, preserving empty cell positions.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "b363991abf66e8f7969c0903564ef0c45a84abfe",
+    "path_at_snapshot": "radioinspector/docx_report.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600f51",
+    "pr": 41,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/session_analytics.py",
+        "line": 17,
+        "anchor": "def analytics_summary"
+      },
+      {
+        "validation": "tests/test_archive_ingest.py; tests/test_archive_export.py"
+      }
+    ],
+    "reason": "session_analytics.py is tracked and importable; candidate-only HTTP tests imported and exercised the server successfully.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "8e605777cb6b2f3b9eb5e494b451c7cededf2eb1",
+    "path_at_snapshot": "radioinspector/web/server.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8600f54",
+    "pr": 41,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 89,
+        "anchor": "self._closed = True"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_second_owner_cannot_recover_or_overwrite_book"
+      }
+    ],
+    "reason": "Scheduler sets _closed=True before attempting book ownership and returns from close without mutation if initialization never succeeds.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "8e605777cb6b2f3b9eb5e494b451c7cededf2eb1",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601Xg5",
+    "pr": 41,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/task_scheduler.py",
+        "line": 238,
+        "anchor": "if not stopping:"
+      },
+      {
+        "validation": "tests/test_task_scheduler.py::test_repeated_enable_does_not_join_healthy_thread"
+      }
+    ],
+    "reason": "configure(True) joins only a stopping live thread; healthy enabled calls return without timeout wait.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "8e605777cb6b2f3b9eb5e494b451c7cededf2eb1",
+    "path_at_snapshot": "radioinspector/task_scheduler.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8601ynk",
+    "pr": 44,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/PaneChrome.swift",
+        "line": 238,
+        "anchor": "if let error = model.taskSchedulerError, !error.isEmpty"
+      },
+      {
+        "validation": "RemoteTaskSchedulerPane"
+      }
+    ],
+    "reason": "Scheduler pane renders taskSchedulerError independently after status conditional.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "d4e2c78d6055858516b53907f1ccfdc433c1fdb2",
+    "path_at_snapshot": "macos/DvoynoyObzor/PaneChrome.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86013Hi",
+    "pr": 44,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 1011,
+        "anchor": "taskSchedulerCommandRevision += 1"
+      },
+      {
+        "validation": "refreshSession/applyWorkflow/refreshTaskScheduler"
+      }
+    ],
+    "reason": "Scheduler command revision increments before command; polling captures revision and applies scheduler fields only when revisions match, including no-session refresh.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "d4e2c78d6055858516b53907f1ccfdc433c1fdb2",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8602eTP",
+    "pr": 48,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/client.py",
+        "line": 519,
+        "anchor": "def snapshot("
+      },
+      {
+        "validation": "tests/test_windows_analytics.py::test_snapshot_does_not_call_archive_analytics"
+      }
+    ],
+    "reason": "Windows snapshot no longer invokes analytics_summary; explicit analytics action uses a separate on-demand call.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "d2a3969857ae815044e48fbb41246c875e5c3b47",
+    "path_at_snapshot": "radioinspector/windows/client.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8604oD5",
+    "pr": 50,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/analytics_app.py",
+        "line": 48,
+        "anchor": "textvariable=self.analytics_var"
+      },
+      {
+        "validation": "tests/test_windows_analytics.py::test_analytics_variable_has_visible_label"
+      }
+    ],
+    "reason": "AnalyticsWindowsApp binds analytics_var to packed visible tk.Label.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "17cbb9ced10a268b2359143604fb6de5cb9ae525",
+    "path_at_snapshot": "radioinspector/windows/analytics_app.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86042tH",
+    "pr": 51,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/analytics.js",
+        "line": 88,
+        "anchor": "state.pending = false"
+      },
+      {
+        "validation": "tests/test_webui_analytics.py"
+      }
+    ],
+    "reason": "setSession explicitly resets pending=false before generation increment and render.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "f22abeb1357af8ac6dded6538452edcf953731bf",
+    "path_at_snapshot": "radioinspector/web/static/analytics.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8605Wlh",
+    "pr": 55,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/analytics_app.py",
+        "line": 138,
+        "anchor": "from tkinter import TclError, filedialog"
+      },
+      {
+        "validation": "tests/test_windows_release_flows.py::test_export_imports_dialog_instead_of_relying_on_tk_attribute (desktop-gated skip); source confirmed"
+      }
+    ],
+    "reason": "Export explicitly imports tkinter filedialog inside the action and calls imported filedialog.asksaveasfilename.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "686c6393a5cad94d70bf17bd9d5cba21a8d1a003",
+    "path_at_snapshot": "radioinspector/windows/analytics_app.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8605oiI",
+    "pr": 58,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/windows/scheduler_app.py",
+        "line": 62,
+        "anchor": "duration = float(duration)"
+      },
+      {
+        "validation": "tests/test_windows_release_flows.py::test_actual_form_and_export_with_synthetic_http_and_temporary_files (desktop-gated skip); source confirmed"
+      }
+    ],
+    "reason": "Payload builder accepts string duration and converts using float before finite/positive checks, matching real StringVar fields.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "f7c06b55d1fb29d5b8363fd0187bb34ac6fff605",
+    "path_at_snapshot": "radioinspector/windows/scheduler_app.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8605vJn",
+    "pr": 59,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformWorkflows.swift",
+        "line": 183,
+        "anchor": "fallback.formatOptions = [.withInternetDateTime]"
+      },
+      {
+        "validation": "PlatformWorkflowTests (source inspected; Swift unavailable)"
+      }
+    ],
+    "reason": "Timestamp parser attempts fractional format then plain InternetDateTime fallback and uses a separate canonical formatter.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "95eb6738a8cfedc89daaa54c661c5c947923c58e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformWorkflows.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86054dd",
+    "pr": 60,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 177,
+        "anchor": "final class PlatformDownloadDelegate"
+      },
+      {
+        "validation": "PlatformAPITests.testDownloadDelegateRetainsFileAndFinishesOnlyOnce (source only)"
+      }
+    ],
+    "reason": "Download delegate funnels success/error callbacks through finished guard and clears completion after first invocation. URLSession callbacks use one delegate queue.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "01586f8a598f714110b425e0563d23fe242e9a8e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86054dh",
+    "pr": 60,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 89,
+        "anchor": "omittingEmptySubsequences: false)"
+      },
+      {
+        "validation": "platformValidateNDJSON (source only)"
+      }
+    ],
+    "reason": "NDJSON chunk splitting now sets omittingEmptySubsequences:false, preserving an empty tail after newline.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "01586f8a598f714110b425e0563d23fe242e9a8e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86054dk",
+    "pr": 60,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 208,
+        "anchor": "try FileManager.default.moveItem(at: location, to: stagingURL)"
+      },
+      {
+        "validation": "PlatformAPITests.testDownloadDelegateRetainsFileAndFinishesOnlyOnce (source only)"
+      }
+    ],
+    "reason": "Download callback synchronously moves temporary URL to owned stagingURL before resuming continuation.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "01586f8a598f714110b425e0563d23fe242e9a8e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86054dp",
+    "pr": 60,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 752,
+        "anchor": "downloadConfiguration = session.configuration"
+      },
+      {
+        "validation": "exportArchive (source only)"
+      }
+    ],
+    "reason": "Download session uses injected session.configuration when usesInjectedSession is true, preserving transport protocolClasses.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "01586f8a598f714110b425e0563d23fe242e9a8e",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8606ESZ",
+    "pr": 62,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/scheduler.js",
+        "line": 113,
+        "anchor": "function refreshScheduler()"
+      },
+      {
+        "validation": "tests/test_webui_task_cancel.py"
+      }
+    ],
+    "reason": "refreshScheduler function exists and remains wired to polling, initialization, and task events alongside cancelTask.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "70ac5b2749da27a26a1918a66ef1a49d099a8be4",
+    "path_at_snapshot": "radioinspector/web/static/scheduler.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86069OP",
+    "pr": 64,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/ContentView.swift",
+        "line": 165,
+        "anchor": "taskCancelPending = false"
+      },
+      {
+        "validation": "clearMeasurements reset block near taskCreatePending"
+      }
+    ],
+    "reason": "clearMeasurements resets taskCancelPending=false while invalidating session measurement state.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "65ecd770f67307f850041df5a5649bf03697f838",
+    "path_at_snapshot": "macos/DvoynoyObzor/ContentView.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd86069OQ",
+    "pr": 64,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformWorkflowTests.swift",
+        "line": 381,
+        "anchor": "?.percentEncodedPath"
+      },
+      {
+        "validation": "cancel-task test (source only; Swift unavailable)"
+      }
+    ],
+    "reason": "Cancel test asserts URLComponents.percentEncodedPath against macos%2Fmonitor segment.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "65ecd770f67307f850041df5a5649bf03697f838",
+    "path_at_snapshot": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformWorkflowTests.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8607I6l",
+    "pr": 65,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/platform.html",
+        "line": 106,
+        "anchor": "<h2 id=\"analytics-heading\">"
+      },
+      {
+        "validation": "platform.html analytics heading lines 106-110"
+      }
+    ],
+    "reason": "Analytics title wrapper and section-heading wrapper close before dl#analytics-summary.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "d621f98f1fa57cbce12569e2b4917fd7fb3cc230",
+    "path_at_snapshot": "radioinspector/web/static/platform.html",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8607jln",
+    "pr": 66,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "fixed_with_evidence",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 1021,
+        "anchor": "return try await withTaskCancellationHandler"
+      },
+      {
+        "validation": "PlatformAPITests.testDefaultClientCancellationStopsRealHTTPRequest (source only)"
+      }
+    ],
+    "reason": "Production receiveWithDelegate has withTaskCancellationHandler, invalidates/cancels session, checks already-cancelled callers, and request rechecks cancellation before decoding.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "f9805f0d9a39e0145e29a87197710108e1c243e1",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8608IU3",
+    "pr": 67,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "needs_validation",
+    "priority": "P1",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+        "line": 142,
+        "anchor": "func cancel()"
+      },
+      {
+        "validation": "PlatformResponseDelegate.finish; receiveWithDelegate cancellation branch; PlatformAPITests.testResponseDelegateFinishesCancellationOnlyOnce tests sequential callbacks only"
+      }
+    ],
+    "reason": "Direct completion invocation was replaced by delegate.cancel()->finish, and a sequential regression asserts one completion. However finished/completion remain unsynchronized while cancel may run on caller executor concurrently with delegate callbacks; concurrent guard atomicity needs a Swift race probe or synchronization review. Swift unavailable here.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "1e4afcf0202f026a0977ca9047d2c2adc71fcb50",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd8608IU4",
+    "pr": 67,
+    "candidate_sha": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+    "disposition": "not_applicable_with_reason",
+    "priority": "P2",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformAPITests.swift",
+        "line": 533,
+        "anchor": "guard poll(&readiness, 1, 5000) == 1"
+      },
+      {
+        "validation": "testDefaultClientCancellationStopsRealHTTPRequest"
+      }
+    ],
+    "reason": "The reviewed macOS-only Python redirect readiness loop is absent from current test file. Its only Python-process test uses poll with 5000ms timeout and count>0 port validation. Original hang path no longer exists; native redirect transport coverage remains unverified here.",
+    "audit_validation": "Immutable git-show source inspection; candidate-only Python suite: 113 total, 90 passed, 23 explicit desktop Tk skips, zero failures/errors. Swift compiler unavailable. No GitHub/tracked-file changes; synthetic temporary fixtures only.",
+    "head_sha_at_snapshot": "1e4afcf0202f026a0977ca9047d2c2adc71fcb50",
+    "path_at_snapshot": "macos/SpektrKomandy/Tests/SpektrKomandyTests/PlatformAPITests.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Ar6t",
+    "pr": 88,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The trapping range belongs to the PR88 frequency raster draft model; that model and feature are absent from the release candidate. Existing frequency-rounding is a different earlier feature. This comment is retained for PR88 follow-up, not considered fixed.",
+    "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Ar6u",
+    "pr": 88,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The entry-name normalization path belongs to the excluded PR88 raster model, which is absent from the candidate; no claim of correction is made.",
+    "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
+    "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Ar6v",
+    "pr": 88,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/frequency-raster.js",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/frequency-raster.js",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The pending-request gating finding targets excluded PR88 frequency-raster.js, absent from the candidate; no raster run button is shipped.",
+    "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
+    "path_at_snapshot": "radioinspector/web/static/frequency-raster.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Ar6w",
+    "pr": 88,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/frequency-raster.js",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/frequency-raster.js",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The stale file-read finding targets excluded PR88 frequency-raster.js, absent from the candidate; this raster import flow is not shipped.",
+    "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
+    "path_at_snapshot": "radioinspector/web/static/frequency-raster.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vO",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/measurement-results.js",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/measurement-results.js",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "PR91 measurement-result submission is excluded. Its WebUI module and core result model are absent from the candidate, so this missing stream_id cannot affect the first release.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vQ",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/platform.html",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/platform.html",
+        "result": "No methodology or measurement-result markup; only earlier frequency-rounding script is present."
+      }
+    ],
+    "tests": [],
+    "reason": "The excluded PR91 methodology selector is not in the candidate platform.html, and measurement-results.js is absent.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/web/static/platform.html",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vT",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/measurement_results.py",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/measurement_results.py",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The excluded PR91 measurement_results.py model is absent from the candidate; its interval-archiving contract is not shipped. This is not evidence that future implementation validation is correct.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/measurement_results.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vV",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/session_store.py",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/session_store.py",
+        "result": "No measurement_result/list_measurement symbols or PR91 query; candidate existing sweep listing uses newest-window inner DESC and outer chronological ordering at lines 702-737."
+      }
+    ],
+    "tests": [],
+    "reason": "The candidate session_store.py exists but has no measurement-result schema or listing method. The reported PR91 measurement-result LIMIT query is therefore absent; other archive list methods are distinct and this finding does not establish a first-release bug.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/session_store.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vY",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "macos/DvoynoyObzor/MeasurementResultsPane.swift",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:macos/DvoynoyObzor/MeasurementResultsPane.swift",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The boolean conversion belongs to excluded PR91 MeasurementResultsPane.swift, absent from the release candidate.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "macos/DvoynoyObzor/MeasurementResultsPane.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-vb",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/measurement-results.js",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/measurement-results.js",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The initial catalog/list ordering belongs to excluded PR91 measurement-results.js, absent from the release candidate.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861A-ve",
+    "pr": 91,
+    "disposition": "future_scope",
+    "evidence": [
+      {
+        "path": "radioinspector/web/static/measurement-results.js",
+        "commit": "2afba069263785e7dbdc79f8d26c8b99a7532bc6",
+        "check": "git show 2afba069263785e7dbdc79f8d26c8b99a7532bc6:radioinspector/web/static/measurement-results.js",
+        "result": "path absent from candidate"
+      }
+    ],
+    "tests": [],
+    "reason": "The result refresh signature logic belongs to excluded PR91 measurement-results.js, absent from the release candidate.",
+    "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
+    "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BLVw",
+    "pr": 92,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
+    "path_at_snapshot": "radioinspector/frequency_counter.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BLVx",
+    "pr": 92,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
+    "path_at_snapshot": "radioinspector/frequency_counter.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BLVy",
+    "pr": 92,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
+    "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BLVz",
+    "pr": 92,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
+    "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BLV2",
+    "pr": 92,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
+    "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BUe6",
+    "pr": 93,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
+    "path_at_snapshot": "radioinspector/windows/dvb_parameters.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BUe8",
+    "pr": 93,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
+    "path_at_snapshot": "macos/DvoynoyObzor/DvbEvaluationPane.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BUe_",
+    "pr": 93,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
+    "path_at_snapshot": "radioinspector/web/static/dvb-evaluation.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BUfB",
+    "pr": 93,
+    "disposition": "needs_review",
+    "reason": "Новое обсуждение после первоначальной классификации; содержание не проверено.",
+    "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
+    "path_at_snapshot": "radioinspector/dvb_parameters.py",
+    "server_resolved": false
+  }
+]

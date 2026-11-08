@@ -718,12 +718,47 @@
     return stops[lower][1].map((channel, index) => Math.round(channel + (stops[upper][1][index] - channel) * local));
   }
 
+  function waterfallLevels(sweep, minimum, maximum, width) {
+    const frequencies = sweep.frequencies_hz;
+    const result = Array(width).fill(-Infinity);
+    const span = Math.max(maximum - minimum, 1);
+    let index = 0;
+    for (let x = 0; x < width; x += 1) {
+      const left = minimum + x * span / width;
+      const right = minimum + (x + 1) * span / width;
+      while (index < frequencies.length && frequencies[index] < left) index += 1;
+      let cursor = index;
+      while (cursor < frequencies.length && (frequencies[cursor] < right || (x === width - 1 && frequencies[cursor] <= right))) {
+        result[x] = Math.max(result[x], sweep.levels[cursor]);
+        cursor += 1;
+      }
+      // Empty display pixels interpolate between neighbouring measured points;
+      // all processing/exports still use the unchanged measurements in the archive.
+      if (result[x] === -Infinity && index > 0 && index < frequencies.length) {
+        const a = index - 1;
+        const ratio = (left - frequencies[a]) / (frequencies[index] - frequencies[a]);
+        result[x] = sweep.levels[a] + ratio * (sweep.levels[index] - sweep.levels[a]);
+      }
+    }
+    return result;
+  }
+
   function drawWaterfall(sweeps) {
     const canvas = dom.waterfallCanvas;
     const context = clearCanvas(canvas);
-    const levels = sweeps.flatMap((sweep) => sweep.levels);
-    const minLevel = Math.min(...levels);
-    const maxLevel = Math.max(...levels);
+    let minLevel = Infinity;
+    let maxLevel = -Infinity;
+    let minimum = Infinity;
+    let maximum = -Infinity;
+    for (const sweep of sweeps) {
+      for (const level of sweep.levels) {
+        minLevel = Math.min(minLevel, level);
+        maxLevel = Math.max(maxLevel, level);
+      }
+      minimum = Math.min(minimum, sweep.frequencies_hz[0]);
+      maximum = Math.max(maximum, sweep.frequencies_hz.at(-1));
+    }
+    if (!Number.isFinite(minLevel) || !Number.isFinite(maxLevel)) return;
     const span = Math.max(maxLevel - minLevel, 1);
     const image = context.createImageData(canvas.width, canvas.height);
     const rowHeight = canvas.height / sweeps.length;
@@ -731,11 +766,9 @@
       const sweep = sweeps[row];
       const yStart = Math.floor(row * rowHeight);
       const yEnd = Math.max(yStart + 1, Math.floor((row + 1) * rowHeight));
+      const rowLevels = waterfallLevels(sweep, minimum, maximum, canvas.width);
       for (let x = 0; x < canvas.width; x += 1) {
-        const start = Math.floor(x * sweep.levels.length / canvas.width);
-        const end = Math.max(start + 1, Math.floor((x + 1) * sweep.levels.length / canvas.width));
-        let level = -Infinity;
-        for (let index = start; index < Math.min(end, sweep.levels.length); index += 1) level = Math.max(level, sweep.levels[index]);
+        const level = rowLevels[x];
         const [red, green, blue] = waterfallColor((level - minLevel) / span);
         for (let y = yStart; y < Math.min(yEnd, canvas.height); y += 1) {
           const offset = (y * canvas.width + x) * 4;
@@ -907,7 +940,9 @@
     });
     const receive = (message) => {
       try {
-        const event = JSON.parse(message.data);
+        const envelope = JSON.parse(message.data);
+        const event = envelope.data ?? envelope;
+        if (!event || typeof event !== "object") throw new Error("Invalid event envelope");
         const sequence = Number(message.lastEventId || event.sequence || 0);
         if (Number.isSafeInteger(sequence)) state.lastEventId = Math.max(state.lastEventId, sequence);
         setSseStatus(`SSE live · #${state.lastEventId}`, "live");
@@ -1112,6 +1147,10 @@
 
   function changeSession() {
     state.sessionId = dom.sessionSelect.value || null;
+    state.spectrumStreamId = null;
+    dom.candidateForm.reset();
+    delete dom.candidateForm.dataset.observationId;
+    dom.candidateEditor.open = false;
     state.session = null;
     state.sweeps = [];
     updateComparison();

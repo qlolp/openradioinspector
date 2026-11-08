@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import math
+import os
 import queue
 import random
 import threading
@@ -28,6 +29,7 @@ from .contracts import (
     utc_now,
 )
 from .session_service import SessionService
+from .serial_ports import serial_port_identity
 
 
 class WorkerError(RuntimeError):
@@ -405,6 +407,9 @@ class DeviceWorker:
             self._reject_pending_commands()
         if thread is None or not thread.is_alive():
             return
+        request_stop = getattr(self.adapter, "request_stop", None)
+        if request_stop is not None:
+            request_stop()
         self._commands.put({"command": "__wake__"})
         if thread is not threading.current_thread():
             thread.join(timeout=timeout)
@@ -617,6 +622,7 @@ class DeviceWorkerManager:
         self._workers: dict[tuple[str, str], DeviceWorker] = {}
         self._lifecycles: dict[tuple[str, str], _WorkerLifecycle] = {}
         self._stopping_sessions: dict[str, int] = {}
+        self._starting_ports: dict[str, tuple[str, str]] = {}
         self._closed = False
         self._lock = threading.RLock()
 
@@ -689,13 +695,43 @@ class DeviceWorkerManager:
             self._check_start_allowed(key, lifecycle, generation)
         return self._start_stream(key, lifecycle, generation)
 
+    @staticmethod
+    def _serial_identity(stream: DeviceStream) -> Optional[str]:
+        if stream.settings.get("adapter") not in ("tinysa-serial", "ardv1-serial"):
+            return None
+        if not stream.port:
+            raise WorkerError("Для физического прибора требуется последовательный порт")
+        identity = serial_port_identity(stream.port)
+        return identity if identity.upper().startswith("COM") else os.path.realpath(identity)
+
+    @contextmanager
+    def _serial_port_guard(self, key: tuple[str, str]) -> Iterator[None]:
+        stream = self._stream(self.sessions.get_session(key[0]), key[1])
+        port = self._serial_identity(stream)
+        if port is None:
+            yield
+            return
+        with self._lock:
+            if port in self._starting_ports:
+                raise WorkerError("Порт уже открывается другим исполнителем")
+            for other_key, worker in self._workers.items():
+                if other_key != key and worker.alive and self._serial_identity(worker.adapter.stream) == port:
+                    raise WorkerError("Порт уже принадлежит другому исполнителю")
+            self._starting_ports[port] = key
+        try:
+            yield
+        finally:
+            with self._lock:
+                if self._starting_ports.get(port) == key:
+                    del self._starting_ports[port]
+
     def _start_stream(
         self, key: tuple[str, str], lifecycle: _WorkerLifecycle, generation: int
     ) -> dict[str, Any]:
         session_id, stream_id = key
         # Сериализация действует только на один session+stream. В частности,
         # connect и join не удерживают общий lock и не мешают другому прибору.
-        with lifecycle.lock:
+        with lifecycle.lock, self._serial_port_guard(key):
             with self._lock:
                 self._check_start_allowed(key, lifecycle, generation)
                 existing = self._workers.get(key)
@@ -754,8 +790,12 @@ class DeviceWorkerManager:
         for stream, key, lifecycle, generation in admissions:
             try:
                 results.append(self._start_stream(key, lifecycle, generation))
-            except UnsupportedAdapterError as exc:
-                # Неподдерживаемый прибор не мешает запустить остальные потоки.
+            except WorkerError as exc:
+                # Cancellation invalidates the entire admitted bulk request.
+                # Only an isolated device failure may continue to the next one.
+                with self._lock:
+                    self._check_start_allowed(key, lifecycle, generation)
+                # Ошибка открытия/адаптера одного прибора не останавливает остальные.
                 results.append(
                     {
                         "session_id": session_id,

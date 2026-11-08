@@ -6,6 +6,7 @@ SQLite-архив подключается через ``SQLiteSessionStore``. Б
 
 from __future__ import annotations
 
+from dataclasses import replace
 import copy
 import queue
 import sqlite3
@@ -325,12 +326,14 @@ class SessionService:
             session = copy.deepcopy(self._get_locked(session_id))
             ended_at = at or self._clock()
             session.stop(ended_at)
-            stopped = self._save_transition_locked(session, "session.stopped")
+            events = [self._make_event_locked(
+                "session.stopped", session_id=session_id,
+                payload={"session": to_primitive(session)},
+            )]
+            cancellations = []
             for investigation_id, owner_id in list(self._investigation_sessions.items()):
-                if owner_id != session_id:
-                    continue
                 current = self._investigations[investigation_id]
-                if current.state not in OPEN_INVESTIGATION_STATES:
+                if owner_id != session_id or current.state not in OPEN_INVESTIGATION_STATES:
                     continue
                 investigation = copy.deepcopy(current)
                 candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
@@ -338,10 +341,22 @@ class SessionService:
                 investigation.ended_at = ended_at
                 investigation.error = None
                 candidate.state = CandidateState.QUEUED
-                self._save_investigation_locked(
-                    session_id, investigation, candidate, "investigation.cancelled"
-                )
-            return stopped
+                event = replace(self._make_event_locked(
+                    "investigation.cancelled", session_id=session_id,
+                    payload=self._investigation_payload(investigation, candidate),
+                ), sequence=self._sequence + len(events) + 1)
+                events.append(event)
+                cancellations.append((investigation, candidate, event))
+            if self._store is not None:
+                self._store.save_session_stop(session, event=events[0], cancellations=cancellations)
+            # No memory mutation or subscriber notification before the commit.
+            self._sessions[session_id] = session
+            for investigation, candidate, _event in cancellations:
+                self._investigations[investigation.id] = investigation
+                self._candidates[candidate.id] = candidate
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(session)
 
     def _save_transition_locked(
         self, session: MonitoringSession, event_type: str
@@ -794,6 +809,20 @@ class SessionService:
             self._validate_measurement_locked(
                 session_id, candidate.source_stream_id, candidate.level_unit
             )
+            references = candidate.observation_ids
+            if len(references) > 1000 or any(not isinstance(item, str) or not item for item in references):
+                raise ValueError("Допустимо до 1000 непустых ID исходных измерений")
+            if references:
+                if self._store is not None:
+                    owners = self._store.measurement_owners(references)
+                else:
+                    owners = {identifier: set() for identifier in references}
+                    for item in (*self._sweeps, *self._observations):
+                        if item.id in owners:
+                            owners[item.id].add((item.session_id, item.stream_id))
+                expected_owner = {(session_id, candidate.source_stream_id)}
+                if any(owners[identifier] != expected_owner for identifier in references):
+                    raise ValueError("Исходное измерение отсутствует или принадлежит другому сеансу/потоку")
             if candidate.id in self._candidates:
                 raise ValueError(f"Кандидат уже существует: {candidate.id}")
             event = self._make_event_locked(
@@ -870,6 +899,8 @@ class SessionService:
                 raise ValueError(f"{field} назначается службой жизненного цикла")
         with self._lock:
             session = self._get_locked(session_id)
+            if session.state.value in ("stopped", "failed"):
+                raise ValueError("Завершённый сеанс не принимает новые исследования")
             current = self._get_candidate_locked(session_id, candidate_id)
             if current.state not in (CandidateState.NEW, CandidateState.QUEUED):
                 raise ValueError(
