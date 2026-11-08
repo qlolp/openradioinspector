@@ -3,6 +3,11 @@ import XCTest
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Darwin)
+import Darwin
+#endif
 @testable import SpektrKomandy
 
 final class PlatformAPITests: XCTestCase {
@@ -73,6 +78,8 @@ final class PlatformAPITests: XCTestCase {
         )
         XCTAssertThrowsError(try PlatformBaseURL("127.0.0.1:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://example.test"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://127.attacker.example:8770"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://127.0.0.1.attacker.example:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://user:secret@example.test"))
         XCTAssertThrowsError(try PlatformBaseURL("https://example.test/?token=x"))
         XCTAssertEqual(
@@ -226,6 +233,28 @@ final class PlatformAPITests: XCTestCase {
         )
     }
 
+    func testResponseTooLargeIsRejectedDuringBodyRead() async throws {
+        let client = try client { _ in
+            let response = self.response(
+                URL(string: "https://example.test/api/v1/sessions")!
+            )
+            return (response, Data(repeating: 65, count: 2_000_001))
+        }
+        await XCTAssertThrowsPlatformError(try await client.listSessions())
+    }
+
+    func testRejectsFrequencyOverflowBeforeArithmetic() async throws {
+        let client = try client { request in
+            let body = """
+            [{"id":"sw","session_id":"s","stream_id":"tiny","interval":{"started_at":"a","ended_at":"b"},"frequencies_hz":[-9223372036854775808,1],"levels":[-60,-60],"level_unit":"dBm"}]
+            """
+            return (self.response(request.url!), self.envelope(body))
+        }
+        await XCTAssertThrowsPlatformError(
+            try await client.listSweeps(sessionID: "s", streamID: "tiny")
+        )
+    }
+
     func testRedirectGuardAndFinalOriginAreRejected() async throws {
         let client = try client { request in
             let redirected = HTTPURLResponse(
@@ -236,22 +265,248 @@ final class PlatformAPITests: XCTestCase {
         }
         await XCTAssertThrowsPlatformError(try await client.listSessions())
 
-        let original = URL(string: "https://example.test/api/v1/sessions")!
-        let session = URLSession(configuration: .ephemeral)
-        sessions.append(session)
-        let task = session.dataTask(with: original)
-        let response = HTTPURLResponse(
-            url: original, statusCode: 307, httpVersion: nil, headerFields: nil
-        )!
-        let completed = expectation(description: "redirect rejected")
-        PlatformRedirectGuard().urlSession(
-            session, task: task, willPerformHTTPRedirection: response,
-            newRequest: URLRequest(url: URL(string: "http://127.0.0.1:8770/api/v1/sessions")!)
-        ) { request in
-            XCTAssertNil(request)
-            completed.fulfill()
+        #if canImport(AppKit)
+        final class ProbeRedirectGuard: PlatformRedirectGuard, @unchecked Sendable {
+            let expectation: XCTestExpectation
+            init(expectation: XCTestExpectation) {
+                self.expectation = expectation
+            }
+            override func urlSession(
+                _ session: URLSession,
+                task: URLSessionTask,
+                willPerformHTTPRedirection response: HTTPURLResponse,
+                newRequest request: URLRequest,
+                completionHandler: @escaping (URLRequest?) -> Void
+            ) {
+                expectation.fulfill()
+                super.urlSession(
+                    session, task: task, willPerformHTTPRedirection: response,
+                    newRequest: request, completionHandler: completionHandler
+                )
+            }
         }
+        let completed = expectation(description: "redirect rejected by delegate")
+        let probe = ProbeRedirectGuard(expectation: completed)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-c", """
+import http.server
+class RedirectHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(307)
+        self.send_header("Location", "http://127.0.0.1:8770/api/v1/sessions")
+        self.end_headers()
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+"""]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        defer { process.terminate() }
+        var portData = Data()
+        while !portData.contains(0x0A) {
+            portData.append(output.fileHandleForReading.readData(ofLength: 1))
+        }
+        let port = String(decoding: portData, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let session = URLSession(
+            configuration: .ephemeral, delegate: probe, delegateQueue: nil
+        )
+        sessions.append(session)
+        let guarded = try PlatformClient(
+            baseURL: "http://127.0.0.1:\(port)", session: session
+        )
+        await XCTAssertThrowsPlatformError(try await guarded.listSessions())
         await fulfillment(of: [completed], timeout: 1)
+        #endif
+    }
+
+    func testDefaultClientReadsAndLimitsRealHTTPResponses() async throws {
+        let script = """
+import http.server
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/v1/sessions":
+            body = b'{"contract":"openradioinspector-platform","contract_version":1,"data":[]}'
+        else:
+            body = b'x' * 2000001
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+"""
+        var descriptors: [Int32] = [-1, -1]
+        XCTAssertEqual(pipe(&descriptors), 0)
+        let arguments = ["env", "python3", "-c", script].map {
+            $0.withCString { strdup($0) }
+        }
+        var argv = arguments + [nil]
+        let pid = fork()
+        if pid == 0 {
+            close(descriptors[0])
+            if dup2(descriptors[1], STDOUT_FILENO) < 0 { _exit(126) }
+            close(descriptors[1])
+            argv.withUnsafeMutableBufferPointer { buffer in
+                _ = execv("/usr/bin/env", buffer.baseAddress!)
+            }
+            _exit(127)
+        }
+        for argument in arguments { free(argument) }
+        guard pid > 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+            XCTFail("Не удалось запустить HTTP-сервер")
+            return
+        }
+        close(descriptors[1])
+        defer {
+            close(descriptors[0])
+            kill(pid, SIGKILL)
+            _ = waitpid(pid, nil, 0)
+        }
+        var readiness = pollfd(fd: descriptors[0], events: Int16(POLLIN), revents: 0)
+        guard poll(&readiness, 1, 5000) == 1 else {
+            XCTFail("HTTP-сервер не сообщил готовность за 5 секунд")
+            return
+        }
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = read(descriptors[0], &buffer, buffer.count)
+        let portText = String(decoding: buffer.prefix(max(0, Int(count))), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard count > 0, let port = Int(portText) else {
+            XCTFail("HTTP-сервер не сообщил порт")
+            return
+        }
+        let client = try PlatformClient(baseURL: "http://127.0.0.1:\(port)")
+        let sessions = try await client.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+        do {
+            _ = try await client.listSweeps(sessionID: "s", streamID: "tiny")
+            XCTFail("Ожидался responseTooLarge")
+        } catch PlatformError.responseTooLarge {}
+    }
+
+    func testDefaultClientCancellationStopsRealHTTPRequest() async throws {
+        let logPath = "/tmp/ori-cancel-\(UUID().uuidString).log"
+        let script = """
+import http.server, time
+LOG = "\(logPath)"
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(LOG, "a") as stream:
+            stream.write("get\\n")
+        time.sleep(2)
+        body = b'{"contract":"openradioinspector-platform","contract_version":1,"data":[]}'
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def log_message(self, *args):
+        pass
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+print(server.server_address[1], flush=True)
+server.serve_forever()
+"""
+        var descriptors: [Int32] = [-1, -1]
+        XCTAssertEqual(pipe(&descriptors), 0)
+        let arguments = ["env", "python3", "-c", script].map {
+            $0.withCString { strdup($0) }
+        }
+        var argv = arguments + [nil]
+        let pid = fork()
+        if pid == 0 {
+            close(descriptors[0])
+            if dup2(descriptors[1], STDOUT_FILENO) < 0 { _exit(126) }
+            close(descriptors[1])
+            argv.withUnsafeMutableBufferPointer { buffer in
+                _ = execv("/usr/bin/env", buffer.baseAddress!)
+            }
+            _exit(127)
+        }
+        for argument in arguments { free(argument) }
+        guard pid > 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+            XCTFail("Не удалось запустить HTTP-сервер")
+            return
+        }
+        close(descriptors[1])
+        defer {
+            close(descriptors[0])
+            kill(pid, SIGKILL)
+            _ = waitpid(pid, nil, 0)
+            try? FileManager.default.removeItem(atPath: logPath)
+        }
+        var readiness = pollfd(fd: descriptors[0], events: Int16(POLLIN), revents: 0)
+        guard poll(&readiness, 1, 5000) == 1 else {
+            XCTFail("HTTP-сервер не сообщил готовность за 5 секунд")
+            return
+        }
+        var buffer = [UInt8](repeating: 0, count: 64)
+        let count = read(descriptors[0], &buffer, buffer.count)
+        let portText = String(decoding: buffer.prefix(max(0, Int(count))), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard count > 0, let port = Int(portText) else {
+            XCTFail("HTTP-сервер не сообщил порт")
+            return
+        }
+        let client = try PlatformClient(baseURL: "http://127.0.0.1:\(port)")
+        let started = Date()
+        let request = Task { try await client.listSessions() }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        request.cancel()
+        do {
+            _ = try await request.value
+            XCTFail("Запрос должен быть отменён")
+        } catch is CancellationError {
+        } catch PlatformError.connection(_) {
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5)
+
+        let alreadyCancelled = Task { try await client.listSessions() }
+        alreadyCancelled.cancel()
+        do {
+            _ = try await alreadyCancelled.value
+            XCTFail("Уже отменённый вызов не должен стартовать запрос")
+        } catch is CancellationError {
+        } catch PlatformError.connection(_) {
+        }
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        let log = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+        let requests = log.split(separator: "\n").filter { !$0.isEmpty }
+        XCTAssertEqual(requests.count, 1, "Запрос должен быть только первый, отменённый во flight")
+    }
+
+    func testSnapshotRetriesLargeSweepHistoryWithSmallerLimit() async throws {
+        var limits: [String] = []
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/sweeps") {
+                let limit = request.url!.query!.contains("limit=40") ? "40" : "20"
+                limits.append(limit)
+                if limit == "40" { throw PlatformError.responseTooLarge }
+                let sweep = """
+                [{"id":"sw1","session_id":"session/old","stream_id":"tiny/sa","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"frequencies_hz":[100000000,100100000],"levels":[-80.5,-61.25],"level_unit":"dBm"}]
+                """
+                return (self.response(request.url!), self.envelope(sweep))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/observations")
+                || path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/investigations/next") {
+                return (self.response(request.url!), self.envelope("null"))
+            }
+            return (self.response(request.url!), self.envelope(self.sessionJSON))
+        }
+        let snapshot = try await client.snapshot(sessionID: "session/old")
+        XCTAssertEqual(snapshot.sweeps.count, 1)
+        XCTAssertEqual(snapshot.sweeps[0].levelUnit, "dBm")
+        XCTAssertEqual(limits, ["40", "20"])
     }
 
     private func XCTAssertThrowsPlatformError<T>(
