@@ -23,6 +23,7 @@ from radioinspector.windows.client import (
 )
 from radioinspector.web.server import create_server
 from radioinspector.windows.workflows import (
+    automatic_completion_payload,
     automatic_detection_payload,
     automatic_handoff_payload,
     session_payload as windows_session_payload,
@@ -136,6 +137,7 @@ class WindowsClientValidationTests(unittest.TestCase):
             {},
             [],
             session={
+                "id": "session",
                 "streams": [
                     {
                         "id": "ar/dv1",
@@ -185,6 +187,7 @@ class WindowsClientValidationTests(unittest.TestCase):
             {},
             [],
             session={
+                "id": "session",
                 "streams": [
                     {
                         "id": "tiny/sa",
@@ -289,7 +292,10 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.client.stop_stream(self.session.id, self.tinysa_id)
         stopped = self.workers()[self.tinysa_id]["measurements"]
         receiver_before = self.workers()[self.receiver_id]["measurements"]
-        time.sleep(0.06)
+        wait_until(
+            lambda: self.workers()[self.receiver_id]["measurements"] > receiver_before,
+            "Receiver должен продолжать запись после остановки tinySA",
+        )
         current = self.workers()
         self.assertEqual(current[self.tinysa_id]["measurements"], stopped)
         self.assertGreater(current[self.receiver_id]["measurements"], receiver_before)
@@ -406,7 +412,8 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.assertEqual(created["state"], "draft")
         self.assertEqual(created["streams"][0]["settings"]["adapter"], "tinysa-sim")
         self.assertEqual(created["streams"][1]["level_unit"], "s_meter_count")
-        self.assertFalse(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_control"])
+        self.assertTrue(self.client.capabilities()["features"]["hardware_validation_not_run"])
         self.assertEqual(
             self.client.get_session("created/windows")["name"],
             "Создано Windows-клиентом",
@@ -462,6 +469,29 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(disabled_handoff["policy"]["enabled"])
         self.assertEqual(disabled_handoff["policy"]["receiver_stream_id"], self.receiver_id)
+
+        completion = automatic_completion_payload(
+            enabled=True,
+            interval_seconds=0.2,
+            minimum_listening_seconds=0,
+            minimum_observations=1,
+            receiver_stream_id=self.receiver_id,
+        )
+        completion_status = self.client.configure_automatic_completion(
+            self.session.id, completion
+        )
+        self.assertTrue(completion_status["policy"]["enabled"])
+        self.assertEqual(completion_status["policy"]["minimum_observations"], 1)
+        snapshot = self.client.snapshot(self.session.id)
+        self.assertTrue(snapshot.automatic_completion["policy"]["enabled"])
+        self.assertEqual(snapshot.automatic_completion["policy"]["receiver_stream_id"], self.receiver_id)
+        disabled_completion = self.client.configure_automatic_completion(
+            self.session.id, {"enabled": False}
+        )
+        self.assertFalse(disabled_completion["policy"]["enabled"])
+        self.assertEqual(disabled_completion["policy"]["minimum_observations"], 1)
+        self.assertFalse(self.client.automatic_detection(self.session.id)["policy"]["enabled"])
+        self.assertFalse(self.client.automatic_handoff(self.session.id)["policy"]["enabled"])
         self.client.stop_session(self.session.id)
 
     def test_candidate_queue_confirmed_handoff_and_real_completion(self) -> None:

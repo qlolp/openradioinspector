@@ -13,13 +13,16 @@
 контролируемой частоте.
 
 Модуль реализует модель задания, машину состояний и правила проверки
-профиля. Планировщик с таймером и сетевой протокол удалённого контроля
-комплексов в объём модуля не входят — см. ``docs/feature-map.md``.
+профиля. Фоновый runtime-only планировщик находится в ``task_scheduler.py``;
+сетевой протокол удалённого контроля комплексов в объём не входит.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -712,15 +715,38 @@ class TaskBook:
 
     def save(self) -> Path:
         """Сохранение заданий в файл."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            parent = self.path.parent.lstat()
+            if (stat.S_ISLNK(parent.st_mode) or parent.st_uid != os.getuid()
+                    or stat.S_IMODE(parent.st_mode) & 0o022):
+                raise ValueError("Каталог заданий должен принадлежать пользователю и быть закрыт для чужой записи")
         payload = {
             "format": self.FORMAT,
             "version": self.VERSION,
             "tasks": [task.as_dict() for task in self.tasks],
         }
-        self.path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        try:
+            mode = stat.S_IMODE(self.path.stat().st_mode)
+        except FileNotFoundError:
+            mode = 0o600
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
         )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                if hasattr(os, "fchmod"):
+                    os.fchmod(output.fileno(), mode)
+                output.write(json.dumps(payload, ensure_ascii=False, indent=2))
+                output.flush()
+                os.fsync(output.fileno())
+            temporary.replace(self.path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
         return self.path
 
     def add(self, task: ControlTask) -> ControlTask:

@@ -7,7 +7,21 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%2307131c'/%3E%3Ccircle cx='32' cy='32' r='21' fill='none' stroke='%2360e4ef' stroke-width='4'/%3E%3Ccircle cx='32' cy='32' r='5' fill='%23ffd36e'/%3E%3C/svg%3E">
   <title>OpenRadioInspector — узел наблюдения</title>
   <link rel="stylesheet" href="/static/platform.css">
+  <script src="/static/archive-capacity.js" defer></script>
+  <script src="/static/sweep-comparison.js" defer></script>
+  <script src="/static/sweep-threshold.js" defer></script>
+  <script src="/static/sweep-mask.js" defer></script>
+  <script src="/static/sweep-average.js" defer></script>
+  <script src="/static/sweep-three-thresholds.js" defer></script>
+  <script src="/static/sweep-context.js" defer></script>
+  <script src="/static/frequency-rounding.js" defer></script>
   <script src="/static/platform.js" defer></script>
+  <script src="/static/serial-session.js" defer></script>
+  <script src="/static/analytics.js" defer></script>
+  <script src="/static/archive-export.js" defer></script>
+  <script src="/static/task-create.js" defer></script>
+  <script src="/static/completion.js" defer></script>
+  <script src="/static/scheduler.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">К рабочей области</a>
@@ -52,12 +66,106 @@
         <select id="session-select" aria-describedby="session-empty"></select>
         <p id="session-empty" class="empty-note">Запрашиваю сеансы ядра…</p>
         <div id="session-meta" class="session-meta"></div>
+        <details>
+          <summary>Новый serial-профиль</summary>
+          <form id="serial-session-form">
+            <label class="field-label" for="serial-session-name">Название сеанса</label>
+            <input id="serial-session-name" required maxlength="200" value="Двойной обзор">
+            <label class="field-label" for="serial-session-tinysa">Порт tinySA на компьютере ядра</label>
+            <input id="serial-session-tinysa" required placeholder="COM3 или /dev/ttyACM0">
+            <label class="field-label" for="serial-session-receiver">Порт AR-DV1 на компьютере ядра</label>
+            <input id="serial-session-receiver" required placeholder="COM4 или /dev/ttyUSB0">
+            <p class="unit-lock">FM 145,5 МГц; обзор 88–108 МГц, 201 точка, RBW 10 кГц. Генератор tinySA выключен. Windows требует pySerial на компьютере ядра. Аппаратный стенд не проверен.</p>
+            <button id="serial-session-submit" type="submit" class="button">Создать черновик</button>
+            <p id="serial-session-status" role="status" aria-live="polite"></p>
+          </form>
+        </details>
         <div class="button-grid">
           <button id="session-start" type="button" class="button primary" disabled>Запустить сеанс</button>
           <button id="session-stop" type="button" class="button danger-quiet" disabled>Остановить сеанс</button>
           <button id="workers-start" type="button" class="button" disabled>Запустить приборы</button>
           <button id="workers-stop" type="button" class="button" disabled>Остановить приборы</button>
         </div>
+      </section>
+
+      <section class="panel capacity-panel" aria-labelledby="archive-capacity-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">GLOBAL · READ-ONLY</span>
+            <h2 id="archive-capacity-heading">Ёмкость архива</h2>
+          </div>
+        </div>
+        <p id="archive-capacity-status" class="automatic-runtime" data-state="unavailable" role="status" aria-live="polite">Состояние ёмкости запрашивается у ядра…</p>
+        <p class="unit-lock">Общий архив всех сеансов. Автоматическое удаление данных выключено. Лимит записи измерений относится к логической SQLite БД; WAL и изменения метаданных не ограничиваются им. Порог задаётся при запуске сервера.</p>
+      </section>
+
+      <section class="panel analytics-panel" aria-labelledby="analytics-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">READ-ONLY</span>
+            <h2 id="analytics-heading">Сводка всего архива</h2>
+          </div>
+          <button id="analytics-refresh" type="button" class="button" disabled>Запросить сводку</button>
+        </div>
+        <dl id="analytics-summary" class="measurement-strip">
+          <div><dt>Свипы</dt><dd id="analytics-sweeps">—</dd></div>
+          <div><dt>Наблюдения</dt><dd id="analytics-observations">—</dd></div>
+          <div><dt>Шумодав открыт</dt><dd id="analytics-squelch">—</dd></div>
+        </dl>
+        <p id="analytics-latest" class="session-meta">Сводка появится после выбора сеанса.</p>
+      </section>
+
+      <section class="panel export-panel" aria-labelledby="export-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">SNAPSHOT</span>
+            <h2 id="export-heading">Экспорт архива</h2>
+          </div>
+        </div>
+        <p class="unit-lock">NDJSON со стабильными ID, целыми Гц и исходными единицами. Сервер формирует неизменный snapshot; браузер не собирает записи сам.</p>
+        <a id="archive-export" class="button" aria-disabled="true">Скачать NDJSON snapshot</a>
+      </section>
+
+      <section class="panel scheduler-panel" aria-labelledby="task-scheduler-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="section-index">CONTROL TASKS</span>
+            <h2 id="task-scheduler-heading">Планировщик заданий</h2>
+          </div>
+        </div>
+        <details id="task-scheduler-editor" class="editor automatic-editor">
+          <summary>Runtime-only · по умолчанию выключен</summary>
+          <p id="task-scheduler-status" class="automatic-runtime" role="status" aria-live="polite">Состояние scheduler запрашивается у ядра…</p>
+          <p class="unit-lock">Глобальный scheduler сервера выполняет существующую TaskBook и не связан с выбранным сеансом. После перезапуска требуется новое явное включение. Браузер создаёт и отменяет queued-задачи только через API, не создаёт измерения и не открывает приборные порты.</p>
+          <details id="task-create-editor" class="editor">
+            <summary>Новая ControlTask</summary>
+            <form id="task-create-form">
+              <div class="form-grid">
+                <label>Имя<input id="task-create-name" type="text" required></label>
+                <label>task_file<input id="task-create-file" type="text" required placeholder="/path/to/scan.json"></label>
+                <label>Начало<input id="task-create-start" type="datetime-local" required></label>
+                <label>Длительность, с<input id="task-create-duration" type="number" min="0.001" step="any" value="60" required></label>
+                <label>Оборудование<input id="task-create-equipment" type="text" placeholder="tinySA Ultra + AR-DV1"></label>
+              </div>
+              <div class="form-actions">
+                <button id="task-create-submit" type="submit" class="button primary">Создать задачу</button>
+              </div>
+              <p id="task-create-status" class="automatic-runtime" role="status" aria-live="polite">Статус и outcome назначает сервер; локальные пути в ответ не включаются.</p>
+            </form>
+          </details>
+          <dl class="measurement-strip">
+            <div><dt>Всего</dt><dd id="task-scheduler-total">—</dd></div>
+            <div><dt>В работе</dt><dd id="task-scheduler-running">—</dd></div>
+            <div><dt>Готово</dt><dd id="task-scheduler-completed">—</dd></div>
+          </dl>
+          <div id="task-scheduler-list" class="record-list" aria-label="Список ControlTask">
+            <p class="empty-state">Задачи загружаются…</p>
+          </div>
+          <div class="form-actions">
+            <button id="task-scheduler-enable" type="button" class="button primary" disabled>Включить scheduler</button>
+            <button id="task-scheduler-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
+          </div>
+        </details>
       </section>
 
       <section class="panel devices-panel" aria-labelledby="devices-heading">
@@ -103,6 +211,145 @@
           <span id="waterfall-scale">ожидание данных</span>
         </div>
         <canvas id="waterfall-canvas" width="960" height="190" role="img" aria-label="Водопад последних спектральных свипов">Ваш браузер не поддерживает canvas.</canvas>
+        <section class="comparison-panel" aria-labelledby="comparison-heading">
+          <h3 id="comparison-heading">Сравнение архивных свипов · Δ dB</h3>
+          <p>Исходные трассы и водопад выше: dBm. Ниже: разность, рассчитанная ядром без изменения архива.</p>
+          <label for="comparison-reference-select">Опорный из последних 40 свипов выбранного потока</label>
+          <select id="comparison-reference-select" disabled><option>Нет архивных dBm свипов</option></select>
+          <div class="form-actions">
+            <button id="comparison-pin" class="button" type="button" disabled>Закрепить опорный</button>
+            <button id="comparison-run" class="button" type="button" disabled>Сравнить с последним</button>
+            <button id="comparison-clear" class="button" type="button" disabled>Снять опорный</button>
+          </div>
+          <p id="comparison-reference">Опорный свип не закреплён.</p>
+          <fieldset class="reference-catalog">
+            <legend>Именованные опорные свипы · до 100 на сеанс</legend>
+            <label for="comparison-name">Имя (1–80 символов, регистр учитывается)</label>
+            <input id="comparison-name" type="text" autocomplete="off" placeholder="Например, фон перед измерением">
+            <button id="comparison-save" class="button" type="button" disabled>Сохранить закреплённый опорный</button>
+            <label for="comparison-catalog">Сохранённые опорные выбранного потока</label>
+            <select id="comparison-catalog" disabled><option value="">Каталог не загружен</option></select>
+            <div class="form-actions">
+              <button id="comparison-refresh" class="button" type="button" disabled>Обновить каталог</button>
+              <button id="comparison-use" class="button" type="button" disabled>Использовать выбранный сохранённый</button>
+            </div>
+            <p id="comparison-storage">Хранилище каталога: ещё не проверено.</p>
+            <p id="comparison-catalog-status" role="status" aria-live="polite"></p>
+            <p id="comparison-catalog-notice" role="status" aria-live="polite"></p>
+            <p>Сохранение только по кнопке. Прерывание ожидания или смена сеанса не отменяет запись на сервере; при неопределённом результате обновите каталог. Переименование, замена и удаление не выполняются.</p>
+          </fieldset>
+          <p id="comparison-status" role="status" aria-live="polite"></p>
+          <p id="comparison-summary"></p>
+          <canvas id="comparison-canvas" width="960" height="260" role="img" aria-label="Разность архивных свипов, dB" hidden></canvas>
+        </section>
+        <section class="average-panel" aria-labelledby="average-heading">
+          <h3 id="average-heading">Усреднённый опорный · средняя мощность</h3>
+          <p>Ядро рассчитывает среднее арифметическое в линейной мощности с равными весами и возвращает dBm. По явной команде оно ищет непрерывные области прироста разности; это не автоматическое обнаружение кандидатов и не калибровка. Исходные измерения доступны только для чтения.</p>
+          <label for="average-count">N исходных dBm свипов (2–16)</label>
+          <input id="average-count" type="number" min="2" max="16" step="1" value="3" required>
+          <div class="form-grid">
+            <label>Минимальный прирост, dB (0–120)<input id="average-detect-threshold" type="number" min="0" max="120" step="any" value="6" required></label>
+            <label>Минимальная ширина области, точек (1–16384)<input id="average-detect-bins" type="number" min="1" max="16384" step="1" value="2" required></label>
+          </div>
+          <p id="average-source">Нет dBm свипов выбранного потока.</p>
+          <div class="form-actions">
+            <button id="average-pin" class="button" type="button" disabled>Закрепить N свипов перед последним</button>
+            <button id="average-run" class="button" type="button" disabled>Сравнить и найти изменения</button>
+            <button id="average-export" class="button" type="button" disabled>Экспорт JSON</button>
+            <button id="average-clear" class="button" type="button">Снять опорный и результат</button>
+          </div>
+          <p>Закрепление локальное: ровно N свипов перед последним dBm свипом в полученном окне выбранного потока. Нужно N+1 свипов, без автоматического уменьшения N. Это не постоянный именованный опорный. Новые свипы не меняют опорный или результат; изменение N и смена области или соединения очищают их. Изменение порога или ширины снимает только результат, сохраняя закреплённые источники. Сравнение только по кнопке, без записи и команд приборам.</p>
+          <p id="average-reference"></p>
+          <p id="average-status" role="status" aria-live="polite"></p>
+          <p id="average-summary"></p>
+          <canvas id="average-overlay" width="960" height="280" role="img" aria-label="Средняя мощность и целевой свип, dBm" hidden></canvas>
+          <canvas id="average-delta" width="960" height="260" role="img" aria-label="Разность цели и усреднённого опорного, dB" hidden></canvas>
+        </section>
+        <section class="context-panel" aria-labelledby="context-heading">
+          <h3 id="context-heading">Контекст архивного свипа · N1 / N2</h3>
+          <p>Снимок ближайших архивных свипов того же потока до и после выбранного якоря. Порядок: начало UTC, затем точный ID (UTF-8). Автоматический захват N1/N2 при обнаружении не реализован. Нет привязки к кандидатам, записи или команд прибору.</p>
+          <label for="context-anchor">Якорь из полученных dBm свипов выбранного потока</label>
+          <select id="context-anchor" disabled aria-describedby="context-source"></select>
+          <div class="form-grid">
+            <label>N1 · до якоря (0–16)<input id="context-before" type="number" min="0" max="16" step="1" value="2" required></label>
+            <label>N2 · после якоря (0–16)<input id="context-after" type="number" min="0" max="16" step="1" value="2" required></label>
+          </div>
+          <p id="context-source">Нет полученного архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="context-run" class="button" type="button" disabled>Закрепить якорь и загрузить контекст</button>
+            <button id="context-clear" class="button" type="button">Снять якорь и окно</button>
+          </div>
+          <p>Начальные N1=2 и N2=2 — примеры. Новые свипы не меняют закреплённый якорь или результат; недостающие стороны показываются явно, без ожидания новых данных. Выбранный исходный свип сохраняется локально после ухода из полученного списка: повторная загрузка по кнопке проверит новое окно архива. Редактирование очищает результат; смена области и потеря соединения также сбрасывают сохранённый выбор. Выберите строку, чтобы увидеть все исходные точки её спектра в dBm на общей сетке частот, без интерполяции.</p>
+          <p id="context-pinned">Якорь не закреплён.</p>
+          <p id="context-status" role="status" aria-live="polite"></p>
+          <p id="context-summary"></p>
+          <ol id="context-items" aria-label="Все свипы контекста с offset, ID, UTC и записанными настройками"></ol>
+          <p id="context-selected"></p>
+          <canvas id="context-canvas" width="960" height="280" role="img" aria-label="Исходный спектр выбранного свипа контекста, dBm" hidden></canvas>
+        </section>
+        <section class="three-thresholds-panel" aria-labelledby="three-thresholds-heading">
+          <h3 id="three-thresholds-heading">Три горизонтальных порога архивного свипа · dBm</h3>
+          <p>Три независимые ручные линии, в любом порядке, в том числе одинаковые. Начальные −90, −80, −70 dBm — только примеры, не нормативные пределы. Это не автоматический детектор, не калибровка и не объединение с маской или адаптивным порогом.</p>
+          <div class="form-grid">
+            <label>line-1 · жёлтый, длинный штрих · dBm<input id="three-thresholds-level-1" type="number" step="any" value="-90" required></label>
+            <label>line-2 · оранжевый, короткий штрих · dBm<input id="three-thresholds-level-2" type="number" step="any" value="-80" required></label>
+            <label>line-3 · сиреневый, штрих-точка · dBm<input id="three-thresholds-level-3" type="number" step="any" value="-70" required></label>
+          </div>
+          <p id="three-thresholds-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="actions">
+            <button id="three-thresholds-run" class="button" type="button" disabled>Анализировать последний dBm свип</button>
+            <button id="three-thresholds-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Анализ только по кнопке. Новые свипы обновляют следующую цель, а результат сохраняет исходный свип, UTC, настройки и три введённых уровня. Редактирование очищает результат. Совпадающие линии различаются вложенными кольцами, исходный свип — малым квадратом.</p>
+          <p id="three-thresholds-status" role="status" aria-live="polite"></p>
+          <p id="three-thresholds-summary"></p>
+          <canvas id="three-thresholds-canvas" width="960" height="300" role="img" aria-label="Исходный свип и три горизонтальных порога, dBm" hidden></canvas>
+          <p id="three-thresholds-line-1-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-1-regions" class="three-thresholds-regions" aria-label="Области превышения line-1, dB"></ol>
+          <p id="three-thresholds-line-2-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-2-regions" class="three-thresholds-regions" aria-label="Области превышения line-2, dB"></ol>
+          <p id="three-thresholds-line-3-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-3-regions" class="three-thresholds-regions" aria-label="Области превышения line-3, dB"></ol>
+        </section>
+        <section class="threshold-panel" aria-labelledby="threshold-heading">
+          <h3 id="threshold-heading">Адаптивный порог архивного свипа · dBm</h3>
+          <p>Ядро берёт локальную медиану центрированного окна, включая текущую точку; у краёв окно обрезается. Порог = медиана + запас dB. Это не калиброванный шум и не достоверность обнаружения.</p>
+          <div class="form-grid">
+            <label>Нечётное окно, точек (3–101)<input id="threshold-window" type="number" min="3" max="101" step="2" value="21" required></label>
+            <label>Запас, dB (0–120)<input id="threshold-margin" type="number" min="0" max="120" step="any" value="6" required></label>
+          </div>
+          <p id="threshold-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="threshold-run" class="button" type="button" disabled>Анализировать последний dBm свип</button>
+            <button id="threshold-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Только чтение по кнопке: без записи, кандидатов и команд прибору. Новые свипы не меняют результат. Равенство порогу не считается превышением; области непрерывны по индексам, а не по расстоянию частот.</p>
+          <p id="threshold-status" role="status" aria-live="polite"></p>
+          <p id="threshold-summary"></p>
+          <canvas id="threshold-canvas" width="960" height="280" role="img" aria-label="Исходный свип и адаптивный порог, dBm" hidden></canvas>
+          <ol id="threshold-regions" aria-label="Области превышения порога"></ol>
+        </section>
+        <section class="mask-panel" aria-labelledby="mask-heading">
+          <h3 id="mask-heading">Табличная спектральная маска · dBm</h3>
+          <p>Переносимый JSON: 2–128 вершин, целые Гц и пределы dBm. Ядро линейно интерполирует только пределы маски в dBm, без экстраполяции и изменения исходных измерений. Таблица не является подтверждением соответствия нормативам.</p>
+          <label for="mask-file">Загрузить локальный JSON UTF-8 (до 65 536 байт)</label>
+          <input id="mask-file" type="file" accept=".json,application/json">
+          <label for="mask-editor">Черновик маски · JSON</label>
+          <textarea id="mask-editor" rows="12" spellcheck="false" aria-describedby="mask-draft" placeholder="Загрузите JSON или создайте ненормативный пример"></textarea>
+          <p id="mask-draft" role="status" aria-live="polite">Черновик не проверен ядром.</p>
+          <p id="mask-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="mask-template" class="button" type="button" disabled>НЕНОРМАТИВНЫЙ пример −80 dBm</button>
+            <button id="mask-run" class="button" type="button" disabled>Проверить маску и анализировать свип</button>
+            <button id="mask-clear" class="button" type="button">Очистить результат</button>
+            <button id="mask-save" class="button" type="button" disabled>Сохранить проверенную маску</button>
+          </div>
+          <p>Импорт и редактирование локальны. Только кнопка анализа передаёт черновик выбранному ядру: без записи, кандидатов и команд прибору. Черновик сохраняется при смене области, но не применяется автоматически. Новые свипы не меняют зафиксированный результат. Равенство не превышение; области непрерывны по индексам.</p>
+          <p id="mask-status" role="status" aria-live="polite"></p>
+          <p id="mask-summary"></p>
+          <canvas id="mask-canvas" width="960" height="280" role="img" aria-label="Исходный свип и табличная маска, dBm" hidden></canvas>
+          <ol id="mask-regions" aria-label="Области превышения маски"></ol>
+        </section>
       </section>
 
       <section class="panel events-panel" aria-labelledby="events-heading">
@@ -178,6 +425,27 @@
         <div id="candidate-list" class="record-list">
           <p class="empty-state">Кандидатов нет. Зафиксируйте пик реального свипа или создайте запись вручную.</p>
         </div>
+        <section class="rounding-panel" aria-labelledby="rounding-heading">
+          <h3 id="rounding-heading">Таблица округления частоты · только предложение</h3>
+          <p>Ядро рассчитывает ближайшую точку сетки в выбранном диапазоне. Исходная частота сохраняется. Нет изменения кандидата, handoff, настройки прибора или проверки разрешённых частот.</p>
+          <label for="rounding-candidate">Кандидат из всех потоков текущего сеанса</label>
+          <select id="rounding-candidate" disabled aria-describedby="rounding-source"><option value="">Выберите кандидата</option></select>
+          <p id="rounding-source">Явно выберите кандидата, независимо от спектрального потока.</p>
+          <label for="rounding-file">Локальный JSON UTF-8 (до 65 536 байт)</label>
+          <input id="rounding-file" type="file" accept=".json,application/json">
+          <label for="rounding-editor">Черновик профиля · JSON</label>
+          <textarea id="rounding-editor" rows="14" spellcheck="false" aria-describedby="rounding-draft" placeholder="Загрузите профиль или создайте ненормативный пример"></textarea>
+          <p id="rounding-draft" role="status" aria-live="polite">Черновик не проверен ядром.</p>
+          <div class="form-actions">
+            <button id="rounding-template" class="button" type="button">НЕНОРМАТИВНЫЙ пример</button>
+            <button id="rounding-run" class="button" type="button" disabled>Проверить профиль и рассчитать</button>
+            <button id="rounding-clear" class="button" type="button">Очистить результат</button>
+            <button id="rounding-save" class="button" type="button" disabled>Сохранить проверенный профиль</button>
+          </div>
+          <p>Результат и полный выбранный источник сохраняются при polling. Повторный расчёт только по кнопке. dBm и s_meter_count остаются исходными единицами, без пересчёта уровня.</p>
+          <p id="rounding-status" role="status" aria-live="polite"></p>
+          <p id="rounding-summary"></p>
+        </section>
       </section>
 
       <section class="panel investigations-panel" aria-labelledby="investigations-heading">
@@ -216,6 +484,25 @@
             <div class="form-actions">
               <button id="automatic-enable" type="submit" class="button primary" disabled>Включить с указанной политикой</button>
               <button id="automatic-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
+            </div>
+          </form>
+        </details>
+        <details id="completion-editor" class="editor automatic-editor">
+          <summary>Автоматическое завершение · по умолчанию выключено</summary>
+          <form id="completion-form">
+            <p id="completion-status" class="automatic-runtime" role="status" aria-live="polite">Политика запрашивается у ядра…</p>
+            <p class="unit-lock">Политика действует только в текущем процессе и не отменяет исследования при выключении. Завершаются только listening/decoding после минимального времени и нужного числа наблюдений receiver. Сохранение параметров не включает завершение.</p>
+            <div class="form-grid">
+              <label>Период проверки, с<input id="completion-interval" type="number" min="0.1" max="3600" step="0.1" value="1" required></label>
+              <label>Минимум прослушивания, с<input id="completion-listening" type="number" min="0" max="86400" step="0.1" value="0" required></label>
+              <label>Минимум наблюдений<input id="completion-observations" type="number" min="1" max="1000" step="1" value="1" required></label>
+            </div>
+            <label class="field-label" for="completion-receiver">Допустимый receiver</label>
+            <select id="completion-receiver"><option value="">Любой receiver сеанса</option></select>
+            <div class="form-actions">
+              <button id="completion-save" type="button" class="button" disabled>Сохранить параметры</button>
+              <button id="completion-enable" type="submit" class="button primary" disabled>Включить завершение</button>
+              <button id="completion-disable" type="button" class="button danger-quiet" disabled>Выключить</button>
             </div>
           </form>
         </details>

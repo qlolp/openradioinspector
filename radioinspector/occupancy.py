@@ -13,6 +13,7 @@ measurement and evaluation»: на каждой частотной точке с
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -109,7 +110,7 @@ def band_occupancy(
 
     observation_time = 0.0
     if grid.shape[0] > 1:
-        observation_time = float(grid.shape[0])  # один цикл сканирования на панораму
+        observation_time = 0.0  # без временных меток длительность неизвестна
 
     return OccupancyResult(
         start_hz=float(freqs[0]),
@@ -145,7 +146,9 @@ def occupancy_from_store(
             mask &= freqs <= stop_hz
         grid = grid[:, mask]
         freqs = freqs[mask]
-    return band_occupancy(grid, freqs, threshold_db)
+    result = band_occupancy(grid, freqs, threshold_db)
+    result.observation_time_s = float(np.max(_times) - np.min(_times)) if _times.size > 1 else 0.0
+    return result
 
 
 def busy_hour_occupancy(
@@ -160,12 +163,11 @@ def busy_hour_occupancy(
     grid, times = store.level_grid()
     if grid.size == 0:
         return {}
-    occupancy, _freqs = channel_occupancy(grid, store.frequencies(), threshold_db)
-    per_scan = float(np.mean(occupancy))
+    per_scan = (grid > threshold_db).mean(axis=1)
     buckets: dict[int, list[float]] = {}
     from datetime import datetime, timezone
 
-    for stamp, value in zip(times, [per_scan] * len(times)):
+    for stamp, value in zip(times, per_scan):
         hour = datetime.fromtimestamp(stamp, tz=timezone.utc).hour
         buckets.setdefault(hour, []).append(value)
     return {hour: float(np.mean(values)) for hour, values in sorted(buckets.items())}
@@ -203,7 +205,7 @@ class DutyInterval:
 
 def _format_interval(seconds: float) -> str:
     """Формат интервала в стиле исходного комплекса: «27сек646мс»."""
-    if seconds != seconds:  # NaN
+    if math.isnan(seconds):
         return "—"
     total_ms = int(round(seconds * 1000.0))
     return f"{total_ms // 1000}сек{total_ms % 1000:03d}мс"

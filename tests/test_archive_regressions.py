@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import queue
+from contextlib import closing
 import sqlite3
 import subprocess
 import sys
@@ -71,7 +72,7 @@ class ArchiveRegressionTests(unittest.TestCase):
         self.assertEqual(
             [to_primitive(s) for s in store.load_sessions()], [to_primitive(original)]
         )
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(
                 connection.execute("SELECT count(*) FROM streams").fetchone()[0], 2
             )
@@ -127,7 +128,7 @@ class ArchiveRegressionTests(unittest.TestCase):
                 before_events = to_primitive(service.events())
                 before_health = service.health()
                 _, subscriber = service.subscribe(after=before_health["last_event_id"])
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection, connection:
                     connection.execute(
                         "CREATE TRIGGER reject_event BEFORE INSERT ON events "
                         f"WHEN NEW.event_type = '{event_type}' "
@@ -165,13 +166,13 @@ class ArchiveRegressionTests(unittest.TestCase):
                         self.assertEqual(restored.list_observations("a"), [])
                 finally:
                     restored.close()
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection, connection:
                     connection.execute("DROP TRIGGER reject_event")
                 perform()
                 event = subscriber.get_nowait()
                 self.assertEqual(event.sequence, before_health["last_event_id"] + 1)
                 self.assertEqual(event.event_type, event_type)
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection, connection:
                     count = connection.execute("SELECT count(*) FROM events").fetchone()[0]
                     self.assertEqual(count, event.sequence)
                     self.assertEqual(
@@ -272,7 +273,7 @@ raise AssertionError("The event trigger did not interrupt the process")
                         expected[-2:],
                     )
                 if persistent:
-                    with sqlite3.connect(self.path) as connection:
+                    with closing(sqlite3.connect(self.path)) as connection, connection:
                         for table in ("sweeps", "observations"):
                             connection.execute(
                                 f"UPDATE {table} SET started_at = '2026-11-04T20:00:00Z' "
@@ -302,7 +303,7 @@ raise AssertionError("The event trigger did not interrupt the process")
                         payload["id"] = kind + "-" + suffix
                         getattr(service, "ingest_" + kind)(payload)
                     if persistent:
-                        with sqlite3.connect(self.path) as connection:
+                        with closing(sqlite3.connect(self.path)) as connection, connection:
                             connection.execute(
                                 f"UPDATE {plural} SET started_at = '2026-11-04T20:00:00Z' "
                                 "WHERE id = ?",

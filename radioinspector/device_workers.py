@@ -1,19 +1,21 @@
-"""Независимые исполнители приборных потоков и их симуляторы.
+"""Независимые исполнители приборных потоков и их адаптеры.
 
-В этом модуле реализован только программный стенд tinySA Ultra и AR-DV1.
-Физические порты не открываются, а аппаратные команды не заявляются как
-реализованные. Каждый исполнитель имеет собственный поток, очередь команд и
-журнал состояния; ошибка одного прибора не останавливает другой.
+Симуляторы tinySA Ultra и AR-DV1 дополнены явными serial-адаптерами.
+Каждый исполнитель имеет собственный поток, очередь команд и журнал состояния;
+ошибка одного прибора не останавливает другой.
 """
 
 from __future__ import annotations
 
 import math
+import os
 import queue
 import random
 import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from .contracts import (
     DeviceRole,
@@ -27,6 +29,7 @@ from .contracts import (
     utc_now,
 )
 from .session_service import SessionService
+from .serial_ports import serial_port_identity
 
 
 class WorkerError(RuntimeError):
@@ -371,6 +374,7 @@ class DeviceWorker:
         self._last_measurement_at: Optional[str] = None
         self._started_at: Optional[str] = None
         self._ended_at: Optional[str] = None
+        self._finished = False
 
     @property
     def alive(self) -> bool:
@@ -382,6 +386,7 @@ class DeviceWorker:
             if self._thread and self._thread.is_alive():
                 raise WorkerError(f"Исполнитель уже запущен: {self.stream_id}")
             self._stop_event.clear()
+            self._finished = False
             self._terminal_state = DeviceState.DISCONNECTED
             self._last_error = None
             self._consecutive_errors = 0
@@ -398,9 +403,13 @@ class DeviceWorker:
     def stop(self, *, timeout: float = 5.0) -> None:
         with self._lock:
             thread = self._thread
+            self._stop_event.set()
+            self._reject_pending_commands()
         if thread is None or not thread.is_alive():
             return
-        self._stop_event.set()
+        request_stop = getattr(self.adapter, "request_stop", None)
+        if request_stop is not None:
+            request_stop()
         self._commands.put({"command": "__wake__"})
         if thread is not threading.current_thread():
             thread.join(timeout=timeout)
@@ -410,8 +419,6 @@ class DeviceWorker:
     def submit(
         self, command: str, payload: Optional[dict[str, Any]] = None, *, timeout: float = 5.0
     ) -> dict[str, Any]:
-        if not self.alive:
-            raise WorkerError(f"Исполнитель не запущен: {self.stream_id}")
         request: dict[str, Any] = {
             "command": command,
             "payload": dict(payload or {}),
@@ -419,9 +426,17 @@ class DeviceWorker:
             "result": None,
             "error": None,
         }
-        self._commands.put(request)
+        with self._lock:
+            if not self.alive or self._stop_event.is_set():
+                raise WorkerError(f"Исполнитель не запущен: {self.stream_id}")
+            self._commands.put(request)
         if not request["done"].wait(timeout):
-            raise WorkerError(f"Команда {command!r} не выполнена за {timeout} с")
+            with self._lock:
+                if not request["done"].is_set():
+                    # Уже начатый I/O не прерываем; ожидающий запрос больше
+                    # не должен исполниться после ошибки таймаута у клиента.
+                    request["cancelled"] = True
+                    raise WorkerError(f"Команда {command!r} не выполнена за {timeout} с")
         if request["error"] is not None:
             raise WorkerError(str(request["error"]))
         return dict(request["result"] or {})
@@ -512,7 +527,28 @@ class DeviceWorker:
             except Exception:
                 pass
         finally:
+            self._finish()
+
+    def _finish(self, error: Optional[Exception] = None) -> None:
+        """Освобождает адаптер ровно один раз, в том числе до старта потока ОС."""
+        with self._lock:
+            if self._finished:
+                return
+            self._finished = True
+            self._stop_event.set()
+            self._reject_pending_commands()
+            if error is not None:
+                self._last_error = str(error)
+                self._terminal_state = DeviceState.ERROR
+        try:
             self.adapter.close()
+        except Exception as exc:
+            with self._lock:
+                self._last_error = (
+                    f"{self._last_error}; {exc}" if self._last_error else str(exc)
+                )
+                self._terminal_state = DeviceState.ERROR
+        finally:
             self._ended_at = format_time(self._clock())
             try:
                 self._set_state(self._terminal_state)
@@ -521,18 +557,31 @@ class DeviceWorker:
                 pass
 
     def _drain_commands(self) -> None:
-        while True:
+        while not self._stop_event.is_set():
             try:
                 request = self._commands.get_nowait()
             except queue.Empty:
                 return
             self._execute_command(request)
 
+    def _reject_pending_commands(self) -> None:
+        while True:
+            try:
+                request = self._commands.get_nowait()
+            except queue.Empty:
+                return
+            if request.get("done") is not None:
+                request["error"] = f"Исполнитель остановлен: {self.stream_id}"
+                request["done"].set()
+
     def _execute_command(self, request: dict[str, Any]) -> None:
         command = request.get("command")
         if command == "__wake__":
             return
         try:
+            with self._lock:
+                if self._stop_event.is_set() or request.get("cancelled"):
+                    raise WorkerError(f"Команда {command!r} отменена: {self.stream_id}")
             result = self.adapter.execute(command, dict(request.get("payload") or {}))
             self._commands_completed += 1
             if command == "tune":
@@ -550,6 +599,15 @@ class DeviceWorker:
                 done.set()
 
 
+class _WorkerLifecycle:
+    """lock принадлежит только API lifecycle; worker никогда его не захватывает."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        # Счётчик читается/изменяется только под общим lock реестра.
+        self.stop_generation = 0
+
+
 class DeviceWorkerManager:
     """Реестр независимых исполнителей, связанный с одной SessionService."""
 
@@ -562,20 +620,82 @@ class DeviceWorkerManager:
         self.sessions = sessions
         self._clock = clock
         self._workers: dict[tuple[str, str], DeviceWorker] = {}
+        self._lifecycles: dict[tuple[str, str], _WorkerLifecycle] = {}
+        self._stopping_sessions: dict[str, int] = {}
+        self._starting_ports: dict[str, tuple[str, str]] = {}
+        self._pending_starts: set[tuple[str, str]] = set()
+        self._closed = False
         self._lock = threading.RLock()
 
-    def capabilities(self) -> dict[str, bool]:
+    def capabilities(self) -> dict[str, Any]:
         return {
             "simulated_device_workers": True,
             "independent_worker_commands": True,
             "continuous_simulated_monitoring": True,
-            "hardware_control": False,
+            "hardware_control": True,
+            "hardware_validation_not_run": True,
+            "explicit_serial_adapters": True,
         }
 
     @property
     def active_count(self) -> int:
         with self._lock:
-            return sum(worker.alive for worker in self._workers.values())
+            workers = list(self._workers.values())
+        return sum(worker.alive for worker in workers)
+
+    @property
+    def pending_start_count(self) -> int:
+        with self._lock:
+            return len(self._pending_starts)
+
+    @contextmanager
+    def _starting(self, key):
+        with self._lock:
+            if self._closed:
+                raise WorkerError("Реестр исполнителей закрыт")
+            self._pending_starts.add(key)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._pending_starts.discard(key)
+
+    def _lifecycle(self, key: tuple[str, str]) -> _WorkerLifecycle:
+        with self._lock:
+            return self._lifecycles.setdefault(key, _WorkerLifecycle())
+
+    def _check_start_allowed(
+        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, generation: int
+    ) -> None:
+        # Вызывается под self._lock; никаких операций с прибором здесь нет.
+        if self._closed:
+            raise WorkerError("Реестр исполнителей закрыт")
+        if self._stopping_sessions.get(key[0]):
+            raise WorkerError("Выполняется остановка исполнителей сеанса")
+        if lifecycle.stop_generation != generation:
+            raise WorkerError(f"Запуск исполнителя отменён остановкой: {key[1]}")
+
+    @contextmanager
+    def stopping_session(self, session_id: str) -> Iterator[None]:
+        """Запрещает новые старты до завершения остановки и записи состояния сеанса.
+
+        Вложенные/параллельные guards безопасны. Они не удерживают общий lock
+        во время I/O; незавершённые старты отменяются даже после таймаута stop.
+        """
+        with self._lock:
+            self._stopping_sessions[session_id] = self._stopping_sessions.get(session_id, 0) + 1
+            for key, lifecycle in self._lifecycles.items():
+                if key[0] == session_id:
+                    lifecycle.stop_generation += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                remaining = self._stopping_sessions[session_id] - 1
+                if remaining:
+                    self._stopping_sessions[session_id] = remaining
+                else:
+                    del self._stopping_sessions[session_id]
 
     @staticmethod
     def _stream(session: MonitoringSession, stream_id: str) -> DeviceStream:
@@ -585,36 +705,118 @@ class DeviceWorkerManager:
         return stream
 
     def start_stream(self, session_id: str, stream_id: str) -> dict[str, Any]:
-        session = self.sessions.get_session(session_id)
-        if session.state.value != "running":
-            raise WorkerError("Сначала запустите сеанс мониторинга")
-        stream = self._stream(session, stream_id)
+        self._stream(self.sessions.get_session(session_id), stream_id)
         key = (session_id, stream_id)
+        lifecycle = self._lifecycle(key)
         with self._lock:
-            existing = self._workers.get(key)
+            generation = lifecycle.stop_generation
+            self._check_start_allowed(key, lifecycle, generation)
+        return self._start_stream(key, lifecycle, generation)
+
+    @staticmethod
+    def _serial_identity(stream: DeviceStream) -> Optional[str]:
+        if stream.settings.get("adapter") not in ("tinysa-serial", "ardv1-serial"):
+            return None
+        if not stream.port:
+            raise WorkerError("Для физического прибора требуется последовательный порт")
+        identity = serial_port_identity(stream.port)
+        return identity if identity.upper().startswith("COM") else os.path.realpath(identity)
+
+    @contextmanager
+    def _serial_port_guard(self, key: tuple[str, str]) -> Iterator[None]:
+        stream = self._stream(self.sessions.get_session(key[0]), key[1])
+        port = self._serial_identity(stream)
+        if port is None:
+            yield
+            return
+        with self._lock:
+            if port in self._starting_ports:
+                raise WorkerError("Порт уже открывается другим исполнителем")
+            for other_key, worker in self._workers.items():
+                if other_key != key and worker.alive and self._serial_identity(worker.adapter.stream) == port:
+                    raise WorkerError("Порт уже принадлежит другому исполнителю")
+            self._starting_ports[port] = key
+        try:
+            yield
+        finally:
+            with self._lock:
+                if self._starting_ports.get(port) == key:
+                    del self._starting_ports[port]
+
+    def _start_stream(
+        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, generation: int
+    ) -> dict[str, Any]:
+        session_id, stream_id = key
+        # Сериализация действует только на один session+stream. В частности,
+        # connect и join не удерживают общий lock и не мешают другому прибору.
+        with lifecycle.lock, self._starting(key), self._serial_port_guard(key):
+            with self._lock:
+                self._check_start_allowed(key, lifecycle, generation)
+                existing = self._workers.get(key)
+            session = self.sessions.get_session(session_id)
+            if session.state.value != "running":
+                raise WorkerError("Сначала запустите сеанс мониторинга")
+            stream = self._stream(session, stream_id)
             if existing and existing.alive:
                 raise WorkerError(f"Исполнитель уже запущен: {stream_id}")
-            adapter = create_simulated_adapter(stream, clock=self._clock)
-            worker = DeviceWorker(self.sessions, adapter, clock=self._clock)
-            self._workers[key] = worker
-        try:
-            worker.start()
-        except Exception:
-            with self._lock:
-                self._workers.pop(key, None)
-            raise
-        return worker.status()
+            from .serial_instruments import create_device_adapter
+
+            try:
+                adapter = create_device_adapter(stream, clock=self._clock)
+            except (ValueError, TypeError, OSError) as exc:
+                raise WorkerError(str(exc)) from exc
+            worker: Optional[DeviceWorker] = None
+            try:
+                worker = DeviceWorker(self.sessions, adapter, clock=self._clock)
+                with self._lock:
+                    self._check_start_allowed(key, lifecycle, generation)
+                    self._workers[key] = worker
+                worker.start()
+                with self._lock:
+                    self._check_start_allowed(key, lifecycle, generation)
+                return worker.status()
+            except Exception as exc:
+                if worker is None:
+                    try:
+                        adapter.close()
+                    except Exception:
+                        pass  # Сохраняем исходную ошибку создания исполнителя.
+                else:
+                    try:
+                        worker.stop()
+                    except WorkerError:
+                        pass  # Живой worker остаётся видимым, повторный start запрещён.
+                    if not worker.alive:
+                        worker._finish(exc)
+                        with self._lock:
+                            if self._workers.get(key) is worker:
+                                del self._workers[key]
+                raise
 
     def start_session(self, session_id: str) -> list[dict[str, Any]]:
         session = self.sessions.get_session(session_id)
         if session.state.value != "running":
             raise WorkerError("Сначала запустите сеанс мониторинга")
+        # Весь пакет получает tickets до первого I/O. Иначе stop_session между
+        # двумя потоками позволил бы старому запросу запустить оставшийся прибор.
+        with self._lock:
+            admissions = []
+            for stream in session.streams:
+                key = (session_id, stream.id)
+                lifecycle = self._lifecycle(key)
+                generation = lifecycle.stop_generation
+                self._check_start_allowed(key, lifecycle, generation)
+                admissions.append((stream, key, lifecycle, generation))
         results = []
-        for stream in session.streams:
+        for stream, key, lifecycle, generation in admissions:
             try:
-                results.append(self.start_stream(session_id, stream.id))
-            except UnsupportedAdapterError as exc:
-                # Неподдерживаемый прибор не мешает запустить остальные потоки.
+                results.append(self._start_stream(key, lifecycle, generation))
+            except WorkerError as exc:
+                # Cancellation invalidates the entire admitted bulk request.
+                # Only an isolated device failure may continue to the next one.
+                with self._lock:
+                    self._check_start_allowed(key, lifecycle, generation)
+                # Ошибка открытия/адаптера одного прибора не останавливает остальные.
                 results.append(
                     {
                         "session_id": session_id,
@@ -631,32 +833,52 @@ class DeviceWorkerManager:
                 )
         return results
 
-    def stop_stream(self, session_id: str, stream_id: str) -> dict[str, Any]:
+    def _stop_worker(
+        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, *, timeout: float = 5.0
+    ) -> Optional[DeviceWorker]:
+        deadline = time.monotonic() + timeout
         with self._lock:
-            worker = self._workers.get((session_id, stream_id))
+            lifecycle.stop_generation += 1
+        if not lifecycle.lock.acquire(timeout=max(0.0, timeout)):
+            raise WorkerError(f"Исполнитель не остановился за {timeout} с: {key[1]}")
+        try:
+            with self._lock:
+                worker = self._workers.get(key)
+            if worker is not None:
+                worker.stop(timeout=max(0.0, deadline - time.monotonic()))
+            return worker
+        finally:
+            lifecycle.lock.release()
+
+    def stop_stream(
+        self, session_id: str, stream_id: str, *, timeout: float = 5.0
+    ) -> dict[str, Any]:
+        self._stream(self.sessions.get_session(session_id), stream_id)
+        key = (session_id, stream_id)
+        worker = self._stop_worker(key, self._lifecycle(key), timeout=timeout)
         if worker is None:
             session = self.sessions.get_session(session_id)
-            self._stream(session, stream_id)
             return self._static_status(session, self._stream(session, stream_id))
-        worker.stop()
         return worker.status()
 
     def stop_session(self, session_id: str) -> list[dict[str, Any]]:
         self.sessions.get_session(session_id)
-        with self._lock:
-            workers = [
-                worker for key, worker in self._workers.items() if key[0] == session_id
-            ]
-        first_error: Optional[Exception] = None
-        for worker in workers:
-            try:
-                worker.stop()
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        if first_error is not None:
-            raise first_error
-        return self.list_workers(session_id)
+        with self.stopping_session(session_id):
+            with self._lock:
+                lifecycles = [
+                    (key, lifecycle) for key, lifecycle in self._lifecycles.items()
+                    if key[0] == session_id
+                ]
+            first_error: Optional[Exception] = None
+            for key, lifecycle in lifecycles:
+                try:
+                    self._stop_worker(key, lifecycle)
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+            if first_error is not None:
+                raise first_error
+            return self.list_workers(session_id)
 
     def tune(
         self, session_id: str, stream_id: str, payload: dict[str, Any]
@@ -711,10 +933,11 @@ class DeviceWorkerManager:
 
     def close(self) -> None:
         with self._lock:
-            workers = list(self._workers.values())
-        for worker in workers:
+            self._closed = True
+            lifecycles = list(self._lifecycles.items())
+        for key, lifecycle in lifecycles:
             try:
-                worker.stop()
+                self._stop_worker(key, lifecycle)
             except WorkerError:
                 # close является best-effort; явная остановка по-прежнему сообщает ошибку.
                 pass

@@ -1,0 +1,24 @@
+{
+  "format": "openradioinspector-frequency-rounding",
+  "format_version": 1,
+  "name": "НЕ НОРМАТИВ: пример округления",
+  "frequency_unit": "Hz",
+  "method": "nearest_grid",
+  "tie_break": "lower",
+  "rules": [
+    {
+      "start_frequency_hz": 100000000,
+      "end_frequency_hz": 110000000,
+      "step_hz": 100000,
+      "origin_frequency_hz": 0,
+      "max_offset_hz": 30000
+    },
+    {
+      "start_frequency_hz": 140000000,
+      "end_frequency_hz": 150000000,
+      "step_hz": 12500,
+      "origin_frequency_hz": 0,
+      "max_offset_hz": 6250
+    }
+  ]
+}

@@ -6,6 +6,7 @@ SQLite-архив подключается через ``SQLiteSessionStore``. Б
 
 from __future__ import annotations
 
+from dataclasses import replace
 import copy
 import queue
 import sqlite3
@@ -29,16 +30,44 @@ from .contracts import (
     SessionState,
     Sweep,
     new_id,
+    parse_time,
     to_primitive,
     utc_now,
 )
-from .session_store import SQLiteSessionStore
+from .frequency_rounding import (
+    FrequencyRoundingIncompatibleError, calculate_candidate_frequency_rounding,
+    validate_rounding_request,
+)
+from .serial_ports import serial_port_identity
+from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
+from .spectral_mask import calculate_sweep_mask
+from .sweep_comparison import compare_sweeps
+from .sweep_context import (
+    calculate_sweep_context, select_context_neighbours, validate_context_request,
+)
+from .sweep_average import (
+    calculate_sweep_average_change_detection,
+    calculate_sweep_average_comparison,
+    validate_average_request,
+    validate_change_detection_request,
+)
+from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
+from .sweep_three_thresholds import calculate_sweep_three_thresholds, validate_three_thresholds_request
+from .sweep_references import (
+    MAX_SWEEP_REFERENCES, check_reference_creation, normalize_reference_name,
+)
 
 
 class SessionNotFoundError(KeyError):
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         super().__init__(f"Сеанс не найден: {session_id}")
+
+
+class SweepNotFoundError(KeyError):
+    def __init__(self, sweep_id: str) -> None:
+        self.sweep_id = sweep_id
+        super().__init__(f"Свип не найден: {sweep_id}")
 
 
 class CandidateNotFoundError(KeyError):
@@ -62,6 +91,7 @@ OPEN_INVESTIGATION_STATES = frozenset(
     }
 )
 RUNTIME_INVESTIGATION_STATES = OPEN_INVESTIGATION_STATES - {InvestigationState.QUEUED}
+MAX_MEASUREMENT_BATCH = 100
 
 
 class SessionService:
@@ -84,6 +114,7 @@ class SessionService:
         self._sessions: dict[str, MonitoringSession] = {}
         self._events: deque[SessionEvent] = deque(maxlen=history_limit)
         self._sweeps: list[Sweep] = []
+        self._sweep_references: list[dict[str, Any]] = []
         self._observations: list[ReceiverObservation] = []
         self._candidates: dict[str, Candidate] = {}
         self._investigations: dict[str, Investigation] = {}
@@ -142,12 +173,12 @@ class SessionService:
 
     def capabilities(self) -> dict[str, Any]:
         """Фактические возможности текущего экземпляра без обещаний будущих функций."""
-        persistent = self._store is not None
+        persistent = self._store is not None and self._store.persistent
         return {
             "api_version": API_VERSION,
             "contract_version": CONTRACT_VERSION,
             "hardware_ownership": "core",
-            "session_storage": "sqlite" if persistent else "memory",
+            "session_storage": "sqlite" if self._store is not None else "memory",
             "persistent_archive": persistent,
             "clients": ["raspberry-pi-webui", "windows-gui", "macos-swiftui"],
             "features": {
@@ -159,7 +190,21 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "sweep_comparison": True,
+                "adaptive_sweep_threshold": True,
+                "three_sweep_thresholds": True,
+                "sweep_context": True,
+                "spectral_mask_analysis": True,
+                "averaged_sweep_reference": True,
+                "averaged_sweep_change_detection": True,
+                "named_sweep_references": True,
+                "archive_capacity_guard": True,
+                "archive_automatic_deletion": False,
+                "measurement_batch_ingest": True,
+                "measurement_batch_atomic": True,
+                "measurement_batch_limit": MAX_MEASUREMENT_BATCH,
                 "candidate_investigations": True,
+                "candidate_frequency_rounding": True,
                 "manual_investigation_handoff": True,
                 "semi_automatic_handoff": True,
                 "automatic_handoff": True,
@@ -172,6 +217,22 @@ class SessionService:
                 "hardware_control": False,
             },
         }
+
+    def archive_capacity(self) -> dict[str, Any]:
+        """Статус архива; режим без SQLite не имеет метрик дискового объёма."""
+        with self._lock:
+            if self._store is not None:
+                return self._store.archive_capacity()
+            return {
+                "storage_mode": "memory",
+                "database_bytes": None,
+                "max_database_bytes": None,
+                "remaining_bytes": None,
+                "state": "unavailable",
+                "warning_threshold": ARCHIVE_WARNING_THRESHOLD,
+                "measurement_writes_blocked": False,
+                "automatic_deletion": False,
+            }
 
     def health(self) -> dict[str, Any]:
         with self._lock:
@@ -207,6 +268,18 @@ class SessionService:
         creation = dict(payload)
         creation["created_at"] = to_primitive(self._clock())
         session = MonitoringSession.from_dict(creation)
+        # Creation-only validation: do not reinterpret historical archives or
+        # simulator profiles, and never open/enumerate ports to compare names.
+        serial_ports: set[str] = set()
+        for stream in session.streams:
+            if stream.settings.get("adapter") not in ("tinysa-serial", "ardv1-serial"):
+                continue
+            if not isinstance(stream.port, str) or not stream.port:
+                continue
+            identity = serial_port_identity(stream.port)
+            if identity in serial_ports:
+                raise ValueError("Один последовательный порт нельзя назначить двум serial-потокам")
+            serial_ports.add(identity)
         with self._lock:
             if session.id in self._sessions:
                 raise ValueError(f"Сеанс уже существует: {session.id}")
@@ -253,12 +326,14 @@ class SessionService:
             session = copy.deepcopy(self._get_locked(session_id))
             ended_at = at or self._clock()
             session.stop(ended_at)
-            stopped = self._save_transition_locked(session, "session.stopped")
+            events = [self._make_event_locked(
+                "session.stopped", session_id=session_id,
+                payload={"session": to_primitive(session)},
+            )]
+            cancellations = []
             for investigation_id, owner_id in list(self._investigation_sessions.items()):
-                if owner_id != session_id:
-                    continue
                 current = self._investigations[investigation_id]
-                if current.state not in OPEN_INVESTIGATION_STATES:
+                if owner_id != session_id or current.state not in OPEN_INVESTIGATION_STATES:
                     continue
                 investigation = copy.deepcopy(current)
                 candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
@@ -266,10 +341,22 @@ class SessionService:
                 investigation.ended_at = ended_at
                 investigation.error = None
                 candidate.state = CandidateState.QUEUED
-                self._save_investigation_locked(
-                    session_id, investigation, candidate, "investigation.cancelled"
-                )
-            return stopped
+                event = replace(self._make_event_locked(
+                    "investigation.cancelled", session_id=session_id,
+                    payload=self._investigation_payload(investigation, candidate),
+                ), sequence=self._sequence + len(events) + 1)
+                events.append(event)
+                cancellations.append((investigation, candidate, event))
+            if self._store is not None:
+                self._store.save_session_stop(session, event=events[0], cancellations=cancellations)
+            # No memory mutation or subscriber notification before the commit.
+            self._sessions[session_id] = session
+            for investigation, candidate, _event in cancellations:
+                self._investigations[investigation.id] = investigation
+                self._candidates[candidate.id] = candidate
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(session)
 
     def _save_transition_locked(
         self, session: MonitoringSession, event_type: str
@@ -366,15 +453,283 @@ class SessionService:
             return copy.deepcopy(observation)
 
     @staticmethod
+    def _batch_payloads(payloads: Any) -> list[Any]:
+        if not isinstance(payloads, list):
+            raise TypeError("Пакет измерений должен быть JSON-массивом")
+        if not 1 <= len(payloads) <= MAX_MEASUREMENT_BATCH:
+            raise ValueError(
+                f"Пакет должен содержать от 1 до {MAX_MEASUREMENT_BATCH} измерений"
+            )
+        return payloads
+
+    def ingest_sweeps(self, payloads: list[dict[str, Any] | Sweep]) -> list[Sweep]:
+        """Атомарно принимает пакет свипов и публикует события после commit."""
+        items = self._batch_payloads(payloads)
+        sweeps = [item if isinstance(item, Sweep) else Sweep.from_dict(item) for item in items]
+        with self._lock:
+            batch_ids: set[str] = set()
+            for sweep in sweeps:
+                self._validate_measurement_locked(
+                    sweep.session_id, sweep.stream_id, sweep.level_unit
+                )
+                if sweep.id in batch_ids:
+                    raise ValueError(f"Дубликат ID внутри пакета: {sweep.id}")
+                batch_ids.add(sweep.id)
+                if self._store is None and any(item.id == sweep.id for item in self._sweeps):
+                    raise ValueError(f"Свип уже существует: {sweep.id}")
+            events = [
+                SessionEvent(
+                    sequence=self._sequence + offset,
+                    event_type="sweep.received",
+                    occurred_at=self._clock(),
+                    session_id=sweep.session_id,
+                    payload={"sweep": to_primitive(sweep)},
+                )
+                for offset, sweep in enumerate(sweeps, start=1)
+            ]
+            try:
+                if self._store is not None:
+                    self._store.record_sweeps(sweeps, events=events)
+                else:
+                    self._sweeps.extend(copy.deepcopy(sweeps))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Пакет свипов содержит дубликат или нарушает связи") from exc
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(sweeps)
+
+    def ingest_observations(
+        self, payloads: list[dict[str, Any] | ReceiverObservation]
+    ) -> list[ReceiverObservation]:
+        """Атомарно принимает пакет наблюдений и публикует события после commit."""
+        items = self._batch_payloads(payloads)
+        observations = [
+            item if isinstance(item, ReceiverObservation) else ReceiverObservation.from_dict(item)
+            for item in items
+        ]
+        with self._lock:
+            batch_ids: set[str] = set()
+            for observation in observations:
+                self._validate_measurement_locked(
+                    observation.session_id, observation.stream_id, observation.level_unit
+                )
+                if observation.id in batch_ids:
+                    raise ValueError(f"Дубликат ID внутри пакета: {observation.id}")
+                batch_ids.add(observation.id)
+                if self._store is None and any(
+                    item.id == observation.id for item in self._observations
+                ):
+                    raise ValueError(f"Наблюдение уже существует: {observation.id}")
+            events = [
+                SessionEvent(
+                    sequence=self._sequence + offset,
+                    event_type="observation.received",
+                    occurred_at=self._clock(),
+                    session_id=observation.session_id,
+                    payload={"observation": to_primitive(observation)},
+                )
+                for offset, observation in enumerate(observations, start=1)
+            ]
+            try:
+                if self._store is not None:
+                    self._store.record_observations(observations, events=events)
+                else:
+                    self._observations.extend(copy.deepcopy(observations))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    "Пакет наблюдений содержит дубликат или нарушает связи"
+                ) from exc
+            for event in events:
+                self._publish_event_locked(event)
+            return copy.deepcopy(observations)
+
+    @staticmethod
     def _limit(limit: int) -> int:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("limit должен быть целым от 1 до 1000")
         return limit
 
+    def archive_measurements(
+        self, session_id: str, *, stream_id: Optional[str] = None
+    ) -> tuple[list[Sweep], list[ReceiverObservation]]:
+        """Возвращает оба типа измерений одним снимком без окна для writer."""
+        with self._lock:
+            sweeps = self.list_sweeps(session_id, stream_id=stream_id, limit=None)
+            observations = self.list_observations(
+                session_id, stream_id=stream_id, limit=None
+            )
+            return sweeps, observations
+
+    def compare_sweeps(
+        self, session_id: str, *, reference_id: str, target_id: str
+    ) -> dict[str, Any]:
+        """Compare exact archived IDs, independent of recent-list/event limits."""
+        for name, value in (("reference_id", reference_id), ("target_id", target_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} должен быть непустым ID свипа")
+        with self._lock:
+            self._get_locked(session_id)
+
+            reference = self._get_sweep_locked(session_id, reference_id)
+            target = reference if target_id == reference_id else self._get_sweep_locked(session_id, target_id)
+            return compare_sweeps(session_id, reference, target)
+
+    def sweep_average_comparison(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read every exact source under one lock, without archive scans or writes."""
+        reference_ids, target_id = validate_average_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            references = [self._get_sweep_locked(session_id, sweep_id) for sweep_id in reference_ids]
+            target = self._get_sweep_locked(session_id, target_id)
+            return calculate_sweep_average_comparison(session_id, references, target)
+
+    def sweep_average_change_detection(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read exact sources under one lock and detect regions without writes."""
+        reference_ids, target_id, minimum_increase_db, minimum_bins = (
+            validate_change_detection_request(payload)
+        )
+        with self._lock:
+            self._get_locked(session_id)
+            references = [
+                self._get_sweep_locked(session_id, sweep_id) for sweep_id in reference_ids
+            ]
+            target = self._get_sweep_locked(session_id, target_id)
+            return calculate_sweep_average_change_detection(
+                session_id, references, target,
+                minimum_increase_db=minimum_increase_db, minimum_bins=minimum_bins,
+            )
+
+    def sweep_threshold(
+        self, session_id: str, *, sweep_id: str, window_points: int, margin_db: float,
+    ) -> dict[str, Any]:
+        """Analyze one exact archived ID without writes, scans or device work."""
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        window_points, margin_db = validate_threshold_parameters(window_points, margin_db)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_threshold(
+                session_id, sweep, window_points=window_points, margin_db=margin_db,
+            )
+
+    def sweep_three_thresholds(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Evaluate three independent lines over one exact ID without writes."""
+        sweep_id, levels_dbm = validate_three_thresholds_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_three_thresholds(session_id, sweep, levels_dbm=levels_dbm)
+
+    def sweep_context(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read actual nearest neighbours without writes or recent-list limits."""
+        sweep_id, before, after = validate_context_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            if self._store is not None:
+                window = self._store.get_sweep_context(
+                    session_id, sweep_id, before=before, after=after,
+                )
+                if window is None:
+                    raise SweepNotFoundError(sweep_id)
+                anchor, preceding, following = window
+            else:
+                anchor = self._get_sweep_locked(session_id, sweep_id)
+                preceding, following = select_context_neighbours(
+                    anchor, self._sweeps, before=before, after=after,
+                )
+            return calculate_sweep_context(
+                session_id, anchor, preceding, following, before=before, after=after,
+            )
+
+    def sweep_mask_analysis(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Evaluate an imported mask against one exact ID, without persistence."""
+        if not isinstance(payload, dict) or set(payload) != {"sweep_id", "mask_json"}:
+            raise ValueError("Разрешены только поля sweep_id и mask_json")
+        sweep_id = payload["sweep_id"]
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        if not isinstance(payload["mask_json"], str):
+            raise ValueError("mask_json должен быть строкой JSON UTF-8")
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_mask(session_id, sweep, mask_json=payload["mask_json"])
+
+    def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
+        if self._store is not None:
+            sweep = self._store.get_sweep(sweep_id, session_id=session_id)
+        else:
+            sweep = next((item for item in self._sweeps
+                          if item.id == sweep_id and item.session_id == session_id), None)
+        if sweep is None:
+            raise SweepNotFoundError(sweep_id)
+        return sweep
+
+    def list_sweep_references(
+        self, session_id: str, *, stream_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                items = self._store.list_sweep_references(session_id, stream_id=stream_id)
+            else:
+                items = [item for item in self._sweep_references
+                         if item["session_id"] == session_id
+                         and (stream_id is None or item["stream_id"] == stream_id)]
+                items.sort(key=lambda item: (parse_time(item["created_at"]), item["id"]))
+            return copy.deepcopy({
+                "session_id": session_id, "stream_id": stream_id,
+                "storage_mode": "sqlite" if self._store is not None else "memory",
+                "persistent": self._store is not None and self._store.persistent,
+                "limit": MAX_SWEEP_REFERENCES, "items": items,
+            })
+
+    def create_sweep_reference(
+        self, session_id: str, payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """Capture immutable archive provenance; replay returns (existing, False)."""
+        if not isinstance(payload, dict) or set(payload) != {"name", "sweep_id"}:
+            raise ValueError("Нужны только поля name и sweep_id")
+        name = normalize_reference_name(payload["name"])
+        sweep_id = payload["sweep_id"]
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            # Reuse the scientific compatibility gate unchanged. No separate
+            # client/catalog implementation of settings or point-limit rules.
+            compare_sweeps(session_id, sweep, sweep)
+            existing = check_reference_creation(
+                self.list_sweep_references(session_id)["items"], name, sweep_id,
+            )
+            if existing is not None:
+                return existing, False
+            reference = {
+                "id": new_id(), "session_id": session_id, "stream_id": sweep.stream_id,
+                "sweep_id": sweep.id, "name": name, "created_at": to_primitive(self._clock()),
+                "interval": to_primitive(sweep.interval), "level_unit": sweep.level_unit,
+                "points": len(sweep.frequencies_hz),
+            }
+            event = self._make_event_locked(
+                "sweep_reference.created", session_id=session_id,
+                payload={"reference": reference},
+            )
+            if self._store is not None:
+                reference, created = self._store.save_sweep_reference(reference, event=event)
+                if not created:
+                    return copy.deepcopy(reference), False
+            else:
+                self._sweep_references.append(copy.deepcopy(reference))
+            self._publish_event_locked(event)
+            return copy.deepcopy(reference), True
+
     def list_sweeps(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
-        limit = self._limit(limit)
+        if limit is not None:
+            limit = self._limit(limit)
         with self._lock:
             self._validate_stream_query_locked(session_id, stream_id)
             if self._store is not None:
@@ -385,12 +740,13 @@ class SessionService:
                 and (stream_id is None or item.stream_id == stream_id)
             ]
             selected.sort(key=lambda item: (item.interval.started_at, item.id))
-            return copy.deepcopy(selected[-limit:])
+            return copy.deepcopy(selected if limit is None else selected[-limit:])
 
     def list_observations(
-        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[ReceiverObservation]:
-        limit = self._limit(limit)
+        if limit is not None:
+            limit = self._limit(limit)
         with self._lock:
             self._validate_stream_query_locked(session_id, stream_id)
             if self._store is not None:
@@ -403,7 +759,7 @@ class SessionService:
                 and (stream_id is None or item.stream_id == stream_id)
             ]
             selected.sort(key=lambda item: (item.interval.started_at, item.id))
-            return copy.deepcopy(selected[-limit:])
+            return copy.deepcopy(selected if limit is None else selected[-limit:])
 
     def _validate_stream_query_locked(
         self, session_id: str, stream_id: Optional[str]
@@ -453,6 +809,20 @@ class SessionService:
             self._validate_measurement_locked(
                 session_id, candidate.source_stream_id, candidate.level_unit
             )
+            references = candidate.observation_ids
+            if len(references) > 1000 or any(not isinstance(item, str) or not item for item in references):
+                raise ValueError("Допустимо до 1000 непустых ID исходных измерений")
+            if references:
+                if self._store is not None:
+                    owners = self._store.measurement_owners(references)
+                else:
+                    owners = {identifier: set() for identifier in references}
+                    for item in (*self._sweeps, *self._observations):
+                        if item.id in owners:
+                            owners[item.id].add((item.session_id, item.stream_id))
+                expected_owner = {(session_id, candidate.source_stream_id)}
+                if any(owners[identifier] != expected_owner for identifier in references):
+                    raise ValueError("Исходное измерение отсутствует или принадлежит другому сеансу/потоку")
             if candidate.id in self._candidates:
                 raise ValueError(f"Кандидат уже существует: {candidate.id}")
             event = self._make_event_locked(
@@ -489,6 +859,17 @@ class SessionService:
         with self._lock:
             return copy.deepcopy(self._get_candidate_locked(session_id, candidate_id))
 
+    def candidate_frequency_rounding(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Derive an exact candidate frequency without writes or handoff changes."""
+        candidate_id, profile_json = validate_rounding_request(payload)
+        with self._lock:
+            candidate = self._get_candidate_locked(session_id, candidate_id)
+            if candidate.id != candidate_id:
+                raise FrequencyRoundingIncompatibleError("Исходный ID кандидата не совпадает с запросом")
+            return calculate_candidate_frequency_rounding(
+                session_id, candidate, profile_json=profile_json,
+            )
+
     def dismiss_candidate(self, session_id: str, candidate_id: str) -> Candidate:
         with self._lock:
             current = self._get_candidate_locked(session_id, candidate_id)
@@ -518,6 +899,8 @@ class SessionService:
                 raise ValueError(f"{field} назначается службой жизненного цикла")
         with self._lock:
             session = self._get_locked(session_id)
+            if session.state.value in ("stopped", "failed"):
+                raise ValueError("Завершённый сеанс не принимает новые исследования")
             current = self._get_candidate_locked(session_id, candidate_id)
             if current.state not in (CandidateState.NEW, CandidateState.QUEUED):
                 raise ValueError(
@@ -715,6 +1098,37 @@ class SessionService:
             return self._save_investigation_locked(
                 session_id, investigation, candidate, "investigation.listening"
             )
+
+    def matching_observation_ids(
+        self, session_id: str, investigation_id: str, *, limit: Optional[int] = None
+    ) -> tuple[str, ...]:
+        """Read-only отбор наблюдений цели без изменения исследования."""
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 1
+        ):
+            raise ValueError("limit должен быть положительным целым или None")
+        with self._lock:
+            current = self._get_investigation_locked(session_id, investigation_id)
+            if current.started_at is None:
+                return ()
+            if self._store is not None:
+                return self._store.matching_observation_ids(
+                    session_id,
+                    current.target_stream_id,
+                    current.target_frequency_hz,
+                    current.started_at,
+                    limit=limit,
+                )
+            matches = [
+                item for item in self._observations
+                if item.session_id == session_id
+                and item.stream_id == current.target_stream_id
+                and item.frequency_hz == current.target_frequency_hz
+                and item.interval.started_at >= current.started_at
+            ]
+            matches.sort(key=lambda item: (item.interval.started_at, item.id))
+            selected = matches if limit is None else matches[:limit]
+            return tuple(item.id for item in selected)
 
     def complete_investigation(
         self, session_id: str, investigation_id: str

@@ -5,6 +5,7 @@ from __future__ import annotations
 import queue
 import unittest
 from concurrent.futures import Future
+from threading import Event, Lock
 
 from radioinspector.windows.app import WindowsApp
 from radioinspector.windows.spectrum import (
@@ -176,6 +177,8 @@ class SpectrumPresentationTests(unittest.TestCase):
         app._revision = 7
         app._executor = ImmediateExecutor()
         app._messages = queue.Queue()
+        app._message_lock = Lock()
+        app._messages_closed = Event()
         app.refresh()
         app.session_id = "session/new"
         app._spectrum_stream_id = lambda: "tiny/new"

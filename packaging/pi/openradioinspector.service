@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenRadioInspector measurement core
+After=network.target
+[Service]
+Type=simple
+User=openradioinspector
+Group=openradioinspector
+SupplementaryGroups=dialout
+Environment=ORI_BIND=127.0.0.1 ORI_PORT=8770 ORI_ARCHIVE_MAX_BYTES=1073741824
+EnvironmentFile=-/etc/default/openradioinspector
+WorkingDirectory=/var/lib/openradioinspector
+ExecStart=/opt/openradioinspector/venv/bin/radioinspector-core --data-dir /var/lib/openradioinspector --host ${ORI_BIND} --port ${ORI_PORT} --archive-max-bytes ${ORI_ARCHIVE_MAX_BYTES}
+ExecStartPost=/opt/openradioinspector/venv/bin/radioinspector-core --check-ready --host ${ORI_BIND} --port ${ORI_PORT}
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/openradioinspector
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+[Install]
+WantedBy=multi-user.target

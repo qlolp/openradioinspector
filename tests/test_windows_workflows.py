@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 test extra
+    import tomli as tomllib
 import unittest
+from pathlib import Path
 
 from radioinspector.windows.app import WindowsApp
 from radioinspector.windows.client import PlatformSnapshot
+from radioinspector.windows.completion_app import CompletionWindowsApp
 from radioinspector.windows.workflows import (
+    automatic_completion_payload,
     automatic_detection_payload,
     automatic_handoff_payload,
     candidate_payload,
@@ -51,6 +58,30 @@ class WorkflowPayloadTests(unittest.TestCase):
             self.session(stop_hz="88000000")
         with self.assertRaisesRegex(ValueError, "целым числом"):
             self.session(start_hz="88.5")
+
+    def test_explicit_serial_profile_assigns_adapters_without_claiming_decode(self):
+        payload = self.session(simulated=False, serial=True, tinysa_port='COM12', receiver_port='COM13')
+        self.assertEqual([s['settings']['adapter'] for s in payload['streams']],
+                         ['tinysa-serial', 'ardv1-serial'])
+        self.assertNotIn('hardware_decode', payload['streams'][1]['capabilities'])
+        self.assertEqual([s['port'] for s in payload['streams']], ['COM12', 'COM13'])
+        for changes in ({'simulated': True}, {'tinysa_port': 'sim://tinysa'},
+                        {'mode': 'DMR'}, {'serial': 'yes'},
+                        {'receiver_port': 'com12'}, {'receiver_port': '\\\\.\\COM12'},
+                        {'receiver_port': 'socket://localhost:1234'},
+                        {'receiver_port': 'rfc2217://localhost:1234'},
+                        {'receiver_port': '/dev/tty\x00USB0'}):
+            args = dict(simulated=False, serial=True, tinysa_port='COM12', receiver_port='COM13')
+            args.update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.session(**args)
+
+    def test_serial_profile_preserves_unicode_and_posix_case(self):
+        payload = self.session(simulated=False, serial=True, name='Приборы 日本語',
+                               tinysa_port='/dev/Прибор', receiver_port='/dev/прибор')
+        self.assertEqual(payload['name'], 'Приборы 日本語')
+        self.assertEqual([stream['port'] for stream in payload['streams']],
+                         ['/dev/Прибор', '/dev/прибор'])
 
     def test_candidate_preserves_source_unit_interval_and_real_sweep_link(self) -> None:
         stream = {"id": "tiny/sa", "level_unit": "dBm"}
@@ -145,6 +176,44 @@ class WorkflowPayloadTests(unittest.TestCase):
             automatic_detection_payload(
                 **{**payload, "max_candidates_per_sweep": 101}
             )
+
+    def test_automatic_completion_payload_validates_types_and_ranges(self) -> None:
+        payload = automatic_completion_payload(
+            enabled=True,
+            interval_seconds="0.5",
+            minimum_listening_seconds="10",
+            minimum_observations="2",
+            receiver_stream_id="ar/dv1",
+        )
+        self.assertEqual(
+            payload,
+            {
+                "enabled": True,
+                "interval_seconds": 0.5,
+                "minimum_listening_seconds": 10.0,
+                "minimum_observations": 2,
+                "receiver_stream_id": "ar/dv1",
+            },
+        )
+        self.assertNotIn("minimum_priority", payload)
+        self.assertNotIn("threshold_dbm", payload)
+        disabled = automatic_completion_payload(
+            **{**payload, "enabled": False, "receiver_stream_id": ""}
+        )
+        self.assertFalse(disabled["enabled"])
+        self.assertIsNone(disabled["receiver_stream_id"])
+        saved = automatic_completion_payload(
+            **{**payload, "enabled": None, "receiver_stream_id": ""}
+        )
+        self.assertNotIn("enabled", saved)
+        self.assertEqual(saved["minimum_observations"], 2)
+        self.assertIsNone(saved["receiver_stream_id"])
+        with self.assertRaisesRegex(ValueError, "boolean"):
+            automatic_completion_payload(**{**payload, "enabled": 1})
+        with self.assertRaisesRegex(ValueError, "диапазоне"):
+            automatic_completion_payload(**{**payload, "interval_seconds": "nan"})
+        with self.assertRaisesRegex(ValueError, "не меньше 1"):
+            automatic_completion_payload(**{**payload, "minimum_observations": 0})
 
     def test_handoff_policy_is_independent_and_validated(self) -> None:
         payload = automatic_handoff_payload(
@@ -255,6 +324,76 @@ class WorkflowCommandTests(unittest.TestCase):
                 ("detection", "session/old", {"enabled": False}),
                 ("handoff", "session/old", {"enabled": False}),
             ],
+        )
+
+    def test_completion_status_is_bound_to_a_visible_label(self) -> None:
+        class Variable:
+            def __init__(self, *, value):
+                self.value = value
+
+        class Widget:
+            created = []
+
+            def __init__(self, master, **kwargs):
+                self.master = master
+                self.kwargs = kwargs
+                self.grid_kwargs = None
+                self.created.append(self)
+
+            def grid(self, **kwargs):
+                self.grid_kwargs = kwargs
+
+        class Tk:
+            StringVar = Variable
+
+        class Ttk:
+            Label = Widget
+            Button = Widget
+
+        policies = object()
+        app = CompletionWindowsApp.__new__(CompletionWindowsApp)
+        app.tk = Tk()
+        app.ttk = Ttk()
+        app.detection_policy_button = Widget(policies)
+        app._build_completion_controls()
+        label, button = Widget.created[1:]
+        self.assertIs(label.master, policies)
+        self.assertIs(label.kwargs["textvariable"], app.completion_var)
+        self.assertEqual(label.grid_kwargs["row"], 3)
+        self.assertEqual(label.grid_kwargs["sticky"], "ew")
+        self.assertIs(button.master, policies)
+        self.assertEqual(button.kwargs["state"], "disabled")
+
+    def test_installed_windows_launcher_uses_scheduler_app(self) -> None:
+        project = Path(__file__).resolve().parents[1] / "pyproject.toml"
+        with project.open("rb") as stream:
+            scripts = tomllib.load(stream)["project"]["scripts"]
+        self.assertEqual(
+            scripts["radioinspector-windows"],
+            "radioinspector.windows.scheduler_app:main",
+        )
+
+    def test_disabling_completion_uses_only_completion_api(self) -> None:
+        class RecordingClient:
+            def __init__(self):
+                self.calls = []
+
+            def configure_automatic_completion(self, session_id, payload):
+                self.calls.append(("completion", session_id, payload))
+
+        app = CompletionWindowsApp.__new__(CompletionWindowsApp)
+        app.client = RecordingClient()
+        app.session_id = "session/old"
+        app._require_session = lambda: True
+        operations = []
+        app._submit_action = lambda _description, operation: operations.append(operation)
+        app._disable_policy("completion")
+        app.session_id = "session/new"
+        for operation in operations:
+            operation()
+        self.assertEqual(
+            app.client.calls,
+            [("completion", "session/old", {"enabled": False})],
         )
 
     def test_fill_uses_domain_ids_and_preserves_operator_selection(self) -> None:

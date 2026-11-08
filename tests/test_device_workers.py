@@ -316,7 +316,8 @@ class WorkerHttpApiTests(unittest.TestCase):
         features = capabilities["data"]["features"]
         self.assertTrue(features["simulated_device_workers"])
         self.assertTrue(features["continuous_simulated_monitoring"])
-        self.assertFalse(features["hardware_control"])
+        self.assertTrue(features["hardware_control"])
+        self.assertTrue(features["hardware_validation_not_run"])
 
         status, created = self.request("POST", "/api/v1/sessions", simulated_session_payload())
         self.assertEqual(status, 201)

@@ -309,3 +309,63 @@ form.editor { border-style: solid; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Read-only global capacity status remains visible without a selected session. */
+#archive-capacity-status[data-state="warning"] { color: #ffd36e; }
+#archive-capacity-status[data-state="full"] { color: #ff8f86; font-weight: 700; }
+#archive-capacity-status[data-state="unavailable"] { color: var(--muted); }
+
+/* Comparison is derived dB, kept apart from raw dBm trace and waterfall. */
+.comparison-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.comparison-panel h3 { font-size: 13px; color: var(--amber); }
+.comparison-panel select { width: 100%; max-width: 100%; }
+#comparison-summary { white-space: pre-line; line-height: 1.7; }
+
+.reference-catalog { border: 1px solid var(--line); margin: 14px 0; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.reference-catalog input { box-sizing: border-box; width: 100%; min-width: 0; }
+#comparison-catalog-notice { color: var(--amber); }
+
+/* The threshold panel never changes the live trace, waterfall or saved references. */
+.threshold-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.threshold-panel h3 { color: var(--cyan); font-size: 13px; }
+#threshold-summary { white-space: pre-line; line-height: 1.7; }
+#threshold-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
+
+/* Portable drafts stay local until an explicit read-only core analysis. */
+.mask-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.mask-panel h3 { color: var(--amber); font-size: 13px; }
+.rounding-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.rounding-panel h3 { color: var(--amber); font-size: 13px; }
+.rounding-panel label { display: block; margin-top: 10px; }
+#rounding-editor { width: 100%; min-height: 180px; font: 11px/1.5 monospace; resize: vertical; }
+#rounding-candidate { max-width: 100%; width: 100%; }
+#rounding-source, #rounding-summary { white-space: pre-line; line-height: 1.7; }
+.mask-panel label { display: block; margin-top: 10px; }
+#mask-editor { box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; background: var(--panel); color: var(--text); font: 12px monospace; }
+#mask-file { max-width: 100%; }
+#mask-summary { white-space: pre-line; line-height: 1.7; }
+#mask-draft { color: var(--amber); }
+#mask-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
+
+.average-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.average-panel h3 { color: var(--cyan); font-size: 13px; }
+#average-reference, #average-summary { white-space: pre-line; line-height: 1.7; }
+#average-overlay, #average-delta { width: 100%; height: auto; margin-top: 10px; }
+
+/* Three manual thresholds are independent of adaptive/mask/live panels. */
+.three-thresholds-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.three-thresholds-panel h3 { color: var(--cyan); font-size: 13px; }
+#three-thresholds-summary, .three-thresholds-line-summary { white-space: pre-line; line-height: 1.7; }
+.three-thresholds-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
+#three-thresholds-canvas { width: 100%; height: auto; margin-top: 10px; }
+
+/* Archived N1/N2 snapshots remain separate from live plots and detectors. */
+.context-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.context-panel h3 { color: var(--cyan); font-size: 13px; }
+#context-anchor { width: 100%; max-width: 100%; margin: 8px 0; }
+#context-pinned, #context-summary, #context-selected, #context-items p { white-space: pre-line; line-height: 1.7; }
+#context-items { max-height: 360px; overflow-y: auto; padding-left: 24px; }
+#context-items li { margin-bottom: 12px; }
+#context-items button { white-space: normal; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
+#context-items button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+#context-canvas { width: 100%; height: auto; margin-top: 10px; }

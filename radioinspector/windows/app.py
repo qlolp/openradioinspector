@@ -6,10 +6,14 @@ import argparse
 import queue
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
+from threading import Event, Lock
 from typing import Any, Callable, Optional
 
+from .archive_capacity import CAPACITY_NOTE, archive_capacity_color, archive_capacity_text
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
+from .tk_timers import TkTimerOwner
 from .workflows import (
     automatic_detection_payload,
     automatic_handoff_payload,
@@ -17,6 +21,13 @@ from .workflows import (
     investigation_payload,
     session_payload,
 )
+
+
+def _publish_message(messages, lock, closed, kind, revision, description, future) -> None:
+    """Worker completion owns only publication state, never a GUI/Tcl graph."""
+    with lock:
+        if not closed.is_set():
+            messages.put((kind, future, revision, description))
 
 
 def session_label(session: dict[str, Any]) -> str:
@@ -71,7 +82,7 @@ def policy_text(status: Optional[dict[str, Any]]) -> str:
     return f"{enabled} · {runtime.get('last_result', '?')} · процесс: runtime-only{suffix}"
 
 
-class WindowsApp:
+class WindowsApp(TkTimerOwner):
     """Тонкий UI: фоновые HTTP-запросы не обращаются к Tk напрямую."""
 
     def __init__(
@@ -97,15 +108,18 @@ class WindowsApp:
         self._waterfall_draw_key: Any = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="windows-api")
         self._messages: queue.Queue[tuple[str, Future, int, str]] = queue.Queue()
+        self._message_lock = Lock()
+        self._messages_closed = Event()
         self._revision = 0
         self._refresh_running = False
         self._action_running = False
         self._action_callbacks: dict[Future, Callable[[Any], None]] = {}
         self._closed = False
+        self._init_timers(root, self._shutdown)
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self.root.after(0, self._drain_messages)
-        self.root.after(self.refresh_ms, self._poll)
+        self._schedule_after(self.root, "messages", 0, self._drain_messages)
+        self._schedule_after(self.root, "poll", self.refresh_ms, self._poll)
 
     def _build(self) -> None:
         ttk = self.ttk
@@ -130,6 +144,15 @@ class WindowsApp:
         self.connection_var = self.tk.StringVar(value="Не подключено. Приборные порты открывает только сервер.")
         ttk.Label(connection, textvariable=self.connection_var, wraplength=1050).grid(
             row=1, column=0, columnspan=4, sticky="ew", pady=(7, 0)
+        )
+
+        self.archive_capacity_var = self.tk.StringVar(value=archive_capacity_text(None))
+        self.archive_capacity_label = ttk.Label(
+            connection, textvariable=self.archive_capacity_var, wraplength=1050
+        )
+        self.archive_capacity_label.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(7, 0))
+        ttk.Label(connection, text=CAPACITY_NOTE, wraplength=1050).grid(
+            row=3, column=0, columnspan=4, sticky="ew"
         )
 
         sessions = ttk.LabelFrame(outer, text="Сеанс и независимые исполнители", padding=8)
@@ -306,6 +329,20 @@ class WindowsApp:
             "<Configure>", lambda _event: self._render_spectrum()
         )
         notebook.add(spectrum_tab, text="Спектр и водопад")
+        from .sweep_comparison import ComparisonPanel
+        self.comparison_panel = ComparisonPanel(self, notebook)
+        from .sweep_threshold import ThresholdPanel
+        self.threshold_panel = ThresholdPanel(self, notebook)
+        from .spectral_mask import SpectralMaskPanel
+        self.mask_panel = SpectralMaskPanel(self, notebook)
+        from .sweep_average import AveragePanel
+        self.average_panel = AveragePanel(self, notebook)
+        from .sweep_three_thresholds import ThreeThresholdsPanel
+        self.three_thresholds_panel = ThreeThresholdsPanel(self, notebook)
+        from .sweep_context import SweepContextPanel
+        self.sweep_context_panel = SweepContextPanel(self, notebook)
+        from .frequency_rounding import FrequencyRoundingPanel
+        self.frequency_rounding_panel = FrequencyRoundingPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -326,13 +363,30 @@ class WindowsApp:
         return tree
 
     def connect(self) -> None:
+        if getattr(self, "_closed", False):
+            return
         try:
             self.client = self.client_factory(self.server_var.get())
         except (ValueError, PlatformClientError) as exc:
             self.connection_var.set(str(exc))
             return
         self.session_id = None
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
+        if hasattr(self, "mask_panel"):
+            self.mask_panel.update()
+        if hasattr(self, "three_thresholds_panel"):
+            self.three_thresholds_panel.update()
+        if hasattr(self, "sweep_context_panel"):
+            self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         self._revision += 1
+        self._show_archive_capacity(None)
         self.connection_var.set("Запрашиваются health, capabilities и сеансы…")
         self.refresh()
 
@@ -350,13 +404,23 @@ class WindowsApp:
             spectrum_stream_id=spectrum_stream_id,
         )
         future.add_done_callback(
-            lambda done: self._messages.put(("snapshot", done, revision, ""))
+            self._completion_callback("snapshot", revision, "")
         )
 
     def _poll(self) -> None:
         if not self._closed:
             self.refresh()
-            self.root.after(self.refresh_ms, self._poll)
+            self._schedule_after(self.root, "poll", self.refresh_ms, self._poll)
+
+    def _queue_message(self, kind: str, future: Future, revision: int, description: str) -> None:
+        _publish_message(self._messages, self._message_lock, self._messages_closed,
+                         kind, revision, description, future)
+
+    def _completion_callback(self, kind: str, revision: int, description: str):
+        # Capturing self, even through a weakref that is later resolved, can
+        # release the last GUI reference on a worker when its Future finishes.
+        return partial(_publish_message, self._messages, self._message_lock,
+                       self._messages_closed, kind, revision, description)
 
     def _submit_action(
         self,
@@ -374,14 +438,14 @@ class WindowsApp:
         if on_success is not None:
             self._action_callbacks[future] = on_success
         future.add_done_callback(
-            lambda done: self._messages.put(("action", done, revision, description))
+            self._completion_callback("action", revision, description)
         )
 
     def _drain_messages(self) -> None:
         if self._closed:
             return
         try:
-            while True:
+            while not self._closed:
                 kind, future, revision, description = self._messages.get_nowait()
                 if revision != self._revision:
                     if kind == "snapshot":
@@ -398,6 +462,15 @@ class WindowsApp:
                     if kind == "snapshot":
                         self._refresh_running = False
                         self.connection_var.set(f"Ошибка обновления: {exc}")
+                        if hasattr(self, "average_panel"):
+                            self.average_panel.clear()
+                        if hasattr(self, "three_thresholds_panel"):
+                            self.three_thresholds_panel.clear()
+                        if hasattr(self, "sweep_context_panel"):
+                            self.sweep_context_panel.disconnect()
+                        if hasattr(self, "frequency_rounding_panel"):
+                            self.frequency_rounding_panel.disconnect()
+                        self._show_archive_capacity(None, str(exc))
                     else:
                         self._action_running = False
                         self._action_callbacks.pop(future, None)
@@ -407,20 +480,33 @@ class WindowsApp:
                 if kind == "snapshot":
                     self._refresh_running = False
                     self._apply_snapshot(result)
+                    if self._closed:
+                        return
+                    if hasattr(self, "sweep_context_panel"):
+                        self.sweep_context_panel.snapshot_refreshed()
+                    if hasattr(self, "frequency_rounding_panel"):
+                        self.frequency_rounding_panel.snapshot_refreshed()
                 else:
                     self._action_running = False
                     callback = self._action_callbacks.pop(future, None)
                     if callback is not None:
                         callback(result)
+                    if self._closed:
+                        return
                     self.action_var.set(f"{description}: выполнено сервером.")
                     self._render_controls()
                     self.refresh()
         except queue.Empty:
             pass
-        self.root.after(100, self._drain_messages)
+        self._schedule_after(self.root, "messages", 100, self._drain_messages)
+
+    def _show_archive_capacity(self, status, error=None) -> None:
+        self.archive_capacity_var.set(archive_capacity_text(status, error))
+        self.archive_capacity_label.configure(foreground=archive_capacity_color(status, error))
 
     def _apply_snapshot(self, snapshot: PlatformSnapshot) -> None:
         self.snapshot = snapshot
+        self._show_archive_capacity(snapshot.archive_capacity, snapshot.archive_capacity_error)
         selected_exists = any(item.get("id") == self.session_id for item in snapshot.sessions)
         if self.session_id is not None and not selected_exists:
             self.session_id = None
@@ -498,6 +584,20 @@ class WindowsApp:
         self.waterfall_info_var.set("Водопад: ожидание данных")
 
     def _render_spectrum(self) -> None:
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
+        if hasattr(self, "mask_panel"):
+            self.mask_panel.update()
+        if hasattr(self, "three_thresholds_panel"):
+            self.three_thresholds_panel.update()
+        if hasattr(self, "sweep_context_panel"):
+            self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         stream = self._selected_stream()
         if self._spectrum_stream_id() is None:
             self._clear_spectrum(
@@ -653,8 +753,21 @@ class WindowsApp:
         selected = self.snapshot.sessions[index].get("id")
         if selected == self.session_id:
             return
-        self.session_id = selected
-        self._revision += 1
+        self._use_created_session({"id": selected})
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
+        if hasattr(self, "mask_panel"):
+            self.mask_panel.update()
+        if hasattr(self, "three_thresholds_panel"):
+            self.three_thresholds_panel.update()
+        if hasattr(self, "sweep_context_panel"):
+            self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         self.refresh()
 
     def selected_stream_id(self) -> Optional[str]:
@@ -662,6 +775,8 @@ class WindowsApp:
         return str(selection[0]) if selection else None
 
     def _selected_stream(self) -> Optional[dict[str, Any]]:
+        if not self.session_id or (self.snapshot.session or {}).get("id") != self.session_id:
+            return None
         stream_id = self.selected_stream_id()
         return next(
             (item for item in (self.snapshot.session or {}).get("streams", []) if item.get("id") == stream_id),
@@ -698,7 +813,21 @@ class WindowsApp:
         stream_id = str(stream.get("id")) if stream else None
         changed = stream_id != getattr(self, "_last_selected_stream_id", None)
         self._last_selected_stream_id = stream_id
-        if not stream:
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
+        if hasattr(self, "mask_panel"):
+            self.mask_panel.update()
+        if hasattr(self, "three_thresholds_panel"):
+            self.three_thresholds_panel.update()
+        if hasattr(self, "sweep_context_panel"):
+            self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
+        if not stream or not changed:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
         current = worker.get("current") or stream.get("settings") or {}
@@ -777,40 +906,69 @@ class WindowsApp:
         for row, (name, label) in enumerate(labels):
             self._form_entry(frame, row, label, variables[name])
         simulated_var = self.tk.BooleanVar(value=True)
+        serial_var = self.tk.BooleanVar(value=False)
         self.ttk.Checkbutton(
             frame,
-            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
+            text="Симуляторы tinySA и AR-DV1",
             variable=simulated_var,
+            command=lambda: serial_var.set(False) if simulated_var.get() else None,
         ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        self.ttk.Checkbutton(
+            frame, text="Физические serial-приборы (FM/AM; стенд не проверен)",
+            variable=serial_var,
+            command=lambda: simulated_var.set(False) if serial_var.get() else None,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=6)
         self.ttk.Label(
             frame,
-            text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
+            text="Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. "
+                 "Без выбранного режима создаётся только профиль. Запуск сеанса и потоков — отдельно.",
             wraplength=520,
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=4)
         client = self.client
+        revision = self._revision
 
         def submit() -> None:
+            if (self._closed or self._action_running or
+                    getattr(self, "_active_form", None) is not window):
+                return
+            if self.client is not client or self._revision != revision:
+                error_var.set("Контекст изменился. Откройте форму заново для текущего ядра.")
+                return
             try:
                 payload = session_payload(
                     **{name: variable.get() for name, variable in variables.items()},
                     simulated=bool(simulated_var.get()),
+                    serial=bool(serial_var.get()),
                 )
             except (TypeError, ValueError) as exc:
                 error_var.set(str(exc))
                 return
             self._destroy_form(window)
+
+            def create() -> dict[str, Any]:
+                result = client.create_session(payload)
+                if (not isinstance(result, dict) or not isinstance(result.get("id"), str)
+                        or not result["id"] or result.get("state") != "draft"):
+                    raise ValueError("Некорректный ответ ядра. Обновите список: профиль мог быть создан.")
+                return result
+
             self._submit_action(
                 "Создание двухприборного сеанса",
-                lambda: client.create_session(payload),
+                create,
                 on_success=self._use_created_session,
             )
 
-        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self._form_buttons(window, frame, 10, "Создать сеанс", submit)
         self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
-            row=10, column=0, columnspan=2, sticky="ew", pady=4
+            row=11, column=0, columnspan=2, sticky="ew", pady=4
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:
+        self._revision += 1
+        self._last_selected_stream_id = None
+        form = getattr(self, "_active_form", None)
+        if form is not None:
+            self._destroy_form(form)
         self.session_id = str(session["id"])
         self.snapshot = PlatformSnapshot(
             self.snapshot.health, self.snapshot.capabilities, self.snapshot.sessions
@@ -1198,7 +1356,7 @@ class WindowsApp:
                 text="Выключить",
                 command=lambda: (
                     self._destroy_form(window),
-                    self._disable_policy(kind),
+                    self._disable_policy(kind, session_id=session_id, client=client),
                 ),
             ).pack(side="left", padx=(8, 0))
         else:
@@ -1222,7 +1380,10 @@ class WindowsApp:
             frame, textvariable=error_var, foreground="#b3261e", wraplength=560
         ).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4)
 
-    def _disable_policy(self, kind: str) -> None:
+    def _disable_policy(self, kind: str, *, session_id=None, client=None) -> None:
+        if ((session_id is not None and session_id != self.session_id)
+                or (client is not None and client is not self.client)):
+            return
         if not self._require_session():
             return
         if kind not in ("detection", "handoff"):
@@ -1261,7 +1422,8 @@ class WindowsApp:
         )
 
     def _stream_action(self, action: str) -> None:
-        stream_id = self.selected_stream_id()
+        stream = self._selected_stream()
+        stream_id = stream.get("id") if stream else None
         if not self._require_session() or not stream_id:
             self.action_var.set("Сначала выберите поток.")
             return
@@ -1355,10 +1517,41 @@ class WindowsApp:
     def close(self) -> None:
         if self._closed:
             return
-        self._closed = True
-        self._action_callbacks.clear()
-        self._executor.shutdown(wait=False, cancel_futures=True)
+        self._shutdown()
         self.root.destroy()
+
+    def _shutdown(self) -> None:
+        """Release resources even when root.destroy already removed children."""
+        with self._message_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._messages_closed.set()
+        # Future.cancel/shutdown can call _queue_message synchronously. Never
+        # hold the publication lock while stopping an executor or panel.
+        self._close_timers()
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.close()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.close()
+        if hasattr(self, "mask_panel"):
+            self.mask_panel.close()
+        if hasattr(self, "average_panel"):
+            self.average_panel.close()
+        if hasattr(self, "three_thresholds_panel"):
+            self.three_thresholds_panel.close()
+        if hasattr(self, "sweep_context_panel"):
+            self.sweep_context_panel.close()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.close()
+        self._action_callbacks.clear()
+        self._refresh_running = self._action_running = False
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        while True:
+            try:
+                self._messages.get_nowait()
+            except queue.Empty:
+                break
 
 
 def main(argv: Optional[list[str]] = None) -> int:

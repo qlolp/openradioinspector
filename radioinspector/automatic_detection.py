@@ -148,7 +148,7 @@ class AutomaticCandidateDetector:
         self._clock = clock
         self._monotonic = monotonic
         self._start_background = start_background
-        self._history_limit = _integer(history_limit, "history_limit", 100, 100_000)
+        self._history_limit = max(1000, _integer(history_limit, "history_limit", 100, 100_000))
         self._policies: dict[str, dict[str, Any]] = {}
         self._runtime: dict[str, dict[str, Any]] = {}
         self._next_run: dict[str, float] = {}
@@ -255,11 +255,14 @@ class AutomaticCandidateDetector:
             if stream.level_unit != "dBm":
                 raise ValueError("Политика может выбирать только поток с исходными dBm")
 
-        enabling = policy["enabled"] and not previous["enabled"]
-        if enabling:
-            # Старый архив не обрабатывается: курсор начинается на текущем конце.
-            self._mark_seen(session_id, self.sessions.list_sweeps(session_id, limit=1000))
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Детектор уже закрыт")
+            previous = self._policies.get(session_id, DEFAULT_POLICY)
+            policy = {**copy.deepcopy(previous), **{key: policy[key] for key in payload}}
+            enabling = policy["enabled"] and not previous["enabled"]
+            if enabling:
+                self._mark_seen(session_id, self.sessions.list_sweeps(session_id, limit=1000))
             self._policies[session_id] = copy.deepcopy(policy)
             runtime["last_result"] = "enabled" if policy["enabled"] else "disabled"
             runtime["last_error"] = None
@@ -324,11 +327,13 @@ class AutomaticCandidateDetector:
             last_sweep_id = None
             for sweep in pending:
                 last_sweep_id = sweep.id
+                completed = False
                 try:
                     if (
                         policy["stream_id"] is not None
                         and sweep.stream_id != policy["stream_id"]
                     ):
+                        completed = True
                         continue
                     stream = next(
                         item for item in session.streams if item.id == sweep.stream_id
@@ -337,6 +342,7 @@ class AutomaticCandidateDetector:
                         stream.role is not DeviceRole.SPECTRUM_ANALYZER
                         or stream.level_unit != "dBm"
                     ):
+                        completed = True
                         continue
                     regions = detect_regions(
                         sweep,
@@ -378,8 +384,10 @@ class AutomaticCandidateDetector:
                             },
                         )
                     processed += 1
+                    completed = True
                 finally:
-                    self._mark_seen(session_id, [sweep])
+                    if completed:
+                        self._mark_seen(session_id, [sweep])
             with self._lock:
                 runtime["sweeps_processed"] += processed
                 runtime["candidates_created"] += len(created)
@@ -415,7 +423,7 @@ class AutomaticCandidateDetector:
             recent[:] = [item for item in recent if item["expires_at"] > now]
             return any(
                 item["stream_id"] == stream_id
-                and abs(item["frequency_hz"] - frequency) <= tolerance
+                and abs(item["frequency_hz"] - frequency) <= max(tolerance, item.get("bandwidth_hz", 1))
                 for item in recent
             )
 
@@ -431,6 +439,7 @@ class AutomaticCandidateDetector:
                 {
                     "stream_id": stream_id,
                     "frequency_hz": candidate.center_frequency_hz,
+                    "bandwidth_hz": candidate.bandwidth_hz or 1,
                     "expires_at": self._monotonic() + policy["cooldown_seconds"],
                 }
             )

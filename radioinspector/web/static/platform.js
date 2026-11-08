@@ -557,7 +557,32 @@
     return context;
   }
 
+  function updateComparison() {
+    window.OpenRadioFrequencyRounding?.update({
+      sessionId: state.sessionId, candidates: state.candidates,
+    });
+    window.OpenRadioSweepComparison?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+    window.OpenRadioSweepThreshold?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+    window.OpenRadioSweepMask?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+    window.OpenRadioSweepAverage?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+    window.OpenRadioSweepThreeThresholds?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+    window.OpenRadioSweepContext?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+  }
+
   function renderSpectrum() {
+    updateComparison();
     const latest = state.sweeps.at(-1);
     dom.spectrumCanvas.hidden = !latest;
     dom.spectrumEmpty.hidden = Boolean(latest);
@@ -693,12 +718,47 @@
     return stops[lower][1].map((channel, index) => Math.round(channel + (stops[upper][1][index] - channel) * local));
   }
 
+  function waterfallLevels(sweep, minimum, maximum, width) {
+    const frequencies = sweep.frequencies_hz;
+    const result = Array(width).fill(-Infinity);
+    const span = Math.max(maximum - minimum, 1);
+    let index = 0;
+    for (let x = 0; x < width; x += 1) {
+      const left = minimum + x * span / width;
+      const right = minimum + (x + 1) * span / width;
+      while (index < frequencies.length && frequencies[index] < left) index += 1;
+      let cursor = index;
+      while (cursor < frequencies.length && (frequencies[cursor] < right || (x === width - 1 && frequencies[cursor] <= right))) {
+        result[x] = Math.max(result[x], sweep.levels[cursor]);
+        cursor += 1;
+      }
+      // Empty display pixels interpolate between neighbouring measured points;
+      // all processing/exports still use the unchanged measurements in the archive.
+      if (result[x] === -Infinity && index > 0 && index < frequencies.length) {
+        const a = index - 1;
+        const ratio = (left - frequencies[a]) / (frequencies[index] - frequencies[a]);
+        result[x] = sweep.levels[a] + ratio * (sweep.levels[index] - sweep.levels[a]);
+      }
+    }
+    return result;
+  }
+
   function drawWaterfall(sweeps) {
     const canvas = dom.waterfallCanvas;
     const context = clearCanvas(canvas);
-    const levels = sweeps.flatMap((sweep) => sweep.levels);
-    const minLevel = Math.min(...levels);
-    const maxLevel = Math.max(...levels);
+    let minLevel = Infinity;
+    let maxLevel = -Infinity;
+    let minimum = Infinity;
+    let maximum = -Infinity;
+    for (const sweep of sweeps) {
+      for (const level of sweep.levels) {
+        minLevel = Math.min(minLevel, level);
+        maxLevel = Math.max(maxLevel, level);
+      }
+      minimum = Math.min(minimum, sweep.frequencies_hz[0]);
+      maximum = Math.max(maximum, sweep.frequencies_hz.at(-1));
+    }
+    if (!Number.isFinite(minLevel) || !Number.isFinite(maxLevel)) return;
     const span = Math.max(maxLevel - minLevel, 1);
     const image = context.createImageData(canvas.width, canvas.height);
     const rowHeight = canvas.height / sweeps.length;
@@ -706,11 +766,9 @@
       const sweep = sweeps[row];
       const yStart = Math.floor(row * rowHeight);
       const yEnd = Math.max(yStart + 1, Math.floor((row + 1) * rowHeight));
+      const rowLevels = waterfallLevels(sweep, minimum, maximum, canvas.width);
       for (let x = 0; x < canvas.width; x += 1) {
-        const start = Math.floor(x * sweep.levels.length / canvas.width);
-        const end = Math.max(start + 1, Math.floor((x + 1) * sweep.levels.length / canvas.width));
-        let level = -Infinity;
-        for (let index = start; index < Math.min(end, sweep.levels.length); index += 1) level = Math.max(level, sweep.levels[index]);
+        const level = rowLevels[x];
         const [red, green, blue] = waterfallColor((level - minLevel) / span);
         for (let y = yStart; y < Math.min(yEnd, canvas.height); y += 1) {
           const offset = (y * canvas.width + x) * 4;
@@ -753,6 +811,7 @@
       state.sweeps = [];
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
       state.revision = (state.revision || 0) + 1;
+      updateComparison();
       storeSession(nextSessionId);
       closeHandoff();
     } else {
@@ -766,11 +825,13 @@
       state.automaticDetection = null;
       state.automaticFormDirty = false;
       state.detectionFormDirty = false;
-      return;
+      return true;
     }
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
     if (!analyzers.some((stream) => stream.id === state.spectrumStreamId)) {
       state.spectrumStreamId = analyzers[0]?.id || null;
+      state.sweeps = [];
+      updateComparison();
     }
     const revision = state.revision || 0;
     const sessionId = selected.id;
@@ -791,7 +852,7 @@
     const [workers, candidates, investigations, nextInvestigation, automaticHandoff, automaticDetection, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
-      return;
+      return false;
     }
     state.workers = workers;
     state.candidates = candidates;
@@ -801,6 +862,7 @@
     state.automaticDetection = automaticDetection;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
+    return true;
   }
 
   async function refresh(options = {}) {
@@ -810,11 +872,29 @@
       return;
     }
     state.refreshRunning = true;
+    window.OpenRadioArchiveCapacity?.refresh();
     renderSession();
     try {
       state.refreshQueued = false;
-      await performRefresh();
+      const fresh = await performRefresh();
+      if (fresh) {
+        window.OpenRadioFrequencyRounding?.update({
+          sessionId: state.sessionId, candidates: state.candidates, fresh: true,
+        });
+        window.OpenRadioFrequencyRounding?.setConnected(true);
+      }
+      window.OpenRadioSweepThreshold?.setConnected(true);
+      window.OpenRadioSweepMask?.setConnected(true);
+      window.OpenRadioSweepAverage?.setConnected(true);
+      window.OpenRadioSweepThreeThresholds?.setConnected(true);
+      window.OpenRadioSweepContext?.setConnected(true);
     } catch (error) {
+      window.OpenRadioFrequencyRounding?.setConnected(false);
+      window.OpenRadioSweepThreshold?.setConnected(false);
+      window.OpenRadioSweepMask?.setConnected(false);
+      window.OpenRadioSweepAverage?.setConnected(false);
+      window.OpenRadioSweepThreeThresholds?.setConnected(false);
+      window.OpenRadioSweepContext?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -851,10 +931,18 @@
     const source = new EventSource(`${API_ROOT}/events?after=${encode(state.lastEventId)}`);
     state.eventSource = source;
     source.addEventListener("open", () => setSseStatus("SSE подключено", "live"));
-    source.addEventListener("error", () => setSseStatus("SSE переподключение · polling", "warning"));
+    source.addEventListener("error", () => {
+      setSseStatus("SSE переподключение · polling", "warning");
+      window.OpenRadioFrequencyRounding?.setConnected(false);
+      window.OpenRadioSweepAverage?.setConnected(false);
+      window.OpenRadioSweepThreeThresholds?.setConnected(false);
+      window.OpenRadioSweepContext?.setConnected(false);
+    });
     const receive = (message) => {
       try {
-        const event = JSON.parse(message.data);
+        const envelope = JSON.parse(message.data);
+        const event = envelope.data ?? envelope;
+        if (!event || typeof event !== "object") throw new Error("Invalid event envelope");
         const sequence = Number(message.lastEventId || event.sequence || 0);
         if (Number.isSafeInteger(sequence)) state.lastEventId = Math.max(state.lastEventId, sequence);
         setSseStatus(`SSE live · #${state.lastEventId}`, "live");
@@ -1059,7 +1147,13 @@
 
   function changeSession() {
     state.sessionId = dom.sessionSelect.value || null;
+    state.spectrumStreamId = null;
+    dom.candidateForm.reset();
+    delete dom.candidateForm.dataset.observationId;
+    dom.candidateEditor.open = false;
     state.session = null;
+    state.sweeps = [];
+    updateComparison();
     state.automaticHandoff = null;
     state.automaticDetection = null;
     state.automaticFormDirty = false;
@@ -1073,6 +1167,7 @@
   function changeSpectrumStream() {
     state.spectrumStreamId = dom.spectrumStream.value || null;
     state.sweeps = [];
+    updateComparison();
     state.revision = (state.revision || 0) + 1;
     refresh();
   }
