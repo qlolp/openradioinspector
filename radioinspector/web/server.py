@@ -725,6 +725,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.get_investigation(parts[3], parts[6])))
                 return
             if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "measurement-results"
+            ):
+                methodology = query.get("methodology", [None])[0]
+                limit_raw = query.get("limit", [None])[0]
+                limit = int(limit_raw) if limit_raw is not None else 100
+                result = self.sessions.list_measurement_results(
+                    parts[3], methodology=methodology, limit=limit,
+                )
+                self._send_json(api_payload(result))
+                return
+            if parts[:3] == ["api", "v1", "measurement-catalog"] and len(parts) == 3:
+                self._send_json(api_payload(self.sessions.measurement_catalog()))
+                return
+            if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "investigations"
@@ -1049,6 +1065,14 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 candidate = self.sessions.create_candidate(parts[3], payload)
                 self._send_json(api_payload(candidate), 201)
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "measurement-results"
+            ):
+                result = self.sessions.save_measurement_result(parts[3], payload)
+                self._send_json(api_payload(result), 201)
                 return
             if (
                 len(parts) == 7

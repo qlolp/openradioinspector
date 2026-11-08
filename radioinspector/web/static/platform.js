@@ -370,6 +370,9 @@
     window.OpenRadioFrequencyRaster?.update({
       sessionId: state.sessionId, candidates: state.candidates,
     });
+    window.OpenRadioMeasurementResults?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId,
+    });
     const filter = dom.candidateFilter.value;
     const candidates = state.candidates.filter((candidate) => !filter || candidate.state === filter).slice().reverse();
     if (!candidates.length) {
@@ -888,6 +891,7 @@
       window.OpenRadioSweepThreeThresholds?.setConnected(true);
       window.OpenRadioSweepContext?.setConnected(true);
       window.OpenRadioFrequencyRaster?.setConnected(true);
+      window.OpenRadioMeasurementResults?.setConnected(true);
     } catch (error) {
       state.spectrumView?.clear();
       state.sweeps = [];
@@ -899,6 +903,7 @@
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
       window.OpenRadioFrequencyRaster?.setConnected(false);
+      window.OpenRadioMeasurementResults?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -942,6 +947,7 @@
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
       window.OpenRadioFrequencyRaster?.setConnected(false);
+      window.OpenRadioMeasurementResults?.setConnected(false);
     });
     const receive = (message) => {
       try {

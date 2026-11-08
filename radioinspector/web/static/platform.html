@@ -18,6 +18,7 @@
   <script src="/static/spectrum-view.js" defer></script>
 
   <script src="/static/frequency-raster.js" defer></script>
+  <script src="/static/measurement-results.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -384,6 +385,30 @@
           <p id="raster-status" role="status" aria-live="polite"></p>
           <p id="raster-summary"></p>
           <ol id="raster-items" aria-label="Результат округления по кандидатам"></ol>
+        </section>
+        <section class="meas-panel" aria-labelledby="meas-heading">
+          <h3 id="meas-heading">Результаты измерений с явной методикой</h3>
+          <p>Каждый результат несёт методику, код результата (норма / не норма / не выполнено) и числовые значения отдельно — как таблицы <code>*_RESULT</code> и <code>*_RESULTCODE</code> оригинала. Запись привязана к сеансу, потоку прибора и интервалу UTC. Это производная запись: исходные измерения архива не изменяются.</p>
+          <label for="meas-methodology">Методика (каталог реализованных)</label>
+          <select id="meas-methodology" disabled aria-describedby="meas-source"></select>
+          <div class="form-grid">
+            <label>Код результата<select id="meas-code"><option value="norm">norm</option><option value="not_norm">not_norm</option><option value="not_measured">not_measured</option></select></label>
+            <label>Частота, Гц<input id="meas-frequency" type="number" min="0" step="1" value="101800000" required></label>
+            <label>Начало UTC<input id="meas-started" type="text" required placeholder="2026-11-08T12:00:00Z"></label>
+            <label>Окончание UTC<input id="meas-ended" type="text" required placeholder="2026-11-08T12:00:01Z"></label>
+          </div>
+          <label for="meas-values">Значения результата · JSON (точно поля методики; для not_measured — пустой объект)</label>
+          <textarea id="meas-values" rows="4" spellcheck="false" placeholder='{"bandwidth_hz": 12500, "lower_edge_hz": 101793750, "upper_edge_hz": 101806250, "center_hz": 101800000}'></textarea>
+          <p id="meas-source">Нет выбранного сеанса.</p>
+          <div class="form-actions">
+            <button id="meas-run" class="button" type="button" disabled>Записать результат измерения</button>
+            <button id="meas-clear" class="button" type="button">Очистить</button>
+            <button id="meas-save" class="button" type="button" disabled>Сохранить результат в файл</button>
+          </div>
+          <p>Только явное действие записывает результат. Методика определяется явно, а не выводится из формата хранения. Код результата не подменяет значения и не является нормативным заключением.</p>
+          <p id="meas-status" role="status" aria-live="polite"></p>
+          <p id="meas-summary"></p>
+          <ol id="meas-items" aria-label="Записанные результаты измерений"></ol>
         </section>
       </section>
 

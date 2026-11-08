@@ -392,7 +392,7 @@ class ReferenceMigrationTests(unittest.TestCase):
     def test_additive_upgrade_preserves_measurements_events_and_can_create_reference(self):
         service = SessionService(store=SQLiteSessionStore(self.path))
         self.addCleanup(service.close)
-        self.assertEqual(service._store._connection.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(service._store._connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         self.assertEqual((service.list_sessions(), service.list_sweeps(self.session.id), service.events()), self.before)
         self.assertEqual(service.list_sweep_references(self.session.id)["items"], [])
         self.assertTrue(service.create_sweep_reference(self.session.id, {"name": "old", "sweep_id": "sweep-0"})[1])

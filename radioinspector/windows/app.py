@@ -355,6 +355,8 @@ class WindowsApp(TkTimerOwner):
         self.mask_panel = SpectralMaskPanel(self, notebook)
         from .frequency_raster import FrequencyRasterPanel
         self.raster_panel = FrequencyRasterPanel(self, notebook)
+        from .measurement_results import MeasurementResultPanel
+        self.measurement_panel = MeasurementResultPanel(self, notebook)
         from .sweep_average import AveragePanel
         self.average_panel = AveragePanel(self, notebook)
         from .sweep_three_thresholds import ThreeThresholdsPanel
@@ -400,6 +402,8 @@ class WindowsApp(TkTimerOwner):
             self.mask_panel.update()
         if hasattr(self, "raster_panel"):
             self.raster_panel.update()
+        if hasattr(self, "measurement_panel"):
+            self.measurement_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -649,6 +653,8 @@ class WindowsApp(TkTimerOwner):
             self.mask_panel.update()
         if hasattr(self, "raster_panel"):
             self.raster_panel.update()
+        if hasattr(self, "measurement_panel"):
+            self.measurement_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -820,6 +826,8 @@ class WindowsApp(TkTimerOwner):
             self.mask_panel.update()
         if hasattr(self, "raster_panel"):
             self.raster_panel.update()
+        if hasattr(self, "measurement_panel"):
+            self.measurement_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -881,6 +889,8 @@ class WindowsApp(TkTimerOwner):
             self.mask_panel.update()
         if hasattr(self, "raster_panel"):
             self.raster_panel.update()
+        if hasattr(self, "measurement_panel"):
+            self.measurement_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -1612,6 +1622,8 @@ class WindowsApp(TkTimerOwner):
             self.mask_panel.close()
         if hasattr(self, "raster_panel"):
             self.raster_panel.close()
+        if hasattr(self, "measurement_panel"):
+            self.measurement_panel.close()
         if hasattr(self, "average_panel"):
             self.average_panel.close()
         if hasattr(self, "three_thresholds_panel"):
