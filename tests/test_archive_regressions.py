@@ -1,4 +1,4 @@
-"""Regression checks for archive identity, transactions and chronological queries."""
+"""Регрессии идентичности архива, транзакций и хронологических выборок."""
 
 from __future__ import annotations
 
@@ -68,27 +68,44 @@ class ArchiveRegressionTests(unittest.TestCase):
         incoming["streams"][1]["device"] = "replacement-device"
         with self.assertRaisesRegex(ValueError, "[Пп]оток"):
             store.save_session(MonitoringSession.from_dict(incoming))
-        self.assertEqual([to_primitive(s) for s in store.load_sessions()], [to_primitive(original)])
+        self.assertEqual(
+            [to_primitive(s) for s in store.load_sessions()], [to_primitive(original)]
+        )
         with sqlite3.connect(self.path) as connection:
-            self.assertEqual(connection.execute("SELECT count(*) FROM streams").fetchone()[0], 2)
+            self.assertEqual(
+                connection.execute("SELECT count(*) FROM streams").fetchone()[0], 2
+            )
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
 
     def test_lifecycle_updates_preserve_existing_measurements_and_metadata(self):
         service = self.service()
         session = service.create_session(self.payload("a"))
         sweep = service.ingest_sweep(sweep_payload("a", session.streams[0].id))
-        observation = service.ingest_observation(observation_payload("a", session.streams[1].id))
+        observation = service.ingest_observation(
+            observation_payload("a", session.streams[1].id)
+        )
         service.start_session("a", at=BASE)
         service.stop_session("a", at=BASE + timedelta(seconds=1))
         restored = self.service()
         self.assertEqual(to_primitive(restored.list_sweeps("a")), [to_primitive(sweep)])
-        self.assertEqual(to_primitive(restored.list_observations("a")), [to_primitive(observation)])
-        self.assertEqual(to_primitive(restored.get_session("a").streams), to_primitive(session.streams))
+        self.assertEqual(
+            to_primitive(restored.list_observations("a")), [to_primitive(observation)]
+        )
+        self.assertEqual(
+            to_primitive(restored.get_session("a").streams),
+            to_primitive(session.streams),
+        )
         self.assertEqual(restored.get_session("a").metadata, session.metadata)
-        self.assertEqual([e.event_type for e in restored.events()], [
-            "session.created", "sweep.received", "observation.received",
-            "session.started", "session.stopped",
-        ])
+        self.assertEqual(
+            [e.event_type for e in restored.events()],
+            [
+                "session.created",
+                "sweep.received",
+                "observation.received",
+                "session.started",
+                "session.stopped",
+            ],
+        )
 
     def test_failed_event_rolls_back_every_state_or_measurement_change(self):
         for action, event_type in (
@@ -116,6 +133,7 @@ class ArchiveRegressionTests(unittest.TestCase):
                         f"WHEN NEW.event_type = '{event_type}' "
                         "BEGIN SELECT RAISE(ABORT, 'injected event failure'); END"
                     )
+
                 def perform():
                     if action == "create":
                         return service.create_session(self.payload("a"))
@@ -124,8 +142,13 @@ class ArchiveRegressionTests(unittest.TestCase):
                     if action == "stop":
                         return service.stop_session("a", at=BASE + timedelta(seconds=1))
                     if action == "sweep":
-                        return service.ingest_sweep(sweep_payload("a", session.streams[0].id))
-                    return service.ingest_observation(observation_payload("a", session.streams[1].id))
+                        return service.ingest_sweep(
+                            sweep_payload("a", session.streams[0].id)
+                        )
+                    return service.ingest_observation(
+                        observation_payload("a", session.streams[1].id)
+                    )
+
                 with self.assertRaises((sqlite3.IntegrityError, ValueError)):
                     perform()
                 self.assertEqual(to_primitive(service.list_sessions()), before_sessions)
@@ -151,7 +174,9 @@ class ArchiveRegressionTests(unittest.TestCase):
                 with sqlite3.connect(path) as connection:
                     count = connection.execute("SELECT count(*) FROM events").fetchone()[0]
                     self.assertEqual(count, event.sequence)
-                    self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+                    self.assertEqual(
+                        connection.execute("PRAGMA foreign_key_check").fetchall(), []
+                    )
 
     def test_process_exit_during_event_insert_does_not_commit_partial_change(self):
         child = r"""
@@ -198,7 +223,9 @@ raise AssertionError("The event trigger did not interrupt the process")
                 result = subprocess.run(
                     [sys.executable, "-c", child, path, action],
                     cwd=Path(__file__).resolve().parents[1],
-                    capture_output=True, text=True, timeout=10,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 self.assertEqual(result.returncode, 73, result.stderr)
                 restored = SessionService(store=SQLiteSessionStore(path))
@@ -220,26 +247,46 @@ raise AssertionError("The event trigger did not interrupt the process")
                     ("sweep", sweep_payload, 0),
                     ("observation", observation_payload, 1),
                 ):
-                    # Reverse arrival and IDs ensure only timestamp ordering can pass.
                     for suffix, fraction in (("a", 500000), ("b", 1), ("z", 0)):
                         payload = factory("a", session.streams[index].id)
                         payload["id"] = kind + "-" + suffix
                         moment = BASE + timedelta(microseconds=fraction)
-                        payload["interval"] = {"started_at": to_primitive(moment), "ended_at": to_primitive(moment)}
+                        payload["interval"] = {
+                            "started_at": to_primitive(moment),
+                            "ended_at": to_primitive(moment),
+                        }
                         getattr(service, "ingest_" + kind)(payload)
-                    listing = getattr(service, "list_" + ("sweeps" if kind == "sweep" else "observations"))
+                    listing = getattr(
+                        service, "list_" + ("sweeps" if kind == "sweep" else "observations")
+                    )
                     expected = [kind + "-z", kind + "-b", kind + "-a"]
                     self.assertEqual([s.id for s in listing("a")], expected)
                     self.assertEqual([s.id for s in listing("a", limit=1)], expected[-1:])
-                    self.assertEqual([s.id for s in listing("a", stream_id=session.streams[index].id, limit=2)], expected[-2:])
+                    self.assertEqual(
+                        [
+                            s.id
+                            for s in listing(
+                                "a", stream_id=session.streams[index].id, limit=2
+                            )
+                        ],
+                        expected[-2:],
+                    )
                 if persistent:
-                    # Keep legacy whole-second encodings to test pre-fix archives too.
                     with sqlite3.connect(self.path) as connection:
                         for table in ("sweeps", "observations"):
-                            connection.execute(f"UPDATE {table} SET started_at = '2026-11-04T20:00:00Z' WHERE id LIKE '%-z'")
+                            connection.execute(
+                                f"UPDATE {table} SET started_at = '2026-11-04T20:00:00Z' "
+                                "WHERE id LIKE '%-z'"
+                            )
                     restored = self.service()
-                    self.assertEqual([s.id for s in restored.list_sweeps("a")], ["sweep-z", "sweep-b", "sweep-a"])
-                    self.assertEqual([s.id for s in restored.list_observations("a", limit=1)], ["observation-a"])
+                    self.assertEqual(
+                        [s.id for s in restored.list_sweeps("a")],
+                        ["sweep-z", "sweep-b", "sweep-a"],
+                    )
+                    self.assertEqual(
+                        [s.id for s in restored.list_observations("a", limit=1)],
+                        ["observation-a"],
+                    )
 
     def test_equal_measurement_times_use_id_before_applying_limit(self):
         for persistent in (False, True):
@@ -257,23 +304,34 @@ raise AssertionError("The event trigger did not interrupt the process")
                     if persistent:
                         with sqlite3.connect(self.path) as connection:
                             connection.execute(
-                                f"UPDATE {plural} SET started_at = '2026-11-04T20:00:00Z' WHERE id = ?",
+                                f"UPDATE {plural} SET started_at = '2026-11-04T20:00:00Z' "
+                                "WHERE id = ?",
                                 (kind + "-a",),
                             )
                     listing = getattr(service, "list_" + plural)
-                    self.assertEqual([s.id for s in listing("a")], [kind + "-a", kind + "-z"])
+                    self.assertEqual(
+                        [s.id for s in listing("a")], [kind + "-a", kind + "-z"]
+                    )
                     self.assertEqual([s.id for s in listing("a", limit=1)], [kind + "-z"])
 
     def test_creation_rejects_lifecycle_injection_and_does_not_mutate_payload(self):
         service = self.service()
-        for index, (field, value) in enumerate((
-            ("state", "running"), ("state", "stopped"), ("state", "failed"),
-            ("created_at", "2020-01-01T00:00:00Z"),
-            ("started_at", "2026-11-04T20:00:00Z"),
-            ("ended_at", "2026-11-04T20:00:00Z"),
-        )):
+        for index, (field, value) in enumerate(
+            (
+                ("state", "running"),
+                ("state", "stopped"),
+                ("state", "failed"),
+                ("created_at", "2020-01-01T00:00:00Z"),
+                ("started_at", "2026-11-04T20:00:00Z"),
+                ("ended_at", "2026-11-04T20:00:00Z"),
+            )
+        ):
             with self.subTest(field=field, value=value):
-                rejected_service = SessionService(store=SQLiteSessionStore(str(Path(self.temporary.name) / f"creation-{index}.sqlite")))
+                rejected_service = SessionService(
+                    store=SQLiteSessionStore(
+                        str(Path(self.temporary.name) / f"creation-{index}.sqlite")
+                    )
+                )
                 self.addCleanup(rejected_service.close)
                 payload = self.payload("a")
                 payload[field] = value

@@ -24,7 +24,14 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions` | Список сеансов |
 | `GET` | `/api/v1/sessions/{id}` | Один сеанс |
 | `POST` | `/api/v1/sessions/{id}/start` | Запуск сеанса из `draft` |
-| `POST` | `/api/v1/sessions/{id}/stop` | Остановка сеанса из `running` |
+| `POST` | `/api/v1/sessions/{id}/stop` | Остановка сеанса из `running` и всех его исполнителей |
+| `POST` | `/api/v1/sessions/{id}/workers/start` | Запуск поддерживаемых симуляторов всех потоков |
+| `POST` | `/api/v1/sessions/{id}/workers/stop` | Остановка исполнителей без изменения жизненного цикла сеанса |
+| `GET` | `/api/v1/sessions/{id}/workers` | Состояние исполнителей сеанса |
+| `GET` | `/api/v1/workers` | Состояние исполнителей всех сеансов |
+| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/start` | Запуск одного исполнителя |
+| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/stop` | Остановка одного исполнителя |
+| `POST` | `/api/v1/sessions/{id}/streams/{stream_id}/tune` | Команда перестройки приёмника через его очередь |
 | `POST` | `/api/v1/sessions/{id}/sweeps` | Приём спектрального свипа |
 | `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
@@ -92,6 +99,84 @@ curl -N http://127.0.0.1:8770/api/v1/events -H 'Last-Event-ID: 2'
 Также допускается `GET /api/v1/events?after=2`. Для получения истории без постоянного соединения используется `/api/v1/events/history`.
 
 Если медленный клиент переполняет индивидуальную очередь, приборный поток не блокируется: для этого клиента отбрасывается самое старое ожидающее событие. После переподключения доступные события запрашиваются через replay.
+
+## Независимые исполнители и симуляторы
+
+Исполнители запускаются только для потоков с явным `settings.adapter`:
+
+- `tinysa-sim` — периодические свипы в `dBm`, целые частоты в Гц, генератор всегда `off`;
+- `ardv1-sim` — наблюдения в исходных `s_meter_count`, настройка частоты и режима через индивидуальную очередь команд.
+
+Адаптер не выбирается автоматически по названию прибора или строке порта. Физические порты этот контур не открывает, поэтому `hardware_control` остаётся `false`; дополнительные capabilities `simulated_device_workers`, `independent_worker_commands` и `continuous_simulated_monitoring` относятся только к программному стенду.
+
+Пример настроек двух потоков при создании сеанса:
+
+```json
+{
+  "name": "Непрерывный стенд",
+  "streams": [
+    {
+      "device": "tinySA Ultra",
+      "role": "spectrum_analyzer",
+      "level_unit": "dBm",
+      "port": "sim://tinysa",
+      "settings": {
+        "adapter": "tinysa-sim",
+        "start_hz": 88000000,
+        "stop_hz": 108000000,
+        "points": 201,
+        "rbw_hz": 10000,
+        "period_s": 0.25,
+        "seed": 7
+      }
+    },
+    {
+      "device": "AR-DV1",
+      "role": "receiver",
+      "level_unit": "s_meter_count",
+      "port": "sim://ardv1",
+      "settings": {
+        "adapter": "ardv1-sim",
+        "frequency_hz": 145500000,
+        "mode": "FM",
+        "squelch": 10,
+        "period_s": 0.25,
+        "seed": 17
+      }
+    }
+  ]
+}
+```
+
+После создания сеанс и его исполнители запускаются раздельно:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/start
+curl -sS -X POST http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/workers/start
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/workers
+```
+
+Перестройка AR-DV1 выполняется командой только его очереди:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/streams/RECEIVER_STREAM_ID/tune \
+  -H 'Content-Type: application/json' \
+  -d '{"frequency_hz": 433075000, "mode": "DMR"}'
+```
+
+Остановка одного потока не меняет состояние другого:
+
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/streams/TINYSA_STREAM_ID/stop
+```
+
+Каждый исполнитель сообщает `state`, `alive`, число измерений и команд, последнюю ошибку и текущие настройки. Временный сбой переводит поток в `degraded`; после успешного измерения он возвращается в `running`. После `max_consecutive_errors` подряд только сбойный исполнитель завершается в `error`. События `device.state`, `device.error` и `device.tuned` доступны через историю и SSE.
+
+При перезапуске сервера сеансы и измерения восстанавливаются из SQLite, но потоки операционной системы автоматически не пересоздаются: состояния приборных потоков сбрасываются в `disconnected`, повторный запуск выполняется явно через API. Остановка сеанса сначала завершает все его исполнители.
+
+Для проверки отказоустойчивости симуляторы принимают `failures_remaining` и `max_consecutive_errors`; эти параметры предназначены только для стенда и тестов.
 
 ## Приём измерений
 

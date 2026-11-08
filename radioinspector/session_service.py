@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 from .contracts import (
     API_VERSION,
     CONTRACT_VERSION,
+    DeviceState,
     MonitoringSession,
     ReceiverObservation,
     SessionEvent,
@@ -60,6 +61,17 @@ class SessionService:
         self._lock = threading.RLock()
         if store is not None:
             restored = store.load_sessions()
+            for session in restored:
+                runtime_state_changed = False
+                for stream in session.streams:
+                    if stream.state is not DeviceState.DISCONNECTED:
+                        # Потоки ОС не переживают перезапуск процесса. Сеанс и
+                        # измерения восстанавливаются, но исполнители не запускаются
+                        # автоматически и не должны выглядеть работающими.
+                        stream.state = DeviceState.DISCONNECTED
+                        runtime_state_changed = True
+                if runtime_state_changed:
+                    store.save_session(session)
             self._sessions = {item.id: item for item in restored}
             events = store.load_events(limit=history_limit)
             self._events.extend(events)
@@ -172,6 +184,32 @@ class SessionService:
         self._sessions[session.id] = session
         self._publish_event_locked(event)
         return copy.deepcopy(session)
+
+    def set_stream_state(
+        self, session_id: str, stream_id: str, state: DeviceState | str
+    ) -> MonitoringSession:
+        """Сохраняет фактическое состояние потока и публикует его изменение."""
+        state = DeviceState(state)
+        with self._lock:
+            current = self._get_locked(session_id)
+            stream = next((item for item in current.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            if stream.state is state:
+                return copy.deepcopy(current)
+            session = copy.deepcopy(current)
+            stream = next(item for item in session.streams if item.id == stream_id)
+            stream.state = state
+            event = self._make_event_locked(
+                "device.state",
+                session_id=session_id,
+                payload={"stream_id": stream_id, "state": state.value},
+            )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session_id] = session
+            self._publish_event_locked(event)
+            return copy.deepcopy(session)
 
     def ingest_sweep(self, payload: dict[str, Any] | Sweep) -> Sweep:
         sweep = payload if isinstance(payload, Sweep) else Sweep.from_dict(payload)
@@ -298,7 +336,7 @@ class SessionService:
         session_id: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> SessionEvent:
-        """Публикует событие следующих слоёв: кандидатов и состояния приборов."""
+        """Публикует служебное событие приборных исполнителей и адаптеров."""
         with self._lock:
             if session_id is not None:
                 self._get_locked(session_id)
@@ -376,7 +414,7 @@ class SessionService:
         )
 
     def _publish_event_locked(self, event: SessionEvent) -> SessionEvent:
-        """Update replay and subscribers only after the archive commit succeeds."""
+        """Обновляет replay и подписчиков только после успешного commit архива."""
         self._sequence = event.sequence
         self._events.append(event)
         for subscriber in self._subscribers.values():
