@@ -78,6 +78,13 @@ METHODOLOGIES: dict[str, dict[str, Any]] = {
         "unit": "Hz",
         "fields": ("measured_frequency_hz", "resolution_hz", "uncertainty_hz"),
     },
+    "dvb_t_parameters": {
+        "title": "Параметры DVB-T",
+        "original_table": "MEAS_DVB_RESULTCODE",
+        "unit": "mixed",
+        "fields": ("mer_db", "ber_after_viterbi", "ber_after_rs",
+                   "guard_interval_ratio", "code_rate_ratio"),
+    },
 }
 
 

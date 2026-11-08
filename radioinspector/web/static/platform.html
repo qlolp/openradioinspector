@@ -20,6 +20,7 @@
   <script src="/static/frequency-raster.js" defer></script>
   <script src="/static/measurement-results.js" defer></script>
   <script src="/static/frequency-counter.js" defer></script>
+  <script src="/static/dvb-evaluation.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -430,6 +431,33 @@
           <p id="counter-status" role="status" aria-live="polite"></p>
           <p id="counter-summary"></p>
           <ol id="counter-items" aria-label="Результат измерения частоты"></ol>
+        </section>
+        <section class="dvb-panel" aria-labelledby="dvb-heading">
+          <h3 id="dvb-heading">Параметры DVB-T · сверка с пороговыми значениями</h3>
+          <p>MER, BER после Витерби и после Рида — Соломона, защитный интервал и скорость кодирования. Ядро сравнивает введённые значения с пороговыми («Пороговые значения параметров DVB-T» оригинала) и возвращает код результата и вердикт по каждому параметру. Это оценка введённых чисел, а не измерение: демодуляция IQ и измерение MER/BER прибором не выполняются.</p>
+          <div class="form-grid">
+            <label>MER, дБ<input id="dvb-mer" type="number" step="any" value="20" required></label>
+            <label>BER после Витерби<input id="dvb-bertv" type="number" step="any" value="0.000001" required></label>
+            <label>BER после РС<input id="dvb-berrs" type="number" step="any" value="0" required></label>
+          </div>
+          <div class="form-grid">
+            <label>Порог MER, дБ<input id="dvb-minmer" type="number" step="any" value="15" required></label>
+            <label>Порог BER после Витерби<input id="dvb-maxtv" type="number" step="any" value="0.001" required></label>
+            <label>Порог BER после РС<input id="dvb-maxrs" type="number" step="any" value="0.000000001" required></label>
+          </div>
+          <div class="form-grid">
+            <label>Защитный интервал<select id="dvb-guard"><option>1/32</option><option>1/16</option><option>1/8</option><option selected>1/4</option></select></label>
+            <label>Скорость кодирования<select id="dvb-code"><option>1/2</option><option selected>2/3</option><option>3/4</option><option>5/6</option><option>7/8</option></select></label>
+          </div>
+          <p id="dvb-source">Нет выбранного сеанса.</p>
+          <div class="form-actions">
+            <button id="dvb-run" class="button" type="button" disabled>Сравнить с пороговыми значениями</button>
+            <button id="dvb-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Только явное действие выполняет оценку; архив не изменяется. Равенство порогу считается нормой (MER ≥ порога, BER ≤ порога). Код результата — признак по введённым числам, не нормативное заключение и не аттестация. Значения готовы для записи через «Результаты измерений» с методикой <code>dvb_t_parameters</code>.</p>
+          <p id="dvb-status" role="status" aria-live="polite"></p>
+          <p id="dvb-summary"></p>
+          <ol id="dvb-items" aria-label="Вердикты по параметрам DVB-T"></ol>
         </section>
       </section>
 
