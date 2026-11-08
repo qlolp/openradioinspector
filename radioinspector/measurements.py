@@ -503,7 +503,7 @@ def complex_center_frequency(
     centroid = center_frequency_centroid(
         trace, frequency_uncertainty_hz=frequency_uncertainty_hz
     )
-    level = max(n_db, CONTROL_BANDWIDTH_LEVEL_DB) if n_db < CONTROL_BANDWIDTH_LEVEL_DB else n_db
+    level = min(n_db, CONTROL_BANDWIDTH_LEVEL_DB)
     bandwidth = bandwidth_at_level(
         trace, n_db=level, frequency_uncertainty_hz=frequency_uncertainty_hz
     )
@@ -730,22 +730,15 @@ def center_frequency_centroid(
     cumulative = np.cumsum(segment)
     half_total = cumulative[-1] / 2.0
     pos = int(np.searchsorted(cumulative, half_total))
-    if pos == 0:
-        idx = i_left
-        frac = 0.0
-    elif pos >= cumulative.size:
-        idx = i_right
-        frac = 0.0
-    else:
-        prev_c = cumulative[pos - 1]
-        curr_c = cumulative[pos]
-        span = curr_c - prev_c
-        frac = 0.0 if span <= 0 else (half_total - prev_c) / span
-        idx = i_left + pos
-
-    f_center = float(freqs[idx])
-    if idx + 1 < n:
-        f_center = f_center + frac * (float(freqs[idx + 1]) - float(freqs[idx]))
+    # Samples represent bins centered on their frequencies. Invert the
+    # cumulative power inside the selected bin, not the following interval.
+    pos = min(pos, segment.size - 1)
+    previous = cumulative[pos - 1] if pos else 0.0
+    fraction = (half_total - previous) / segment[pos] if segment[pos] > 0 else 0.5
+    idx = i_left + pos
+    left = (freqs[idx - 1] + freqs[idx]) / 2 if idx else freqs[0] - (freqs[1] - freqs[0]) / 2
+    right = (freqs[idx] + freqs[idx + 1]) / 2 if idx + 1 < n else freqs[-1] + (freqs[-1] - freqs[-2]) / 2
+    f_center = float(left + fraction * (right - left))
 
     if not (freqs[0] <= f_center <= freqs[-1]):
         warnings.append("Расчётная частота выходит за пределы полосы обзора")

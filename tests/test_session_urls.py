@@ -1,4 +1,4 @@
-"""HTTP routes preserve session identifiers after one segment-level decode."""
+"""HTTP-маршруты сохраняют идентификаторы сеансов после одного декодирования."""
 
 from __future__ import annotations
 
@@ -14,7 +14,18 @@ from tests.test_persistence import observation_payload, sweep_payload
 from tests.test_platform import session_payload
 
 
-SESSION_IDS = ("a/b", "a%2Fb", "a%252Fb", "сеанс 📻", "with space", "100%", "a?b", "a#b", "a+b", "/")
+SESSION_IDS = (
+    "a/b",
+    "a%2Fb",
+    "a%252Fb",
+    "сеанс 📻",
+    "with space",
+    "100%",
+    "a?b",
+    "a#b",
+    "a+b",
+    "/",
+)
 
 
 class SessionUrlTests(unittest.TestCase):
@@ -31,7 +42,9 @@ class SessionUrlTests(unittest.TestCase):
         self.thread.join(timeout=3)
         self.service.close()
 
-    def request(self, method: str, path: str, payload: dict | None = None) -> tuple[int, dict]:
+    def request(
+        self, method: str, path: str, payload: dict | None = None
+    ) -> tuple[int, dict]:
         connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
         try:
             body = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -55,7 +68,9 @@ class SessionUrlTests(unittest.TestCase):
             self.create_session(session_id)
         for session_id in SESSION_IDS:
             with self.subTest(session_id=session_id):
-                status, response = self.request("GET", "/api/v1/sessions/" + quote(session_id, safe=""))
+                status, response = self.request(
+                    "GET", "/api/v1/sessions/" + quote(session_id, safe="")
+                )
                 self.assertEqual(status, 200)
                 self.assertEqual(response["data"]["id"], session_id)
 
@@ -65,7 +80,12 @@ class SessionUrlTests(unittest.TestCase):
         for session_id in SESSION_IDS:
             for action, state in (("start", "running"), ("stop", "stopped")):
                 with self.subTest(session_id=session_id, action=action):
-                    route = "/api/v1/sessions/" + quote(session_id, safe="") + "/" + action
+                    route = (
+                        "/api/v1/sessions/"
+                        + quote(session_id, safe="")
+                        + "/"
+                        + action
+                    )
                     status, response = self.request("POST", route, {})
                     self.assertEqual(status, 200)
                     self.assertEqual(response["data"]["id"], session_id)
@@ -74,11 +94,15 @@ class SessionUrlTests(unittest.TestCase):
     def test_measurement_routes_use_decoded_id_for_body_and_query(self) -> None:
         for session_id in SESSION_IDS:
             session = self.create_session(session_id)
-            for index, (kind, factory) in enumerate((("sweeps", sweep_payload), ("observations", observation_payload))):
+            for index, (kind, factory) in enumerate(
+                (("sweeps", sweep_payload), ("observations", observation_payload))
+            ):
                 route = "/api/v1/sessions/" + quote(session_id, safe="") + "/" + kind
                 stream_id = session["streams"][index]["id"]
                 for include_id in (False, True):
-                    with self.subTest(session_id=session_id, kind=kind, include_id=include_id):
+                    with self.subTest(
+                        session_id=session_id, kind=kind, include_id=include_id
+                    ):
                         payload = factory(session_id, stream_id, int(include_id))
                         payload["id"] = f"{session_id}:{kind}:{int(include_id)}"
                         if not include_id:
@@ -87,17 +111,25 @@ class SessionUrlTests(unittest.TestCase):
                         self.assertEqual(status, 201)
                         self.assertEqual(response["data"]["session_id"], session_id)
                 with self.subTest(session_id=session_id, kind=kind, method="GET"):
-                    status, response = self.request("GET", route + "?stream_id=" + quote(stream_id, safe=""))
+                    status, response = self.request(
+                        "GET", route + "?stream_id=" + quote(stream_id, safe="")
+                    )
                     self.assertEqual(status, 200)
                     self.assertEqual(len(response["data"]), 2)
-                    self.assertTrue(all(item["session_id"] == session_id for item in response["data"]))
+                    self.assertTrue(
+                        all(item["session_id"] == session_id for item in response["data"])
+                    )
 
     def test_encoded_body_id_is_not_equivalent_to_decoded_route_id(self) -> None:
         session = self.create_session("a/b")
-        for index, (kind, factory) in enumerate((("sweeps", sweep_payload), ("observations", observation_payload))):
+        for index, (kind, factory) in enumerate(
+            (("sweeps", sweep_payload), ("observations", observation_payload))
+        ):
             with self.subTest(kind=kind):
                 payload = factory("a%2Fb", session["streams"][index]["id"])
-                status, response = self.request("POST", "/api/v1/sessions/a%2Fb/" + kind, payload)
+                status, response = self.request(
+                    "POST", "/api/v1/sessions/a%2Fb/" + kind, payload
+                )
                 self.assertEqual(status, 400)
                 self.assertEqual(response["error"]["code"], "invalid_request")
                 self.assertEqual(self.service.list_sweeps("a/b"), [])
@@ -115,7 +147,9 @@ class SessionUrlTests(unittest.TestCase):
             ("POST", "/api/v1/sessions/a%2Fb/start/extra"),
         ):
             with self.subTest(method=method, path=path):
-                status, response = self.request(method, path, {} if method == "POST" else None)
+                status, response = self.request(
+                    method, path, {} if method == "POST" else None
+                )
                 self.assertEqual(status, 404)
                 self.assertEqual(response["error"]["code"], "not_found")
 

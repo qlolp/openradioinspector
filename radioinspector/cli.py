@@ -18,7 +18,7 @@
 
 Сформировать протокол измерений::
 
-    python -m radioinspector report --database ./data/<файл>.pan --output protocol.md
+    python -m radioinspector report --database ./data/<файл>.pan --format docx --output protocol.docx
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ from .interference import detect_interference
 from .measurements import measure_signal
 from .occupancy import efficiency_from_store, occupancy_from_store
 from .panorama import PanoramaLibrary, PanoramaStore, ScanSettings
+from .docx_report import write_docx_report
 from .reporting import DEFAULT_TEMPLATE, ProtocolTemplate, build_context
 from .signals import SignalList
 from .tasks import TaskBook
@@ -88,45 +89,46 @@ def cmd_demo(args: argparse.Namespace) -> int:
     library = PanoramaLibrary(output)
     store, _existed = library.open_for(settings)
 
-    emitters = [
-        (102.5e6, 200e3, -35.0),
-        (104.3e6, 25e3, -55.0),
-        (107.9e6, 180e3, -42.0),
-        (45.2e6, 12e3, -70.0),
-    ]
-    base_time = datetime.now(timezone.utc) - timedelta(minutes=args.cycles)
-    rng = np.random.default_rng(7)
+    with store:
+        emitters = [
+            (102.5e6, 200e3, -35.0),
+            (104.3e6, 25e3, -55.0),
+            (107.9e6, 180e3, -42.0),
+            (45.2e6, 12e3, -70.0),
+        ]
+        base_time = datetime.now(timezone.utc) - timedelta(minutes=args.cycles)
+        rng = np.random.default_rng(7)
 
-    for cycle in range(args.cycles):
-        trace = _synthetic_panorama(settings, emitters, rng, cycle)
-        latitude = 55.75 + cycle * 0.0008
-        longitude = 37.62 + cycle * 0.0011
-        store.append(
-            trace,
-            recorded_at=base_time + timedelta(seconds=cycle * 3),
-            latitude=latitude,
-            longitude=longitude,
-            altitude=150.0,
-            speed=8.0,
-            heading=45.0,
-        )
+        for cycle in range(args.cycles):
+            trace = _synthetic_panorama(settings, emitters, rng, cycle)
+            latitude = 55.75 + cycle * 0.0008
+            longitude = 37.62 + cycle * 0.0011
+            store.append(
+                trace,
+                recorded_at=base_time + timedelta(seconds=cycle * 3),
+                latitude=latitude,
+                longitude=longitude,
+                altitude=150.0,
+                speed=8.0,
+                heading=45.0,
+            )
 
-    # Линия порога по умолчанию: горизонтальная прямая на уровне 2/3
-    # вертикальной сетки. Уровень сетки берётся по накопленному графику
-    # максимумов за весь сеанс наблюдения.
-    max_trace = store.max_trace()
-    assert max_trace is not None
-    line = ThresholdLine.default_for(max_trace)
-    store.save_threshold(line)
+        # Линия порога по умолчанию: горизонтальная прямая на уровне 2/3
+        # вертикальной сетки. Уровень сетки берётся по накопленному графику
+        # максимумов за весь сеанс наблюдения.
+        max_trace = store.max_trace()
+        assert max_trace is not None
+        line = ThresholdLine.default_for(max_trace)
+        store.save_threshold(line)
 
-    signals = SignalList()
-    for record in store.iter_panoramas():
-        signals.update_from_trace(record.trace, line, record.recorded_at)
-    signals.save(output / "signals.json")
+        signals = SignalList()
+        for record in store.iter_panoramas():
+            signals.update_from_trace(record.trace, line, record.recorded_at)
+        signals.save(output / "signals.json")
 
-    print(f"База данных панорам: {store.path}")
-    print(f"Записей: {store.count}, сигналов в списке: {len(signals)}")
-    return 0
+        print(f"База данных панорам: {store.path}")
+        print(f"Записей: {store.count}, сигналов в списке: {len(signals)}")
+        return 0
 
 
 def _synthetic_panorama(settings, emitters, rng, cycle: int) -> Trace:
@@ -396,12 +398,20 @@ def cmd_report(args: argparse.Namespace) -> int:
     else:
         template = ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Стандартный протокол")
 
-    text = template.render(context)
-    if args.output:
-        Path(args.output).write_text(text, encoding="utf-8")
-        print(f"Протокол сохранён: {args.output}")
+    if args.format == "docx":
+        if not args.output:
+            print("Для формата docx требуется --output", file=sys.stderr)
+            return 2
+        path = write_docx_report(template, context, args.output)
     else:
-        print(text)
+        text = template.render(context)
+        if args.output:
+            path = Path(args.output)
+            path.write_text(text, encoding="utf-8")
+        else:
+            print(text)
+            return 0
+    print(f"Протокол сохранён: {path}")
     return 0
 
 
@@ -435,6 +445,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         port=args.port,
         database=args.database,
         session_database=args.session_database,
+        archive_max_bytes=args.archive_max_bytes,
     )
     return 0
 
@@ -669,6 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("report", help="формирование протокола")
     p.add_argument("--database", required=True)
+    p.add_argument("--format", choices=["md", "docx"], default="md")
     p.add_argument("--template")
     p.add_argument("--output")
     p.add_argument("--operator", default="")
@@ -696,6 +708,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--session-database",
         help="SQLite-архив общих сеансов и измерений; без него используется память",
+    )
+    p.add_argument(
+        "--archive-max-bytes", type=int,
+        help="положительный лимит логического объёма SQLite в байтах; требует "
+             "--session-database; без опции лимита нет, автоматического удаления нет",
     )
     p.set_defaults(func=cmd_serve)
 
@@ -749,8 +766,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # CLI output is UTF-8 even when redirected on a legacy Windows locale.
+    for stream in (sys.stdout, sys.stderr):
+        if callable(getattr(stream, "reconfigure", None)):
+            stream.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.func is cmd_serve and args.archive_max_bytes is not None:
+        if args.archive_max_bytes <= 0:
+            parser.error("--archive-max-bytes должен быть положительным целым числом")
+        if not args.session_database:
+            parser.error("--archive-max-bytes требует --session-database")
     return int(args.func(args) or 0)
 
 

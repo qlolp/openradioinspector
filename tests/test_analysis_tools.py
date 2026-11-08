@@ -1,13 +1,14 @@
 """Тесты инструментов разбора коммерческого дистрибутива.
 
 Проверки не требуют наличия дистрибутива: часть тестов работает на
-синтетических данных, а часть пропускается, если коммерческий диск
-отсутствует в рабочей копии.
+синтетических данных, а необязательные исследования вынесены в tests.research_checks.
 
 Запуск: ``python3 -m unittest tests.test_analysis_tools -v``
 """
 
 from __future__ import annotations
+
+import os
 
 import sys
 import unittest
@@ -93,48 +94,17 @@ def identifiers_from_bytes(data: bytes) -> list[str]:
 
 
 def locate_distribution() -> Path | None:
-    """Каталог с дистрибутивом, если он присутствует в рабочей копии."""
-    for candidate in REPO_ROOT.glob("CD Ligtht 32314"):
-        if candidate.is_dir():
-            return candidate
-    return None
+    """Optional licensed material must be explicitly supplied outside the checkout."""
+    value = os.environ.get("ORI_RESEARCH_DISTRIBUTION")
+    if not value:
+        return None
+    path = Path(value).expanduser().resolve()
+    if not path.is_dir() or path == REPO_ROOT or REPO_ROOT in path.parents:
+        raise ValueError("ORI_RESEARCH_DISTRIBUTION must be an existing directory outside the checkout")
+    return path
 
 
-@unittest.skipUnless(locate_distribution(), "коммерческий диск отсутствует в рабочей копии")
-class TestRealDistribution(unittest.TestCase):
-    """Проверки на реальных файлах дистрибутива."""
 
-    def setUp(self) -> None:
-        self.root = locate_distribution()
-        self.exe = next(self.root.rglob("InspectorRT.exe"), None)
-        if self.exe is None:
-            self.skipTest("InspectorRT.exe не найден")
-
-    def test_forms_are_parsed(self):
-        pe = PEFile(self.exe)
-        forms = find_forms(pe)
-        self.assertGreater(len(forms), 100)
-        names = {name for name, _ in forms}
-        self.assertIn("TFINSPECTORRCMF", names)
-        self.assertIn("TFRSIGNALSLIST", names)
-
-    def test_installer_package_is_readable(self):
-        msi = next(self.root.rglob("SetupRadioInspectorLight.msi"), None)
-        if msi is None:
-            self.skipTest("SetupRadioInspectorLight.msi не найден")
-        cfb = CompoundFile(msi)
-        streams = cfb.text_streams()
-        self.assertGreater(len(streams), 10)
-        self.assertTrue(all(isinstance(blob, bytes) for _, blob in streams))
-        self.assertTrue(cfb.string_pool())
-
-    def test_database_identifiers_include_taskplan(self):
-        db = next(self.root.rglob("TASKPLAN.ITASKDB"), None)
-        if db is None:
-            self.skipTest("TASKPLAN.ITASKDB не найден")
-        names = identifiers(db)
-        self.assertIn("TASKPLAN", names)
-        self.assertIn("GEN_TASKTYPEID", names)
 
 
 class TestHlpDecompression(unittest.TestCase):
@@ -166,34 +136,6 @@ class TestHlpDecompression(unittest.TestCase):
         self.assertTrue(hlp.errors)
 
 
-@unittest.skipUnless(locate_distribution(), "коммерческий диск отсутствует в рабочей копии")
-class TestRealHelpFiles(unittest.TestCase):
-    """Разбор настоящих файлов справки."""
-
-    def setUp(self) -> None:
-        self.root = locate_distribution()
-
-    def test_help_file_is_parsed(self):
-        hlp = next(self.root.rglob("InspectorRT.hlp"), None)
-        if hlp is None:
-            self.skipTest("InspectorRT.hlp не найден")
-        parsed = read_hlp(hlp)
-        self.assertEqual(parsed.errors, [])
-        self.assertGreater(parsed.topic_count, 10)
-        joined = "\n".join(topic.text for topic in parsed.topics)
-        self.assertIn("InspectorRT", joined)
-        self.assertIn("эталонной панорамой", joined)
-
-    def test_all_help_files_are_readable(self):
-        files = sorted(self.root.rglob("*.hlp"))
-        if not files:
-            self.skipTest("файлы справки не найдены")
-        total = 0
-        for path in files:
-            parsed = read_hlp(path)
-            self.assertEqual(parsed.errors, [], f"{path.name}: {parsed.errors}")
-            total += parsed.topic_count
-        self.assertGreater(total, 300)
 
 
 if __name__ == "__main__":

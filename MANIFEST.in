@@ -1,0 +1,13 @@
+include CHANGELOG.md
+recursive-include docs *.md *.json *.tsv
+recursive-include tools *.py *.txt *.md
+recursive-include tests *.py *.cjs *.json
+recursive-include packaging *.py *.sh *.ps1 *.iss *.service *.md
+prune CD Ligtht 32314
+exclude docs/commercial-help-texts.md
+global-exclude __pycache__ *.py[cod]
+recursive-include macos *.swift *.pbxproj *.xcscheme *.xcworkspacedata *.plist *.json *.png
+prune macos/.build
+prune macos/SpektrKomandy/.build
+global-exclude .DS_Store
+recursive-include third_party *

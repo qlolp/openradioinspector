@@ -223,7 +223,16 @@ class PanoramaStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.commit()
         if settings is not None:
-            self._write_settings(settings)
+            try:
+                existing = self.read_settings()
+                if existing is not None and existing.key() != settings.key():
+                    raise ValueError("Несовместимые настройки (settings) существующей базы панорам")
+                if existing is None and self.count:
+                    raise ValueError("Нельзя назначить settings непустой базе без метаданных")
+                self._write_settings(settings)
+            except Exception:
+                self._conn.close()
+                raise
 
     # -- жизненный цикл ----------------------------------------------------
 

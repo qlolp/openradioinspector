@@ -186,6 +186,103 @@ class SQLiteSessionStoreTests(unittest.TestCase):
             service.list_sweeps(session.id, limit=0)
 
 
+class BatchIngestTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.temporary.name) / "batch-sessions.sqlite")
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def service(self) -> SessionService:
+        return SessionService(store=SQLiteSessionStore(self.path))
+
+    def create_two_device_session(self, service: SessionService):
+        session = service.create_session(session_payload())
+        return session, session.streams[0].id, session.streams[1].id
+
+    def test_memory_batches_preserve_order_units_and_event_sequences(self) -> None:
+        service = SessionService()
+        session, spectrum_id, receiver_id = self.create_two_device_session(service)
+        sweeps = service.ingest_sweeps([
+            sweep_payload(session.id, spectrum_id, number) for number in range(3)
+        ])
+        observations = service.ingest_observations([
+            observation_payload(session.id, receiver_id, number) for number in range(2)
+        ])
+        self.assertEqual([item.id for item in sweeps], ["sweep-0", "sweep-1", "sweep-2"])
+        self.assertTrue(all(item.level_unit == "dBm" for item in sweeps))
+        self.assertTrue(all(item.level_unit == "s_meter_count" for item in observations))
+        events = service.events(after=1)
+        self.assertEqual([item.sequence for item in events], [2, 3, 4, 5, 6])
+        self.assertEqual(
+            [item.event_type for item in events],
+            ["sweep.received"] * 3 + ["observation.received"] * 2,
+        )
+        self.assertEqual(service.health()["last_event_id"], 6)
+        features = service.capabilities()["features"]
+        self.assertTrue(features["measurement_batch_ingest"])
+        self.assertTrue(features["measurement_batch_atomic"])
+        self.assertEqual(features["measurement_batch_limit"], 100)
+
+    def test_invalid_memory_batch_has_no_partial_measurements_or_events(self) -> None:
+        service = SessionService()
+        session, spectrum_id, _receiver_id = self.create_two_device_session(service)
+        valid = sweep_payload(session.id, spectrum_id, 1)
+        duplicate = sweep_payload(session.id, spectrum_id, 1)
+        with self.assertRaisesRegex(ValueError, "внутри пакета"):
+            service.ingest_sweeps([valid, duplicate])
+        self.assertEqual(service.list_sweeps(session.id), [])
+        self.assertEqual(service.events(after=1), [])
+        for payloads in ([], [sweep_payload(session.id, spectrum_id)] * 101):
+            with self.subTest(size=len(payloads)):
+                with self.assertRaisesRegex(ValueError, "от 1 до 100"):
+                    service.ingest_sweeps(payloads)
+        with self.assertRaises(TypeError):
+            service.ingest_observations({"items": []})
+
+    def test_sqlite_batch_rolls_back_measurements_and_events_on_duplicate(self) -> None:
+        for kind in ("sweeps", "observations"):
+            with self.subTest(kind=kind):
+                self.path = str(Path(self.temporary.name) / f"batch-{kind}.sqlite")
+                service = self.service()
+                session, spectrum_id, receiver_id = self.create_two_device_session(service)
+                if kind == "sweeps":
+                    service.ingest_sweep(sweep_payload(session.id, spectrum_id, 0))
+                    batch = [
+                        sweep_payload(session.id, spectrum_id, 1),
+                        sweep_payload(session.id, spectrum_id, 0),
+                    ]
+                    with self.assertRaisesRegex(ValueError, "Пакет свипов"):
+                        service.ingest_sweeps(batch)
+                else:
+                    service.ingest_observation(observation_payload(session.id, receiver_id, 0))
+                    batch = [
+                        observation_payload(session.id, receiver_id, 1),
+                        observation_payload(session.id, receiver_id, 0),
+                    ]
+                    with self.assertRaisesRegex(ValueError, "Пакет наблюдений"):
+                        service.ingest_observations(batch)
+                service.close()
+
+                restored = self.service()
+                try:
+                    if kind == "sweeps":
+                        self.assertEqual(
+                            [item.id for item in restored.list_sweeps(session.id)],
+                            ["sweep-0"],
+                        )
+                    else:
+                        self.assertEqual(
+                            [item.id for item in restored.list_observations(session.id)],
+                            ["observation-0"],
+                        )
+                    self.assertEqual(restored.health()["last_event_id"], 2)
+                    self.assertEqual(len(restored.events(after=1)), 1)
+                finally:
+                    restored.close()
+
+
 class PersistentHttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -306,6 +403,68 @@ class PersistentHttpApiTests(unittest.TestCase):
         status, error = self.request("GET", "/api/v1/sessions/missing/sweeps")
         self.assertEqual(status, 404)
         self.assertEqual(error["error"]["code"], "session_not_found")
+
+    def test_http_batch_ingest_and_restart(self) -> None:
+        session_id, spectrum_id, receiver_id = self.create_session()
+        sweeps = [sweep_payload(session_id, spectrum_id, number) for number in range(2)]
+        del sweeps[0]["session_id"]
+        status, response = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/sweeps/batch", {"items": sweeps}
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(response["data"]["count"], 2)
+        self.assertEqual(
+            [item["session_id"] for item in response["data"]["items"]],
+            [session_id, session_id],
+        )
+        status, response = self.request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/observations/batch",
+            {"items": [observation_payload(session_id, receiver_id, number) for number in range(2)]},
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(response["data"]["count"], 2)
+        self.assertTrue(
+            all(item["level_unit"] == "s_meter_count" for item in response["data"]["items"])
+        )
+
+        self.stop_server()
+        self.start_server()
+        status, restored = self.request(
+            "GET", f"/api/v1/sessions/{session_id}/sweeps?stream_id={spectrum_id}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(restored["data"]), 2)
+        status, history = self.request("GET", "/api/v1/events/history?after=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [item["event_type"] for item in history["data"]],
+            ["sweep.received"] * 2 + ["observation.received"] * 2,
+        )
+
+    def test_http_invalid_batch_is_atomic(self) -> None:
+        session_id, spectrum_id, _receiver_id = self.create_session()
+        valid = sweep_payload(session_id, spectrum_id, 1)
+        invalid = sweep_payload(session_id, spectrum_id, 2)
+        invalid["level_unit"] = "s_meter_count"
+        status, error = self.request(
+            "POST",
+            f"/api/v1/sessions/{session_id}/sweeps/batch",
+            {"items": [valid, invalid]},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("преобразование", error["error"]["message"])
+        status, listing = self.request("GET", f"/api/v1/sessions/{session_id}/sweeps")
+        self.assertEqual(status, 200)
+        self.assertEqual(listing["data"], [])
+        status, health = self.request("GET", "/api/v1/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(health["data"]["last_event_id"], 1)
+        status, error = self.request(
+            "POST", f"/api/v1/sessions/{session_id}/sweeps/batch", {"items": []}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("от 1 до 100", error["error"]["message"])
 
 
 if __name__ == "__main__":
