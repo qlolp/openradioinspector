@@ -31,9 +31,16 @@ import numpy as np
 from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
+from ..automatic_detection import AutomaticCandidateDetector
+from ..automatic_handoff import AutomaticHandoffScheduler
 from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
-from ..session_service import SessionNotFoundError, SessionService
+from ..session_service import (
+    CandidateNotFoundError,
+    InvestigationNotFoundError,
+    SessionNotFoundError,
+    SessionService,
+)
 from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -272,7 +279,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Обновление страницы может отменить ожидающий ответ без сбоя API.
+            pass
 
     def _send_api_error(self, status: int, code: str, message: str) -> None:
         self._send_json(
@@ -294,7 +305,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -319,6 +333,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if route in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html")
+            return
+        if route in ("/platform", "/platform.html"):
+            self._send_file(STATIC_DIR / "platform.html")
             return
         if route == "/api/state":
             self._send_json(self.state.snapshot())
@@ -447,6 +464,63 @@ class Handler(BaseHTTPRequestHandler):
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
             if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                state = query.get("state", [None])[0]
+                if parts[4] == "candidates":
+                    result = self.sessions.list_candidates(parts[3], state=state)
+                else:
+                    result = self.sessions.list_investigations(parts[3], state=state)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "next"
+            ):
+                self._send_json(api_payload(self.sessions.next_investigation(parts[3])))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                if parts[4] == "candidates":
+                    result = self.sessions.get_candidate(parts[3], parts[5])
+                else:
+                    result = self.sessions.get_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                self._send_json(api_payload(self.automatic_handoff.status(parts[3])))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                self._send_json(api_payload(self.automatic_detection.status(parts[3])))
+                return
+            if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "workers"
@@ -476,6 +550,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
         except (TypeError, ValueError) as exc:
             self._send_api_error(400, "invalid_request", str(exc))
 
@@ -489,6 +567,92 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams"
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) >= 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("candidates", "investigations")
+            ):
+                parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-handoff"
+            ):
+                result = self.automatic_handoff.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "automatic-detection"
+            ):
+                result = self.automatic_detection.configure(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+            ):
+                candidate = self.sessions.create_candidate(parts[3], payload)
+                self._send_json(api_payload(candidate), 201)
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "candidates"
+                and parts[6] in ("investigations", "dismiss")
+            ):
+                if parts[6] == "investigations":
+                    result = self.sessions.enqueue_investigation(
+                        parts[3], parts[5], payload
+                    )
+                    self._send_json(api_payload(result), 201)
+                else:
+                    result = self.sessions.dismiss_candidate(parts[3], parts[5])
+                    self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[5] == "start-next"
+            ):
+                if payload.get("confirm") is not True:
+                    raise ValueError(
+                        "Полуавтоматический handoff требует явного confirm=true"
+                    )
+                result = self.sessions.start_next_investigation(
+                    parts[3], payload["investigation_id"], tune=self.workers.tune
+                )
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 7
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "investigations"
+                and parts[6] in ("start", "complete", "fail", "cancel")
+            ):
+                if parts[6] == "start":
+                    result = self.sessions.start_investigation(
+                        parts[3], parts[5], tune=self.workers.tune
+                    )
+                elif parts[6] == "complete":
+                    result = self.sessions.complete_investigation(parts[3], parts[5])
+                elif parts[6] == "fail":
+                    result = self.sessions.fail_investigation(
+                        parts[3], parts[5], payload.get("error")
+                    )
+                else:
+                    result = self.sessions.cancel_investigation(parts[3], parts[5])
+                self._send_json(api_payload(result))
+                return
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -546,6 +710,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except CandidateNotFoundError as exc:
+            self._send_api_error(404, "candidate_not_found", str(exc.args[0]))
+        except InvestigationNotFoundError as exc:
+            self._send_api_error(404, "investigation_not_found", str(exc.args[0]))
         except KeyError as exc:
             self._send_api_error(400, "missing_field", f"Отсутствует поле: {exc.args[0]}")
         except UnsupportedAdapterError as exc:
@@ -623,6 +791,8 @@ def create_server(
     sessions: Optional[SessionService] = None,
     session_database: Optional[str] = None,
     workers: Optional[DeviceWorkerManager] = None,
+    automatic_handoff: Optional[AutomaticHandoffScheduler] = None,
+    automatic_detection: Optional[AutomaticCandidateDetector] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
@@ -637,15 +807,31 @@ def create_server(
     if workers is not None and workers.sessions is not session_service:
         raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
     worker_manager = workers or DeviceWorkerManager(session_service)
+    if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
+        raise ValueError("AutomaticHandoffScheduler должен использовать тот же SessionService")
+    automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
+        session_service, tune=worker_manager.tune
+    )
+    if automatic_detection is not None and automatic_detection.sessions is not session_service:
+        raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
+    detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
     handler = type(
         "BoundHandler",
         (Handler,),
-        {"state": state, "sessions": session_service, "workers": worker_manager},
+        {
+            "state": state,
+            "sessions": session_service,
+            "workers": worker_manager,
+            "automatic_handoff": automatic_scheduler,
+            "automatic_detection": detection_scheduler,
+        },
     )
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd.daemon_threads = True
     httpd.session_service = session_service
     httpd.worker_manager = worker_manager
+    httpd.automatic_handoff = automatic_scheduler
+    httpd.automatic_detection = detection_scheduler
     return httpd
 
 
@@ -674,6 +860,8 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.automatic_detection.close()
+        httpd.automatic_handoff.close()
         httpd.worker_manager.close()
         httpd.server_close()
         httpd.session_service.close()
