@@ -43,6 +43,9 @@ from .serial_ports import serial_port_identity
 from .frequency_raster import (
     calculate_frequency_rounding, parse_frequency_raster, validate_rounding_request as validate_raster_request,
 )
+from .measurement_results import (
+    METHODOLOGIES, describe_catalog, make_result_record,
+)
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
@@ -123,6 +126,7 @@ class SessionService:
         self._candidates: dict[str, Candidate] = {}
         self._investigations: dict[str, Investigation] = {}
         self._investigation_sessions: dict[str, str] = {}
+        self._measurement_results: list[dict[str, Any]] = []
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
         self._sequence = 0
         self._subscriber_sequence = 0
@@ -142,6 +146,7 @@ class SessionService:
                     store.save_session(session)
             self._sessions = {item.id: item for item in restored}
             self._candidates = {item.id: item for item in store.load_candidates()}
+            self._measurement_results = store.load_measurement_results()
             for session_id, investigation in store.load_investigations():
                 candidate = self._candidates.get(investigation.candidate_id)
                 if candidate is None or candidate.session_id != session_id:
@@ -203,6 +208,8 @@ class SessionService:
                 "averaged_sweep_change_detection": True,
                 "named_sweep_references": True,
                 "frequency_raster_rounding": True,
+                "measurement_results": True,
+                "measurement_methodology_catalog": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -674,6 +681,64 @@ class SessionService:
                 for candidate_id in candidate_ids
             ]
             return calculate_frequency_rounding(session_id, candidates, table)
+
+    def save_measurement_result(
+        self, session_id: str, payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Записывает результат измерения с явной методикой и кодом результата.
+
+        Значения хранятся отдельно от ``result_code``; исходные измерения
+        не изменяются — это производная запись результата.
+        """
+        stream_id = payload.get("stream_id") if isinstance(payload, dict) else None
+        if not isinstance(stream_id, str) or not stream_id.strip():
+            raise ValueError("stream_id должен быть непустым ID потока")
+        body = {key: value for key, value in payload.items() if key != "stream_id"}
+        record = make_result_record(session_id, stream_id, body, new_id())
+        with self._lock:
+            session = self._get_locked(session_id)
+            if not any(item.id == stream_id for item in session.streams):
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            event = self._make_event_locked(
+                "measurement_result.saved",
+                session_id=session_id,
+                payload={"measurement_result": to_primitive(record)},
+            )
+            if self._store is not None:
+                self._store.save_measurement_result(record, event=event)
+            else:
+                self._measurement_results.append(copy.deepcopy(record))
+            self._publish_event_locked(event)
+            return copy.deepcopy(record)
+
+    def list_measurement_results(
+        self, session_id: str, *, methodology: Optional[str] = None,
+        limit: Optional[int] = 100,
+    ) -> list[dict[str, Any]]:
+        if methodology is not None and methodology not in METHODOLOGIES:
+            raise ValueError(f"Неизвестная методика: {methodology}")
+        if limit is not None:
+            limit = self._limit(limit)
+        with self._lock:
+            self._get_locked(session_id)
+            if self._store is not None:
+                items = self._store.list_measurement_results(
+                    session_id, methodology=methodology, limit=limit,
+                )
+            else:
+                items = [
+                    item for item in self._measurement_results
+                    if item["session_id"] == session_id
+                    and (methodology is None or item["methodology"] == methodology)
+                ]
+                items.sort(key=lambda item: (item["created_at"], item["id"]))
+                if limit is not None:
+                    items = items[-limit:]
+            return copy.deepcopy(items)
+
+    def measurement_catalog(self) -> list[dict[str, Any]]:
+        """Каталог методик: id, название, таблица оригинала и поля значений."""
+        return describe_catalog()
 
     def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
         if self._store is not None:

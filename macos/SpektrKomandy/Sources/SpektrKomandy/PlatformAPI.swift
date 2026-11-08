@@ -252,6 +252,9 @@ final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
 public struct PlatformInterval: Codable, Equatable {
     public let startedAt: String
     public let endedAt: String
+    public init(startedAt: String, endedAt: String) {
+        self.startedAt = startedAt; self.endedAt = endedAt
+    }
 }
 
 public struct PlatformStream: Decodable, Identifiable, Equatable {
