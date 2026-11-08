@@ -98,6 +98,19 @@ final class MeasurementResultsModelTests: XCTestCase {
         XCTAssertEqual(model.chosenValues, [:])
     }
 
+    @MainActor func testFractionalSecondIntervalsReachTheCoreWithoutPrecisionLoss() async throws {
+        let deferred = Deferred()
+        let model = try model(deferred)
+        try await waitFor { !model.catalog.isEmpty }
+        model.draft.values = "{\"bandwidth_hz\": 1, \"lower_edge_hz\": 2, \"upper_edge_hz\": 3, \"center_hz\": 4}"
+        model.draft.startedText = "2026-11-08T12:00:00.123456Z"
+        model.draft.endedText = "2026-11-08T12:00:01.123456Z"
+        model.analyze(); try await waitForSave(deferred)
+        XCTAssertEqual(deferred.saves[0].1.interval.startedAt, model.draft.startedText)
+        deferred.fail(PlatformError.http(status: 400, code: "synthetic", message: "cleanup"))
+        try await waitFor { !model.pending }
+    }
+
     @MainActor func testSaveSubmitsDraftAndKeepsItems() async throws {
         let deferred = Deferred()
         let model = try model(deferred)

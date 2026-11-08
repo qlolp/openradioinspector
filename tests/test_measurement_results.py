@@ -193,6 +193,13 @@ class SQLiteResultTests(ResultServiceMixin, unittest.TestCase):
 
 
 class ResultMigrationTests(unittest.TestCase):
+    def test_sqlite_startup_does_not_materialize_all_measurement_results(self):
+        from unittest.mock import patch
+        store = SQLiteSessionStore(':memory:')
+        with patch.object(store, 'load_measurement_results', side_effect=AssertionError('unbounded read')):
+            service = SessionService(store=store)
+            service.close()
+
     def test_v3_upgrade_preserves_existing_session(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / 'v3.sqlite')
