@@ -4,7 +4,7 @@ import math
 import re
 import sys
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from itertools import pairwise
 
 CAPACITY = 40
@@ -54,11 +54,20 @@ def validate_sweep(sweep, session, stream):
         raise ValueError('Nonfinite level')
     interval = sweep.get('interval')
     try:
-        pattern = r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|\+00:00)'
-        if any(not isinstance(interval[k], str) or not re.fullmatch(pattern, interval[k]) for k in ('started_at', 'ended_at')):
-            raise ValueError()
-        times = [datetime.fromisoformat(interval[k].replace('Z', '+00:00')) for k in ('started_at', 'ended_at')]
-        if any(t.utcoffset() != timedelta(0) for t in times) or times[0] > times[1]:
+        pattern = r'([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,6}))?(?:Z|\+00:00)'
+        times = []
+        for key in ('started_at', 'ended_at'):
+            value = interval[key]
+            match = re.fullmatch(pattern, value) if isinstance(value, str) else None
+            if match is None:
+                raise ValueError()
+            # fromisoformat accepts different inputs across supported Python
+            # versions (short fractions in 3.10, hour 24 in 3.14). Construct
+            # explicitly so every client uses the same strict UTC contract.
+            fields = [int(part) for part in match.groups()[:6]]
+            microsecond = int((match[7] or '').ljust(6, '0'))
+            times.append(datetime(*fields, microsecond=microsecond, tzinfo=timezone.utc))
+        if times[0] > times[1]:
             raise ValueError()
     except (TypeError, KeyError, AttributeError, ValueError):
         raise ValueError('Invalid UTC interval') from None

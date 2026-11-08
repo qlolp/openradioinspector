@@ -100,10 +100,12 @@ class SpectrumViewTests(unittest.TestCase):
         self.assertFalse(self.view.set_bounds(-100, 0))
         self.assertIsNone(self.view.bounds)
         for interval in FIXTURE['valid_intervals']:
-            self.assertTrue(self.update([dict(self.sweeps[-1], interval=interval)]))
-            self.assertEqual(self.view.displayed[-1]['interval'], interval)
+            with self.subTest(valid=interval):
+                self.assertTrue(self.update([dict(self.sweeps[-1], interval=interval)]))
+                self.assertEqual(self.view.displayed[-1]['interval'], interval)
         for interval in FIXTURE['invalid_intervals']:
-            self.assertFalse(self.update([dict(self.sweeps[-1], interval=interval)]))
+            with self.subTest(invalid=interval):
+                self.assertFalse(self.update([dict(self.sweeps[-1], interval=interval)]))
         many = [copy.deepcopy(self.sweeps[-1]) for _ in range(42)]
         many[0]['stream_id'] = 'foreign'
         self.assertFalse(self.update(many))
@@ -175,6 +177,9 @@ class HiddenSpectrumControlsTests(unittest.TestCase):
             for name in ('tk_messageBox', 'tk_getOpenFile', 'tk_getSaveFile', 'tk_chooseDirectory'):
                 root.tk.createcommand(name, forbidden)
             app = WindowsApp(root, tk, ttk, refresh_ms=60000)
+            # Complete ttk theme initialization while the window still exists;
+            # older Tk otherwise delivers its initial theme event after destroy.
+            root.update_idletasks()
             try:
                 app.client = SimpleNamespace(base_url=FIXTURE['frame']['scope']['server'])
                 app.session_id = 'session-A'
