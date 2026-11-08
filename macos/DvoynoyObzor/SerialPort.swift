@@ -138,11 +138,8 @@ final class SerialPort {
             }
 
             if received, Date().timeIntervalSince(lastByte) >= quiet {
-                if let text = String(data: stash, encoding: .utf8) {
-                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed == label && label.hasPrefix("scan") {
-                        continue
-                    }
+                if label.hasPrefix("scan") {
+                    continue
                 }
                 complete = true
                 break
