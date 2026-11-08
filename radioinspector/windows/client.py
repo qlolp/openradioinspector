@@ -266,6 +266,23 @@ class PlatformClient:
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/frequency-rounding",
                              payload, expected_statuses=(200,))
 
+    def save_measurement_result(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .measurement_results import validate_payload
+        stream_id = payload.get('stream_id')
+        _segment(stream_id, 'stream_id')
+        validate_payload(payload, stream_id)
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/measurement-results",
+                             payload, expected_statuses=(201,))
+
+    def list_measurement_results(self, session_id: str, methodology: Optional[str] = None) -> list[dict[str, Any]]:
+        from .measurement_results import METHODOLOGIES
+        path = f"/sessions/{_segment(session_id, 'session_id')}/measurement-results"
+        if methodology is not None:
+            if methodology not in METHODOLOGIES:
+                raise ValueError(f'Неизвестная методика: {methodology}')
+            path += "?" + urlencode({"methodology": methodology})
+        return self._request('GET', path, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

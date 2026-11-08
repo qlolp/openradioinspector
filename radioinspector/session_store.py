@@ -29,7 +29,7 @@ from .contracts import (
 from .sweep_references import check_reference_creation
 from .sweep_context import ContextIncompatibleError, validate_context_request
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 ARCHIVE_WARNING_THRESHOLD = 0.9
 
 
@@ -291,6 +291,39 @@ class SQLiteSessionStore:
             if statement.strip():
                 self._connection.execute(statement)
         self._create_reference_schema()
+        self._create_measurement_schema()
+
+    def _create_measurement_schema(self) -> None:
+        # Measurement results keep the methodology explicit and the verdict
+        # code apart from the numeric values, like the original *_RESULTCODE
+        # tables. Schema v4 is additive: archives from v3 migrate unchanged.
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS measurement_results (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                stream_id TEXT NOT NULL,
+                methodology TEXT NOT NULL,
+                result_code TEXT NOT NULL CHECK (
+                    result_code IN ('norm', 'not_norm', 'not_measured')
+                ),
+                frequency_hz INTEGER NOT NULL CHECK (
+                    frequency_hz BETWEEN 0 AND 9007199254740991
+                ),
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                values_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+        self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS measurement_results_session_time
+                ON measurement_results(session_id, created_at, id)
+        """)
+        self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS measurement_results_methodology
+                ON measurement_results(session_id, methodology, created_at)
+        """)
 
     def _create_reference_schema(self) -> None:
         self._connection.execute("""
@@ -922,6 +955,67 @@ class SQLiteSessionStore:
                 "SELECT * FROM candidates ORDER BY started_at, id"
             ).fetchall()
             return [self._candidate(row) for row in rows]
+
+    def save_measurement_result(
+        self, record: dict[str, Any], *, event: Optional[SessionEvent] = None
+    ) -> None:
+        """Сохраняет результат измерения и его событие в одной транзакции."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO measurement_results (
+                    id, session_id, stream_id, methodology, result_code,
+                    frequency_hz, started_at, ended_at, values_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record["id"], record["session_id"], record["stream_id"],
+                    record["methodology"], record["result_code"],
+                    record["frequency_hz"],
+                    record["interval"]["started_at"], record["interval"]["ended_at"],
+                    _json(record["values"]), record["created_at"],
+                ),
+            )
+            if event is not None:
+                self._insert_event(event)
+
+    def list_measurement_results(
+        self, session_id: str, *, methodology: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        clause, parameters = self._filters(session_id, None)
+        if methodology is not None:
+            clause += " AND methodology = ?"
+            parameters.append(methodology)
+        query = (
+            f"SELECT * FROM measurement_results WHERE {clause}"
+            " ORDER BY created_at, id"
+        )
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+        with self._lock:
+            rows = self._connection.execute(query, parameters).fetchall()
+            return [self._measurement_result(row) for row in rows]
+
+    @staticmethod
+    def _measurement_result(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"], "session_id": row["session_id"],
+            "stream_id": row["stream_id"], "methodology": row["methodology"],
+            "result_code": row["result_code"], "frequency_hz": row["frequency_hz"],
+            "interval": {
+                "started_at": row["started_at"], "ended_at": row["ended_at"],
+            },
+            "values": _object(row["values_json"]), "created_at": row["created_at"],
+        }
+
+    def load_measurement_results(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM measurement_results ORDER BY created_at, id"
+            ).fetchall()
+            return [self._measurement_result(row) for row in rows]
 
     def load_investigations(self) -> list[tuple[str, Investigation]]:
         """Возвращает ``(session_id, investigation)``: модель не дублирует session_id."""

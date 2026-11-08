@@ -320,7 +320,9 @@ class SQLiteContextTests(ContextServiceMixin, unittest.TestCase):
             connection.set_trace_callback(None)
         self.assertEqual((connection.total_changes, list(connection.iterdump())), before)
         self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
-        self.assertEqual(SCHEMA_VERSION, 3)
+        # The query itself migrates nothing: version above is the one the open
+        # store already had, whatever the current additive schema version is.
+        self.assertGreaterEqual(SCHEMA_VERSION, 3)
         reads = [statement for statement in statements if statement.startswith("SELECT")]
         self.assertEqual(len(reads), 3)
         self.assertIn("WHERE id = ", reads[0])
