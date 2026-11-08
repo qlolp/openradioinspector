@@ -333,6 +333,13 @@ class PlatformClient:
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/import",
                              payload, expected_statuses=(201,))
 
+    def measurement_map(self, session_id: str, map_json: str) -> dict[str, Any]:
+        from ..measurement_map import validate_map_request
+        validate_map_request({"map_json": map_json})
+        payload = {"map_json": map_json}
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/measurement-map",
+                             payload, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

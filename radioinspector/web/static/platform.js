@@ -570,6 +570,7 @@
     window.OpenRadioDvbEvaluation?.update({ sessionId: state.sessionId });
     window.OpenRadioPhonogram?.update({ sessionId: state.sessionId, streams: state.workers?.map(w => ({ id: w.stream_id || w.id, device: w.device })) || [] });
     window.OpenRadioSignalList?.update({ sessionId: state.sessionId, streams: (state.workers || []).map(w => ({ id: w.stream_id || w.id, level_unit: w.level_unit || w.unit || '' })) });
+    window.OpenRadioMeasurementMap?.update({ sessionId: state.sessionId });
     window.OpenRadioSweepComparison?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
@@ -863,6 +864,7 @@
       window.OpenRadioDvbEvaluation?.setConnected(true);
       window.OpenRadioPhonogram?.setConnected(true);
       window.OpenRadioSignalList?.setConnected(true);
+      window.OpenRadioMeasurementMap?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
@@ -875,6 +877,7 @@
       window.OpenRadioDvbEvaluation?.setConnected(false);
       window.OpenRadioPhonogram?.setConnected(false);
       window.OpenRadioSignalList?.setConnected(false);
+      window.OpenRadioMeasurementMap?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -922,6 +925,7 @@
       window.OpenRadioDvbEvaluation?.setConnected(false);
       window.OpenRadioPhonogram?.setConnected(false);
       window.OpenRadioSignalList?.setConnected(false);
+      window.OpenRadioMeasurementMap?.setConnected(false);
     });
     const receive = (message) => {
       try {

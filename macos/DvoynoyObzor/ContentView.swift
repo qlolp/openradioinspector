@@ -215,6 +215,7 @@ final class RemoteDualModel: ObservableObject {
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()
+    let measurementMap = MeasurementMapModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -834,6 +835,7 @@ final class RemoteDualModel: ObservableObject {
         dvbEvaluation.reset()
         phonogram.reset()
         signalList.reset()
+        measurementMap.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1238,13 +1240,15 @@ final class RemoteDualModel: ObservableObject {
                 sweeps: snapshot.sweeps)
             dvbEvaluation.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID))
+            measurementMap.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID))
             if let stream = analyzer?.id {
                 phonogram.configure(client: client,
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
                 signalList.configure(client: client,
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
             } else { phonogram.reset(); signalList.reset() }
-        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset(); signalList.reset() }
+        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset(); signalList.reset(); measurementMap.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1477,6 +1481,7 @@ struct RemoteUltraPane: View {
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
                 RemotePhonogramPane(model: model.phonogram)
                 RemoteSignalListPane(model: model.signalList)
+                RemoteMeasurementMapPane(model: model.measurementMap)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
