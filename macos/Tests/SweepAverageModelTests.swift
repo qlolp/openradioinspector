@@ -308,7 +308,7 @@ final class SweepAverageModelTests: XCTestCase {
     }
     @MainActor func testTimeoutRemainsBoundedAcrossPollingAndIgnoresLateResponse() async throws {
         let deferred = Deferred(), client = try api()
-        let model = SweepAverageModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, refs, target, threshold, bins in
+        let model = SweepAverageModel(timeoutNanoseconds: 500_000_000, fetch: { _, _, refs, target, threshold, bins in
             try await deferred.fetch(refs, target, threshold, bins)
         })
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()

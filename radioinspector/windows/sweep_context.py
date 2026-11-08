@@ -79,6 +79,7 @@ class SweepContextPanel(ThresholdPanel):
         self.app = app; self.scope = None; self.generation = 0
         self.future = self.retired = self.data = self.source = self.chosen_source = None; self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-context')
+        self._init_timers(app.root)
         tk, ttk = app.tk, app.ttk
         frame = ttk.Frame(notebook, padding=8); notebook.add(frame, text='Архивный контекст N1/N2')
         ttk.Label(frame, text='Разовый снимок архива вокруг выбранного sweep. N1/N2=2 — примеры. Не автоматический захват обнаружения; только чтение.', wraplength=1050).pack(fill='x')
@@ -181,7 +182,7 @@ class SweepContextPanel(ThresholdPanel):
         self.info.set(f"Зафиксирован anchor {source['id']}; загрузка…"); self.button.configure(state='disabled')
         self.deadline = monotonic()+8; generation = self.generation
         self.future = self.executor.submit(self.app.client.sweep_context, self.app.session_id, source['id'], *counts)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -189,7 +190,7 @@ class SweepContextPanel(ThresholdPanel):
         if generation != self.generation or self.future is None: return
         if monotonic() >= self.deadline:
             self.clear(); self.info.set('Превышен срок ожидания 8 секунд.'); return
-        if not self.future.done(): self.app.root.after(50, lambda: self.finish(generation)); return
+        if not self.future.done(): self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
             self.data = deepcopy(validate_context(future.result(), self.expected, self.source, *self.counts))
@@ -218,6 +219,7 @@ class SweepContextPanel(ThresholdPanel):
             x,y = points[:2]; self.canvas.create_oval(x-3,y-3,x+3,y+3,fill='#6cd8ff',outline='#6cd8ff')
 
     def close(self):
-        self.clear(); self.closed = True
+        if self.closed:
+            return
+        super().close()
         if hasattr(self, 'server_trace'): self.app.server_var.trace_remove('write', self.server_trace)
-        self.executor.shutdown(wait=False, cancel_futures=True)

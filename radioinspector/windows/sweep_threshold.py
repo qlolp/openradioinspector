@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from math import isfinite
 from time import monotonic
+from .tk_timers import TkTimerOwner
 
 
 def validate_parameters(window, margin):
@@ -114,13 +115,14 @@ def threshold_text(data):
     return '\n'.join(lines)
 
 
-class ThresholdPanel:
+class ThresholdPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
         self.generation = 0
         self.future = self.retired = self.data = None
         self.closed = False
+        self._init_timers(app.root)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-threshold')
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
@@ -193,7 +195,7 @@ class ThresholdPanel:
         self.deadline = monotonic() + 8.0
         generation = self.generation
         self.future = self.executor.submit(self.app.client.sweep_threshold, self.app.session_id, sweep_id, window, margin)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -202,7 +204,7 @@ class ThresholdPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Порог: превышен срок ожидания 8 секунд; повторите по кнопке.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -233,5 +235,13 @@ class ThresholdPanel:
             self.canvas.create_line(*points, fill=color, width=2)
 
     def close(self):
-        self.closed = True; self.abandon()
+        if self.closed:
+            return
+        self.closed = True
+        self._close_timers()
+        for future in (self.future, self.retired):
+            if future is not None:
+                future.cancel()
+        self.future = self.retired = self.data = None
+        self.generation += 1
         self.executor.shutdown(wait=False, cancel_futures=True)

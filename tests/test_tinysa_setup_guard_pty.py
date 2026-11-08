@@ -144,6 +144,12 @@ class TinySASetupPTYTests(unittest.TestCase):
             rest.encode("ascii"),
         ))
 
+    def test_fragmented_scan_prompt_gaps_longer_than_quiet(self) -> None:
+        self.assert_delayed_scan((
+            (SCAN_COMMAND + "\r\n" + SCAN_REPLY.removesuffix("ch> ")).encode("ascii"),
+            b"c", b"h", b"> ",
+        ))
+
     def test_scan_timeout_is_bounded_and_never_retries_or_reads_late_data(self) -> None:
         self.start_server(fault_command=SCAN_COMMAND,
                           fault=(SCAN_COMMAND + "\r\n100000000 -90 0\r\n").encode("ascii"),

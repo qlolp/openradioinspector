@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from time import monotonic
 import unicodedata
+from .tk_timers import TkTimerOwner
 
 
 def normalize_name(value):
@@ -57,7 +58,7 @@ def validate_catalog(data, session, stream):
     return data
 
 
-class NamedReferenceCatalog:
+class NamedReferenceCatalog(TkTimerOwner):
     def __init__(self, panel, frame):
         self.panel = panel
         self.scope = None
@@ -69,6 +70,7 @@ class NamedReferenceCatalog:
         self.verified = False
         self.items = []
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-references')
+        self._init_timers(panel.app.root)
         tk, ttk = panel.app.tk, panel.app.ttk
         ttk.Label(frame, text='Имя архивного опорного sweep (1–80 символов)').pack(fill='x')
         self.name = tk.StringVar()
@@ -135,7 +137,7 @@ class NamedReferenceCatalog:
         self.future = self.executor.submit(function, *args)
         self.status.set('Сохранение опорного…' if operation == 'save' else 'Загрузка каталога…')
         self.controls()
-        self.panel.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.panel.app.root, 'catalog', 50, self.finish, generation)
 
     def refresh(self, *, sync_scope=True):
         if sync_scope and not self.closed:
@@ -203,7 +205,7 @@ class NamedReferenceCatalog:
             self.controls()
             return
         if not self.future.done():
-            self.panel.app.root.after(50, lambda: self.finish(generation))
+            self._schedule_after(self.panel.app.root, 'catalog', 50, self.finish, generation)
             return
         future, self.future = self.future, None
         try:
@@ -244,6 +246,12 @@ class NamedReferenceCatalog:
         self.controls()
 
     def close(self):
+        if self.closed:
+            return
         self.closed = True
+        self._close_timers()
         self.abandon()
+        if self.retired is not None:
+            self.retired.cancel()
+        self.retired = None
         self.executor.shutdown(wait=False, cancel_futures=True)

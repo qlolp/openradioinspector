@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from math import isfinite
 from time import monotonic
+from .tk_timers import TkTimerOwner
 
 
 def eligible_sweeps(app):
@@ -81,7 +82,7 @@ def validate_comparison(data, expected):
     return data
 
 
-class ComparisonPanel:
+class ComparisonPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -91,6 +92,7 @@ class ComparisonPanel:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-comparison')
         self.retired = None
         self.closed = False
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Сравнение sweeps')
@@ -113,6 +115,8 @@ class ComparisonPanel:
         self.canvas.bind('<Configure>', lambda event: self.draw())
 
     def update(self):
+        if self.closed:
+            return
         scope = (id(self.app.client), self.app.session_id, self.app.selected_stream_id())
         if scope != self.scope:
             self.scope = scope
@@ -184,7 +188,7 @@ class ComparisonPanel:
         self.deadline = monotonic() + 8.0
         self.expected = (session, self.app.selected_stream_id(), self.reference, target)
         self.future = self.executor.submit(client.compare_sweeps, session, self.reference, target)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed:
@@ -198,7 +202,7 @@ class ComparisonPanel:
             self.info.set('Сравнение: превышен срок ожидания 8 секунд; повторите запрос.')
             return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation))
+            self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
             return
         future, self.future = self.future, None
         self.button.configure(state='normal')
@@ -237,9 +241,15 @@ class ComparisonPanel:
             self.canvas.create_oval(x-3, y-3, x+3, y+3, fill='#6cd8ff')
 
     def close(self):
+        if self.closed:
+            return
         self.closed = True
+        self._close_timers()
         if hasattr(self, "catalog"):
             self.catalog.close()
-        self.abandon()
+        for future in (self.future, self.retired):
+            if future is not None:
+                future.cancel()
+        self.future = self.retired = self.data = None
         self.generation += 1
         self.executor.shutdown(wait=False, cancel_futures=True)

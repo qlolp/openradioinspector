@@ -10,6 +10,7 @@ import tempfile
 import unicodedata
 
 from .sweep_average import utc_interval
+from .tk_timers import TkTimerOwner
 
 MAX_PROFILE_BYTES = 65_536
 MAX_HZ = 9_007_199_254_740_991
@@ -208,7 +209,7 @@ def result_text(data):
         'Только предложение. Исходный кандидат, архив и настройки прибора не изменены.'])
 
 
-class FrequencyRoundingPanel:
+class FrequencyRoundingPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -219,6 +220,7 @@ class FrequencyRoundingPanel:
         self.server_edit_client = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='frequency-rounding')
         self.io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='rounding-file')
+        self._init_timers(app.root)
         tk, ttk = app.tk, app.ttk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Округление частоты')
@@ -382,7 +384,7 @@ class FrequencyRoundingPanel:
         self.button.configure(state='disabled')
         self.future = self.executor.submit(self.app.client.candidate_frequency_rounding,
                                            self.app.session_id, source['id'], raw)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed:
@@ -393,7 +395,7 @@ class FrequencyRoundingPanel:
         if monotonic() >= self.deadline:
             self.clear(); self.info.set('Превышен срок ожидания 8 секунд.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -420,7 +422,7 @@ class FrequencyRoundingPanel:
             return
         self.clear(); generation = self.generation
         self.io_future = self.io_executor.submit(read_profile_file, path)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'load'))
+        self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, 'load')
 
     def save(self):
         from tkinter import filedialog, messagebox
@@ -442,7 +444,7 @@ class FrequencyRoundingPanel:
             return
         self.io_guard = ExportGuard()
         self.io_future = self.io_executor.submit(save_profile_file, path, data['profile'], overwrite, self.io_guard)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'save'))
+        self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, 'save')
 
     def finish_io(self, generation, operation):
         if self.closed:
@@ -451,7 +453,7 @@ class FrequencyRoundingPanel:
         if self.io_future is None:
             return
         if not self.io_future.done():
-            self.app.root.after(50, lambda: self.finish_io(generation, operation)); return
+            self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, operation); return
         future, self.io_future = self.io_future, None
         self.io_guard = None
         try:
@@ -469,9 +471,16 @@ class FrequencyRoundingPanel:
     def close(self):
         if self.closed:
             return
-        self.clear(); self.closed = True
-        self.app.server_var.trace_remove('write', self.server_trace)
-        if self.io_future is not None:
-            self.io_future.cancel()
+        self.closed = True
+        self._close_timers()
+        self.generation += 1
+        if self.io_guard is not None:
+            self.io_guard.cancel()
+        for future in (self.future, self.retired, self.io_future):
+            if future is not None:
+                future.cancel()
+        self.future = self.retired = self.io_future = self.data = self.source = None
+        if hasattr(self, 'server_trace'):
+            self.app.server_var.trace_remove('write', self.server_trace)
         self.io_executor.shutdown(wait=False, cancel_futures=True)
         self.executor.shutdown(wait=False, cancel_futures=True)

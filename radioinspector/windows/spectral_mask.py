@@ -214,6 +214,7 @@ class SpectralMaskPanel(ThresholdPanel):
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='spectral-mask')
         self.io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='mask-file')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Спектральная маска')
@@ -288,7 +289,7 @@ class SpectralMaskPanel(ThresholdPanel):
         self.deadline = monotonic() + 8.0
         generation = self.generation
         self.future = self.executor.submit(self.app.client.sweep_mask_analysis, self.app.session_id, source['id'], raw)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -297,7 +298,7 @@ class SpectralMaskPanel(ThresholdPanel):
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд. Черновик не проверен.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -319,7 +320,7 @@ class SpectralMaskPanel(ThresholdPanel):
         self.update(); self.clear()
         generation = self.generation
         self.io_future = self.io_executor.submit(read_mask_file, path)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'load'))
+        self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, 'load')
 
     def save(self):
         from tkinter import filedialog, messagebox
@@ -334,14 +335,14 @@ class SpectralMaskPanel(ThresholdPanel):
         self.update()
         if generation != self.generation or self.data is None: return
         self.io_future = self.io_executor.submit(save_mask_file, path, data['mask'], overwrite)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'save'))
+        self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, 'save')
 
     def finish_io(self, generation, operation):
         if self.closed: return
         self.update()
         if self.io_future is None: return
         if not self.io_future.done():
-            self.app.root.after(50, lambda: self.finish_io(generation, operation)); return
+            self._schedule_after(self.app.root, 'io', 50, self.finish_io, generation, operation); return
         future, self.io_future = self.io_future, None
         try:
             result = future.result()
@@ -374,7 +375,9 @@ class SpectralMaskPanel(ThresholdPanel):
         super().draw()
 
     def close(self):
-        self.clear(); self.closed = True
+        if self.closed:
+            return
+        super().close()
         if self.io_future is not None: self.io_future.cancel()
+        self.io_future = None
         self.io_executor.shutdown(wait=False, cancel_futures=True)
-        self.executor.shutdown(wait=False, cancel_futures=True)

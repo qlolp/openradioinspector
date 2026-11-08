@@ -76,3 +76,22 @@ class ReviewRegressions(unittest.TestCase):
             item=service.enqueue_investigation(session.id,candidate.id,{'id':'next','target_stream_id':session.streams[1].id})
             with urlopen(core.url+f'/api/v1/sessions/{session.id}/investigations/by-id/next') as response:
                 self.assertEqual(json.load(response)['data']['id'],item.id)
+
+class TkCompletionOwnershipTests(unittest.TestCase):
+    def test_unfinished_action_future_cannot_keep_closed_gui_alive(self):
+        import queue
+        import weakref
+        from concurrent.futures import Future
+        from types import SimpleNamespace
+        from radioinspector.windows.app import WindowsApp
+        future=Future();app=WindowsApp.__new__(WindowsApp)
+        app.root=SimpleNamespace(destroy=lambda:None);app.client=object()
+        app._closed=app._action_running=app._refresh_running=False
+        app._revision=0;app._action_callbacks={};app._messages=queue.Queue()
+        app._message_lock=threading.Lock();app._messages_closed=threading.Event()
+        app.action_var=SimpleNamespace(set=lambda value:None)
+        app._render_controls=lambda:None
+        app._executor=SimpleNamespace(submit=lambda operation:future,shutdown=lambda **kwargs:None)
+        reference=weakref.ref(app)
+        app._submit_action('probe',lambda:None);app.close();del app
+        self.assertIsNone(reference(),'worker completion retained the GUI/Tcl graph')

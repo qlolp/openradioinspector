@@ -196,6 +196,7 @@ class WindowsSerialTransportTests(unittest.TestCase):
         first, rest = rows.split(b"\r\n", 1)
         cases = (
             ((0.0, echo), (0.6, rows + b"ch> ")),
+            ((0.6, echo), (1.2, rows + b"ch> ")),
             ((0.0, echo + first + b"\r\n"), (0.6, rest + b"ch> ")),
             ((0.0, echo + rows), (0.4, b"c"), (0.8, b"h"), (1.2, b"> ")),
         )
@@ -231,6 +232,41 @@ class WindowsSerialTransportTests(unittest.TestCase):
             self.assertEqual(bytes(self.port.written), before)
             self.assertEqual(list(self.port.pending), pending)
             self.assertEqual(pending, [(20.0, b"ch> ")])
+        self.assertEqual(adapter.details()["generator_output"], "unknown")
+        self.assertTrue(adapter.details()["restart_required"])
+
+    def test_continuous_partial_reply_does_not_extend_scan_deadline(self):
+        chunks = ((0.0, (SCAN_COMMAND + "\r\n").encode("ascii")),
+                  (0.2, b"100000000 -90 0\r\n"),
+                  (0.4, b"101000000 -42.5 0\r\n"),
+                  (0.6, b"102000000 -80 0\r\nch> "))
+        adapter, transport, clock = self.delayed_adapter(chunks)
+        original_read = transport.read_until_quiet
+        with patch.object(instruments, "time", clock), patch.object(
+                transport, "read_until_quiet",
+                side_effect=lambda quiet, maximum, label: original_read(0.25, 0.5, label)):
+            with self.assertRaisesRegex(WorkerError, "таймаут.*перезапуск"):
+                adapter.poll()
+            self.assertAlmostEqual(self.port.now, 0.5)
+            self.assertTrue(transport._stash.endswith(b"101000000 -42.5 0\r\n"))
+            pending = list(self.port.pending)
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                adapter.poll()
+            self.assertEqual(list(self.port.pending), pending)
+            self.assertEqual(pending, [chunks[-1]])
+        self.assertEqual(self.port.commands.count(SCAN_COMMAND), 1)
+        self.assertTrue(adapter.details()["restart_required"])
+
+    def test_silent_scan_uses_deadline_and_taints_connection(self):
+        adapter, transport, clock = self.delayed_adapter(())
+        original_read = transport.read_until_quiet
+        with patch.object(instruments, "time", clock), patch.object(
+                transport, "read_until_quiet",
+                side_effect=lambda quiet, maximum, label: original_read(0.1, 0.5, label)):
+            with self.assertRaisesRegex(WorkerError, "Пустой ответ.*перезапуск"):
+                adapter.poll()
+            self.assertAlmostEqual(self.port.now, 0.5)
+        self.assertEqual(transport._stash, bytearray())
         self.assertEqual(adapter.details()["generator_output"], "unknown")
         self.assertTrue(adapter.details()["restart_required"])
 
