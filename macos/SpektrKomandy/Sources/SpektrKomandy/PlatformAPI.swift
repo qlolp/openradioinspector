@@ -84,7 +84,10 @@ public struct PlatformBaseURL: Equatable {
 }
 
 private func platformLoopbackHost(_ host: String) -> Bool {
-    let normalized = host.lowercased()
+    var normalized = host.lowercased()
+    if normalized.hasPrefix("["), normalized.hasSuffix("]") {
+        normalized.removeFirst(); normalized.removeLast()
+    }
     if normalized == "localhost" || normalized == "::1" { return true }
     let octets = normalized.split(separator: ".", omittingEmptySubsequences: false)
     guard octets.count == 4, octets[0] == "127" else { return false }
@@ -116,8 +119,27 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
     private let maximumBytes: Int
     private var response: URLResponse?
     private var body = Data()
+    private let completionLock = NSLock()
     private var finished = false
-    var completion: ((Result<(Data, URLResponse), Error>) -> Void)?
+    private var pendingResult: Result<(Data, URLResponse), Error>?
+    private var callback: ((Result<(Data, URLResponse), Error>) -> Void)?
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)? {
+        get {
+            completionLock.lock(); defer { completionLock.unlock() }
+            return callback
+        }
+        set {
+            completionLock.lock()
+            if let pending = pendingResult, let installed = newValue {
+                pendingResult = nil
+                completionLock.unlock()
+                installed(pending)
+                return
+            }
+            if !finished { callback = newValue }
+            completionLock.unlock()
+        }
+    }
 
     init(maximumBytes: Int) {
         self.maximumBytes = maximumBytes
@@ -134,9 +156,15 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
     }
 
     private func finish(_ result: Result<(Data, URLResponse), Error>) {
-        guard !finished else { return }
+        completionLock.lock()
+        guard !finished else { completionLock.unlock(); return }
         finished = true
-        completion?(result)
+        let installed = callback
+        callback = nil
+        if installed == nil { pendingResult = result }
+        completionLock.unlock()
+        // A continuation or UI callback may re-enter; never call it under lock.
+        installed?(result)
     }
 
     func cancel() {

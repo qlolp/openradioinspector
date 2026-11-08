@@ -423,6 +423,20 @@ final class PlatformAPITests: XCTestCase {
         await fulfillment(of: [completed], timeout: 1)
     }
 
+    func testSupportedSweepHistoryFitsResponseBudget() async throws {
+        let frequencies = (100000000..<100004096).map(String.init).joined(separator: ",")
+        let levels = Array(repeating: "-112.345678", count: 4096).joined(separator: ",")
+        let row = """
+        {"id":"sw","session_id":"s","stream_id":"tiny","interval":{"started_at":"2026-01-01T00:00:00Z","ended_at":"2026-01-01T00:00:01Z"},"frequencies_hz":[\(frequencies)],"levels":[\(levels)],"level_unit":"dBm"}
+        """
+        let payload = envelope("[" + Array(repeating: row, count: 40).joined(separator: ",") + "]")
+        XCTAssertGreaterThan(payload.count, 2_000_000)
+        let api = try client { request in (self.response(request.url!), payload) }
+        let result = try await api.listSweeps(sessionID: "s", streamID: "tiny")
+        XCTAssertEqual(result.count, 40)
+        XCTAssertEqual(result[0].levels.count, 4096)
+    }
+
     func testIPv6LoopbackKeepsHTTPExceptionNarrow() throws {
         XCTAssertNoThrow(try PlatformBaseURL("http://[::1]:8770"))
         XCTAssertThrowsError(try PlatformBaseURL("http://[2001:db8::1]:8770"))

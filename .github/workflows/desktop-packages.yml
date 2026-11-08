@@ -64,6 +64,9 @@ jobs:
           $app = (Resolve-Path build/windows/dist/OpenRadioInspector/OpenRadioInspector.exe).Path
           $child = Start-Process $app -ArgumentList '--self-check', '--data-dir', "$env:RUNNER_TEMP/ori-frozen-smoke" -Wait -PassThru
           if ($child.ExitCode -ne 0) { throw 'Frozen app self-check failed' }
+          $installers = @(Get-ChildItem build/windows/packages/*.exe)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one candidate installer' }
+          packaging/windows/smoke-install.ps1 -Installer $installers[0].FullName
           python tools/release/package_evidence.py build/windows/packages
       - name: Build macOS unsigned app and DMG
         if: runner.os == 'macOS'
@@ -72,7 +75,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           python tools/release/check_public_tree.py --directory build/macos/OpenRadioInspector.app
-          build/macos/OpenRadioInspector.app/Contents/Helpers/openradioinspector-core/openradioinspector-core --help
+          python tools/release/smoke_owned_core.py build/macos/OpenRadioInspector.app/Contents/Helpers/openradioinspector-core/openradioinspector-core
           python tools/release/package_evidence.py build/macos/packages
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -96,4 +99,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          swift test --package-path macos/SpektrKomandy --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation)'
+          swift test --package-path macos/SpektrKomandy --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget)'
