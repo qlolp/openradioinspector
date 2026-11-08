@@ -71,10 +71,11 @@ final class SignalListModel: ObservableObject {
                 guard PlatformPhonogram.sameID(result.sessionId, scope.session) else {
                     throw PlatformError.invalidResponse("Сервер вернул другой экспорт")
                 }
+                let portable = try result.list.canonicalData()
                 self.lastExport = result
                 // Filling the draft from the export must not invalidate the result.
                 self.filling = true
-                self.draft = String(data: (try? JSONEncoder().encode(result.list)) ?? Data(), encoding: .utf8) ?? self.draft
+                self.draft = String(data: portable, encoding: .utf8) ?? self.draft
                 self.filling = false
                 self.infoText = "Экспортировано сигналов: \(result.exported)."
                 self.finish()

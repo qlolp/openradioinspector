@@ -804,10 +804,22 @@ class SessionService:
             if stream is None:
                 raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
             payloads = import_candidates(stream_id, stream.level_unit, artifact)
-            created = []
-            for item in payloads:
-                candidate = self.create_candidate(session_id, item)
-                created.append(candidate.id)
+            candidates = [Candidate.from_dict(dict(item, session_id=session_id, state="new"))
+                          for item in payloads]
+            created = [candidate.id for candidate in candidates]
+            if len(set(created)) != len(created) or any(identifier in self._candidates for identifier in created):
+                raise ValueError("Повторяющийся ID кандидата")
+            events = []
+            for index, candidate in enumerate(candidates, 1):
+                self._validate_measurement_locked(session_id, candidate.source_stream_id, candidate.level_unit)
+                events.append(SessionEvent(sequence=self._sequence + index, event_type="candidate.created",
+                                           occurred_at=self._clock(), session_id=session_id,
+                                           payload={"candidate": to_primitive(candidate)}))
+            if self._store is not None:
+                self._store.save_candidates_batch(list(zip(candidates, events)))
+            for candidate, event in zip(candidates, events):
+                self._candidates[candidate.id] = candidate
+                self._publish_event_locked(event)
             return {
                 "session_id": session_id, "stream_id": stream_id,
                 "imported": len(created), "candidate_ids": created,

@@ -122,6 +122,17 @@ class SignalListPanelTests(unittest.TestCase):
         p.finish(p.generation, "export", "session", None, None)
         self.assertIn("недоступен", p.info.set.call_args[0][0])
 
+    def test_late_export_cannot_overwrite_new_session_draft(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.export(); current = p.generation
+        p.app.session_id = 'other'; p.update()
+        p.editor.reset_mock()
+        future.set_result(export_response())
+        p.finish(current, 'export', 'session', None, None)
+        p.editor.insert.assert_not_called()
+        self.assertGreater(p.generation, current)
+
     def test_scope_change_clears(self):
         p = panel()
         p.show_details = Mock()

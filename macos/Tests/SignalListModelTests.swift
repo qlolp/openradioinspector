@@ -74,6 +74,20 @@ final class SignalListModelTests: XCTestCase {
         return model
     }
 
+    func testPortableEncodingKeepsWireKeysAndRequiredNulls() throws {
+        var list = listObject()
+        var item = entryObject(); item["bandwidth_hz"] = NSNull(); item["peak_level"] = NSNull()
+        list["entries"] = [item]
+        let artifact = try decode(list, as: PlatformSignalList.self)
+        let bytes = try artifact.canonicalData()
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+        XCTAssertNotNil(encoded["format_version"])
+        let entries = try XCTUnwrap(encoded["entries"] as? [[String: Any]])
+        XCTAssertTrue(entries[0]["bandwidth_hz"] is NSNull)
+        XCTAssertTrue(entries[0]["peak_level"] is NSNull)
+        XCTAssertEqual(try decode(encoded, as: PlatformSignalList.self), artifact)
+    }
+
     @MainActor func testExportFillsDraftAndImportEchoesScope() async throws {
         let deferred = Deferred()
         let model = try model(deferred)

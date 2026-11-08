@@ -25,6 +25,14 @@ public struct PlatformSignalList: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case format, formatVersion, name, frequencyUnit, entries
     }
+    public func canonicalData() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        let data = try encoder.encode(self)
+        guard data.count <= 262_144 else { throw PlatformError.invalidResponse("Список превышает 262 144 байт") }
+        return data
+    }
     public init(from decoder: Decoder) throws {
         let v = try decoder.container(keyedBy: CodingKeys.self)
         format = try v.decode(String.self, forKey: .format)
@@ -51,6 +59,16 @@ public struct PlatformSignalListEntry: Codable, Equatable {
     public let peakLevel: Double?
     private enum CodingKeys: String, CodingKey {
         case frequencyHz, bandwidthHz, interval, levelUnit, peakLevel
+    }
+    public func encode(to encoder: Encoder) throws {
+        var v = encoder.container(keyedBy: CodingKeys.self)
+        try v.encode(frequencyHz, forKey: .frequencyHz)
+        if let bandwidthHz { try v.encode(bandwidthHz, forKey: .bandwidthHz) }
+        else { try v.encodeNil(forKey: .bandwidthHz) }
+        try v.encode(interval, forKey: .interval)
+        try v.encode(levelUnit, forKey: .levelUnit)
+        if let peakLevel { try v.encode(peakLevel, forKey: .peakLevel) }
+        else { try v.encodeNil(forKey: .peakLevel) }
     }
     public init(from decoder: Decoder) throws {
         let v = try decoder.container(keyedBy: CodingKeys.self)

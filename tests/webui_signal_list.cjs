@@ -83,7 +83,10 @@ async function happyPath() {
   assert.match(app.dom.items.children[0].textContent, /Экспортировано сигналов: 1/);
   assert.match(app.dom.summary.textContent, /исходные записи не изменяются/);
   // Import creates candidates through the normal lifecycle.
+  assert.equal(app.dom.stream.disabled, false);
   const importPromise = app.click('import');
+  app.update(); app.click('import');
+  assert.equal(app.requests.length, 2, 'second import is blocked while first is pending');
   await new Promise(resolve => setImmediate(resolve));
   const sent = JSON.parse(app.requests[1].options.body);
   assert.deepEqual(Object.keys(sent).sort(), ['list_json', 'stream_id']);

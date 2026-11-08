@@ -17,7 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .contracts import Candidate, to_primitive
+import json
+
+from .contracts import Candidate, TimeInterval, to_primitive
 from .spectral_mask import strict_json_loads
 from .sweep_references import normalize_reference_name
 
@@ -82,6 +84,7 @@ def _validate_entry(entry: Any) -> dict[str, Any]:
     for key in ("started_at", "ended_at"):
         if not isinstance(interval[key], str) or not interval[key]:
             raise ValueError(f"{key} записи должен быть непустой строкой UTC")
+    interval = to_primitive(TimeInterval.from_dict(interval))
     level_unit = entry["level_unit"]
     if not isinstance(level_unit, str) or level_unit not in ("dBm", "s_meter_count"):
         raise ValueError("level_unit записи должен быть dBm или s_meter_count")
@@ -118,11 +121,13 @@ def build_signal_list(candidates: list[Candidate], name: str) -> dict[str, Any]:
         })
     if not entries:
         raise SignalListError("В сеансе нет кандидатов для экспорта")
-    return {
+    artifact = {
         "format": SIGNAL_LIST_FORMAT, "format_version": 1,
         "name": normalize_reference_name(name),
         "frequency_unit": "Hz", "entries": entries,
     }
+    # An export must be accepted unchanged by the importer, including limits.
+    return parse_signal_list(json.dumps(artifact, ensure_ascii=False, allow_nan=False))
 
 
 def import_candidates(

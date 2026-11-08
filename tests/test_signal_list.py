@@ -7,6 +7,7 @@ import json
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from radioinspector.contracts import to_primitive
@@ -83,6 +84,12 @@ class SignalListContractTests(unittest.TestCase):
         with self.assertRaises(SignalListError):
             build_signal_list([], "Пусто")
 
+    def test_export_obeys_importer_limits(self):
+        from radioinspector.contracts import Candidate
+        candidate = Candidate.from_dict(dict(candidate_payload('stream', 'c'), session_id='session'))
+        with self.assertRaises(ValueError):
+            build_signal_list([candidate] * 257, 'Too many')
+
     def test_import_never_converts_units(self):
         parsed = parse_signal_list(list_json())
         payloads = import_candidates("tiny", "dBm", parsed)
@@ -101,6 +108,16 @@ class SignalListServiceMixin:
         payload = candidate_payload(self.session.streams[0].id, candidate_id)
         payload["center_frequency_hz"] = frequency
         return self.service.create_candidate(self.session.id, payload)
+
+    def test_invalid_tail_never_publishes_a_prefix(self):
+        before_candidates = self.service.list_candidates(self.session.id)
+        before_events = self.service.events()
+        invalid = entry(interval={'started_at': INTERVAL['ended_at'], 'ended_at': INTERVAL['started_at']})
+        with self.assertRaises(ValueError):
+            self.service.signal_list_import(self.session.id, {
+                'stream_id': self.session.streams[0].id, 'list_json': list_json([entry(), invalid])})
+        self.assertEqual(self.service.list_candidates(self.session.id), before_candidates)
+        self.assertEqual(self.service.events(), before_events)
 
     def test_export_import_roundtrip_via_service(self):
         self.make_candidate("candidate-1")
@@ -158,6 +175,34 @@ class SQLiteSignalListTests(SignalListServiceMixin, unittest.TestCase):
         self.service = SessionService(store=SQLiteSessionStore(self.path))
         self.addCleanup(self.service.close)
         self.session = create_session(self.service)
+
+
+class AtomicSignalListTests(unittest.TestCase):
+    def test_sqlite_failure_rolls_back_records_and_events_before_publication(self):
+        import sqlite3
+        service = SessionService(store=SQLiteSessionStore(':memory:'))
+        self.addCleanup(service.close)
+        session = create_session(service)
+        before = service.events()
+        original = service._store._upsert_candidate
+        calls = 0
+        def fail_second(candidate):
+            nonlocal calls
+            calls += 1
+            if calls == 2: raise sqlite3.OperationalError('injected disk failure')
+            original(candidate)
+        with patch.object(service._store, '_upsert_candidate', side_effect=fail_second):
+            with self.assertRaises(sqlite3.OperationalError):
+                service.signal_list_import(session.id, {'stream_id': session.streams[0].id,
+                                                       'list_json': list_json([entry(), entry()])})
+        self.assertEqual(service.list_candidates(session.id), [])
+        self.assertEqual(service._store.load_candidates(), [])
+        self.assertEqual(service.events(), before)
+        self.assertEqual(service._store.events(), before)
+        imported = service.signal_list_import(session.id, {'stream_id': session.streams[0].id,
+                                                          'list_json': list_json([entry(), entry()])})
+        self.assertEqual(imported['imported'], 2)
+        self.assertEqual(len(service.list_candidates(session.id)), 2)
 
 
 class SignalListHTTPTests(unittest.TestCase):

@@ -39,7 +39,10 @@ def result_text(action, data):
             'Импортированные сигналы начинаются с состояния new; единицы измерения не конвертируются.')
 
 
-class SignalListPanel:
+from .tk_timers import TkTimerOwner
+
+
+class SignalListPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -47,6 +50,7 @@ class SignalListPanel:
         self.future = None
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='signal-list')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Список сигналов')
@@ -73,6 +77,10 @@ class SignalListPanel:
         self.details.insert('1.0', value); self.details.configure(state='disabled')
 
     def clear(self):
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
+        self.button.configure(state="normal"); self.import_button.configure(state="normal")
         self.show_details('')
         self.info.set('Обмен выполняется только по кнопкам; архив изменяется только при импорте.')
 
@@ -113,7 +121,7 @@ class SignalListPanel:
         self.deadline = monotonic() + 8.0
         generation = self.generation
         self.future = target
-        self.app.root.after(50, lambda: self.finish(generation, action, session, stream, sent_count))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation, action, session, stream, sent_count)
 
     def export(self):
         self.run('export')
@@ -131,7 +139,7 @@ class SignalListPanel:
             self.button.configure(state='normal'); self.import_button.configure(state='normal')
             return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation, action, session, stream, sent_count)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation, action, session, stream, sent_count); return
         future, self.future = self.future, None
         self.button.configure(state='normal'); self.import_button.configure(state='normal')
         try:
@@ -155,5 +163,10 @@ class SignalListPanel:
             self.clear()
 
     def close(self):
+        if self.closed: return
         self.closed = True
+        self._close_timers()
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
         self.executor.shutdown(wait=False, cancel_futures=True)

@@ -34,11 +34,14 @@
   }
   function controls() {
     const ready = Boolean(scope) && connected && !suspended && streams.length > 0;
-    dom.export.disabled = !ready;
-    dom.import.disabled = !ready;
+    dom.stream.disabled = !ready || Boolean(pending);
+    dom.export.disabled = !ready || Boolean(pending);
+    dom.import.disabled = Boolean(pending) || !ready;
   }
   async function call(path, body) {
+    if (pending) return null;
     const controller = new AbortController(); pending = controller; const current = ++generation;
+    controls();
     try {
       const response = await fetch(`/api/v1/sessions/${encodeURIComponent(scope)}/signal-list/${path}`, {
         method: body ? "POST" : "GET",
@@ -110,6 +113,7 @@
     if (!sessionChanged && signature === snapshot) { controls(); return; }
     scope = sessionId; snapshot = signature;
     if (sessionChanged) {
+      pending?.abort(); pending = null; generation += 1;
       dom.items.replaceChildren();
       dom.summary.textContent = "";
     }
@@ -130,13 +134,13 @@
   }
   function setConnected(value) {
     connected = Boolean(value);
-    if (!connected) { dom.items.replaceChildren(); dom.summary.textContent = ""; }
+    if (!connected) { pending?.abort(); pending = null; generation += 1; dom.items.replaceChildren(); dom.summary.textContent = ""; }
     controls();
   }
   dom.export.addEventListener("click", exportList);
   dom.import.addEventListener("click", importList);
   window.addEventListener("offline", () => setConnected(false));
-  window.addEventListener("pagehide", () => { suspended = true; });
+  window.addEventListener("pagehide", () => { suspended = true; setConnected(false); });
   window.addEventListener("pageshow", () => { suspended = false; controls(); });
   window.OpenRadioSignalList = { update, setConnected };
   controls();
