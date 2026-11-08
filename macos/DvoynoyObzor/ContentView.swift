@@ -216,6 +216,7 @@ final class RemoteDualModel: ObservableObject {
 
     let frequencyRaster = FrequencyRasterModel()
     let measurementResults = MeasurementResultsModel()
+    let frequencyCounter = FrequencyCounterModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -857,6 +858,7 @@ final class RemoteDualModel: ObservableObject {
         spectralMask.reset()
         frequencyRaster.reset()
         measurementResults.reset()
+        frequencyCounter.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1260,7 +1262,10 @@ final class RemoteDualModel: ObservableObject {
            let stream = analyzer?.id {
             measurementResults.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
-        } else { measurementResults.reset() }
+            frequencyCounter.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                sweeps: snapshot.sweeps)
+        } else { measurementResults.reset(); frequencyCounter.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1517,6 +1522,7 @@ struct RemoteUltraPane: View {
                 RemoteSpectralMaskPane(model: model.spectralMask)
                 RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 RemoteMeasurementResultsPane(model: model.measurementResults)
+                RemoteFrequencyCounterPane(model: model.frequencyCounter)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
