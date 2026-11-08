@@ -109,12 +109,12 @@
   function controls() {
     const ready = Boolean(scope) && connected && !suspended && candidates.length > 0 && chosenIds().length > 0;
     dom.candidates.disabled = suspended || !connected || candidates.length === 0;
-    dom.run.disabled = !ready || !dom.editor.value.trim();
+    dom.run.disabled = Boolean(pending) || !ready || !dom.editor.value.trim();
     dom.save.disabled = !result || suspended;
     dom.template.disabled = !candidates.length || suspended;
   }
   function clear() {
-    pending?.abort(); pending = null; generation += 1; result = null;
+    pending?.abort(); pending = null; generation += 1; fileGeneration += 1; result = null;
     dom.summary.textContent = ""; dom.status.textContent = "";
     dom.items.replaceChildren();
     controls();
@@ -123,7 +123,7 @@
     return Array.from(dom.candidates.selectedOptions ?? [], option => option.value);
   }
   async function analyze() {
-    if (dom.run.disabled) return;
+    if (pending || dom.run.disabled) return;
     const tableJson = dom.editor.value;
     const candidateIds = chosenIds();
     if (!candidateIds.length) { dom.status.textContent = "Выберите хотя бы одного кандидата."; return; }

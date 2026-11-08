@@ -216,7 +216,31 @@ function window_setConnected(app, value) {
   app.window.OpenRadioFrequencyRaster.setConnected(value);
 }
 
+
+async function refreshAndFileRaces() {
+  const app = setup(); app.update([candidate()]); app.select(['candidate/1']);
+  const pending = app.click('run');
+  app.update([candidate()]); window_setConnected(app, true); app.click('run');
+  assert.equal(app.requests.length, 1, 'refresh must preserve single flight');
+  app.respond(0, payload()); await pending;
+  let completeA, completeB;
+  function file(text, resolve) {
+    const bytes = Buffer.from(text);
+    return { size: bytes.length, slice: () => ({ arrayBuffer: () => new Promise(done => resolve(() => done(Uint8Array.from(bytes).buffer))) }) };
+  }
+  app.dom.file.files = [file('file A', done => { completeA = done; })];
+  const first = app.dom.file.listeners.change();
+  app.dom.file.files = [file('file B', done => { completeB = done; })];
+  const second = app.dom.file.listeners.change();
+  completeB(); await second;
+  assert.equal(app.dom.editor.value, 'file B');
+  app.dom.editor.value = 'user edit'; app.dom.editor.listeners.input();
+  completeA(); await first;
+  assert.equal(app.dom.editor.value, 'user edit', 'late file must not overwrite current draft');
+}
+
 (async () => {
+  await refreshAndFileRaces();
   await happyPath();
   await unmatchedAndGridGuard();
   await draftAndTransport();

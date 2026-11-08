@@ -37,7 +37,7 @@ public struct PlatformFrequencyRaster: Codable, Equatable {
             stopHz = try values.decode(Int64.self, forKey: .stopHz)
             gridStepHz = try values.decode(Int64.self, forKey: .gridStepHz)
             guard PlatformFrequencyRaster.validEntryName(name),
-                  (0..<stopHz).contains(startHz), stopHz <= PlatformFrequencyRaster.maximumFrequencyHz,
+                  startHz >= 0, stopHz > startHz, stopHz <= PlatformFrequencyRaster.maximumFrequencyHz,
                   (1...(stopHz - startHz)).contains(gridStepHz) else {
                 throw DecodingError.dataCorruptedError(forKey: .name, in: values, debugDescription: "Invalid frequency raster entry")
             }
@@ -95,15 +95,21 @@ public struct PlatformFrequencyRaster: Codable, Equatable {
         }
         var previousStop: Int64 = -1
         var names = Set<String>()
-        for entry in entries {
-            guard let entryName = entry["name"] as? String, validEntryName(entryName), names.insert(entryName).inserted,
+        var normalizedEntries = [[String: Any]]()
+        for var entry in entries {
+            guard let rawName = entry["name"] as? String else { throw PlatformError.invalidResponse("Некорректное имя записи") }
+            let entryName = try normalizedSweepReferenceName(rawName)
+            guard names.insert(entryName).inserted,
                   let start = entry["start_hz"] as? Int64, let stop = entry["stop_hz"] as? Int64,
                   let step = entry["grid_step_hz"] as? Int64, start > previousStop,
-                  (0..<stop).contains(start), stop <= maximumFrequencyHz, (1...(stop - start)).contains(step) else {
+                  start >= 0, stop > start, stop <= maximumFrequencyHz, (1...(stop - start)).contains(step) else {
                 throw PlatformError.invalidResponse("Некорректная исходная таблица")
             }
             previousStop = stop
+            entry["name"] = entryName
+            normalizedEntries.append(entry)
         }
+        object["entries"] = normalizedEntries
         object["name"] = try normalizedSweepReferenceName(name)
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         return try decoder.decode(Self.self, from: JSONSerialization.data(withJSONObject: object))

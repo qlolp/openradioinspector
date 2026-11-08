@@ -49,6 +49,18 @@ final class FrequencyRasterTests: XCTestCase {
          "matched_count": 1, "unmatched_count": 1, "items": items()]
     }
 
+    func testNegativeBoundsThrowAndDraftNamesNormalize() throws {
+        var invalid = table()
+        invalid["entries"] = [["name": "band", "start_hz": 0, "stop_hz": -1, "grid_step_hz": 1]]
+        let text = String(data: try JSONSerialization.data(withJSONObject: invalid), encoding: .utf8)!
+        XCTAssertThrowsError(try PlatformFrequencyRaster.submitted(text))
+        XCTAssertThrowsError(try decode(invalid, as: PlatformFrequencyRaster.self))
+        var draft = table()
+        draft["entries"] = [["name": "  cafe\u{301}  ", "start_hz": 100_000_000, "stop_hz": 110_000_000, "grid_step_hz": 100_000]]
+        let accepted = try PlatformFrequencyRaster.submitted(String(data: try JSONSerialization.data(withJSONObject: draft), encoding: .utf8)!)
+        XCTAssertEqual(accepted.entries[0].name, "café")
+    }
+
     func testArtifactStrictnessAndCanonicalIdentity() throws {
         let raster = try decode(table(), as: PlatformFrequencyRaster.self)
         XCTAssertEqual(raster.entries.first?.gridStepHz, 100_000)
