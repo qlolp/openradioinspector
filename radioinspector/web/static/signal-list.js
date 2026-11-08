@@ -14,7 +14,7 @@
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   function selectedStream() {
     const id = dom.stream.value;
-    if (!id) throw new Error("Выберите поток для импорта");
+    if (!id) throw new Error("Выберите поток для обмена");
     return id;
   }
   function validateExport(data) {
@@ -68,7 +68,10 @@
   async function exportList() {
     if (dom.export.disabled) return;
     const name = dom.name.value.trim() || "Список сигналов";
-    const data = await call(`export?name=${encodeURIComponent(name)}`, null);
+    let stream;
+    try { stream = selectedStream(); }
+    catch (error) { dom.status.textContent = error.message; return; }
+    const data = await call(`export?name=${encodeURIComponent(name)}&stream_id=${encodeURIComponent(stream)}`, null);
     if (!data) return;
     try {
       const validated = validateExport(data);
@@ -112,7 +115,7 @@
     const sessionChanged = sessionId !== scope;
     if (!sessionChanged && signature === snapshot) { controls(); return; }
     scope = sessionId; snapshot = signature;
-    if (sessionChanged) {
+    {
       pending?.abort(); pending = null; generation += 1;
       dom.items.replaceChildren();
       dom.summary.textContent = "";
@@ -139,6 +142,11 @@
   }
   dom.export.addEventListener("click", exportList);
   dom.import.addEventListener("click", importList);
+  dom.stream.addEventListener("change", () => {
+    pending?.abort(); pending = null; generation += 1;
+    dom.items.replaceChildren(); dom.summary.textContent = "";
+    controls();
+  });
   window.addEventListener("offline", () => setConnected(false));
   window.addEventListener("pagehide", () => { suspended = true; setConnected(false); });
   window.addEventListener("pageshow", () => { suspended = false; controls(); });

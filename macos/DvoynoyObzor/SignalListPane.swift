@@ -26,12 +26,12 @@ final class SignalListModel: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var revision = 0
     private let timeoutNanoseconds: UInt64
-    private let export: (PlatformClient, String, String) async throws -> PlatformSignalListExport
+    private let export: (PlatformClient, String, String, String) async throws -> PlatformSignalListExport
     private let importList: (PlatformClient, String, String, String) async throws -> PlatformSignalListImport
 
     init(timeoutNanoseconds: UInt64 = 6_000_000_000,
-         export: @escaping (PlatformClient, String, String) async throws -> PlatformSignalListExport = {
-             try await $0.signalListExport(sessionID: $1, name: $2)
+         export: @escaping (PlatformClient, String, String, String) async throws -> PlatformSignalListExport = {
+             try await $0.signalListExport(sessionID: $1, name: $3, streamID: $2)
          },
          importList: @escaping (PlatformClient, String, String, String) async throws -> PlatformSignalListImport = {
              try await $0.signalListImport(sessionID: $1, streamID: $2, listJSON: $3)
@@ -66,7 +66,7 @@ final class SignalListModel: ObservableObject {
         pending = true
         request = Task { [weak self, export] in
             do {
-                let result = try await export(client, scope.session, name)
+                let result = try await export(client, scope.session, scope.stream, name)
                 guard let self, !Task.isCancelled, self.revision == current else { return }
                 guard PlatformPhonogram.sameID(result.sessionId, scope.session) else {
                     throw PlatformError.invalidResponse("Сервер вернул другой экспорт")
