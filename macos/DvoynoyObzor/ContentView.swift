@@ -52,9 +52,9 @@ struct ContentView: View {
                         .disabled(model.session == nil || model.busy)
                     Button("Остановить сеанс") { model.stopSession() }
                         .disabled(model.session == nil || model.busy)
-                    Button("Запустить оба потока") { model.startWorkers() }
+                    Button(model.session?.streams.count == 1 ? "Запустить поток" : "Запустить оба потока") { model.startWorkers() }
                         .disabled(model.session == nil || model.busy)
-                    Button("Остановить оба потока") { model.stopWorkers() }
+                    Button(model.session?.streams.count == 1 ? "Остановить поток" : "Остановить оба потока") { model.stopWorkers() }
                         .disabled(model.session == nil || model.busy)
                     Spacer()
                     Text(model.status).font(.caption).foregroundStyle(.secondary)
@@ -256,6 +256,20 @@ final class RemoteDualModel: ObservableObject {
     private var completionFormInitialized = false
     private var taskSchedulerCommandRevision = 0
 
+    func refreshSerialPorts() {
+        let ports = SerialPort.availablePaths()
+        if let modem = ports.first(where: { $0.contains("usbmodem") }) {
+            tinySAPort = modem
+        } else if let first = ports.first(where: { $0.contains("cu.") }) {
+            tinySAPort = first
+        }
+        if let serial = ports.first(where: { $0 != tinySAPort && ($0.contains("usbserial") || $0.contains("cu.")) }) {
+            receiverPort = serial
+        } else if receiverPort == "/dev/ttyUSB0" {
+            receiverPort = ""
+        }
+    }
+
     init(
         makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) },
         comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
@@ -264,6 +278,7 @@ final class RemoteDualModel: ObservableObject {
         self.makeClient = makeClient
         self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
+        refreshSerialPorts()
     }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
@@ -411,6 +426,7 @@ final class RemoteDualModel: ObservableObject {
                 sessions = loaded
                 selectedSessionID = created.id
                 clearMeasurements()
+                showSerialForm = false
                 status = "Создан serial-профиль с явными адаптерами; стенд не заявляется"
                 await refresh()
             } catch {
