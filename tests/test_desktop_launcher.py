@@ -142,3 +142,47 @@ class NonInteractiveSmokeTests(unittest.TestCase):
                 with patch('tkinter.messagebox.showerror') as show:
                     self.assertEqual(installed_main(['--self-check','--data-dir',directory]),1)
             show.assert_not_called()
+
+class AtomicReadinessTests(unittest.TestCase):
+    def test_ready_target_is_invisible_until_url_is_complete(self):
+        import io
+        import threading
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+        from radioinspector.launcher import core_main
+        with tempfile.TemporaryDirectory() as directory:
+            ready=Path(directory)/'ready'
+            entered=threading.Event();release=threading.Event();errors=[]
+            actual_fdopen=os.fdopen
+            def delayed_open(descriptor, mode, *args, **kwargs):
+                stream=actual_fdopen(descriptor,mode,*args,**kwargs)
+                if mode=='w' and kwargs.get('encoding')=='ascii':
+                    @contextmanager
+                    def held():
+                        try:
+                            entered.set();release.wait(10)
+                            yield stream
+                        finally:stream.close()
+                    return held()
+                return stream
+            def start():
+                try:core_main(['--data-dir',directory,'--port','0','--ready-file',str(ready),'--stdin-lifeline'])
+                except BaseException as error:errors.append(error)
+            with patch('os.fdopen',side_effect=delayed_open),patch('sys.stdin',SimpleNamespace(buffer=io.BytesIO())):
+                thread=threading.Thread(target=start)
+                try:
+                    thread.start();self.assertTrue(entered.wait(5))
+                    self.assertFalse(ready.exists(),'readiness became visible before the URL write')
+                finally:
+                    release.set();thread.join(10)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(errors,[])
+
+    def test_ready_publication_preserves_an_existing_owner_file(self):
+        from radioinspector.launcher import _publish_ready_file
+        with tempfile.TemporaryDirectory() as directory:
+            ready=Path(directory)/'ready';ready.write_text('existing owner')
+            with self.assertRaises(FileExistsError):
+                _publish_ready_file(ready,'http://127.0.0.1:12345')
+            self.assertEqual(ready.read_text(),'existing owner')
+            self.assertEqual(list(Path(directory).iterdir()),[ready])

@@ -16,6 +16,7 @@ from pathlib import Path
 import signal
 import sys
 import threading
+import tempfile
 import time
 
 from .tasks import TaskBook
@@ -219,6 +220,20 @@ def _desktop_run(args):
         return gui(['--server', core.url])
 
 
+def _publish_ready_file(path, url):
+    # mkstemp is private; hard-link creation publishes complete bytes atomically
+    # and fails if another owner's target already exists (unlike os.replace).
+    descriptor, temporary = tempfile.mkstemp(prefix='.'+path.name+'.', dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w', encoding='ascii') as output:
+            output.write(url+'\n')
+            output.flush()
+            os.fsync(output.fileno())
+        os.link(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def core_main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='OpenRadioInspector owned core')
     parser.add_argument('--data-dir', type=Path, default=default_data_directory())
@@ -266,9 +281,7 @@ def _serve_core(args):
         with LocalCore(args.data_dir, host=args.host, port=args.port,
                        archive_max_bytes=args.archive_max_bytes) as core:
             if args.ready_file:
-                descriptor = os.open(args.ready_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(descriptor, 'w', encoding='ascii') as out:
-                    out.write(core.url+'\n')
+                _publish_ready_file(args.ready_file, core.url)
                 ready_owned = True
             print('OpenRadioInspector ready: '+core.url, flush=True)
             if args.stdin_lifeline:
