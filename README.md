@@ -376,12 +376,26 @@ radioinspector/
 
 ## Тесты
 
-Тесты написаны на стандартной библиотеке `unittest` и не требуют
-дополнительных зависимостей:
+Тесты используют `unittest` и зависимости проекта. Быстрый прогон может
+пропускать необязательные HTTP/Tk сценарии:
 
 ```bash
 python3 -m unittest discover -s tests -t .
 ```
+
+Для полного воспроизводимого прогона ядра и клиентов без приборов нужны
+NumPy, pySerial, Node и работающий Tk desktop (на Linux возможен Xvfb):
+
+```bash
+python3 -m pip install '.[serial]'
+python3 -m tests.run_release_checks
+# На macOS с Xcode: также Swift SDK, native-тесты и unsigned build
+python3 -m tests.run_release_checks --swift
+```
+
+Runner создаёт собственные временные архивы и локальные HTTP fixtures,
+проверяет их неизменность и не разрешает неожиданные пропуски. Подготовка,
+cleanup и границы проверки: [проверка релиза](docs/release-validation.md).
 
 ---
 

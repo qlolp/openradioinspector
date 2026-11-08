@@ -400,3 +400,21 @@ fixtures остановлены, полные logical dump SHA-256 SQLite до/�
 Физические sweeps, HTTP/SQLite, stop/start, анализ и экспорт проверены
 на tinySA ULTRA ZS405 с tinySA4_v1.4-235-gea71dfd. AR-DV1 не подключён.
 Результаты и границы проверки: [tinysa-hardware-acceptance.md](tinysa-hardware-acceptance.md).
+## 8 ноября 2026: воспроизводимая проверка трёх ОС и клиентов
+
+База — PR #87, `2afba069263785e7dbdc79f8d26c8b99a7532bc6`. Его реальный
+Windows run 42479617643 прошёл: 981 тест, 952 успешных, 29 пропусков
+(21 POSIX и 8 opt-in HTTP/Tk). Локальный финальный набор #87 — 981
+Python/Node, 163 Swift SDK, 108 native без пропусков и unsigned Xcode PASS.
+Этот результат дополняет исторический отчёт предыдущего среза.
+
+Следующий релизный приоритет — единый runner с собственными loopback fixtures
+и временными архивами, portable graceful shutdown, контролем пропусков и CI
+Linux/Windows/macOS. Описание: [release-validation.md](release-validation.md).
+Служба Raspberry Pi в другой рабочей ветке не дублируется. Измерительные
+алгоритмы, контракты API и схема архива не меняются; реальные данные и приборы
+не используются. Единый локальный прогон завершён: 1031 Python/Node/Tk, 164 Swift SDK, 108
+native без пропусков, unsigned Xcode PASS; семь архивов неизменны и
+собственные процессы/временный каталог очищены. CI трёх ОС проверяется
+отдельно после публикации. Известные 39 Tk teardown warnings остаются
+следующим отдельным исправлением и не скрываются.
