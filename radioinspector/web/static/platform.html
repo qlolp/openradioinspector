@@ -19,6 +19,7 @@
 
   <script src="/static/frequency-raster.js" defer></script>
   <script src="/static/measurement-results.js" defer></script>
+  <script src="/static/frequency-counter.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -409,6 +410,26 @@
           <p id="meas-status" role="status" aria-live="polite"></p>
           <p id="meas-summary"></p>
           <ol id="meas-items" aria-label="Записанные результаты измерений"></ol>
+        </section>
+        <section class="counter-panel" aria-labelledby="counter-heading">
+          <h3 id="counter-heading">Встроенный частотомер · измерение частоты с погрешностью</h3>
+          <p>Измерение частоты пика архивного dBm свипа в заданном окне. При равномерной сетке и пике внутри окна применяется параболическая интерполяция трёх бинов; иначе измеряется сам бин пика. Погрешность — честная граница <code>max(разрешение, сетка)/2</code>: оценка не лучше разрешения прибора и записанного растра. Это производная оценка по записанным данным, не показание аппаратного счётчика.</p>
+          <label for="counter-sweep">Архивный dBm свип выбранного потока</label>
+          <select id="counter-sweep" disabled aria-describedby="counter-source"></select>
+          <div class="form-grid">
+            <label>Разрешение частотомера, Гц<input id="counter-resolution" type="number" min="1" step="1" value="10" required></label>
+            <label>Окно: начало, Гц<input id="counter-start" type="number" min="0" step="1" value="100" required></label>
+            <label>Окно: конец, Гц<input id="counter-stop" type="number" min="0" step="1" value="400" required></label>
+          </div>
+          <p id="counter-source">Нет архивных dBm свипов выбранного потока.</p>
+          <div class="form-actions">
+            <button id="counter-run" class="button" type="button" disabled>Измерить частоту</button>
+            <button id="counter-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Только чтение по кнопке: без записи, кандидатов и команд прибору. Исходные бины свипа не изменяются. Значения результата готовы для записи через «Результаты измерений» с методикой <code>frequency_counter</code>. Это не аттестованное средство измерений.</p>
+          <p id="counter-status" role="status" aria-live="polite"></p>
+          <p id="counter-summary"></p>
+          <ol id="counter-items" aria-label="Результат измерения частоты"></ol>
         </section>
       </section>
 

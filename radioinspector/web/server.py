@@ -46,6 +46,7 @@ from ..contracts import api_payload
 from ..frequency_rounding import MAX_ROUNDING_REQUEST_BYTES, FrequencyRoundingIncompatibleError
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_BYTES
+from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -546,7 +547,7 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection",
-                    "sweep-context", "candidate-frequency-rounding", "frequency-rounding",
+                    "sweep-context", "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
                 )):
             try:
                 if "?" in self.path:
@@ -560,6 +561,7 @@ class Handler(BaseHTTPRequestHandler):
                     "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
 
                     "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
+                    "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -1020,6 +1022,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "frequency-counter"
+            ):
+                self._send_json(api_payload(self.sessions.frequency_counter(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
             ):
                 self._send_json(api_payload(self.sessions.sweep_mask_analysis(parts[3], payload)))
@@ -1221,6 +1230,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "context_incompatible", str(exc))
         except FrequencyRoundingIncompatibleError as exc:
             self._send_api_error(409, "frequency_rounding_incompatible", str(exc))
+
+        except CounterIncompatibleError as exc:
+            self._send_api_error(409, "counter_incompatible", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

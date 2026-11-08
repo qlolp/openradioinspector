@@ -358,6 +358,16 @@ class PlatformClient:
             path += "?" + urlencode({"methodology": methodology})
         return self._request('GET', path, expected_statuses=(200,))
 
+    def frequency_counter(self, session_id: str, sweep_id: str, resolution_hz: int,
+                          start_hz: int, stop_hz: int) -> dict[str, Any]:
+        from .frequency_counter import validate_request
+        sweep_id, resolution_hz, start_hz, stop_hz = validate_request(
+            sweep_id, resolution_hz, start_hz, stop_hz)
+        payload = {'sweep_id': sweep_id, 'resolution_hz': resolution_hz,
+                   'start_hz': start_hz, 'stop_hz': stop_hz}
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/frequency-counter",
+                             payload, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)
