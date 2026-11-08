@@ -291,14 +291,18 @@
             <label>N2 · после якоря (0–16)<input id="context-after" type="number" min="0" max="16" step="1" value="2" required></label>
           </div>
           <p id="context-source">Нет полученного архивного dBm свипа выбранного потока.</p>
+          <label>Порог занятости · dBm<input id="context-threshold" type="number" step="any" value="-80" required></label>
           <div class="form-actions">
             <button id="context-run" class="button" type="button" disabled>Закрепить якорь и загрузить контекст</button>
+            <button id="context-occupancy-run" class="button" type="button" disabled>Оценить занятость окна</button>
             <button id="context-clear" class="button" type="button">Снять якорь и окно</button>
           </div>
           <p>Начальные N1=2 и N2=2 — примеры. Новые свипы не меняют закреплённый якорь или результат; недостающие стороны показываются явно, без ожидания новых данных. Выбранный исходный свип сохраняется локально после ухода из полученного списка: повторная загрузка по кнопке проверит новое окно архива. Редактирование очищает результат; смена области и потеря соединения также сбрасывают сохранённый выбор. Выберите строку, чтобы увидеть все исходные точки её спектра в dBm на общей сетке частот, без интерполяции.</p>
           <p id="context-pinned">Якорь не закреплён.</p>
           <p id="context-status" role="status" aria-live="polite"></p>
           <p id="context-summary"></p>
+          <p>Занятость окна — доля свипов с уровнем строго выше ручного порога (−80 dBm — пример). Это не доля времени работы передатчика. Разрывы архива не считаются отсутствием сигнала; интервалы сканирования не задают время наблюдения каждой частоты.</p>
+          <pre id="context-occupancy" aria-live="polite"></pre>
           <ol id="context-items" aria-label="Все свипы контекста с offset, ID, UTC и записанными настройками"></ol>
           <p id="context-selected"></p>
           <canvas id="context-canvas" width="960" height="280" role="img" aria-label="Исходный спектр выбранного свипа контекста, dBm" hidden></canvas>

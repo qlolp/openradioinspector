@@ -548,7 +548,8 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection",
-                    "sweep-context", "candidate-frequency-rounding", "frequency-rounding", "frequency-counter", "dvb-evaluation",
+                    "sweep-context", "sweep-occupancy", "candidate-frequency-rounding",
+                    "frequency-rounding", "frequency-counter", "dvb-evaluation",
                 )):
             try:
                 if "?" in self.path:
@@ -559,6 +560,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
                     "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
                     "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
+                    "sweep-occupancy": MAX_CONTEXT_REQUEST_BYTES,
                     "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
 
                     "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
@@ -1010,9 +1012,11 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] == "sweep-context"
+                and parts[4] in ("sweep-context", "sweep-occupancy")
             ):
-                self._send_json(api_payload(self.sessions.sweep_context(parts[3], payload)))
+                analyze = (self.sessions.sweep_occupancy if parts[4] == "sweep-occupancy"
+                           else self.sessions.sweep_context)
+                self._send_json(api_payload(analyze(parts[3], payload)))
                 return
             if (
                 len(parts) == 5

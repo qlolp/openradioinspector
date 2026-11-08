@@ -2,7 +2,7 @@
   "use strict";
 
   // Read-only archive presentation. Window selection and compatibility belong to the core.
-  const dom = Object.fromEntries(["anchor", "before", "after", "run", "clear", "source", "pinned", "status", "summary", "items", "selected", "canvas"]
+  const dom = Object.fromEntries(["anchor", "before", "after", "run", "clear", "source", "pinned", "status", "summary", "items", "selected", "canvas", "threshold", "occupancy-run", "occupancy"]
     .map(name => [name, document.getElementById(`context-${name}`)]));
   if (!dom.status) return;
   const MAX_RESPONSE_BYTES = 2000000;
@@ -194,6 +194,7 @@
     }
   }
   function discard() {
+    dom.occupancy.textContent = "";
     result = null; dom.summary.textContent = ""; dom.selected.textContent = ""; dom.items.replaceChildren();
     dom.canvas.hidden = true; dom.canvas.getContext("2d").clearRect(0, 0, dom.canvas.width, dom.canvas.height);
   }
@@ -201,6 +202,7 @@
   function controls() {
     const source = candidate();
     dom.run.disabled = suspended || !connected || Boolean(pending) || !source || !snapshot.sessionId || !snapshot.streamId;
+    dom["occupancy-run"].disabled = dom.run.disabled;
     dom.anchor.disabled = suspended || !connected || (!sweeps.length && !chosen);
     dom.source.textContent = source ? `Для следующей загрузки: ${source.id}. ${chosen ? "Выбор сохранён локально; повторная загрузка проверит текущее окно архива." : "Выберите любой полученный dBm свип этого потока."}` : "Нет полученного архивного dBm свипа выбранного потока.";
     dom.pinned.textContent = pinned ? `Зафиксированный якорь (offset 0): ${pinned.source.id}\nСеанс: ${pinned.sessionId} · поток: ${pinned.streamId}\nUTC: ${interval(pinned.source.interval)}\nЗаписанные настройки: ${JSON.stringify(pinned.source.settings)}` : "Якорь не закреплён.";
@@ -279,7 +281,33 @@
     }));
     select(data.available.before);
   }
-  async function load() {
+  function validateOccupancy(data, threshold) {
+    const value = data.occupancy, samples = data.items.length;
+    if (!object(value) || value.method !== "sample_fraction" || value.comparison !== "strictly_greater" ||
+        value.threshold_dbm !== threshold || value.sample_count !== samples || value.rf_time_occupancy !== null ||
+        !Array.isArray(value.exceedance_counts) || value.exceedance_counts.length !== data.points ||
+        !Array.isArray(value.sample_fractions) || value.sample_fractions.length !== data.points ||
+        !value.exceedance_counts.every((count, i) => Number.isSafeInteger(count) && count >= 0 && count <= samples &&
+          finite(value.sample_fractions[i]) && Math.abs(value.sample_fractions[i] - count / samples) < 1e-12) ||
+        !["acquisition_span_seconds", "acquisition_covered_seconds", "acquisition_gap_seconds"].every(key => finite(value[key]) && value[key] >= 0) ||
+        value.acquisition_covered_seconds > value.acquisition_span_seconds ||
+        Math.abs(value.acquisition_span_seconds - value.acquisition_covered_seconds - value.acquisition_gap_seconds) > 1e-6 ||
+        !Number.isSafeInteger(value.acquisition_gap_count) || value.acquisition_gap_count < 0 || value.acquisition_gap_count >= samples) {
+      throw new Error("Некорректный результат занятости или полноты наблюдения");
+    }
+    return value;
+  }
+  function renderOccupancy(data, value) {
+    // Ranking is presentation only; measurements and fractions come from the core.
+    const ranked = data.frequencies_hz.map((hz, index) => ({ hz, index, count: value.exceedance_counts[index] }))
+      .sort((a, b) => b.count - a.count || a.index - b.index).slice(0, 20);
+    dom.occupancy.textContent = `Порог: > ${value.threshold_dbm} dBm · ${value.sample_count} свипов\n` +
+      `Интервал архива: ${value.acquisition_span_seconds} с; объединение интервалов сканирования: ${value.acquisition_covered_seconds} с\n` +
+      `Разрывы: ${value.acquisition_gap_count}, всего ${value.acquisition_gap_seconds} с. Занятость по времени RF неизвестна.\n` +
+      `Наиболее активные точки: ${ranked.length} из ${data.points} (одинаковые частоты сохраняются отдельно)\n` +
+      ranked.map(row => `${row.hz} Гц [${row.index}] · ${row.count}/${value.sample_count} · ${(100 * value.sample_fractions[row.index]).toFixed(1)}%`).join("\n");
+  }
+  async function load(withOccupancy = false) {
     if (suspended || !connected || pending || !candidate() || !snapshot.sessionId || !snapshot.streamId) return;
     cancel(); discard(); pinned = null;
     let request, body;
@@ -290,7 +318,13 @@
           (Object.hasOwn(source, "session_id") && source.session_id !== snapshot.sessionId) ||
           sweeps.filter(item => item.id === source.id).length > 1) throw new Error("Некорректная или неоднозначная область/ID якоря");
       request = { ...snapshot, source: clone(source), before: count("before"), after: count("after") };
-      body = JSON.stringify({ sweep_id: request.source.id, before: request.before, after: request.after });
+      const parameters = { sweep_id: request.source.id, before: request.before, after: request.after };
+      if (withOccupancy) {
+        const raw = dom.threshold.value.trim();
+        if (!raw || !finite(Number(raw))) throw new Error("Введите конечный порог dBm");
+        request.threshold = Number(raw); parameters.threshold_dbm = request.threshold;
+      }
+      body = JSON.stringify(parameters);
       if (new TextEncoder().encode(body).length > 8192) throw new Error("Запрос превышает предел 8192 байт UTF-8");
     } catch (error) { dom.status.textContent = error.message; controls(); return; }
     pinned = request; chosen = clone(request.source);
@@ -301,14 +335,18 @@
     }, 8000);
     pending = { controller, timer }; controls(); dom.status.textContent = `Загрузка контекста якоря ${request.source.id}…`;
     try {
-      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(request.sessionId)}/sweep-context`, {
+      const route = withOccupancy ? "sweep-occupancy" : "sweep-context";
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(request.sessionId)}/${route}`, {
         method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal, body,
       });
       if (current !== generation) { if (response.body?.cancel) cancelReader(response.body); return; }
       const payload = await readPayload(response, controller, current);
       if (current !== generation) return;
       if (payload?.contract !== "openradioinspector-platform" || payload.contract_version !== 1) throw new Error("Неподдерживаемый контракт API");
-      render(validate(payload.data, request));
+      const data = validate(payload.data, request);
+      const occupancy = withOccupancy ? validateOccupancy(data, request.threshold) : null;
+      render(data);
+      if (occupancy) renderOccupancy(data, occupancy);
       dom.status.textContent = "Окно ядра зафиксировано как снимок архива. Автоматический захват N1/N2 при обнаружении не реализован. Нет привязки к кандидатам, записи или команд прибору.";
     } catch (error) {
       if (current === generation) { discard(); dom.status.textContent = `Контекст недоступен: ${error.message}. Остальные панели продолжают работать.`; }
@@ -316,8 +354,9 @@
       window.clearTimeout(timer); if (current === generation) { pending = null; controls(); }
     }
   }
-  dom.run.addEventListener("click", load); dom.clear.addEventListener("click", clear);
-  for (const name of ["before", "after", "anchor"]) dom[name].addEventListener(name === "anchor" ? "change" : "input", () => {
+  dom.run.addEventListener("click", () => load()); dom.clear.addEventListener("click", clear);
+  dom["occupancy-run"].addEventListener("click", () => load(true));
+  for (const name of ["before", "after", "anchor", "threshold"]) dom[name].addEventListener(name === "anchor" ? "change" : "input", () => {
     if (name === "anchor") {
       const source = sweeps.find(item => item.id === dom.anchor.value);
       try { chosen = source ? clone(source) : (chosen?.id === dom.anchor.value ? chosen : null); } catch (_) { chosen = null; }
