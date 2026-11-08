@@ -131,7 +131,7 @@ struct RemoteWorkflowPane: View {
         GroupBox("Кандидаты · фактические измерения") {
             VStack(alignment: .leading, spacing: 8) {
                 Button("Создать из фактического dBm пика") { model.createCandidateFromLatestPeak() }
-                    .disabled(model.analyzer == nil || model.current.isEmpty || model.busy)
+                    .disabled(model.analyzer == nil || model.current.isEmpty || model.busy || model.spectrumPresentation.paused)
                 Picker("Кандидат", selection: $model.selectedCandidateID) {
                     Text("Не выбран").tag("")
                     ForEach(model.candidates) { candidate in

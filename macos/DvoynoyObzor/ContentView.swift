@@ -131,6 +131,9 @@ final class RemoteDualModel: ObservableObject {
     @Published var errorText: String?
     @Published var mode = "FM"
     @Published var threshold = "-80"
+    @Published var spectrumPresentation = PlatformSpectrumPresentation()
+    @Published var spectrumLower = ""
+    @Published var spectrumUpper = ""
     @Published var current: [PlotPoint] = []
     @Published var minimum: [PlotPoint] = []
     @Published var maximum: [PlotPoint] = []
@@ -235,7 +238,7 @@ final class RemoteDualModel: ObservableObject {
     private var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
     private var generation = 0
-    private var absorbedSweepIDs: Set<String> = []
+    private var sessionRefreshRevision = 0
     private var detectionFormInitialized = false
     private var handoffFormInitialized = false
     private var completionFormInitialized = false
@@ -283,6 +286,7 @@ final class RemoteDualModel: ObservableObject {
             Task { await reloadSessions() }
         } catch {
             connected = false
+            clearSpectrumPresentation()
             errorText = describeSession(error)
         }
     }
@@ -319,6 +323,7 @@ final class RemoteDualModel: ObservableObject {
             await refresh()
         } catch {
             guard requestGeneration == generation, self.client === client else { return }
+            clearSpectrumPresentation()
             errorText = describeSession(error)
         }
     }
@@ -424,12 +429,14 @@ final class RemoteDualModel: ObservableObject {
             await refreshTaskScheduler(client)
             return
         }
+        sessionRefreshRevision += 1
+        let refreshRevision = sessionRefreshRevision
         let id = selectedSessionID
         let requestGeneration = generation
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             let snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false)
-            guard requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
+            guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             session = snapshot.session
             if let modes = receiver?.tuneModes, !modes.contains(mode) {
                 mode = modes.first ?? "FM"
@@ -440,11 +447,12 @@ final class RemoteDualModel: ObservableObject {
             errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
-            guard requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
+            guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             sweepAverage.reset()
             threeSweepThresholds.reset()
             sweepContext.reset()
             frequencyRounding.unavailable()
+            clearSpectrumPresentation()
             errorText = describeSession(error)
         }
     }
@@ -465,11 +473,12 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func tuneLatestPeak() {
+        guard !spectrumPresentation.paused else { return }
         guard let receiver, receiver.isReceiver else {
             errorText = "Перестройка доступна только receiver"
             return
         }
-        guard let sweep = latestSweep,
+        guard let sweep = spectrumPresentation.sweeps.last,
               let index = sweep.levels.indices.max(by: { sweep.levels[$0] < sweep.levels[$1] }) else {
             errorText = "Нет фактического пика из архивного sweep"
             return
@@ -489,9 +498,10 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func createCandidateFromLatestPeak() {
+        guard !spectrumPresentation.paused else { return }
         do {
             guard let analyzer, analyzer.isDbmAnalyzer,
-                  let sweep = latestSweep, sweep.streamId == analyzer.id, sweep.levelUnit == "dBm",
+                  let sweep = spectrumPresentation.sweeps.last, sweep.streamId == analyzer.id, sweep.levelUnit == "dBm",
                   let index = sweep.levels.indices.max(by: { sweep.levels[$0] < sweep.levels[$1] }) else {
                 throw PlatformError.invalidCommand("Нет фактического dBm sweep для создания кандидата")
             }
@@ -821,6 +831,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetComparisonScope() {
+        clearSpectrumPresentation()
         sweepAverage.reset()
         threeSweepThresholds.reset()
         sweepContext.reset()
@@ -1121,7 +1132,6 @@ final class RemoteDualModel: ObservableObject {
         return value
     }
 
-    private var latestSweep: PlatformSweep?
 
     private func performSessionAction(
         _ operation: @escaping (PlatformClient, String) async throws -> some Decodable
@@ -1172,9 +1182,7 @@ final class RemoteDualModel: ObservableObject {
         frequencyRounding.reset()
         session = nil
         workers = []
-        latestSweep = nil
         latestObservation = nil
-        absorbedSweepIDs = []
         current = []
         minimum = []
         maximum = []
@@ -1273,9 +1281,6 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func applyMeasurements(_ snapshot: PlatformSnapshot) {
-        var envelope = TraceEnvelope()
-        var found: [Exceedance] = []
-        let level = thresholdDbm ?? -80
         let selectedSweeps = snapshot.sweeps.filter {
             PlatformThreeSweepThresholds.sameID($0.sessionId, selectedSessionID)
                 && PlatformThreeSweepThresholds.sameID($0.streamId, analyzer?.id) && $0.levelUnit == "dBm"
@@ -1303,28 +1308,41 @@ final class RemoteDualModel: ObservableObject {
         if !selectedSweeps.contains(where: { $0.id == comparisonSelectionID }) {
             comparisonSelectionID = selectedSweeps.last?.id ?? ""
         }
-        for sweep in selectedSweeps {
-            let bins = zip(sweep.frequenciesHz, sweep.levels).map {
-                LevelBin(frequency: $0, level: $1)
-            }
-            envelope.absorb(bins)
-            found = ExceedanceList.update(existing: found, bins: bins, threshold: level)
-            if !absorbedSweepIDs.contains(sweep.id) {
-                waterfall.absorb(bins)
-                absorbedSweepIDs.insert(sweep.id)
-                waterfallRevision += 1
-            }
-        }
-        latestSweep = selectedSweeps.last
         latestObservation = snapshot.observations.last
-        if let latestSweep {
-            current = plot(latestSweep)
-        } else {
-            current = []
+        if PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id,
+           PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
+            spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: snapshot.sweeps)
+        } else { spectrumPresentation.reset() }
+        if !spectrumPresentation.paused { renderSpectrumPresentation() }
+    }
+
+    func toggleSpectrumPause() { spectrumPresentation.togglePause(); renderSpectrumPresentation() }
+    func fitSpectrum() { spectrumPresentation.fit() }
+    func applySpectrumBounds() { spectrumPresentation.setBounds(lower: spectrumLower, upper: spectrumUpper) }
+    private func clearSpectrumPresentation() {
+        spectrumPresentation.reset(); renderSpectrumPresentation()
+    }
+    private func renderSpectrumPresentation() {
+        let sweeps = spectrumPresentation.sweeps
+        var envelope = TraceEnvelope()
+        var found: [Exceedance] = []
+        var history = WaterfallHistory(capacity: PlatformSpectrumPresentation.capacity)
+        for sweep in sweeps {
+            let bins = zip(sweep.frequenciesHz, sweep.levels).map { LevelBin(frequency: $0, level: $1) }
+            envelope.absorb(bins)
+            found = ExceedanceList.update(existing: found, bins: bins, threshold: thresholdDbm ?? -80)
+            history.absorb(bins)
         }
+        current = sweeps.last.map(plot) ?? []
         minimum = envelope.minimumSeries().map { PlotPoint(x: Double($0.frequency) / 1_000_000, y: $0.level) }
         maximum = envelope.maximumSeries().map { PlotPoint(x: Double($0.frequency) / 1_000_000, y: $0.level) }
         rows = found
+        // Polls and source metadata changes do not invalidate identical pixels.
+        // Scale changes have their own WaterfallView.onChange observer.
+        if waterfall.grid != history.grid || waterfall.rows != history.rows || waterfall.capacity != history.capacity {
+            waterfall = history
+            waterfallRevision += 1
+        }
     }
 
     private func plot(_ sweep: PlatformSweep) -> [PlotPoint] {
@@ -1387,7 +1405,7 @@ struct RemoteArPane: View {
                     }
                     .frame(width: 180)
                     Button("Перестроить на фактический пик") { model.tuneLatestPeak() }
-                        .disabled(model.receiver == nil || model.current.isEmpty || model.busy)
+                        .disabled(model.receiver == nil || model.current.isEmpty || model.busy || model.spectrumPresentation.paused)
                 }
                 if let observation = model.latestObservation {
                     GroupBox("Последнее наблюдение ядра") {
@@ -1439,9 +1457,27 @@ struct RemoteUltraPane: View {
                 }
                 TraceChart(
                     current: model.current, minimum: model.minimum, maximum: model.maximum,
-                    threshold: model.thresholdDbm, yTitle: "дБм (исходные)"
+                    threshold: model.thresholdDbm, yTitle: "дБм (исходные)", displayScale: model.spectrumPresentation.scale
                 )
-                WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
+                HStack {
+                    Button(model.spectrumPresentation.paused ? "Live" : "Pause view") { model.toggleSpectrumPause() }
+                    Button("Fit") { model.fitSpectrum() }
+                    TextField("Min", text: $model.spectrumLower).frame(width: 85)
+                    TextField("Max", text: $model.spectrumUpper).frame(width: 85)
+                    Button("Применить") { model.applySpectrumBounds() }
+                }.disabled(model.spectrumPresentation.sweeps.isEmpty)
+                Text("Границы: десятичная точка / e; обрезано отсчётов: \(model.spectrumPresentation.clippedCount)").font(.caption)
+                ErrorLine(text: model.spectrumPresentation.error)
+                if let scale = model.spectrumPresentation.scale {
+                    Text("Шкала: \(String(scale.lower)) … \(String(scale.upper)) dBm").font(.caption)
+                }
+                if let sweep = model.spectrumPresentation.sweeps.last {
+                    Text("\(model.spectrumPresentation.paused ? "Pause view" : "Live") · \(sweep.id) · \(sweep.interval.startedAt) → \(sweep.interval.endedAt)").font(.caption)
+                    Text("Исходные уровни: \(sweep.levels.min().map { String($0) } ?? "—") … \(sweep.levels.max().map { String($0) } ?? "—") dBm").font(.caption)
+                } else { Text("Спектр недоступен") }
+                WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм", displayScale: model.spectrumPresentation.scale)
+                Text("Строки: порядок свипов, новые сверху, не шкала времени. Столбцы: порядок bins; интервалы частот могут быть неравными.").font(.caption)
+                Text("Пауза замораживает только графики. Опрос и состояние сбора/записи не меняются; панели анализа независимы.").font(.caption)
                 RemoteSweepComparisonPane(model: model)
                 RemoteSweepAveragePane(model: model.sweepAverage)
                 RemoteThreeSweepThresholdsPane(model: model.threeSweepThresholds)

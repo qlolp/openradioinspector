@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .spectrum_view import fraction
+
 MAX_POINTS = 1000
 MAX_SWEEPS = 40
 
@@ -77,8 +79,7 @@ def waterfall_levels(
 
 def waterfall_color(level: float, minimum: float, maximum: float) -> str:
     """Возвращает цвет уровня; шкала остаётся числовой и не меняет исходные dBm."""
-    span = max(float(maximum) - float(minimum), 1.0)
-    ratio = max(0.0, min(1.0, (float(level) - float(minimum)) / span))
+    ratio = fraction(float(level), float(minimum), float(maximum))
     upper = 1
     while upper < len(_COLOR_STOPS) - 1 and _COLOR_STOPS[upper][0] < ratio:
         upper += 1
