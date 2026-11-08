@@ -225,3 +225,44 @@ Xcode BUILD SUCCEEDED. Все семь fixture-хешей совпали, соб
 два нефатальных loopback ConnectionResetError сохранены в журнале.
 `swift package dump-package` подтвердил platform macos 14.0. Новый hosted
 результат должен подтверждаться отдельно на опубликованном коммите.
+
+
+## Hosted native: тайм-аут и явный повтор
+
+[CI 42500779047](https://github.com/qlolp/openradioinspector/actions/runs/42500779047)
+на `6d678ee` прошёл Python/Node/Tk на трёх ОС (1087 случаев) и все
+170 Swift SDK тестов. Native выполнил 113 случаев, но получил шесть
+assertion failures в четырёх timeout/retry тестах: FrequencyRounding,
+SpectralMask, SweepAverage и SweepContext. Xcode в этом hosted run не
+запускался; это не успешный полный gate.
+
+Эти сценарии используют отложенный continuation на MainActor вместо fetch;
+URLProtocol и сеть не доставляют их ответы. Первый ответ удерживается до
+тайм-аута, его позднее завершение отклоняется, затем явный повтор на той же
+модели должен завершиться успешно. Прежний deadline 25/40 ms ограничивал
+и этот успешный повтор, включая опрос входа fetch и создание/декодирование
+JSON fixture. Average/Context после ожидания результата также сохранили
+ошибку тайм-аута, а не валидации. Точную задержку планировщика лог не
+устанавливает; для Rounding/Mask один лог не определяет фазу waitFor.
+
+Только эти четыре тестовые модели теперь имеют deadline 500 ms, меньше
+существующего ограниченного ожидания теста. Ответы декодируются заранее,
+до timeout/retry фазы. Все assertions, наблюдение реального тайм-аута,
+запрет автоматического повтора, отклонение позднего ответа и успешный явный
+повтор сохранены. Production deadline шесть секунд, cancellation/revision
+контроль, URLProtocol-тесты и skip policy не меняются.
+
+Выбранные изменения deferred SpectralMask/SweepContext взяты из
+[PR #96, commit 78130ac](https://github.com/qlolp/openradioinspector/commit/78130acb67b593b031ba81cf96d27c13b4e2b1e5).
+Тот же принцип применён к подтверждённым FrequencyRounding/SweepAverage
+failures. Остальные изменения таймаутов этого коммита не импортированы.
+Это корректировка синтетического harness, не заявление исправления
+production ошибки или успешного hosted CI.
+
+После изменения повторно прошли локальные 1087 Python/Node/Tk,
+170 Swift SDK, 113 native Swift и unsigned Xcode, без skips. Семь полных
+fixture-хешей совпали, собственные серверы остановлены, временный корень
+удалён. Stale Tcl/Tcl_AsyncDelete нет; два нефатальных loopback
+ConnectionResetError и прежние build warnings сохранены в журнале.
+Независимое review не оставило блокирующих замечаний. Новый hosted run
+должен подтвердить точный опубликованный коммит отдельно.

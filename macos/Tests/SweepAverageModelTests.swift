@@ -308,17 +308,21 @@ final class SweepAverageModelTests: XCTestCase {
     }
     @MainActor func testTimeoutRemainsBoundedAcrossPollingAndIgnoresLateResponse() async throws {
         let deferred = Deferred(), client = try api()
-        let model = SweepAverageModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, refs, target, threshold, bins in
+        // Keep a bounded timeout for the held request without making retry success
+        // depend on polling and fixture decoding fitting into 40 milliseconds.
+        let lateReply: PlatformSweepAverageChangeDetection = try decode(detectionBody())
+        let retryReply: PlatformSweepAverageChangeDetection = try decode(detectionBody(body(target: 5)))
+        let model = SweepAverageModel(timeoutNanoseconds: 500_000_000, fetch: { _, _, refs, target, threshold, bins in
             try await deferred.fetch(refs, target, threshold, bins)
         })
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
         try await waitFor { deferred.requests.count == 1 }
         model.configure(client: client, scope: scope, sweeps: try sweeps(2...5))
         try await waitFor { !model.pending }; XCTAssertTrue(model.errorText?.contains("истекло") == true)
-        deferred.release(try decode(detectionBody())); await Task.yield(); XCTAssertNil(model.result)
+        deferred.release(lateReply); await Task.yield(); XCTAssertNil(model.result)
         XCTAssertEqual(model.sources.count, 3)
         model.compare(); try await waitFor { deferred.requests.count == 2 }
-        deferred.release(try decode(detectionBody(body(target: 5)))); try await waitFor { model.result != nil }
+        deferred.release(retryReply); try await waitFor { model.result != nil }
         XCTAssertNil(model.errorText)
     }
     @MainActor func testFullFrozenSourceSequenceAndTargetContentValidation() async throws {

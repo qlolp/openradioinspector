@@ -160,12 +160,15 @@ final class FrequencyRoundingModelTests: XCTestCase {
         }
     }
     @MainActor func testTimeoutNoRetryLateReplyAndExplicitRetry() async throws {
-        let d = Deferred(), m = try model(d, timeout: 25_000_000)
+        // The same deadline covers the held request and a successful explicit retry.
+        // Allow scheduler headroom, and decode the fixture before either request starts.
+        let reply = try result()
+        let d = Deferred(), m = try model(d, timeout: 500_000_000)
         m.analyze(); try await waitFor { d.pending.count == 1 }; try await waitFor { !m.pending }
         XCTAssertTrue(m.errorText?.contains("истекло") == true)
-        d.release(try result()); try await Task.sleep(nanoseconds: 15_000_000); XCTAssertNil(m.result)
+        d.release(reply); try await Task.sleep(nanoseconds: 15_000_000); XCTAssertNil(m.result)
         XCTAssertEqual(d.ids.count, 1)
-        m.analyze(); try await waitFor { d.pending.count == 1 }; d.release(try result()); try await waitFor { m.result != nil }
+        m.analyze(); try await waitFor { d.pending.count == 1 }; d.release(reply); try await waitFor { m.result != nil }
         XCTAssertEqual(d.ids.count, 2)
     }
     @MainActor func testBadSizeUnsupportedSourcesAndErrorsRemainLocal() async throws {

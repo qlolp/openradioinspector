@@ -107,13 +107,16 @@ final class SpectralMaskModelTests: XCTestCase {
         }
     }
     @MainActor func testTimeoutNoAutomaticRetryLateReplyAndManualRetry() async throws {
-        let d = Deferred(), m = try model(d, timeout: 25_000_000)
+        // The same deadline covers the held request and a successful explicit retry.
+        // Allow scheduler headroom, and decode the fixture before either request starts.
+        let reply = try result()
+        let d = Deferred(), m = try model(d, timeout: 500_000_000)
         m.analyze(); try await waitFor { d.pending.count == 1 }
         try await waitFor { !m.pending }; XCTAssertNotNil(m.errorText)
-        d.release(try result()); try await Task.sleep(nanoseconds: 25_000_000)
+        d.release(reply); try await Task.sleep(nanoseconds: 25_000_000)
         XCTAssertNil(m.result); XCTAssertEqual(d.sources.count, 1)
         m.analyze(); try await waitFor { d.pending.count == 1 }
-        d.release(try result()); try await waitFor { m.result != nil }
+        d.release(reply); try await waitFor { m.result != nil }
         XCTAssertEqual(d.sources.count, 2)
     }
     @MainActor func testWrongSourceStreamAndRecordedSettingsRejected() async throws {
