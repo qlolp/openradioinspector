@@ -136,7 +136,7 @@ async function guards() {
 }
 
 async function datelineMultiPolygonUsesLocalProjection() {
-  const app = setup(); app.update();
+  const app = setup(); app.update(); app.dom.editor.value = mapJson();
   const pending = app.click('run');
   const data = result();
   data.geojson.features[0].geometry.coordinates = [179.999, 0];
