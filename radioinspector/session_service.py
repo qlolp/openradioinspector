@@ -33,6 +33,10 @@ from .contracts import (
     to_primitive,
     utc_now,
 )
+from .frequency_rounding import (
+    FrequencyRoundingIncompatibleError, calculate_candidate_frequency_rounding,
+    validate_rounding_request,
+)
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
@@ -192,6 +196,7 @@ class SessionService:
                 "measurement_batch_atomic": True,
                 "measurement_batch_limit": MAX_MEASUREMENT_BATCH,
                 "candidate_investigations": True,
+                "candidate_frequency_rounding": True,
                 "manual_investigation_handoff": True,
                 "semi_automatic_handoff": True,
                 "automatic_handoff": True,
@@ -789,6 +794,17 @@ class SessionService:
     def get_candidate(self, session_id: str, candidate_id: str) -> Candidate:
         with self._lock:
             return copy.deepcopy(self._get_candidate_locked(session_id, candidate_id))
+
+    def candidate_frequency_rounding(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Derive an exact candidate frequency without writes or handoff changes."""
+        candidate_id, profile_json = validate_rounding_request(payload)
+        with self._lock:
+            candidate = self._get_candidate_locked(session_id, candidate_id)
+            if candidate.id != candidate_id:
+                raise FrequencyRoundingIncompatibleError("Исходный ID кандидата не совпадает с запросом")
+            return calculate_candidate_frequency_rounding(
+                session_id, candidate, profile_json=profile_json,
+            )
 
     def dismiss_candidate(self, session_id: str, candidate_id: str) -> Candidate:
         with self._lock:

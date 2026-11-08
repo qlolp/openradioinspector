@@ -46,6 +46,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/sweep-average-comparison` | Read-only среднее мощности 2–16 архивных свипов и разность с отдельным target |
 | `POST` | `/api/v1/sessions/{id}/sweep-three-thresholds` | Read-only три горизонтальных порога одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/sweep-context` | Read-only ближайшие N1/N2 свипы вокруг точного архивного ID |
+| `POST` | `/api/v1/sessions/{id}/candidate-frequency-rounding` | Read-only округление частоты кандидата по переносимой таблице |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -671,3 +672,10 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 ответ содержит полное окно, доступные и недостающие количества. Неподходящий
 сосед отклоняет всё окно и не заменяется более далёким. Формат, лимиты и
 синтетический пример: [sweep-context.md](sweep-context.md).
+
+## Таблица округления частот
+
+`features.candidate_frequency_rounding` включает read-only POST с
+`{candidate_id, profile_json}`. Ядро возвращает отдельную производную частоту,
+исходное значение не меняется. Целочисленный метод, допуски, переносимый профиль,
+статусы и пределы: [frequency-rounding.md](frequency-rounding.md).

@@ -558,6 +558,9 @@
   }
 
   function updateComparison() {
+    window.OpenRadioFrequencyRounding?.update({
+      sessionId: state.sessionId, candidates: state.candidates,
+    });
     window.OpenRadioSweepComparison?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
@@ -789,7 +792,7 @@
       state.automaticDetection = null;
       state.automaticFormDirty = false;
       state.detectionFormDirty = false;
-      return;
+      return true;
     }
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
     if (!analyzers.some((stream) => stream.id === state.spectrumStreamId)) {
@@ -816,7 +819,7 @@
     const [workers, candidates, investigations, nextInvestigation, automaticHandoff, automaticDetection, events, sweeps] = await Promise.all(requests);
     if (state.sessionId !== sessionId || (state.revision || 0) !== revision) {
       state.refreshQueued = true;
-      return;
+      return false;
     }
     state.workers = workers;
     state.candidates = candidates;
@@ -826,6 +829,7 @@
     state.automaticDetection = automaticDetection;
     state.events = events;
     state.sweeps = sweeps.slice(-MAX_SWEEPS);
+    return true;
   }
 
   async function refresh(options = {}) {
@@ -839,13 +843,20 @@
     renderSession();
     try {
       state.refreshQueued = false;
-      await performRefresh();
+      const fresh = await performRefresh();
+      if (fresh) {
+        window.OpenRadioFrequencyRounding?.update({
+          sessionId: state.sessionId, candidates: state.candidates, fresh: true,
+        });
+        window.OpenRadioFrequencyRounding?.setConnected(true);
+      }
       window.OpenRadioSweepThreshold?.setConnected(true);
       window.OpenRadioSweepMask?.setConnected(true);
       window.OpenRadioSweepAverage?.setConnected(true);
       window.OpenRadioSweepThreeThresholds?.setConnected(true);
       window.OpenRadioSweepContext?.setConnected(true);
     } catch (error) {
+      window.OpenRadioFrequencyRounding?.setConnected(false);
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
       window.OpenRadioSweepAverage?.setConnected(false);
@@ -889,6 +900,7 @@
     source.addEventListener("open", () => setSseStatus("SSE подключено", "live"));
     source.addEventListener("error", () => {
       setSseStatus("SSE переподключение · polling", "warning");
+      window.OpenRadioFrequencyRounding?.setConnected(false);
       window.OpenRadioSweepAverage?.setConnected(false);
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);

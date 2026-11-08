@@ -334,6 +334,12 @@ form.editor { border-style: solid; }
 /* Portable drafts stay local until an explicit read-only core analysis. */
 .mask-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
 .mask-panel h3 { color: var(--amber); font-size: 13px; }
+.rounding-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.rounding-panel h3 { color: var(--amber); font-size: 13px; }
+.rounding-panel label { display: block; margin-top: 10px; }
+#rounding-editor { width: 100%; min-height: 180px; font: 11px/1.5 monospace; resize: vertical; }
+#rounding-candidate { max-width: 100%; width: 100%; }
+#rounding-source, #rounding-summary { white-space: pre-line; line-height: 1.7; }
 .mask-panel label { display: block; margin-top: 10px; }
 #mask-editor { box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; background: var(--panel); color: var(--text); font: 12px monospace; }
 #mask-file { max-width: 100%; }

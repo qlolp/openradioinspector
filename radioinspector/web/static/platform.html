@@ -14,6 +14,7 @@
   <script src="/static/sweep-average.js" defer></script>
   <script src="/static/sweep-three-thresholds.js" defer></script>
   <script src="/static/sweep-context.js" defer></script>
+  <script src="/static/frequency-rounding.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -404,6 +405,27 @@
         <div id="candidate-list" class="record-list">
           <p class="empty-state">Кандидатов нет. Зафиксируйте пик реального свипа или создайте запись вручную.</p>
         </div>
+        <section class="rounding-panel" aria-labelledby="rounding-heading">
+          <h3 id="rounding-heading">Таблица округления частоты · только предложение</h3>
+          <p>Ядро рассчитывает ближайшую точку сетки в выбранном диапазоне. Исходная частота сохраняется. Нет изменения кандидата, handoff, настройки прибора или проверки разрешённых частот.</p>
+          <label for="rounding-candidate">Кандидат из всех потоков текущего сеанса</label>
+          <select id="rounding-candidate" disabled aria-describedby="rounding-source"><option value="">Выберите кандидата</option></select>
+          <p id="rounding-source">Явно выберите кандидата, независимо от спектрального потока.</p>
+          <label for="rounding-file">Локальный JSON UTF-8 (до 65 536 байт)</label>
+          <input id="rounding-file" type="file" accept=".json,application/json">
+          <label for="rounding-editor">Черновик профиля · JSON</label>
+          <textarea id="rounding-editor" rows="14" spellcheck="false" aria-describedby="rounding-draft" placeholder="Загрузите профиль или создайте ненормативный пример"></textarea>
+          <p id="rounding-draft" role="status" aria-live="polite">Черновик не проверен ядром.</p>
+          <div class="form-actions">
+            <button id="rounding-template" class="button" type="button">НЕНОРМАТИВНЫЙ пример</button>
+            <button id="rounding-run" class="button" type="button" disabled>Проверить профиль и рассчитать</button>
+            <button id="rounding-clear" class="button" type="button">Очистить результат</button>
+            <button id="rounding-save" class="button" type="button" disabled>Сохранить проверенный профиль</button>
+          </div>
+          <p>Результат и полный выбранный источник сохраняются при polling. Повторный расчёт только по кнопке. dBm и s_meter_count остаются исходными единицами, без пересчёта уровня.</p>
+          <p id="rounding-status" role="status" aria-live="polite"></p>
+          <p id="rounding-summary"></p>
+        </section>
       </section>
 
       <section class="panel investigations-panel" aria-labelledby="investigations-heading">

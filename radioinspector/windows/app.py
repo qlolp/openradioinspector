@@ -328,6 +328,8 @@ class WindowsApp:
         self.three_thresholds_panel = ThreeThresholdsPanel(self, notebook)
         from .sweep_context import SweepContextPanel
         self.sweep_context_panel = SweepContextPanel(self, notebook)
+        from .frequency_rounding import FrequencyRoundingPanel
+        self.frequency_rounding_panel = FrequencyRoundingPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -364,6 +366,8 @@ class WindowsApp:
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
         self._revision += 1
@@ -439,6 +443,8 @@ class WindowsApp:
                             self.three_thresholds_panel.clear()
                         if hasattr(self, "sweep_context_panel"):
                             self.sweep_context_panel.disconnect()
+                        if hasattr(self, "frequency_rounding_panel"):
+                            self.frequency_rounding_panel.disconnect()
                         self._show_archive_capacity(None, str(exc))
                     else:
                         self._action_running = False
@@ -451,6 +457,8 @@ class WindowsApp:
                     self._apply_snapshot(result)
                     if hasattr(self, "sweep_context_panel"):
                         self.sweep_context_panel.snapshot_refreshed()
+                    if hasattr(self, "frequency_rounding_panel"):
+                        self.frequency_rounding_panel.snapshot_refreshed()
                 else:
                     self._action_running = False
                     callback = self._action_callbacks.pop(future, None)
@@ -557,6 +565,8 @@ class WindowsApp:
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
         stream = self._selected_stream()
@@ -725,6 +735,8 @@ class WindowsApp:
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
         self._revision += 1
@@ -781,6 +793,8 @@ class WindowsApp:
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
         if not stream:
@@ -1453,6 +1467,8 @@ class WindowsApp:
             self.three_thresholds_panel.close()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.close()
+        if hasattr(self, "frequency_rounding_panel"):
+            self.frequency_rounding_panel.close()
         self._action_callbacks.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

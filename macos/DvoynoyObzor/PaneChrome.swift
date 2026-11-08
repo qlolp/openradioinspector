@@ -108,7 +108,10 @@ struct RemoteWorkflowPane: View {
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
             HStack(alignment: .top, spacing: 16) {
-                candidates.frame(width: 390, alignment: .leading)
+                VStack(spacing: 12) {
+                    candidates
+                    RemoteFrequencyRoundingPane(model: model.frequencyRounding)
+                }.frame(width: 480, alignment: .leading)
                 investigations.frame(width: 430, alignment: .leading)
                 VStack(spacing: 12) {
                     RemoteTaskSchedulerPane(model: model)

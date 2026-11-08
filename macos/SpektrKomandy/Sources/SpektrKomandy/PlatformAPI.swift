@@ -945,18 +945,18 @@ public final class PlatformClient {
     }
 
     func post<Value: Decodable, Body: Encodable>(
-        _ path: String, body: Body, expectedStatuses: [Int]? = nil, validateResponse: ((Data) throws -> Void)? = nil
+        _ path: String, body: Body, expectedStatuses: [Int]? = nil, timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        try await request(method: "POST", path: path, query: [], body: body, expectedStatuses: expectedStatuses, validateResponse: validateResponse)
+        try await request(method: "POST", path: path, query: [], body: body, expectedStatuses: expectedStatuses, timeoutInterval: timeoutInterval, validateResponse: validateResponse)
     }
 
     private func request<Value: Decodable, Body: Encodable>(
         method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
-        validateResponse: ((Data) throws -> Void)? = nil
+        timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
-        request.timeoutInterval = 5
+        request.timeoutInterval = timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             let encoder = JSONEncoder()

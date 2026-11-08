@@ -94,7 +94,7 @@ class PlatformClient:
     def _request(
         self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
         *, expected_statuses: Optional[tuple[int, ...]] = None, strict_json: bool = False,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None, exact_envelope: bool = False
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
@@ -145,6 +145,10 @@ class PlatformClient:
                 "Сервер вернул некорректный JSON", status=status, code="invalid_json"
             ) from exc
         self._check_contract(envelope, status)
+        if exact_envelope and set(envelope) != {'contract', 'contract_version', 'data'}:
+            raise PlatformClientError(
+                "Некорректные поля ответа API", status=status, code="invalid_envelope"
+            )
         if "error" in envelope:
             error = envelope["error"]
             raise PlatformClientError(
@@ -168,7 +172,7 @@ class PlatformClient:
                 status=status,
                 code=str(error.get("code", "server_error")),
             )
-        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, AttributeError, RecursionError):
             return PlatformClientError(
                 f"Сервер вернул HTTP {status}", status=status, code="http_error"
             )
@@ -183,7 +187,7 @@ class PlatformClient:
             raise PlatformClientError(
                 "Ответ принадлежит другому API", status=status, code="invalid_contract"
             )
-        if envelope.get("contract_version") != CONTRACT_VERSION:
+        if type(envelope.get("contract_version")) is not int or envelope.get("contract_version") != CONTRACT_VERSION:
             raise PlatformClientError(
                 "Неподдерживаемая версия контракта",
                 status=status,
@@ -250,6 +254,17 @@ class PlatformClient:
         if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 524288:
             raise ValueError('Запрос превышает 524 288 байт')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-mask-analysis", payload, expected_statuses=(200,))
+
+    def candidate_frequency_rounding(self, session_id: str, candidate_id: str, profile_json: str) -> dict[str, Any]:
+        from .frequency_rounding import check_draft, identity
+        if not identity(session_id) or not identity(candidate_id, 128):
+            raise ValueError('Некорректный ID сеанса или кандидата')
+        check_draft(profile_json)
+        payload = {'candidate_id': candidate_id, 'profile_json': profile_json}
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 524288:
+            raise ValueError('Запрос превышает 524 288 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/candidate-frequency-rounding",
+                             payload, expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True)
 
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters

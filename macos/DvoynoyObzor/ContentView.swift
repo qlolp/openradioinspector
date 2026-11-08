@@ -110,11 +110,11 @@ struct PinnedSweepReference {
 @MainActor
 final class RemoteDualModel: ObservableObject {
     @Published var serverURL = "http://127.0.0.1:8770" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset() } }
     }
     @Published var sessions: [PlatformSession] = []
     @Published var selectedSessionID = "" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope(); frequencyRounding.reset() } }
     }
     @Published var session: PlatformSession? {
         didSet {
@@ -209,6 +209,7 @@ final class RemoteDualModel: ObservableObject {
     let threeSweepThresholds = ThreeSweepThresholdsModel()
     let sweepContext = SweepContextModel()
     let spectralMask = SpectralMaskModel()
+    let frequencyRounding = FrequencyRoundingModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -266,6 +267,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func connect(startPolling: Bool = true) {
+        frequencyRounding.reset()
         do {
             client = try makeClient(serverURL)
             resetComparisonScope()
@@ -442,6 +444,7 @@ final class RemoteDualModel: ObservableObject {
             sweepAverage.reset()
             threeSweepThresholds.reset()
             sweepContext.reset()
+            frequencyRounding.unavailable()
             errorText = describeSession(error)
         }
     }
@@ -1166,6 +1169,7 @@ final class RemoteDualModel: ObservableObject {
 
     private func clearMeasurements() {
         resetComparisonScope()
+        frequencyRounding.reset()
         session = nil
         workers = []
         latestSweep = nil
@@ -1213,6 +1217,11 @@ final class RemoteDualModel: ObservableObject {
         _ snapshot: PlatformSnapshot, schedulerRevision: Int
     ) {
         candidates = snapshot.candidates
+        if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL),
+           PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
+            frequencyRounding.configure(client: client, scope: .init(server: serverURL, session: selectedSessionID),
+                candidates: snapshot.candidates, ready: !snapshot.workflowErrors.contains { $0.hasPrefix("candidates:") })
+        } else { frequencyRounding.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
