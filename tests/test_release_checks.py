@@ -426,6 +426,162 @@ time.sleep(0.1)
         process.kill.assert_not_called()
 
 
+class IsolatedTkHarnessTests(unittest.TestCase):
+    case_id = "tests.test_windows_sweep_average.AverageActualTkHTTPTests.test_synthetic"
+
+    def report(self, **changes):
+        return {"tests_run": 1, "successful": True, "selected_test": self.case_id,
+                "skipped": [], "unexpected_skips": [], **changes}
+
+    def run_child(self, report, *, returncode=0, error=None):
+        def child(command, **kwargs):
+            self.assertEqual(command[command.index("--_single-test") + 1], self.case_id)
+            self.assertIn("--_diagnostic-after", command)
+            self.assertEqual(kwargs["timeout"], 90)
+            self.assertEqual(kwargs["cwd"], release.ROOT)
+            for option in ("env", "start_new_session", "creationflags"):
+                self.assertNotIn(option, kwargs)
+            kwargs["stdout"].write("CHILD DIAGNOSTIC\n")
+            if report is not None:
+                Path(command[-1]).write_text(report if isinstance(report, str) else json.dumps(report))
+            if error is not None:
+                raise error
+            return SimpleNamespace(returncode=returncode)
+        result = unittest.TestResult()
+        with patch.object(release.subprocess, "run", side_effect=child), redirect_stderr(io.StringIO()) as output:
+            release.IsolatedTkTest(self.case_id).run(result)
+        self.assertIn("CHILD DIAGNOSTIC", output.getvalue())
+        self.assertEqual(result.testsRun, 1)
+        return result
+
+    def test_success_identity_count_and_child_contract(self):
+        result = self.run_child(self.report())
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(result.skipped, [])
+        self.assertEqual(release.IsolatedTkTest(self.case_id).id(), self.case_id)
+
+    def test_failures_reports_and_exit_status_never_become_pass_or_skip(self):
+        for report in (None, "not json", "[]", {}, self.report(tests_run=0),
+                       self.report(tests_run=2), self.report(tests_run=True),
+                       self.report(selected_test="wrong"), self.report(successful=False),
+                       self.report(successful="true"), self.report(skipped=None),
+                       self.report(skipped=[["wrong", "reason"]]),
+                       self.report(skipped=[[self.case_id, "reason"]] * 2),
+                       self.report(unexpected_skips=[[self.case_id, "reason"]]),
+                       self.report(skipped=[[self.case_id, "reason"]], unexpected_skips=[[self.case_id, "reason"]])):
+            with self.subTest(report=report):
+                result = self.run_child(report)
+                self.assertFalse(result.wasSuccessful())
+                self.assertEqual(result.skipped, [])
+        for status in (1, 9, -9):
+            for skipped in ([], [[self.case_id, "reason"]]):
+                with self.subTest(status=status, skipped=skipped):
+                    result = self.run_child(self.report(skipped=skipped, unexpected_skips=skipped), returncode=status)
+                    self.assertFalse(result.wasSuccessful())
+                    self.assertEqual(result.skipped, [])
+        result = self.run_child(self.report(), error=subprocess.TimeoutExpired("child", 90))
+        self.assertFalse(result.wasSuccessful())
+        self.assertEqual(result.skipped, [])
+
+    def test_valid_allowed_skip_is_preserved_without_expanding_policy(self):
+        with patch.object(release, "unexpected_skips", return_value=[]):
+            result = self.run_child(self.report(skipped=[[self.case_id, "allowed reason"]]))
+        self.assertEqual([(test.id(), reason) for test, reason in result.skipped],
+                         [(self.case_id, "allowed reason")])
+        result = self.run_child(self.report(skipped=[[self.case_id, "unexpected"]],
+                                            unexpected_skips=[[self.case_id, "unexpected"]]), returncode=1)
+        self.assertFalse(result.wasSuccessful())
+
+    def test_only_five_named_classes_are_wrapped_and_lifecycle_is_unchanged(self):
+        cases = []
+        for name in sorted(release.MACOS_TK_CLASSES):
+            case = unittest.FunctionTestCase(lambda: None)
+            case.id = lambda name=name: name + ".test_owned"
+            cases.append(case)
+        lifecycle = unittest.FunctionTestCase(lambda: None)
+        lifecycle.id = lambda: "tests.test_windows_tk_lifecycle.HiddenTkTimerLifecycleTests.test_owned"
+        suite = release.isolate_tk_cases(unittest.TestSuite([unittest.TestSuite(cases), lifecycle]))
+        self.assertEqual(suite.countTestCases(), 6)
+        self.assertEqual(list(release._case_ids(suite)), [case.id() for case in cases] + [lifecycle.id()])
+        self.assertTrue(all(isinstance(case, release.IsolatedTkTest) for case in list(suite)[0]))
+        self.assertIs(list(suite)[1], lifecycle)
+
+    def test_single_selection_never_discovers_or_recursively_isolates(self):
+        case = unittest.FunctionTestCase(lambda: None)
+        case.id = lambda: self.case_id
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite([case])), \
+                patch.object(release.unittest.defaultTestLoader, "discover") as discover, \
+                patch.object(release, "isolate_tk_cases") as isolate, redirect_stderr(io.StringIO()):
+            path = Path(directory) / "report.json"
+            self.assertEqual(release.run_python_suite(path, only_test=self.case_id), 0)
+            self.assertEqual(json.loads(path.read_text())["selected_test"], self.case_id)
+            discover.assert_not_called()
+            isolate.assert_not_called()
+
+    def test_single_selection_rejects_empty_multiple_and_wrong_identity(self):
+        case = unittest.FunctionTestCase(lambda: None)
+        for cases in ([], [case, case], [case]):
+            with self.subTest(count=len(cases)), \
+                    patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite(cases)), \
+                    self.assertRaisesRegex(release.ReleaseCheckError, "exactly"):
+                release.run_python_suite(Path("unused.json"), only_test=self.case_id)
+
+    def test_outer_timeout_retains_live_child_diagnostics_and_reaps_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready, leaked = root / "ready", root / "leaked"
+            child = ("import faulthandler,sys,time; from pathlib import Path; "
+                     f"Path({str(ready)!r}).write_text('ready'); "
+                     "print('CHILD_STDOUT', flush=True); print('CHILD_STDERR', file=sys.stderr, flush=True); "
+                     "faulthandler.dump_traceback_later(0.05, repeat=True); "
+                     f"time.sleep(1.5); Path({str(leaked)!r}).write_text('leaked')")
+            parent = ("import subprocess,sys; from tests import run_release_checks as r; "
+                      "original = subprocess.run; "
+                      f"r.subprocess.run = lambda command, **kwargs: original([sys.executable, '-c', {child!r}], **kwargs); "
+                      f"r.IsolatedTkTest({self.case_id!r}).runTest()")
+            popen = subprocess.Popen
+            def start(*args, **kwargs):
+                process = popen(*args, **kwargs)
+                wait = process.wait
+                first_wait = True
+                def wait_after_ready(*, timeout=None):
+                    nonlocal first_wait
+                    if first_wait:
+                        first_wait = False
+                        deadline = time.monotonic() + 20
+                        while not ready.exists() and process.poll() is None:
+                            if time.monotonic() >= deadline:
+                                self.fail("synthetic child did not become ready within startup allowance")
+                            time.sleep(0.01)
+                        self.assertTrue(ready.exists(), "synthetic child exited before readiness")
+                        return wait(timeout=0.3)
+                    return wait(timeout=timeout)
+                process.wait = wait_after_ready
+                return process
+            # Start the short timeout only once the real nested child is ready;
+            # cold Windows/macOS Python imports get a separate startup allowance.
+            with patch.object(release.subprocess, "Popen", side_effect=start), \
+                    redirect_stdout(io.StringIO()) as output, self.assertRaises(subprocess.TimeoutExpired):
+                release.run_command([sys.executable, "-c", parent], name="isolated-outer-timeout",
+                                    environment=release.child_environment(), directory=root,
+                                    timeout=20, shutdown_timeout=2)
+            self.assertTrue(ready.exists())
+            self.assertIn("CHILD_STDOUT", output.getvalue())
+            self.assertIn("CHILD_STDERR", output.getvalue())
+            self.assertIn("Timeout", output.getvalue())
+            self.assertIn('File "<string>"', output.getvalue())
+            time.sleep(1.6)
+            self.assertFalse(leaked.exists())
+
+    def test_single_cli_arms_watchdog_and_requires_report_path(self):
+        with patch.object(release, "_run_diagnostic_python_suite", return_value=0) as run:
+            self.assertEqual(release.main(["--_single-test", self.case_id, "--_python-suite", "owned.json"]), 0)
+            run.assert_called_once_with(Path("owned.json"), 60, only_test=self.case_id)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            release.main(["--_single-test", self.case_id])
+
+
 class OrchestrationTests(unittest.TestCase):
     def make_runner(self, *, failure=None, bad_cleanup=False):
         fixtures = []

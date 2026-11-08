@@ -485,3 +485,42 @@ loopback ConnectionResetError и прежние build warnings не скрыва
 native Windows, ручная визуальная и аппаратная приёмка этого дерева ещё
 не подтверждены. Реальные данные и приборы не затрагивались; merge, close,
 delete и force-push не выполнялись.
+
+
+## 8 ноября 2026: отдельная изоляция actual-Tk проверки macOS
+
+База — PR #101, `bb9f629f788db3cf9bbfc17b23b46dd77f2712b5`.
+Hosted CI PR #99–101 прошёл Linux и Windows, но каждый macOS job
+(Python 3.12.10, Tcl/Tk 8.6.16 Aqua) достиг общего deadline 600 секунд
+в первом compare теста
+`AverageActualTkHTTPTests.test_hidden_live_detection_regions_and_parameter_traces`.
+В этих журналах уже нет прежних stale Tcl/Tcl_AsyncDelete сообщений.
+Связь зависания с жизненным циклом не считается доказанной; Swift и Xcode
+на hosted Mac не запускались после незавершённого Python gate.
+
+Перенесена только узкая идея отдельного Python-процесса для каждого случая
+пяти actual-Tk классов из PR #96, точный источник
+`1b8b810a6141322d1e89a1d6c881f4ce7477961c`. Проверки идентичности,
+количества тестов, отчёта, exit status и сохранения диагностики усилены.
+Дочерние процессы остаются в области владения внешнего runner и используют
+его временные fixtures. Никакие assertions, разрешённые skips или общий
+600-секундный deadline не ослаблены. Намеренная последовательность
+lifecycle → worker GC → HTTP и несколько окон внутри одного теста сохранены.
+
+Это изменение инфраструктуры проверки, не новая измерительная функция
+и не замена исправления production timer ownership. Остальная ветка PR #96
+не включена. Реальные приборы и архивы не затрагиваются; merge, close,
+удаление и force-push не выполняются. Подробности и воспроизведение:
+[release-validation.md](release-validation.md).
+
+
+Локальная полная проверка этого среза: **1087 Python/Node/Tk**, включая
+29 изолированных actual-Tk случаев, **170 Swift SDK** и **113 native Swift**,
+без пропусков; unsigned Xcode **BUILD SUCCEEDED**. Python 3.12.15,
+Tcl/Tk 9.0.4. Семь временных архивов сохранили полные логические хеши,
+собственные серверы остановлены, временный корень удалён. Stale Tcl и
+Tcl_AsyncDelete сообщений нет; два нефатальных loopback ConnectionResetError
+и прежние build warnings остаются в журнале. Отдельно прошли 45 harness
+тестов и три focused actual-Tk случая. Независимое ревью не оставило
+подтверждённых замечаний. Hosted Tk 8.6.16 пока не объявляется проверенным
+на новом коммите.

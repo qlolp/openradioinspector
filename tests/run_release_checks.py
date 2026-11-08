@@ -135,27 +135,115 @@ class DiagnosticTestResult(unittest.TextTestResult):
         self._event("stop", test, time.monotonic())
 
 
-def run_python_suite(report_path: Path, *, diagnostics: bool = False) -> int:
+# Narrow test-infrastructure adaptation of PR #96 at 1b8b810a6141322d1e89a1d6c881f4ce7477961c.
+# Keep lifecycle/worker-GC regressions in-process: they deliberately reuse Tk.
+MACOS_TK_CLASSES = frozenset({
+    "tests.test_windows_release_flows.WindowsReleaseFlowTests",
+    "tests.test_windows_sweep_context.ActualTkHTTPTests",
+    "tests.test_windows_three_thresholds.ActualTkHTTPTests",
+    "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
+    "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+})
+TK_CASE_TIMEOUT = 90
+
+
+class IsolatedTkTest(unittest.TestCase):
+    """One original case per fresh Python; never turn a broken child into a skip."""
+    def __init__(self, test_id):
+        super().__init__("runTest")
+        self.test_id = test_id
+
+    def id(self):
+        return self.test_id
+
+    def __str__(self):
+        return self.test_id + " (isolated Tk process)"
+
+    def runTest(self):
+        with tempfile.TemporaryDirectory(prefix="ori-tk-case-") as temporary:
+            report_path = Path(temporary) / "result.json"
+            # No new session/job: descendants remain owned by the outer runner.
+            # Inherit its private HOME/temp, registry and already-created URLs.
+            # Write directly to the outer log, not a PIPE or deferred buffer:
+            # even an outer timeout retains the child's diagnostics immediately.
+            completed = subprocess.run(
+                [sys.executable, "-m", "tests.run_release_checks",
+                 "--_single-test", self.test_id, "--_diagnostic-after", "30",
+                 "--_python-suite", str(report_path)],
+                cwd=ROOT, stdin=subprocess.DEVNULL, stdout=sys.stderr,
+                stderr=subprocess.STDOUT, timeout=TK_CASE_TIMEOUT)
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise ReleaseCheckError(f"{self.test_id}: missing or malformed child report") from error
+            if (not isinstance(report, dict) or
+                    type(report.get("tests_run")) is not int or report["tests_run"] != 1 or
+                    report.get("selected_test") != self.test_id or
+                    report.get("successful") is not True):
+                raise ReleaseCheckError(f"{self.test_id}: child did not successfully run exactly the requested case")
+            skipped = report.get("skipped")
+            if (not isinstance(skipped, list) or len(skipped) > 1 or
+                    any(not isinstance(entry, list) or len(entry) != 2 or
+                        entry[0] != self.test_id or not isinstance(entry[1], str)
+                        for entry in skipped)):
+                raise ReleaseCheckError(f"{self.test_id}: invalid child skips")
+            unexpected = [list(entry) for entry in unexpected_skips(skipped)]
+            if (report.get("unexpected_skips") != unexpected or unexpected or
+                    completed.returncode != 0):
+                raise ReleaseCheckError(f"{self.test_id}: child exit/report mismatch (status {completed.returncode})")
+            if skipped:
+                self.skipTest(skipped[0][1])  # Only the unchanged allowlist can reach here.
+
+
+def isolate_tk_cases(suite):
+    result = unittest.TestSuite()
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            result.addTest(isolate_tk_cases(item))
+        else:
+            result.addTest(IsolatedTkTest(item.id())
+                           if item.id().rsplit(".", 1)[0] in MACOS_TK_CLASSES else item)
+    return result
+
+
+def _case_ids(suite):
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from _case_ids(item)
+        else:
+            yield item.id()
+
+
+def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test: str | None = None) -> int:
     with local_loopback_names():
-        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+        if only_test is not None:
+            suite = unittest.defaultTestLoader.loadTestsFromName(only_test)
+            if list(_case_ids(suite)) != [only_test]:
+                raise ReleaseCheckError("Single-test selection must resolve to exactly the requested case")
+        else:
+            suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+            if sys.platform == "darwin" or os.environ.get("ORI_RELEASE_ISOLATE_TK") == "1":
+                suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
     report = {"tests_run": result.testsRun, "successful": result.wasSuccessful(),
               "skipped": skipped, "unexpected_skips": unexpected}
+    if only_test is not None:
+        report["selected_test"] = only_test
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     for test, reason in unexpected:
         print(f"UNEXPECTED SKIP: {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and result.testsRun > 0 and not unexpected else 1
 
 
-def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float) -> int:
+def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, only_test: str | None = None) -> int:
     # faulthandler has a process-global C watchdog. Only the dedicated CLI child
     # owns it; nested run_python_suite unit regressions never arm or cancel it.
     # Periodic dumps work even when Tk blocks while holding the Python GIL.
     faulthandler.dump_traceback_later(diagnostic_after, repeat=True, file=sys.__stderr__, exit=False)
     try:
-        return run_python_suite(report_path, diagnostics=True)
+        return run_python_suite(report_path, diagnostics=True, **({"only_test": only_test} if only_test is not None else {}))
     finally:
         faulthandler.cancel_dump_traceback_later()
 
@@ -643,10 +731,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
     parser.add_argument("--_python-suite", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_single-test", help=argparse.SUPPRESS)
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_diagnostic-after", type=positive_seconds, default=60, help=argparse.SUPPRESS)
     parser.add_argument("--_supervise-command", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args._single_test is not None and args._python_suite is None:
+        parser.error("--_single-test requires --_python-suite")
     if args._supervise_command is not None:
         if sys.stdin.buffer.readline() != b"go\n":
             return 1
@@ -655,7 +746,8 @@ def main(argv: list[str] | None = None) -> int:
             os.execvpe(command[0], command, os.environ)
         return subprocess.call(command)
     if args._python_suite is not None:
-        return _run_diagnostic_python_suite(args._python_suite, args._diagnostic_after)
+        return _run_diagnostic_python_suite(args._python_suite, args._diagnostic_after,
+                                            **({"only_test": args._single_test} if args._single_test is not None else {}))
     if args._dependency_check:
         check_dependencies()
         return 0
