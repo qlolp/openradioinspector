@@ -43,6 +43,7 @@ from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES
 from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
+from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -454,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         parts = route.strip("/").split("/")
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds", "sweep-context", "frequency-rounding", "frequency-counter")):
+                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds", "sweep-context", "frequency-rounding", "frequency-counter", "dvb-evaluation")):
             try:
                 if "?" in self.path:
                     raise ValueError("Анализ не принимает параметры запроса")
@@ -465,6 +466,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
                     "frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
                     "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
+                    "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -898,6 +900,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "dvb-evaluation"
+            ):
+                self._send_json(api_payload(self.sessions.dvb_evaluation(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
             ):
                 self._send_json(api_payload(self.sessions.sweep_mask_analysis(parts[3], payload)))
@@ -1096,6 +1105,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "context_incompatible", str(exc))
         except CounterIncompatibleError as exc:
             self._send_api_error(409, "counter_incompatible", str(exc))
+        except DvbEvaluationError as exc:
+            self._send_api_error(409, "dvb_evaluation_error", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

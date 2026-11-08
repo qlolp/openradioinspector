@@ -293,6 +293,12 @@ class PlatformClient:
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/frequency-counter",
                              payload, expected_statuses=(200,))
 
+    def dvb_evaluation(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from ..dvb_parameters import validate_dvb_request
+        validate_dvb_request(payload)
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/dvb-evaluation",
+                             payload, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

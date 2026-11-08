@@ -212,6 +212,7 @@ final class RemoteDualModel: ObservableObject {
     let frequencyRaster = FrequencyRasterModel()
     let measurementResults = MeasurementResultsModel()
     let frequencyCounter = FrequencyCounterModel()
+    let dvbEvaluation = DvbEvaluationModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -828,6 +829,7 @@ final class RemoteDualModel: ObservableObject {
         frequencyRaster.reset()
         measurementResults.reset()
         frequencyCounter.reset()
+        dvbEvaluation.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1230,7 +1232,9 @@ final class RemoteDualModel: ObservableObject {
             frequencyCounter.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: snapshot.sweeps)
-        } else { measurementResults.reset(); frequencyCounter.reset() }
+            dvbEvaluation.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID))
+        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1460,6 +1464,7 @@ struct RemoteUltraPane: View {
                 RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
+                RemoteDvbEvaluationPane(model: model.dvbEvaluation)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
