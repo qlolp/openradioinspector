@@ -461,6 +461,9 @@ class Handler(BaseHTTPRequestHandler):
         recorder and other subscribers are never blocked.
         """
         import queue as queue_module
+        import select
+        import socket
+        import time
 
         try:
             subscription = self.sessions.audio_stream_subscribe(session_id, stream_id)
@@ -474,14 +477,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Sample-Format", "pcm16le")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            idle = 0.0
-            while idle < 120.0:
+            self.close_connection = True
+            last_block = time.monotonic()
+            while time.monotonic() - last_block < 120.0:
+                # EOF is observable even when the producer has no PCM to send.
+                readable, _, _ = select.select([self.connection], [], [], 0)
+                if readable and not self.connection.recv(1, socket.MSG_PEEK):
+                    break
                 try:
-                    block = subscription.blocks.get(timeout=5.0)
+                    block = subscription.blocks.get(timeout=0.25)
                 except queue_module.Empty:
-                    idle += 5.0
                     continue
-                idle = 0.0
+                last_block = time.monotonic()
                 self.wfile.write(block)
                 self.wfile.flush()
                 subscription.delivered_bytes += len(block)

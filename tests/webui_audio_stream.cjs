@@ -129,7 +129,27 @@ async function guards() {
   assert.equal(lost.dom.refresh.disabled, true);
 }
 
+
+async function oldStreamCannotPublishIntoNewScope() {
+  const app = setup(); app.update();
+  assert.equal(app.dom.stream.disabled, false);
+  let completeRead;
+  const old = app.click('connect');
+  app.requests[0].resolve({ok: true, headers: {get: () => 'audio/pcm'}, body: {getReader: () => ({
+    read: () => new Promise(resolve => { completeRead = resolve; }), cancel: async () => {},
+  })}});
+  await new Promise(resolve => setImmediate(resolve));
+  app.update(STREAMS, 'session/2');
+  assert.equal(app.requests[0].options.signal.aborted, true);
+  const next = app.click('connect');
+  completeRead({done: false, value: new Uint8Array([1,2,3])}); await old;
+  assert.equal(app.dom.connect.disabled, true, 'old finally cannot release new connection');
+  app.requests[1].resolve(app.streamResponse([])); await next;
+  assert(!app.dom.items.children[0].textContent.includes('3 байт'), 'old bytes cannot enter new session');
+}
+
 (async () => {
+  await oldStreamCannotPublishIntoNewScope();
   await happyPath();
   await guards();
   const slice = platformCode.slice(platformCode.indexOf('  function updateComparison('),

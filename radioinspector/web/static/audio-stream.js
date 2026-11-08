@@ -10,6 +10,7 @@
     .map(name => [name, byId(`audio-${name}`)]));
   if (!dom.status) return;
   let scope = "", snapshot = "", connected = true, suspended = false;
+  let generation = 0;
   let streams = [], reader = null, abort = null, received = 0, blocks = 0, connecting = false;
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   function selectedStream() {
@@ -19,8 +20,9 @@
   }
   function controls() {
     const ready = Boolean(scope) && connected && !suspended && streams.length > 0;
+    dom.stream.disabled = !ready || Boolean(abort);
     dom.connect.disabled = !ready || reader !== null || connecting;
-    dom.disconnect.disabled = reader === null;
+    dom.disconnect.disabled = abort === null;
     dom.refresh.disabled = !ready;
   }
   function render() {
@@ -36,53 +38,59 @@
       : "Трансляция запускается кнопкой: аудио поступает из аудиопотока сеанса, клиент его не генерирует.";
   }
   async function open() {
-    if (dom.connect.disabled) return;
+    if (dom.connect.disabled || abort) return;
     let stream;
     try { stream = selectedStream(); } catch (error) { dom.status.textContent = error.message; return; }
-    abort = new AbortController();
-    connecting = true;
-    received = 0; blocks = 0;
-    controls();
-    dom.status.textContent = "Подключение к аудиопотоку…";
+    const controller = new AbortController(), current = ++generation;
+    let localReader = null;
+    abort = controller; connecting = true; received = 0; blocks = 0;
+    controls(); dom.status.textContent = "Подключение к аудиопотоку…";
     try {
       const response = await fetch(
         `/api/v1/sessions/${encodeURIComponent(scope)}/audio/stream?stream_id=${encodeURIComponent(stream)}`,
-        { cache: "no-store", signal: abort.signal });
+        { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`Ошибка ядра ${response.status}`);
       const type = response.headers.get("Content-Type") || "";
       if (!type.includes("audio/pcm")) throw new Error("Сервер не отдаёт audio/pcm");
-      reader = response.body.getReader();
+      localReader = response.body.getReader();
+      if (current !== generation || controller.signal.aborted) return;
+      reader = localReader;
       dom.status.textContent = "Поток открыт; блоки поступают по мере записи.";
       render(); controls();
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await localReader.read();
+        if (current !== generation || controller.signal.aborted) return;
         if (done) break;
         if (value && value.length) { received += value.length; blocks += 1; render(); }
       }
       dom.status.textContent = "Поток завершён сервером.";
     } catch (error) {
-      if (abort && !abort.signal.aborted) {
-        dom.status.textContent = `Поток прерван: ${error.message}`;
-      } else {
-        dom.status.textContent = "Поток отключён.";
-      }
+      if (current === generation) dom.status.textContent = controller.signal.aborted
+        ? "Поток отключён." : `Поток прерван: ${error.message}`;
     } finally {
-      if (reader) { try { reader.cancel(); } catch { /* уже закрыт */ } }
-      reader = null; abort = null; connecting = false;
-      render(); controls();
+      if (localReader) { try { await localReader.cancel(); } catch { /* response already closed */ } }
+      if (current === generation) {
+        reader = null; abort = null; connecting = false; render(); controls();
+      }
     }
   }
-  async function close() {
-    if (abort) abort.abort();
+  function close() {
+    generation += 1;
+    abort?.abort();
+    if (reader) Promise.resolve(reader.cancel()).catch(() => {});
+    reader = null; abort = null; connecting = false;
+    render(); controls();
   }
   async function refresh() {
     if (dom.refresh.disabled) return;
+    const current = generation, session = scope;
     try {
       const stream = selectedStream();
       const response = await fetch(
         `/api/v1/sessions/${encodeURIComponent(scope)}/audio/status?stream_id=${encodeURIComponent(stream)}`,
         { cache: "no-store" });
       const envelope = await response.json();
+      if (current !== generation || session !== scope || !connected || suspended) return;
       if (!response.ok) throw new Error(envelope?.error?.message || `Ошибка ядра ${response.status}`);
       const data = envelope.data;
       if (!object(data) || !Number.isSafeInteger(data.subscribers)) throw new Error("Некорректный статус потока");
@@ -91,6 +99,7 @@
       dom.items.replaceChildren(line);
       dom.status.textContent = "Статус обновлён.";
     } catch (error) {
+      if (current !== generation) return;
       dom.status.textContent = `Ошибка: ${error.message}`;
     }
   }
@@ -100,8 +109,8 @@
     const signature = JSON.stringify(incoming.map(item => item.id));
     const sessionChanged = sessionId !== scope;
     if (!sessionChanged && signature === snapshot) { controls(); return; }
+    if (sessionChanged) { close(); received = 0; blocks = 0; }
     scope = sessionId; snapshot = signature;
-    if (sessionChanged) { received = 0; blocks = 0; }
     streams = incoming;
     const previous = dom.stream.value;
     const options = streams.map(item => {
@@ -122,6 +131,7 @@
     if (!connected) close();
     controls();
   }
+  dom.stream.addEventListener("change", () => { close(); received = 0; blocks = 0; render(); });
   dom.connect.addEventListener("click", open);
   dom.disconnect.addEventListener("click", close);
   dom.refresh.addEventListener("click", refresh);

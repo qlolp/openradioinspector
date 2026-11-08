@@ -42,7 +42,10 @@ def pump_text(stats, running):
             "остановленный клиент теряет только собственную очередь.")
 
 
-class AudioStreamPanel:
+from .tk_timers import TkTimerOwner
+
+
+class AudioStreamPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -57,6 +60,7 @@ class AudioStreamPanel:
         self.connection = None
         self._connection_lock = Lock()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='audio-stream')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Аудио по сети')
@@ -110,13 +114,13 @@ class AudioStreamPanel:
         self.connect_button.configure(state='disabled')
         self.disconnect_button.configure(state='normal')
         self.pump_future = self.executor.submit(
-            self._pump, session, stream, generation, stats, self.stop_event)
-        self.app.root.after(200, lambda: self._display_pump(generation, stats))
+            self._pump, session, stream, generation, stats, self.stop_event, self.app.client)
+        self._schedule_after(self.app.root, 'pump', 200, self._display_pump, generation, stats)
 
-    def _pump(self, session, stream, generation, stats, stop_event):
+    def _pump(self, session, stream, generation, stats, stop_event, client=None):
         connection = None
         try:
-            connection = self.app.client.audio_stream_open(session, stream)
+            connection = (client or self.app.client).audio_stream_open(session, stream)
             with self._connection_lock:
                 if generation != self.generation:
                     connection.close()
@@ -145,7 +149,7 @@ class AudioStreamPanel:
         running = self.pump_future is not None and not stats['done']
         self.show_details(pump_text(stats, running))
         if running:
-            self.app.root.after(200, lambda: self._display_pump(generation, stats))
+            self._schedule_after(self.app.root, 'pump', 200, self._display_pump, generation, stats)
             return
         self.pump_future = None
         self.connect_button.configure(state='normal')
@@ -164,7 +168,7 @@ class AudioStreamPanel:
         with self._connection_lock:
             connection, self.connection = self.connection, None
         if connection is not None:
-            connection.close()
+            connection.cancel_read()
 
     def call_status(self):
         self.update()
@@ -179,7 +183,7 @@ class AudioStreamPanel:
         generation = self.generation
         self.future = self.executor.submit(self.app.client.audio_stream_status,
                                            self.app.session_id, stream)
-        self.app.root.after(50, lambda: self.finish(generation, self.app.session_id, stream))
+        self._schedule_after(self.app.root, 'status', 50, self.finish, generation, self.app.session_id, stream)
 
     def refresh(self):
         self.call_status()
@@ -195,7 +199,7 @@ class AudioStreamPanel:
             self.info.set('Превышен срок ожидания 8 секунд.')
             return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation, session, stream))
+            self._schedule_after(self.app.root, 'status', 50, self.finish, generation, session, stream)
             return
         future, self.future = self.future, None
         try:
@@ -210,7 +214,7 @@ class AudioStreamPanel:
     def update(self):
         if self.closed:
             return
-        scope = (id(self.app.client), self.app.session_id)
+        scope = (id(self.app.client), self.app.session_id, self.app.selected_stream_id())
         if scope != self.scope:
             self.scope = scope
             self.generation += 1
@@ -223,6 +227,11 @@ class AudioStreamPanel:
             self.disconnect_button.configure(state='disabled')
 
     def close(self):
+        if self.closed: return
         self.closed = True
+        self._close_timers()
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
         self.stop_pump()
         self.executor.shutdown(wait=False, cancel_futures=True)

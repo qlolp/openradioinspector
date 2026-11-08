@@ -93,6 +93,7 @@ class AudioStreamConnection:
 
     def __init__(self, response: Any) -> None:
         self._response = response
+        self._socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
         headers = getattr(response, "headers", {}) or {}
         self.content_type = headers.get("Content-Type", "")
         self.sample_rate = headers.get("X-Sample-Rate", "")
@@ -102,6 +103,14 @@ class AudioStreamConnection:
         if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 65536:
             raise ValueError("Размер блока должен быть в диапазоне 1…65536 байт")
         return self._response.read(max_bytes)
+
+    def cancel_read(self) -> None:
+        """Interrupt socket IO without acquiring the buffered reader's lock."""
+        if self._socket is not None:
+            try:
+                self._socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # EOF/another cancellation already closed this socket.
 
     def close(self) -> None:
         try:

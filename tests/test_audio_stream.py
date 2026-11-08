@@ -135,6 +135,22 @@ class AudioStreamHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(envelope["data"]["subscribers"], 0)
 
+    def test_idle_disconnections_release_subscription_slots_promptly(self):
+        for _ in range(5):
+            sock = socket.create_connection(self.server.server_address, timeout=2)
+            sock.sendall((f'GET {self.root}/stream?stream_id={self.stream} HTTP/1.1\r\n'
+                          'Host: localhost\r\nConnection: close\r\n\r\n').encode())
+            header = b''
+            while b'\r\n\r\n' not in header: header += sock.recv(1)
+            self.assertIn(b'200 OK', header)
+            sock.shutdown(socket.SHUT_RDWR); sock.close()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                _, envelope = self.request(self.root + f'/status?stream_id={self.stream}')
+                if envelope['data']['subscribers'] == 0: break
+                time.sleep(0.02)
+            self.assertEqual(envelope['data']['subscribers'], 0)
+
     def test_stream_delivers_pcm_blocks(self):
         # A raw socket reads the endless response; the test pushes frames
         # through the API and reads exactly the expected PCM bytes back.

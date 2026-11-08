@@ -26,6 +26,9 @@ class FakeConnection:
             return b""
         return self.blocks.pop(0) if self.blocks else b""
 
+    def cancel_read(self):
+        self.closed = True
+
     def close(self):
         self.closed = True
 
@@ -137,8 +140,44 @@ class AudioStreamPumpTests(unittest.TestCase):
         p.update()
         self.assertIsNone(p.state)
         self.assertIsNone(p.pump_stats)
-        self.assertEqual(p.scope, (id(p.app.client), "other"))
+        self.assertEqual(p.scope, (id(p.app.client), "other", "tiny"))
         self.assertIsNone(p.future)
+
+
+class AudioCancellationTests(unittest.TestCase):
+    def test_cancellation_interrupts_real_blocked_read_without_closing_on_gui(self):
+        import socket, http.client, threading, time
+        from radioinspector.windows.client import AudioStreamConnection
+        client, peer = socket.socketpair()
+        client.settimeout(2)
+        peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: audio/pcm\r\nConnection: close\r\n\r\n')
+        response = http.client.HTTPResponse(client); response.begin()
+        connection = AudioStreamConnection(response)
+        entered = threading.Event()
+        def read():
+            entered.set()
+            try: connection.read_block(8192)
+            except OSError: pass
+            finally: connection.close()
+        worker = threading.Thread(target=read)
+        try:
+            worker.start(); self.assertTrue(entered.wait(1))
+            p = panel(); p.connection = connection
+            started = time.monotonic(); p.stop_pump()
+            self.assertLess(time.monotonic() - started, 0.5)
+            worker.join(1); self.assertFalse(worker.is_alive())
+        finally:
+            connection.cancel_read(); worker.join(3)
+            response.close(); client.close(); peer.close()
+
+    def test_stream_change_invalidates_pending_status(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.refresh(); current = p.generation
+        p.app.selected_stream_id = lambda: 'other'; p.update()
+        future.set_result(state()); p.finish(current, 'session', 'tiny')
+        self.assertIsNone(p.state)
+        self.assertGreater(p.generation, current)
 
 
 class AudioStreamStatusTests(unittest.TestCase):
