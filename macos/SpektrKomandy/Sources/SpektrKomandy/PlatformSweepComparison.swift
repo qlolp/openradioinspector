@@ -1,7 +1,7 @@
 import Foundation
 
 /// Recorded JSON provenance, including unknown extension keys. Never coerces a boolean to a number.
-public indirect enum PlatformComparisonSetting: Decodable, Equatable {
+public indirect enum PlatformComparisonSetting: Decodable, Encodable, Equatable {
     case string(String), number(Double), boolean(Bool), array([Self]), object([String: Self]), null
 
     public init(from decoder: Decoder) throws {
@@ -14,6 +14,18 @@ public indirect enum PlatformComparisonSetting: Decodable, Equatable {
         else { self = .object(try value.decode([String: Self].self)) }
     }
 
+    public func encode(to encoder: Encoder) throws {
+        var value = encoder.singleValueContainer()
+        switch self {
+        case .string(let item): try value.encode(item)
+        case .number(let item): try value.encode(item)
+        case .boolean(let item): try value.encode(item)
+        case .array(let item): try value.encode(item)
+        case .object(let item): try value.encode(item)
+        case .null: try value.encodeNil()
+        }
+    }
+
     fileprivate var isRecorded: Bool {
         switch self {
         case .null: return false
@@ -24,7 +36,7 @@ public indirect enum PlatformComparisonSetting: Decodable, Equatable {
     }
 }
 
-public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable {
+public struct PlatformComparisonSweep: Decodable, Encodable, Equatable, Identifiable {
     public let id: String
     public let interval: PlatformInterval
     public let levels: [Double]
@@ -40,7 +52,7 @@ public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable {
     }
 }
 
-public struct PlatformComparisonExtremum: Decodable, Equatable {
+public struct PlatformComparisonExtremum: Decodable, Encodable, Equatable {
     public let frequencyHz: Int64
     public let deltaDb: Double
 }

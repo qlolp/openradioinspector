@@ -2,13 +2,13 @@
   "use strict";
 
   // Presentation/consistency only. Equal-weight linear-power averaging lives in the core.
-  const dom = Object.fromEntries(["count", "threshold", "minimumBins", "pin", "run", "clear", "source", "reference", "status", "summary", "overlay", "delta"]
+  const dom = Object.fromEntries(["count", "threshold", "minimumBins", "pin", "run", "export", "clear", "source", "reference", "status", "summary", "overlay", "delta"]
     .map(name => [name, document.getElementById(`average-${name}`)]));
   dom.threshold = document.getElementById("average-detect-threshold");
   dom.minimumBins = document.getElementById("average-detect-bins");
   if (!dom.status) return;
   const MAX_RESPONSE_BYTES = 2000000;
-  let scope = "", snapshot = {}, sweeps = [], reference = null, pending = null, generation = 0;
+  let scope = "", snapshot = {}, sweeps = [], reference = null, result = null, pending = null, generation = 0;
   let connected = true, suspended = false;
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   const finite = value => typeof value === "number" && Number.isFinite(value);
@@ -187,6 +187,7 @@
     }
   }
   function discard() {
+    result = null; dom.export.disabled = true;
     dom.summary.textContent = "";
     for (const canvas of [dom.overlay, dom.delta]) {
       canvas.hidden = true; canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
@@ -200,6 +201,7 @@
     const disabled = suspended || !connected || !snapshot.sessionId || !snapshot.streamId;
     dom.pin.disabled = disabled || Boolean(pending) || !n || available < n + 1;
     dom.run.disabled = disabled || Boolean(pending) || !reference || !source || reference.sources.some(item => item.id === source.id);
+    dom.export.disabled = disabled || Boolean(pending) || !result;
     dom.source.textContent = `В полученном окне: ${available} dBm свипов. Для N=${n ?? "?"} нужно N+1; N не уменьшается автоматически. ` +
       (source ? `Следующая цель: ${source.id} · последний dBm свип выбранного потока.` : "Нет цели для сравнения.");
     dom.reference.textContent = reference ? `Локально закреплено N=${reference.sources.length} · mean_power · равные веса\nUTC охват: ${interval(reference.interval)}\n` +
@@ -278,7 +280,8 @@
     ctx.setLineDash([]); canvas.hidden = false; canvas.setAttribute("aria-label", label);
   }
   const signed = value => `${value > 0 ? "+" : ""}${value}`;
-  function render(result) {
+  function render(analysis) {
+    result = { comparison: analysis.comparison, detection: analysis.detection };
     const data = result.comparison, detection = result.detection;
     const r = data.reference;
     dom.summary.textContent = `Сеанс: ${data.session_id} · поток: ${data.stream_id}\nОпорный: mean_power · N=${r.count} · равные веса\nUTC охват: ${interval(r.interval)}\n` +
@@ -293,6 +296,29 @@
     ], "dBm", `Средняя мощность N=${r.count} и цель ${data.target.id}, dBm; все ${data.points} точек`);
     draw(dom.delta, data, [{ levels: data.delta_levels, color: "#f59a7a", dash: [], label: "Δ = цель − опорный · dB" }],
       "dB", `Разность цели ${data.target.id} и среднего опорного, dB; области обнаружения выделены; все ${data.points} точек`, true, detection.regions);
+  }
+  function exportResult() {
+    if (!result || suspended) return;
+    let url, link;
+    try {
+      const artifact = {
+        format: "openradioinspector-sweep-average-change-detection",
+        format_version: 1,
+        data: result,
+      };
+      url = URL.createObjectURL(new Blob([`${JSON.stringify(artifact, null, 2)}\n`], {
+        type: "application/json;charset=utf-8",
+      }));
+      link = document.createElement("a");
+      link.href = url; link.download = "sweep-average-change-detection.json";
+      document.body.appendChild(link); link.click();
+      dom.status.textContent = "JSON-артефакт передан браузеру; сохранение файла подтверждается браузером.";
+    } catch (error) {
+      dom.status.textContent = `Не удалось экспортировать результат: ${error.message}`;
+    } finally {
+      link?.remove();
+      if (url) window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
   }
   async function compare() {
     if (suspended || !connected || pending || !reference || !latest() || !snapshot.sessionId || !snapshot.streamId) return;
@@ -338,7 +364,8 @@
       window.clearTimeout(timer); if (current === generation) { pending = null; controls(); }
     }
   }
-  dom.pin.addEventListener("click", pin); dom.run.addEventListener("click", compare); dom.clear.addEventListener("click", clear);
+  dom.pin.addEventListener("click", pin); dom.run.addEventListener("click", compare);
+  dom.export.addEventListener("click", exportResult); dom.clear.addEventListener("click", clear);
   dom.count.addEventListener("input", () => { clear(); dom.status.textContent = "N изменено. Заново закрепите ровно N исходных свипов."; });
   for (const input of [dom.threshold, dom.minimumBins]) input.addEventListener("input", () => {
     cancel(); discard(); dom.status.textContent = "Параметры обнаружения изменены. Повторите анализ по кнопке."; controls();

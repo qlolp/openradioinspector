@@ -118,6 +118,27 @@ final class SweepAverageTests: XCTestCase {
             } catch PlatformError.invalidCommand {}
         }
     }
+    func testExportArtifactRoundTripsAllAnalysisAndProvenance() throws {
+        let value: PlatformSweepAverageChangeDetection = try decode(detectionFixture())
+        let bytes = try PlatformSweepAverageExportArtifact(data: value).canonicalData()
+        XCTAssertEqual(bytes.last, 0x0A)
+        let object = try JSONSerialization.jsonObject(with: bytes) as! [String: Any]
+        XCTAssertEqual(object["format"] as? String, "openradioinspector-sweep-average-change-detection")
+        XCTAssertEqual(object["format_version"] as? Int, 1)
+        let data = object["data"] as! [String: Any]
+        let comparison = data["comparison"] as! [String: Any]
+        XCTAssertEqual(comparison["delta_unit"] as? String, "dB")
+        XCTAssertEqual(comparison["frequencies_hz"] as? [Int], [100, 100, 100])
+        let reference = comparison["reference"] as! [String: Any]
+        XCTAssertEqual(reference["source_ids"] as? [String], ["w1", "w2"])
+        XCTAssertEqual((reference["sources"] as! [[String: Any]]).count, 2)
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        XCTAssertEqual(
+            try decoder.decode(PlatformSweepAverageChangeDetection.self,
+                               from: JSONSerialization.data(withJSONObject: data)),
+            value,
+        )
+    }
     func testInvalidRequestsDoNotReachTransport() async throws {
         Stub.handler = { _ in XCTFail("Invalid request reached network") }
         for (refs, target) in [(["w1"], "w3"), (Array(repeating: "w1", count: 17), "w3"),

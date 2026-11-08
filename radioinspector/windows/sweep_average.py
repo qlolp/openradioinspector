@@ -2,7 +2,11 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta
+import json
 from math import isfinite
+import os
+from pathlib import Path
+import tempfile
 from time import monotonic
 import re
 from .spectral_mask import same_json
@@ -153,6 +157,39 @@ def source_text(sources):
     return '\n'.join(lines)
 
 
+def average_change_artifact(comparison, detection):
+    return {
+        'format': 'openradioinspector-sweep-average-change-detection',
+        'format_version': 1,
+        'data': {'comparison': comparison, 'detection': detection},
+    }
+
+
+def save_average_change_file(path, comparison, detection, overwrite=False):
+    payload = (json.dumps(
+        average_change_artifact(comparison, detection),
+        ensure_ascii=False, indent=2, allow_nan=False,
+    ) + '\n').encode('utf-8')
+    destination = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, prefix='.sweep-average-', delete=False,
+        ) as file:
+            temporary = file.name
+            if file.write(payload) != len(payload):
+                raise OSError('Неполная запись файла')
+            file.flush()
+            os.fsync(file.fileno())
+        if overwrite:
+            os.replace(temporary, destination)
+        else:
+            os.link(temporary, destination)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 class AveragePanel(ThresholdPanel):
     def __init__(self, app, notebook):
         self.app = app; self.scope = None; self.generation = 0
@@ -170,6 +207,8 @@ class AveragePanel(ThresholdPanel):
         ttk.Label(row, text='Минимум точек (1…16384)').pack(side='left'); ttk.Entry(row, textvariable=self.minimum_bins, width=8).pack(side='left')
         ttk.Button(row, text='Закрепить N перед последним dBm sweep', command=self.pin).pack(side='left')
         self.button = ttk.Button(row, text='Сравнить и найти изменения', command=self.compare); self.button.pack(side='left')
+        self.export_button = ttk.Button(row, text='Экспорт JSON…', command=self.export_result, state='disabled')
+        self.export_button.pack(side='left')
         ttk.Button(row, text='Очистить', command=self.clear).pack(side='left')
         self.info = tk.StringVar(value='Закрепите N источников; сравнение только по кнопке.')
         ttk.Label(frame, textvariable=self.info, wraplength=1050).pack(fill='x')
@@ -183,11 +222,13 @@ class AveragePanel(ThresholdPanel):
 
     def parameters_changed(self):
         self.abandon(); self.data = self.detection = None
+        self.export_button.configure(state='disabled')
         self.canvas.delete('all'); self.show_details('')
         self.info.set('Параметры обнаружения изменены. Повторите анализ по кнопке; закреплённые источники сохранены.')
 
     def clear(self):
         self.abandon(); self.sources = self.data = self.detection = None
+        self.export_button.configure(state='disabled')
         self.canvas.delete('all'); self.show_details('')
         self.info.set('Опорные источники не закреплены. N предыдущих + последний dBm sweep должны быть в полученном окне.')
 
@@ -231,6 +272,7 @@ class AveragePanel(ThresholdPanel):
         except (ValueError, TypeError, KeyError) as exc:
             self.info.set(str(exc)); return
         self.abandon(); self.data = None; self.canvas.delete('all')
+        self.detection = None; self.export_button.configure(state='disabled')
         self.show_details(source_text(self.sources)); self.target = target
         self.expected = (self.app.session_id, self.app.selected_stream_id())
         self.info.set(f"Сравнение с {target['id']}…"); self.button.configure(state='disabled')
@@ -256,6 +298,7 @@ class AveragePanel(ThresholdPanel):
                 self.minimum_increase_db, self.minimum_bins_value,
             )
             self.data = deepcopy(self.data); self.detection = deepcopy(self.detection)
+            self.export_button.configure(state='normal')
             target = self.data['target']; interval = target['interval']
             regions = self.detection['regions']
             region_text = '\n'.join(
@@ -268,7 +311,32 @@ class AveragePanel(ThresholdPanel):
                 + region_text)
             self.info.set('Результат read-only анализа ядра; кандидаты, события и архив не изменяются.'); self.draw()
         except Exception as exc:
-            self.data = None; self.info.set(f'Усреднённое сравнение недоступно: {exc}')
+            self.data = self.detection = None; self.export_button.configure(state='disabled')
+            self.info.set(f'Усреднённое сравнение недоступно: {exc}')
+
+    def export_result(self):
+        from tkinter import filedialog, messagebox
+        self.update()
+        if self.closed or self.data is None or self.detection is None:
+            return
+        comparison, detection = deepcopy(self.data), deepcopy(self.detection)
+        path = filedialog.asksaveasfilename(
+            parent=self.app.root, title='Экспорт результата усреднённого анализа',
+            defaultextension='.json', initialfile='sweep-average-change-detection.json',
+            filetypes=[('JSON', '*.json')],
+        )
+        if not path:
+            return
+        overwrite = os.path.lexists(path)
+        if overwrite and not messagebox.askyesno(
+            'Заменить файл?', f'Заменить {path}?', parent=self.app.root,
+        ):
+            return
+        try:
+            save_average_change_file(path, comparison, detection, overwrite)
+            self.info.set(f'Результат анализа сохранён: {path}')
+        except (OSError, ValueError, TypeError) as exc:
+            self.info.set(f'Не удалось экспортировать результат: {exc}')
 
     def draw(self):
         self.canvas.delete('all')

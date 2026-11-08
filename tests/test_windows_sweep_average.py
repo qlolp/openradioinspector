@@ -1,5 +1,7 @@
 import io
 import json
+import os
+import tempfile
 import unittest
 import urllib.error
 from concurrent.futures import Future
@@ -10,7 +12,7 @@ from unittest.mock import Mock
 from tests.test_windows_sweep_threshold import panel as base_panel
 from radioinspector.windows.sweep_average import (
     AveragePanel, validate_average, validate_change_detection, validate_change_parameters,
-    validate_ids, source_text,
+    validate_ids, source_text, save_average_change_file,
 )
 from radioinspector.windows.client import PlatformClient, PlatformClientError, MAX_RESPONSE_BYTES
 from radioinspector.contracts import api_payload
@@ -36,6 +38,7 @@ def detection_response():
 def panel():
     base=base_panel(); p=AveragePanel.__new__(AveragePanel); p.__dict__.update(base.__dict__)
     p.sources=None;p.detection=None;p.count=Mock();p.count.get.return_value='3'
+    p.export_button=Mock()
     p.threshold=Mock();p.threshold.get.return_value='6'
     p.minimum_bins=Mock();p.minimum_bins.get.return_value='2'
     p.app.snapshot.sweeps=sources()
@@ -107,6 +110,27 @@ class AverageValidationTests(unittest.TestCase):
         bad = deepcopy(result); bad['detection']['count'] = 1
         with self.assertRaises(ValueError):
             validate_change_detection(bad,('session','s'),sources()[:3],sources()[-1],6,2)
+    def test_analysis_export_is_complete_atomic_and_create_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'analysis.json')
+            save_average_change_file(path, response(), detection_response()['detection'])
+            with open(path, encoding='utf-8') as file:
+                artifact = json.load(file)
+            self.assertEqual(artifact['format'], 'openradioinspector-sweep-average-change-detection')
+            self.assertEqual(artifact['format_version'], 1)
+            self.assertEqual(artifact['data']['comparison'], response())
+            self.assertEqual(artifact['data']['detection'], detection_response()['detection'])
+            with self.assertRaises(FileExistsError):
+                save_average_change_file(path, {}, {}, overwrite=False)
+            with open(path, encoding='utf-8') as file:
+                self.assertEqual(json.load(file)['data']['comparison'], response())
+            save_average_change_file(path, response(), detection_response()['detection'], overwrite=True)
+            self.assertEqual(os.listdir(directory), ['analysis.json'])
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'invalid.json')
+            with self.assertRaises(ValueError):
+                save_average_change_file(path, {'not_finite': float('nan')}, {})
+            self.assertEqual(os.listdir(directory), [])
 
 
 class AverageLifecycleTests(unittest.TestCase):

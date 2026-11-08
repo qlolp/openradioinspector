@@ -192,6 +192,32 @@ final class SweepAverageModelTests: XCTestCase {
         model.configure(client: client, scope: scope, sweeps: try sweeps(1...3)); model.compare()
         XCTAssertNotNil(model.errorText); XCTAssertFalse(model.pending); XCTAssertEqual(model.sources.count, 3)
     }
+    @MainActor func testExportRequiresCurrentCompletedResultAndPreservesSavedFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("analysis.json")
+        let deferred = Deferred(), client = try api()
+        let model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
+        model.configure(client: client, scope: scope, sweeps: try sweeps())
+        model.pin(); model.compare(); try await waitFor { deferred.requests.count == 1 }
+        let stale: PlatformSweepAverageChangeDetection = try decode(detectionBody())
+        XCTAssertFalse(model.exportValidated(to: destination, expected: stale))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+        deferred.release(try decode(detectionBody()))
+        try await waitFor { model.result != nil }
+        let expected = try XCTUnwrap(model.result)
+        XCTAssertTrue(model.exportValidated(to: destination, expected: expected))
+        let saved = try Data(contentsOf: destination)
+        let object = try JSONSerialization.jsonObject(with: saved) as! [String: Any]
+        XCTAssertEqual(object["format"] as? String, "openradioinspector-sweep-average-change-detection")
+        XCTAssertFalse(model.exportValidated(to: nil, expected: expected))
+        model.clear()
+        XCTAssertFalse(model.exportValidated(to: destination, expected: expected))
+        XCTAssertEqual(try Data(contentsOf: destination), saved)
+    }
     @MainActor func testActualTransportCancellationAndErrorsRetry() async throws {
         let model = SweepAverageModel(), client = try api()
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin()

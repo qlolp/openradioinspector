@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import SpektrKomandy
 
 /// Value-type snapshots are local only. Polling changes the next target, never a pin or completed result.
@@ -55,6 +57,24 @@ final class SweepAverageModel: ObservableObject {
         pending = false; result = nil; errorText = nil
     }
     func clear() { cancelRequest(); sources = [] }
+    @discardableResult func exportValidated(
+        to url: URL?, expected: PlatformSweepAverageChangeDetection,
+    ) -> Bool {
+        guard let url else { return false }
+        guard result == expected, !pending, url.isFileURL else {
+            errorText = "Результат изменился или назначение недоступно. Повторите анализ и экспорт."
+            return false
+        }
+        do {
+            let data = try PlatformSweepAverageExportArtifact(data: expected).canonicalData()
+            try data.write(to: url, options: .atomic)
+            errorText = nil
+            return true
+        } catch {
+            errorText = describeSession(error)
+            return false
+        }
+    }
     func pin() {
         clear()
         guard let count else { errorText = "N должно быть целым числом 2–16."; return }
@@ -132,6 +152,9 @@ struct RemoteSweepAveragePane: View {
                     TextField("Точек: 1–16384", text: $model.minimumBinsText).textFieldStyle(.roundedBorder).frame(width: 120)
                     Button("PIN · закрепить N предыдущих") { model.pin() }.disabled(model.pending)
                     Button("Сравнить и найти изменения") { model.compare() }.disabled(!model.canCompare || model.pending)
+                    if let result = model.result {
+                        Button("Экспорт JSON…") { exportFile(result) }.disabled(model.pending)
+                    }
                     Button(model.pending ? "Отмена и очистка" : "Очистить эталон") { model.clear() }
                     if model.pending { ProgressView().controlSize(.small) }
                 }
@@ -151,6 +174,14 @@ struct RemoteSweepAveragePane: View {
                 Text("Равновесное среднее линейной мощности отображается в dBm; ядро находит непрерывные области, где target превышает опорный на заданную величину в dB. Только чтение и расчёт по кнопке: кандидаты, события и архив не меняются. Новые polling/SSE данные не меняют закреплённые источники или результат.")
                     .foregroundStyle(.secondary)
             }.font(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private func exportFile(_ expected: PlatformSweepAverageChangeDetection) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "sweep-average-change-detection.json"
+        if panel.runModal() == .OK {
+            _ = model.exportValidated(to: panel.url, expected: expected)
         }
     }
     private func resultView(_ result: PlatformSweepAverageChangeDetection) -> some View {

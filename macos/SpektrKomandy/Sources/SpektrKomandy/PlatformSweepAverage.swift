@@ -1,13 +1,13 @@
 import Foundation
 
 /// Source provenance is preserved independently from the core's derived mean-power levels.
-public struct PlatformAverageSource: Decodable, Equatable {
+public struct PlatformAverageSource: Decodable, Encodable, Equatable {
     public let id: String
     public let interval: PlatformInterval
     public let settings: [String: PlatformComparisonSetting]
 }
 
-public struct PlatformAveragedReference: Decodable, Equatable {
+public struct PlatformAveragedReference: Decodable, Encodable, Equatable {
     public let method: String
     public let count: Int
     public let sourceIds: [String]
@@ -17,7 +17,7 @@ public struct PlatformAveragedReference: Decodable, Equatable {
     public let levelUnit: String
 }
 
-public struct PlatformSweepAverageComparison: Decodable, Equatable {
+public struct PlatformSweepAverageComparison: Decodable, Encodable, Equatable {
     public let sessionId: String
     public let streamId: String
     public let frequenciesHz: [Int64]
@@ -108,7 +108,7 @@ public struct PlatformSweepAverageComparison: Decodable, Equatable {
     }
 }
 
-public struct PlatformSweepChangeRegion: Decodable, Equatable {
+public struct PlatformSweepChangeRegion: Decodable, Encodable, Equatable {
     public let startIndex: Int
     public let endIndex: Int
     public let startFrequencyHz: Int64
@@ -119,14 +119,14 @@ public struct PlatformSweepChangeRegion: Decodable, Equatable {
     public let binCount: Int
 }
 
-public struct PlatformSweepChangeDetection: Decodable, Equatable {
+public struct PlatformSweepChangeDetection: Decodable, Encodable, Equatable {
     public let minimumIncreaseDb: Double
     public let minimumBins: Int
     public let regions: [PlatformSweepChangeRegion]
     public let count: Int
 }
 
-public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
+public struct PlatformSweepAverageChangeDetection: Decodable, Encodable, Equatable {
     public let comparison: PlatformSweepAverageComparison
     public let detection: PlatformSweepChangeDetection
 
@@ -169,6 +169,25 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
         guard detection.regions == expected else {
             throw PlatformError.invalidResponse("Области обнаружения не согласованы с разностью свипов")
         }
+    }
+}
+
+public struct PlatformSweepAverageExportArtifact: Encodable {
+    public let format = "openradioinspector-sweep-average-change-detection"
+    public let formatVersion = 1
+    public let data: PlatformSweepAverageChangeDetection
+
+    public init(data: PlatformSweepAverageChangeDetection) {
+        self.data = data
+    }
+
+    public func canonicalData() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        var bytes = try encoder.encode(self)
+        bytes.append(0x0A)
+        return bytes
     }
 }
 

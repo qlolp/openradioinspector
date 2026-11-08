@@ -666,3 +666,6 @@ bins. Query string запрещён, тело ограничено 8192 байт
 создаёт кандидатов, событий или архивных записей и не меняет политику
 `automatic_candidate_detection`. Пределы и форма ответа:
 [sweep-change-detection.md](sweep-change-detection.md).
+Клиенты могут сохранить проверенный результат в локальный версионированный
+JSON-артефакт; это не отдельный серверный маршрут и не запись в архив.
+Формат файла: [sweep-average-export.md](sweep-average-export.md).

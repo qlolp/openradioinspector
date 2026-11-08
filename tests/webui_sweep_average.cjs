@@ -55,15 +55,23 @@ function setup() {
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['count', 'threshold', 'minimumBins', 'pin', 'run', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
+  for (const name of ['count', 'threshold', 'minimumBins', 'pin', 'run', 'export', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
   dom.count.value = '3'; dom.threshold.value = '6'; dom.minimumBins.value = '2';
+  const downloads = [], revoked = [];
+  const urlApi = { createObjectURL(blob) { downloads.push(blob); return 'blob:analysis'; },
+    revokeObjectURL(url) { revoked.push(url); } };
+  class SyntheticBlob { constructor(parts, options) { this.parts = parts; this.type = options.type; } }
   const window = { location: { origin: 'http://server-a' }, addEventListener(event, fn) { events[event] = fn; },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); } };
   const context = vm.createContext({ window, document: { getElementById(id) {
     if (id === 'average-detect-threshold') return dom.threshold;
     if (id === 'average-detect-bins') return dom.minimumBins;
     return dom[id.replace('average-', '')];
-  } },
+  }, createElement(tag) {
+    assert.equal(tag, 'a');
+    return { remove() { this.removed = true; }, click() { this.clicked = true; downloads.push(this); } };
+  }, body: { appendChild(link) { link.appended = true; } } },
+    URL: urlApi, Blob: SyntheticBlob,
     URLSearchParams, AbortController, TextDecoder, TextEncoder, fetch(url, options) { return new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })); } });
   vm.runInContext(code, context);
   function update(sweeps, sessionId = 'session/1', streamId = 'tiny/1') { window.OpenRadioSweepAverage.update({ sweeps, sessionId, streamId }); }
@@ -77,7 +85,7 @@ function setup() {
     const body = Buffer.from(json); requests[index].resolve(streamResponse([body], String(body.length), status));
   }
   function pin(sweeps = group(), n = 3) { dom.count.value = String(n); update(sweeps); click('pin'); }
-  return { dom, events, requests, timers, drawing, window, context, update, click, respond, pin };
+  return { dom, events, requests, timers, drawing, downloads, revoked, window, context, update, click, respond, pin };
 }
 function streamResponse(chunks, length = null, status = 200) {
   const state = { reads: 0, cancelled: 0, released: 0 };
@@ -107,8 +115,19 @@ async function happyAndFrozen() {
   all.at(-1).settings.nested.array[0] = 999; all.at(-1).levels[0] = -500;
   app.respond(0, payload(sources, target)); await promise;
   assert.equal(app.dom.overlay.hidden, false, app.dom.status.textContent); assert.equal(app.dom.delta.hidden, false);
+  assert.equal(app.dom.export.disabled, false);
   assert.match(app.dom.summary.textContent, /\+5 dB @ 200/); assert.match(app.dom.summary.textContent, /-2 dB @ 500/);
   assert.match(app.dom.summary.textContent, /Все 7 точек/); assert.match(app.dom.status.textContent, /read-only/);
+  app.click('export');
+  const artifact = JSON.parse(app.downloads[0].parts[0]);
+  assert.equal(app.downloads[0].type, 'application/json;charset=utf-8');
+  assert.equal(app.downloads[1].download, 'sweep-average-change-detection.json');
+  assert.equal(artifact.format, 'openradioinspector-sweep-average-change-detection');
+  assert.equal(artifact.format_version, 1);
+  assert.deepEqual(artifact.data.comparison.reference.source_ids, sources.map(source => source.id));
+  assert.deepEqual(artifact.data.detection.regions, detection(payload(sources, target)).detection.regions);
+  for (const [id, { fn }] of app.timers) { fn(); app.timers.delete(id); }
+  assert.deepEqual(app.revoked, ['blob:analysis']);
   assert.equal(app.dom.reference.textContent, pinnedText); assert.equal(app.timers.size, 0);
   assert.equal(app.drawing.filter(row => ['moveTo', 'lineTo'].includes(row[0])).length, 23, 'all three traces plus zero line');
   const frozen = app.dom.summary.textContent;
@@ -117,6 +136,7 @@ async function happyAndFrozen() {
   const again = app.click('run'); app.respond(1, payload(sources, next)); await again;
   assert.match(app.dom.summary.textContent, /new-target/);
   app.click('clear'); assert.equal(app.dom.summary.textContent, ''); assert.equal(app.dom.run.disabled, true);
+  assert.equal(app.dom.export.disabled, true);
   assert.equal(app.dom.overlay.hidden, true); assert.equal(app.dom.delta.hidden, true);
 }
 async function pinBoundaries() {
