@@ -9,6 +9,8 @@ are owned here. Hardware acceptance remains a separate, explicit operation.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import faulthandler
 import importlib
 import json
 import os
@@ -83,11 +85,15 @@ def check_dependencies() -> None:
         except ImportError as error:
             raise ReleaseCheckError(f"Required dependency {module!r} is unavailable: {error}") from error
     import tkinter
+    print(f"[release-runtime] Python={sys.version.split()[0]} platform={sys.platform}", flush=True)
     try:
         root = tkinter.Tk()
         try:
             root.withdraw()
             root.update_idletasks()
+            print(f"[release-runtime] Tcl={root.tk.call('info', 'patchlevel')} "
+                  f"Tk={root.tk.call('package', 'provide', 'Tk')} "
+                  f"windowing={root.tk.call('tk', 'windowingsystem')}", flush=True)
         finally:
             root.destroy()
     except tkinter.TclError as error:
@@ -106,10 +112,33 @@ def unexpected_skips(skipped: list[tuple[str, str]], *, platform: str = os.name)
     return [(test, reason) for test, reason in skipped if not allowed(test, reason)]
 
 
-def run_python_suite(report_path: Path) -> int:
+class DiagnosticTestResult(unittest.TextTestResult):
+    """Timestamp test boundaries without changing their execution or outcome."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._run_started = time.monotonic()
+        self._test_started = self._run_started
+
+    def _event(self, action: str, test, now: float) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        duration = f" duration={now - self._test_started:.3f}s" if action == "stop" else ""
+        self.stream.writeln(f"\n[release-test-{action}] utc={timestamp} elapsed={now - self._run_started:.3f}s{duration} id={test.id()}")
+        self.stream.flush()
+
+    def startTest(self, test):
+        self._test_started = time.monotonic()
+        self._event("start", test, self._test_started)
+        super().startTest(test)
+
+    def stopTest(self, test):
+        super().stopTest(test)
+        self._event("stop", test, time.monotonic())
+
+
+def run_python_suite(report_path: Path, *, diagnostics: bool = False) -> int:
     with local_loopback_names():
         suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
-        result = unittest.TextTestRunner(verbosity=2).run(suite)
+        result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
     report = {"tests_run": result.testsRun, "successful": result.wasSuccessful(),
@@ -118,6 +147,17 @@ def run_python_suite(report_path: Path) -> int:
     for test, reason in unexpected:
         print(f"UNEXPECTED SKIP: {test}: {reason}", file=sys.stderr)
     return 0 if result.wasSuccessful() and result.testsRun > 0 and not unexpected else 1
+
+
+def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float) -> int:
+    # faulthandler has a process-global C watchdog. Only the dedicated CLI child
+    # owns it; nested run_python_suite unit regressions never arm or cancel it.
+    # Periodic dumps work even when Tk blocks while holding the Python GIL.
+    faulthandler.dump_traceback_later(diagnostic_after, repeat=True, file=sys.__stderr__, exit=False)
+    try:
+        return run_python_suite(report_path, diagnostics=True)
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
 
 def _read(path: Path) -> str:
@@ -543,7 +583,8 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
                 print(f"{module}: {environment[key]}", flush=True)
             environment["THREE_THRESHOLDS_SMOKE_URL"] = environment["ORI_THREE_THRESHOLDS_SMOKE_BASE_URL"]
             report_path = directory / "python-results.json"
-            run_command([sys.executable, "-m", "tests.run_release_checks", "--_python-suite", str(report_path)],
+            run_command([sys.executable, "-m", "tests.run_release_checks", "--_diagnostic-after",
+                         str(min(60.0, command_timeout * 0.8)), "--_python-suite", str(report_path)],
                         name="python-node-tk", environment=environment, directory=directory,
                         timeout=command_timeout, shutdown_timeout=shutdown_timeout)
             report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -603,6 +644,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
     parser.add_argument("--_python-suite", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--_diagnostic-after", type=positive_seconds, default=60, help=argparse.SUPPRESS)
     parser.add_argument("--_supervise-command", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args._supervise_command is not None:
@@ -613,7 +655,7 @@ def main(argv: list[str] | None = None) -> int:
             os.execvpe(command[0], command, os.environ)
         return subprocess.call(command)
     if args._python_suite is not None:
-        return run_python_suite(args._python_suite)
+        return _run_diagnostic_python_suite(args._python_suite, args._diagnostic_after)
     if args._dependency_check:
         check_dependencies()
         return 0
