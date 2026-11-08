@@ -54,7 +54,7 @@ class SignalListPanel(TkTimerOwner):
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Список сигналов')
-        ttk.Label(frame, text='Экспорт сериализует архивных кандидатов сеанса; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.', wraplength=1050).pack(fill='x')
+        ttk.Label(frame, text='Экспорт сериализует архивных кандидатов выбранного потока; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.', wraplength=1050).pack(fill='x')
         row = ttk.Frame(frame); row.pack(fill='x')
         ttk.Label(row, text='Имя списка').pack(side='left')
         self.name = tk.StringVar(value='Список сигналов')
