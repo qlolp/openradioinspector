@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -119,15 +120,124 @@ class ReleaseGateTests(unittest.TestCase):
 
 
 class ReleaseDiagnosticTests(unittest.TestCase):
+    def test_windows_supervisor_preserves_dword_bits_and_logs_original_status(self):
+        for raw, signed in ((0, 0), (9, 9), (0x7fffffff, 0x7fffffff),
+                            (0x80000000, -0x80000000), (0xc0000005, -1073741819),
+                            (0xffffffff, -1)):
+            with self.subTest(raw=raw), redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(release._windows_supervisor_exit_status(raw), signed)
+                self.assertEqual(signed & 0xffffffff, raw)
+                self.assertEqual(output.getvalue(),
+                                 f"[release-child-exit] decimal={raw} hex=0x{raw:08X}\n")
+        for invalid in (-1, 0x100000000, True, 1.0, "1"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                release._windows_supervisor_exit_status(invalid)
+
+
+    def test_windows_supervisor_waits_for_assignment_and_propagates_child_status(self):
+        command = ["owned-python", "-c", "synthetic"]
+        for gate in (b"", b"wrong\n", b"go\n"):
+            with self.subTest(gate=gate), patch.object(release, "os", SimpleNamespace(name="nt")), patch.object(release.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(gate))), patch.object(release.subprocess, "call", return_value=0xc0000005) as call, redirect_stderr(io.StringIO()) as output:
+                result = release.main(["--_supervise-command", json.dumps(command)])
+                if gate == b"go\n":
+                    self.assertEqual(result, -1073741819)
+                    call.assert_called_once_with(command)
+                    self.assertIn("decimal=3221225477 hex=0xC0000005", output.getvalue())
+                else:
+                    self.assertEqual(result, 1)
+                    call.assert_not_called()
+                    self.assertEqual(output.getvalue(), "")
+
+
+    def test_watchdog_version_boundaries_preserve_single_selection_and_cleanup(self):
+        for version, native in (((3, 12, 10), False), ((3, 13, 9), False),
+                                ((3, 13, 10), True), ((3, 14, 0), False),
+                                ((3, 14, 1), True)):
+            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
+                with self.subTest(version=version, outcome=outcome), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                    if isinstance(outcome, BaseException):
+                        suite.side_effect = outcome
+                        with self.assertRaises(type(outcome)):
+                            release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
+                    else:
+                        suite.return_value = outcome
+                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
+                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
+                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                    if native:
+                        watchdog.assert_not_called()
+                        arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
+                        cancel.assert_called_once_with()
+                    else:
+                        arm.assert_not_called()
+                        cancel.assert_not_called()
+                        watchdog.assert_called_once_with(60, sys.__stderr__)
+                        watchdog.return_value.start.assert_called_once_with()
+                        watchdog.return_value.close.assert_called_once_with()
+
+
+    def test_gil_watchdog_repeats_and_records_dump_failure(self):
+        stream = io.StringIO()
+        watchdog = release._GilSafeWatchdog(60, stream)
+        watchdog.stopped = Mock()
+        watchdog.stopped.wait.side_effect = [False, False, True]
+        with patch.object(release.faulthandler, "dump_traceback") as dump:
+            watchdog._run()
+        self.assertEqual(dump.call_count, 2)
+        dump.assert_called_with(file=stream, all_threads=True)
+        self.assertEqual(stream.getvalue().count("GIL-safe diagnostic watchdog"), 2)
+        failure = RuntimeError("dump failed")
+        watchdog.stopped.wait.side_effect = [False]
+        with patch.object(release.faulthandler, "dump_traceback", side_effect=failure):
+            watchdog._run()
+        self.assertIs(watchdog.error, failure)
+
+
+    def test_gil_watchdog_join_is_bounded_and_errors_fail_closed(self):
+        for alive, error in ((False, None), (True, None), (False, RuntimeError("dump failed"))):
+            with self.subTest(alive=alive, error=error):
+                watchdog = release._GilSafeWatchdog(60, io.StringIO())
+                watchdog.thread = Mock()
+                watchdog.thread.is_alive.return_value = alive
+                watchdog.error = error
+                if alive or error:
+                    with self.assertRaises(release.ReleaseCheckError):
+                        watchdog.close()
+                else:
+                    watchdog.close()
+                self.assertTrue(watchdog.stopped.is_set())
+                watchdog.thread.join.assert_called_once_with(timeout=2)
+
+
+    def test_gil_watchdog_real_thread_dumps_and_joins(self):
+        dumped = threading.Event()
+        watchdog = release._GilSafeWatchdog(0.01, io.StringIO())
+        with patch.object(release.faulthandler, "dump_traceback", side_effect=lambda **kwargs: dumped.set()):
+            watchdog.start()
+            try:
+                self.assertTrue(dumped.wait(2), "owned watchdog did not dump")
+            finally:
+                watchdog.close()
+        self.assertFalse(watchdog.thread.is_alive())
+
+
+    def test_gil_watchdog_close_failure_cannot_turn_suite_into_success(self):
+        with patch.object(release.sys, "version_info", (3, 12, 10)), patch.object(release.faulthandler, "enable"), patch.object(release, "run_python_suite", return_value=0), patch.object(release, "_GilSafeWatchdog") as watchdog:
+            watchdog.return_value.close.side_effect = release.ReleaseCheckError("watchdog failed")
+            with self.assertRaisesRegex(release.ReleaseCheckError, "watchdog failed"):
+                release._run_diagnostic_python_suite(Path("unused.json"), 60)
+
+
     def test_nested_plain_suite_never_changes_process_global_watchdog(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel, redirect_stderr(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel, redirect_stderr(io.StringIO()):
             release.run_python_suite(Path(directory) / "nested.json")
         arm.assert_not_called()
         cancel.assert_not_called()
+        enable.assert_not_called()
 
     def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
         for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
-            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
                 if isinstance(outcome, BaseException):
                     suite.side_effect = outcome
                     with self.assertRaises(type(outcome)):
@@ -136,6 +246,7 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                     suite.return_value = outcome
                     self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
                 arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
+                enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
                 cancel.assert_called_once_with()
                 suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
 
@@ -275,6 +386,19 @@ class OwnedProcessTests(unittest.TestCase):
             release.run_command([sys.executable, "-c", "print('проверка'); raise SystemExit(9)"],
                                 name="failed", environment=self.environment, directory=self.directory, timeout=5)
         self.assertIn("проверка", output.getvalue())
+        if sys.platform == "win32":
+            # Exit only our owned synthetic child, without generating a crash dump.
+            for status in (0x80000000, 0xc0000005, 0xffffffff):
+                body = ("import ctypes; from ctypes import wintypes; "
+                        "exit_process = ctypes.WinDLL('kernel32').ExitProcess; "
+                        "exit_process.argtypes = [wintypes.UINT]; "
+                        "exit_process.restype = None; "
+                        f"exit_process({status})")
+                with self.subTest(status=status), redirect_stdout(io.StringIO()) as output, self.assertRaisesRegex(release.ReleaseCheckError, f"status {status}$"):
+                    release.run_command([sys.executable, "-c", body], name="dword-exit",
+                                        environment=self.environment, directory=self.directory,
+                                        timeout=5, shutdown_timeout=2)
+                self.assertIn(f"decimal={status} hex=0x{status:08X}", output.getvalue())
         with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", "import time; time.sleep(30)"],
                                 name="timeout", environment=self.environment, directory=self.directory,
@@ -463,6 +587,184 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         process.kill.assert_not_called()
 
 
+class IsolatedTkHarnessTests(unittest.TestCase):
+    case_id = "tests.test_windows_sweep_average.AverageActualTkHTTPTests.test_synthetic"
+
+    def report(self, **changes):
+        return {"tests_run": 1, "successful": True, "selected_test": self.case_id,
+                "skipped": [], "unexpected_skips": [], **changes}
+
+    def run_child(self, report, *, returncode=0, error=None):
+        def child(command, **kwargs):
+            self.assertEqual(command[command.index("--_single-test") + 1], self.case_id)
+            self.assertEqual(command[command.index("--_diagnostic-after") + 1], "30")
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+            self.assertEqual(kwargs["timeout"], 90)
+            self.assertEqual(kwargs["cwd"], release.ROOT)
+            for option in ("env", "start_new_session", "creationflags"):
+                self.assertNotIn(option, kwargs)
+            kwargs["stdout"].write("CHILD DIAGNOSTIC\n")
+            if report is not None:
+                Path(command[-1]).write_text(report if isinstance(report, str) else json.dumps(report))
+            if error is not None:
+                raise error
+            return SimpleNamespace(returncode=returncode)
+        result = unittest.TestResult()
+        with patch.object(release.subprocess, "run", side_effect=child), redirect_stderr(io.StringIO()) as output:
+            release.IsolatedTkTest(self.case_id).run(result)
+        self.assertIn("CHILD DIAGNOSTIC", output.getvalue())
+        self.assertEqual(result.testsRun, 1)
+        return result
+
+    def test_success_identity_count_and_child_contract(self):
+        result = self.run_child(self.report())
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(result.skipped, [])
+        self.assertEqual(release.IsolatedTkTest(self.case_id).id(), self.case_id)
+
+    def test_failures_reports_and_exit_status_never_become_pass_or_skip(self):
+        for report in (None, "not json", "[]", {}, self.report(tests_run=0),
+                       self.report(tests_run=2), self.report(tests_run=True),
+                       self.report(selected_test="wrong"), self.report(successful=False),
+                       self.report(successful="true"), self.report(skipped=None),
+                       self.report(skipped=[["wrong", "reason"]]),
+                       self.report(skipped=[[self.case_id, "reason"]] * 2),
+                       self.report(unexpected_skips=[[self.case_id, "reason"]]),
+                       self.report(skipped=[[self.case_id, "forged allowed skip"]], unexpected_skips=[]),
+                       self.report(skipped=[[self.case_id, "reason"]], unexpected_skips=[[self.case_id, "reason"]])):
+            with self.subTest(report=report):
+                result = self.run_child(report)
+                self.assertFalse(result.wasSuccessful())
+                self.assertEqual(result.skipped, [])
+        for status in (1, 9, -9):
+            for skipped in ([], [[self.case_id, "reason"]]):
+                with self.subTest(status=status, skipped=skipped):
+                    result = self.run_child(self.report(skipped=skipped, unexpected_skips=skipped), returncode=status)
+                    self.assertFalse(result.wasSuccessful())
+                    self.assertEqual(result.skipped, [])
+        result = self.run_child(self.report(), error=subprocess.TimeoutExpired("child", 90))
+        self.assertFalse(result.wasSuccessful())
+        self.assertEqual(result.skipped, [])
+
+    def test_valid_allowed_skip_is_preserved_without_expanding_policy(self):
+        with patch.object(release, "unexpected_skips", return_value=[]):
+            result = self.run_child(self.report(skipped=[[self.case_id, "allowed reason"]]))
+        self.assertEqual([(test.id(), reason) for test, reason in result.skipped],
+                         [(self.case_id, "allowed reason")])
+        result = self.run_child(self.report(skipped=[[self.case_id, "unexpected"]],
+                                            unexpected_skips=[[self.case_id, "unexpected"]]), returncode=1)
+        self.assertFalse(result.wasSuccessful())
+
+    def test_only_five_named_classes_are_wrapped_and_lifecycle_is_unchanged(self):
+        expected_classes = {
+            "tests.test_windows_release_flows.WindowsReleaseFlowTests",
+            "tests.test_windows_sweep_context.ActualTkHTTPTests",
+            "tests.test_windows_three_thresholds.ActualTkHTTPTests",
+            "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
+            "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+        }
+        self.assertEqual(release.MACOS_TK_CLASSES, expected_classes)
+        cases = []
+        for name in sorted(expected_classes):
+            case = unittest.FunctionTestCase(lambda: None)
+            case.id = lambda name=name: name + ".test_owned"
+            cases.append(case)
+        unchanged = []
+        for name in ("tests.test_windows_tk_lifecycle.HiddenTkTimerLifecycleTests",
+                     "tests.test_windows_tk_ownership.InterpreterOwnershipSubprocessTests"):
+            case = unittest.FunctionTestCase(lambda: None)
+            case.id = lambda name=name: name + ".test_owned"
+            unchanged.append(case)
+        suite = release.isolate_tk_cases(unittest.TestSuite([unittest.TestSuite(cases), *unchanged]))
+        self.assertEqual(suite.countTestCases(), 7)
+        self.assertEqual(list(release._case_ids(suite)), [case.id() for case in cases + unchanged])
+        self.assertTrue(all(isinstance(case, release.IsolatedTkTest) for case in next(iter(suite))))
+        for actual, original in zip(list(suite)[1:], unchanged):
+            self.assertIs(actual, original)
+
+    def test_single_selection_never_discovers_or_recursively_isolates(self):
+        case = unittest.FunctionTestCase(lambda: None)
+        case.id = lambda: self.case_id
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite([case])), \
+                patch.object(release.unittest.defaultTestLoader, "discover") as discover, \
+                patch.object(release, "isolate_tk_cases") as isolate, redirect_stderr(io.StringIO()):
+            path = Path(directory) / "report.json"
+            self.assertEqual(release.run_python_suite(path, only_test=self.case_id), 0)
+            self.assertEqual(json.loads(path.read_text())["selected_test"], self.case_id)
+            discover.assert_not_called()
+            isolate.assert_not_called()
+
+    def test_single_selection_rejects_empty_multiple_and_wrong_identity(self):
+        case = unittest.FunctionTestCase(lambda: None)
+        for cases in ([], [case, case], [case]):
+            with self.subTest(count=len(cases)), \
+                    patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite(cases)), \
+                    self.assertRaisesRegex(release.ReleaseCheckError, "exactly"):
+                release.run_python_suite(Path("unused.json"), only_test=self.case_id)
+
+    def test_outer_timeout_retains_live_child_diagnostics_and_reaps_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready, leaked = root / "ready", root / "leaked"
+            child = ("import sys,time\nfrom pathlib import Path\n"
+                     "from tests import run_release_checks as r\n"
+                     "def synthetic_blocked_test(*args, **kwargs):\n"
+                     f"    Path({str(ready)!r}).write_text('ready')\n"
+                     "    print('CHILD_STDOUT', flush=True)\n"
+                     "    print('CHILD_STDERR', file=sys.stderr, flush=True)\n"
+                     "    time.sleep(1.5)\n"
+                     f"    Path({str(leaked)!r}).write_text('leaked')\n"
+                     "    return 0\n"
+                     "r.run_python_suite = synthetic_blocked_test\n"
+                     "r._run_diagnostic_python_suite(Path('unused.json'), 0.05)\n")
+            parent = ("import subprocess,sys; from tests import run_release_checks as r; "
+                      "original = subprocess.run; "
+                      f"r.subprocess.run = lambda command, **kwargs: original([sys.executable, '-c', {child!r}], **kwargs); "
+                      f"r.IsolatedTkTest({self.case_id!r}).runTest()")
+            popen = subprocess.Popen
+            def start(*args, **kwargs):
+                process = popen(*args, **kwargs)
+                wait = process.wait
+                first_wait = True
+                def wait_after_ready(*, timeout=None):
+                    nonlocal first_wait
+                    if first_wait:
+                        first_wait = False
+                        deadline = time.monotonic() + 20
+                        while not ready.exists() and process.poll() is None:
+                            if time.monotonic() >= deadline:
+                                self.fail("synthetic child did not become ready within startup allowance")
+                            time.sleep(0.01)
+                        self.assertTrue(ready.exists(), "synthetic child exited before readiness")
+                        return wait(timeout=0.3)
+                    return wait(timeout=timeout)
+                process.wait = wait_after_ready
+                return process
+            # Start the short timeout only once the real nested child is ready;
+            # cold Windows/macOS Python imports get a separate startup allowance.
+            with patch.object(release.subprocess, "Popen", side_effect=start), \
+                    redirect_stdout(io.StringIO()) as output, self.assertRaises(subprocess.TimeoutExpired):
+                release.run_command([sys.executable, "-c", parent], name="isolated-outer-timeout",
+                                    environment=release.child_environment(), directory=root,
+                                    timeout=20, shutdown_timeout=2)
+            self.assertTrue(ready.exists())
+            self.assertIn("CHILD_STDOUT", output.getvalue())
+            self.assertIn("CHILD_STDERR", output.getvalue())
+            self.assertIn("Timeout", output.getvalue())
+            self.assertIn('File "<string>"', output.getvalue())
+            time.sleep(1.6)
+            self.assertFalse(leaked.exists())
+
+    def test_single_cli_arms_watchdog_and_requires_report_path(self):
+        with patch.object(release, "_run_diagnostic_python_suite", return_value=0) as run:
+            self.assertEqual(release.main(["--_single-test", self.case_id, "--_python-suite", "owned.json"]), 0)
+            run.assert_called_once_with(Path("owned.json"), 60, only_test=self.case_id)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            release.main(["--_single-test", self.case_id])
+
+
 class OrchestrationTests(unittest.TestCase):
     def make_runner(self, *, failure=None, bad_cleanup=False):
         fixtures = []
@@ -582,7 +884,7 @@ class IsolatedTkProcessTests(unittest.TestCase):
                 if isinstance(item,unittest.TestSuite):yield from flatten(item)
                 else:yield item
         before=list(flatten(suite))
-        after=list(release.isolate_tk_cases(suite))
+        after=list(flatten(release.isolate_tk_cases(suite)))
         self.assertEqual([test.id() for test in before],[test.id() for test in after])
         expected=[test for test in before if type(test).__name__=='AverageActualTkHTTPTests']
         self.assertEqual(sum(isinstance(test,release.IsolatedTkTest) for test in after),len(expected))

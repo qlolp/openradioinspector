@@ -462,3 +462,31 @@ stale Tcl/native lifetime ошибок нет. Два loopback ConnectionResetEr
 не выдаётся за аппаратную проверку этого интеграционного дерева. Hosted CI
 и физический Windows COM/AR-DV1 здесь ещё не подтверждены. Параллельные
 измерительные PR и фонограммные функции автоматически не включены.
+
+
+## 8 ноября 2026: уникальные validation guards поверх актуального release
+
+Точная база — PR #96, `69f84cd69efc16d17eebbbf37f532d9cbe74f4ef`.
+Она уже включает `b5482a4` (Tk ownership #99) и `e85e4ff` (tinySA #100).
+Новый срез не повторяет их production изменения: выбраны только строгие
+runner guards из #102 и две новые проверки совместимости lifecycle с
+release session/context guards.
+
+Сохранены release-specific skip policy, zombie/process cleanup,
+стабилизированный watchdog, исходные test IDs и assertions. Дочерние
+результаты проверяются строго, вывод сохраняется сразу даже при timeout.
+GUI #101 и согласование его Hz-waterfall/JSON fixtures остаются отдельным
+шагом. API, архив, serial, WebUI и Swift source здесь не изменены.
+
+Полные source и hosted package gates проверяются раздельно; описание:
+[release-validation.md](release-validation.md). Этот срез не выполняет
+merge, close, удаление или force-push. Реальные архивы и приборы не затронуты.
+
+
+Windows diagnostic supervisor также сохраняет исходный native exit code;
+fatal reporting и проверки watchdog cleanup включены без ослабления сроков.
+Полный локальный итог: 1165 Python/Node/Tk, 168 SDK, 108 native и unsigned
+Xcode PASS, 0 skips, семь архивов неизменны и cleanup завершён. Нет stale Tcl
+diagnostics; два нефатальных loopback resets и прежние build warnings
+сохранены. Hosted source/package gates точного нового SHA проверяются
+отдельно. Исходный Windows crash не объявляется доказанно объяснённым.

@@ -166,3 +166,92 @@ Hosted Tk8.6.12 дополнительно обнаружил `event ... applica
 сценария закрытия, сохраняя pending application timers; все ошибки bgerror
 по-прежнему запрещены и сопровождаются Tcl errorInfo. Итоговый CI проверяет
 эту адаптацию; пропуск теста или фильтрация сообщения не используются.
+
+
+## Строгий результат изолированного Tk-теста в release-ветке
+
+База follow-up: PR #96, `69f84cd69efc16d17eebbbf37f532d9cbe74f4ef`.
+Она уже содержит точные commits PR #99 и #100. Их production изменения
+не копируются повторно; новый delta ограничен runner, harness-регрессиями
+и двумя проверками сочетания session/context guards с lifecycle.
+
+Runner сохраняет шесть точных Windows skip IDs release-базы, пять классов
+изолируемых actual-Tk случаев, Linux live-member/zombie checks, process
+registry/groups/Windows Jobs, fixture ownership и общий deadline 600 секунд.
+Намеренные lifecycle → worker GC → HTTP и повторные root остаются связными
+проверками, а не разделяются на новые изолированные случаи.
+
+Из PR #102 (`9595b6c`) перенесено строгое сопоставление запрошенного test ID,
+целого count=1, отчёта, success и exit status. Неожиданный skip отклоняется
+даже при ошибочно указанном нулевом exit. Missing/malformed report, timeout
+и nonzero exit не превращаются в pass. Вывод ребёнка и 30-секундный watchdog
+сразу сохраняются в общем журнале; case ограничен 90 секундами.
+Вложенная структура suites и исходные ID сохраняются.
+
+Реальный timeout-регресс отделяет до 20 секунд запуска до ready marker от
+фактического 0,3-секундного timeout. Проверяются stdout/stderr, watchdog stack
+и завершение только собственных потомков. Стабилизированный watchdog-тест
+release-базы, реальные positive child и unknown-case проверки сохранены.
+Две integration-регрессии проверяют смену сеанса, устаревшую форму/ответ,
+переподключение, guards политики/потока и закрытие.
+
+Предшествующее дерево на базе `ec755e7` прошло полный локальный source gate:
+1157 Python, 168 macOS SDK, 108 SwiftUI тестов и unsigned Xcode build;
+семь fixture cleanup подтверждены, skips отсутствуют. SHA256 журнала:
+`6ddabc58074018b879a55e514409a472ea6f37a877af1615e59970a317f660dc`.
+Это предварительный результат; итоговый gate нового дерева на `69f84cd` указан ниже.
+После добавления Windows observability focused-проверка дерева: 56 harness и
+16 WindowsTimerLifecycleTests PASS (72 случая). Windows ExitProcess подслучаи
+на этом macOS прогоне не выполнялись; pure mapping и handshake проверены.
+Итоговый локальный source gate: 1165 Python/Node/Tk, 168 Swift SDK,
+108 native Swift и unsigned Xcode PASS, без skips. Семь полных логических
+fixture-хешей неизменны, собственные серверы остановлены, временный корень
+удалён. Stale Tcl/Tcl_AsyncDelete нет; два нефатальных loopback
+ConnectionResetError и прежние build warnings остаются. Независимое review
+не выявило подтверждённых дефектов. Hosted source/package gates и Windows
+DWORD propagation на новом опубликованном SHA проверяются отдельно.
+Новая база сохраняет `_GilSafeWatchdog` для старых CPython, C-watchdog только
+на исправленных версиях, ttk idle-инициализацию и полный Tcl bgerror errorInfo. Локальная package-сборка не выполнялась: штатный workflow
+Build candidate packages проверяет wheel/sdist, Windows installer и macOS
+bundled core на точном head, отдельно от source gate. Наличие workflow
+не считается успешным запуском. Реальные данные и приборы не используются.
+
+## Диагностика неожиданного Windows exit
+
+В [Windows job 128799138693](https://github.com/qlolp/openradioinspector/actions/runs/42502852975/job/128799138693)
+на `3f3b15d` Python suite неожиданно завершился около второго периодического
+дампа, без unittest failure summary. Supervisor сообщил `4294967295`.
+Это не установленная причина падения: прежний Windows job на `6d678ee`
+прошёл два полных дампа и все 1087 случаев за 172.033 секунды при тех же
+версиях Python, NumPy, pySerial и runner image. Последний начатый тест
+не является доказанным источником ошибки.
+
+Windows supervisor теперь пишет исходный DWORD дочернего процесса в stderr
+как decimal и восьмизначный hex, затем передаёт в `sys.exit` эквивалентное
+signed32 значение. Это сохраняет биты native exit code: CPython 3.12
+преобразует SystemExit через signed C long, поэтому прежняя передача
+unsigned значений выше `0x7FFFFFFF` могла скрывать исходный код за `-1`.
+Диагностический Python child также включает fatal faulthandler reporting.
+Интервал периодических дампов, ownership, сроки и fail-closed проверки
+не изменены. Это исправление наблюдаемости, а не исправление причины crash.
+
+Pure regressions проверяют границы DWORD, точный журнал, signed32 mapping
+и запрет запуска до приватного `go` handshake. В существующем bounded
+owned-process тесте только на Windows добавлены synthetic `ExitProcess`
+подслучаи: они завершают исключительно собственный child, не вызывают
+реальный access violation и не расширяют skip allowlist. На других ОС
+проверяется pure mapping, но Windows propagation требует Windows run.
+Успешный повтор сам по себе не объясняет прежнее падение.
+
+Существующая [watchdog policy](#совместимость-watchdog-с-cpython) базы
+`69f84cd69efc16d17eebbbf37f532d9cbe74f4ef` сохранена без повторного переноса.
+Это mitigation известного CPython дефекта, а не установленная атрибуция
+Windows crash. Новые boundary × outcome проверки подтверждают выбор policy,
+передачу `only_test`, fatal enable и cleanup при успехе, ненулевом результате,
+исключении и прерывании. Отдельно проверены повторные дампы, ошибка дампа,
+bounded join, настоящий Python thread и ошибка close, которая не может
+превратить suite в успех. Существующий readiness-gated outer-timeout child
+и стабилизированная проверка реального дампа/отмены сохранены.
+
+Ruff fatal checks (`E9,F63,F7,F82`) пройдены. Полная существующая конфигурация
+Ruff содержит прежние замечания в этих файлах; новых замечаний delta не добавляет.

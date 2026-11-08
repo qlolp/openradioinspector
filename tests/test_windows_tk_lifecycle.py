@@ -190,6 +190,82 @@ class WindowsTimerLifecycleTests(unittest.TestCase):
         self.app.refresh.assert_called_once()
         self.assertEqual(len(self.root.pending()), 2)
 
+    def test_session_switch_resets_context_and_discards_pending_completion(self):
+        from radioinspector.windows.client import PlatformSnapshot
+
+        self.app.client = Mock()
+        self.app.session_id = "old"
+        self.app.snapshot = PlatformSnapshot({}, {}, [{"id": "old"}, {"id": "new"}],
+                                            session={"id": "old", "streams": [{"id": "stream"}]})
+        self.app.session_box = Mock()
+        self.app.session_box.current.return_value = 1
+        for name in ("streams_tree", "candidates_tree", "investigations_tree"):
+            tree = Mock()
+            tree.get_children.return_value = ("stale",)
+            setattr(self.app, name, tree)
+        self.app.next_investigation_var = Mock()
+        self.app._clear_spectrum = Mock()
+        self.app._destroy_form = Mock()
+        self.app._active_form = form = object()
+        self.app._last_selected_stream_id = "stream"
+        self.app.sweep_context_panel = Mock()
+        future = Future()
+        self.app._executor.submit.return_value = future
+        success = Mock()
+        self.app._submit_action("old action", Mock(), success)
+        revision = self.app._revision
+
+        self.app._select_session()
+        self.assertEqual(self.app._revision, revision + 1)
+        self.assertEqual(self.app.session_id, "new")
+        self.assertIsNone(self.app.snapshot.session)
+        self.assertIsNone(self.app._last_selected_stream_id)
+        self.app._destroy_form.assert_called_once_with(form)
+        self.app.streams_tree.delete.assert_called_once_with("stale")
+        self.app._clear_spectrum.assert_called_once()
+        self.app.sweep_context_panel.update.assert_called_once()
+        self.app.action_var.reset_mock()
+        future.set_result("old result")
+        self.app._drain_messages()
+        success.assert_not_called()
+        self.app.action_var.set.assert_not_called()
+        self.assertEqual(self.app._action_callbacks, {})
+        self.assertEqual(len(self.root.pending()), 2)
+        self.app.close()
+        self.assertEqual(self.root.pending(), ())
+
+    def test_reconnect_blocks_stale_stream_and_policy_then_close_drops_completion(self):
+        from radioinspector.windows.client import PlatformSnapshot
+
+        old_client = Mock()
+        self.app.client = old_client
+        self.app.session_id = "old"
+        self.app.snapshot = PlatformSnapshot({}, {}, [], session={
+            "id": "old", "streams": [{"id": "same-stream"}]})
+        self.app.selected_stream_id = Mock(return_value="same-stream")
+        future = Future()
+        self.app._executor.submit.return_value = future
+        success = Mock()
+        self.app._submit_action("old action", Mock(), success)
+        self.app.server_var = Mock()
+        self.app._show_archive_capacity = Mock()
+        self.app.client_factory = Mock(return_value=Mock())
+        self.app.connect()
+        self.app.session_id = "new"
+        self.assertIsNone(self.app._selected_stream())
+        self.app._require_session = Mock(return_value=True)
+        with patch.object(self.app, "_submit_action") as submit:
+            self.app._stream_action("start")
+            self.app._disable_policy("detection", session_id="old", client=old_client)
+            self.app._disable_policy("detection", session_id="new", client=old_client)
+            submit.assert_not_called()
+        self.app.close()
+        future.set_result("old result")
+        self.app._drain_messages()
+        success.assert_not_called()
+        self.assertTrue(self.app._messages.empty())
+        self.assertEqual(self.root.pending(), ())
+
     def test_late_worker_results_after_close_never_touch_tk(self):
         self.app.client = Mock()
         future = Future()
