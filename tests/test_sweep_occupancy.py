@@ -2,8 +2,11 @@
 import copy
 import http.client
 import json
+import shutil
+import subprocess
 import threading
 import unittest
+from pathlib import Path
 
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
@@ -153,6 +156,23 @@ class OccupancyHTTPTests(unittest.TestCase):
         self.assertEqual(self.post(json.dumps(request())[:-1] + ',"before":0}')[0], 400)
         self.assertEqual(self.post(json.dumps(request())[:-1] + ',"bad":NaN}')[0], 400)
         self.assertEqual(self.post(b" " * 8193)[0], 413)
+        self.assertEqual((service.health(), service.events()), before)
+
+    @unittest.skipUnless(shutil.which("node"), "Node required for real WebUI/HTTP integration")
+    def test_webui_with_real_core_and_synthetic_archive(self):
+        from tests.sweep_context_smoke_server import _populate
+        service = self.server.session_service
+        _populate(service)
+        before = copy.deepcopy((service.health(), service.events()))
+        root = Path(__file__).resolve().parents[1]
+        address = "http://%s:%s" % self.server.server_address
+        result = subprocess.run([
+            shutil.which("node"), str(root / "tests/webui_sweep_context.cjs"),
+            str(root / "radioinspector/web/static/sweep-context.js"),
+            str(root / "radioinspector/web/static/platform.js"), address,
+        ], capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Web HTTP occupancy smoke passed", result.stdout)
         self.assertEqual((service.health(), service.events()), before)
 
 

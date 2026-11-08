@@ -333,6 +333,14 @@ async function httpSmoke(base) {
   assert.match(app.dom.summary.textContent, /Недостаёт до: 2, после: 0/); assert.equal(calls.length, 2);
   app.dom.after.value = '0'; app.dom.after.listeners.input(); assert.equal(app.dom.canvas.hidden, true);
   await app.click('run'); assert.equal(calls.length, 3); assert.equal(app.dom.items.children.length, 1);
+  app.dom.before.value = app.dom.after.value = '2'; app.dom.threshold.value = '-90';
+  app.choose('one-sweep-4'); await app.click('occupancy-run');
+  assert.equal(calls.length, 4); assert.match(calls[3].url, /sweep-occupancy$/);
+  assert.match(app.dom.occupancy.textContent, /Порог: > -90 dBm · 5 свипов/);
+  assert.match(app.dom.occupancy.textContent, /Разрывы: 4,/);
+  assert.match(app.dom.occupancy.textContent, /5\/5 · 100.0%/);
+  assert.match(app.dom.occupancy.textContent, /20 из 101/);
+  console.log('Web HTTP occupancy smoke passed: exact sources, sample fractions, acquisition gaps');
   app.update([], 'context-two', 'spectrum-two'); assert.equal(app.dom.run.disabled, true); assert.equal(app.dom.summary.textContent, '');
   console.log('Web HTTP context smoke passed: 5 × 101 raw bins, offsets -2..2, anchor 4, incomplete side, repeated load, edit, scope reset');
 }
