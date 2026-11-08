@@ -23,6 +23,7 @@
   <script src="/static/dvb-evaluation.js" defer></script>
   <script src="/static/phonogram.js" defer></script>
   <script src="/static/signal-list.js" defer></script>
+  <script src="/static/measurement-map.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -498,6 +499,22 @@
           <p id="siglist-status" role="status" aria-live="polite"></p>
           <p id="siglist-summary"></p>
           <ol id="siglist-items" aria-label="Итог обмена списком сигналов"></ol>
+        </section>
+        <section class="map-panel" aria-labelledby="map-heading">
+          <h3 id="map-heading">Карта точек измерений и секторов</h3>
+          <p>GeoJSON FeatureCollection: точки измерений и антенные секторы (азимут, ширина луча, радиус). Секторы строятся ядром по дуге большого круга через геодезические функции. Координаты вводятся явно; это производный артефакт, не измерение и не привязка GPS.</p>
+          <label for="map-editor">Черновик карты · JSON</label>
+          <textarea id="map-editor" rows="10" spellcheck="false" placeholder='{"format":"openradioinspector-measurement-map","format_version":1,"name":"Карта","points":[{"latitude_deg":55.75,"longitude_deg":37.62,"label":"Точка 1","sector":{"azimuth_deg":90,"beamwidth_deg":60,"radius_m":1000}}]}'></textarea>
+          <div class="form-actions">
+            <button id="map-run" class="button" type="button" disabled>Построить карту</button>
+            <button id="map-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p id="map-source">Нет выбранного сеанса.</p>
+          <p>Только явное действие строит карту; архив не изменяется. GeoJSON можно сохранить из черновика результата. Это не нормативная карта и не аттестация.</p>
+          <p id="map-status" role="status" aria-live="polite"></p>
+          <p id="map-summary"></p>
+          <ol id="map-items" aria-label="Сводка карты"></ol>
+          <canvas id="map-canvas" width="960" height="320" role="img" aria-label="Карта точек измерений и секторов" hidden></canvas>
         </section>
       </section>
 
