@@ -124,10 +124,10 @@ python3 -m radioinspector scan \
     --connection "scpi://192.168.1.30:5025?instrument=fsq" \
     --start 30e6 --stop 130e6 --bandwidth 100e3 --cycles 60 --output /tmp/data
 
-# USRP B210 через SoapySDR
-python3 -m radioinspector scan \
-    --connection "soapy?driver=uhb&serial=..." \
-    --start 30e6 --stop 130e6 --bandwidth 100e3 --cycles 60 --output /tmp/data
+# SoapySDR использует форму soapy://driver=uhd,serial=...
+# Подключение/настройка/освобождение проверяются только синтетически.
+# Калиброванный sweep не реализован, поэтому не используйте legacy scan для съёмки.
+# Прямой sweep() отказывает без I/O, но CLI scan сначала открывает архив и подключение.
 
 # RTL-SDR по rtl_tcp
 python3 -m radioinspector scan \

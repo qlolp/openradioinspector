@@ -59,7 +59,6 @@ def normalize_unit(unit: str) -> str:
         "дбм": "dBm",
         "дбвт": "dBW",
         "дбв/м": "dBV/m",
-        "дбмкв": "dBuV",
         "dbuv": "dBuV",
         "dbuv/m": "dBuV/m",
         "dbmv": "dBmV",

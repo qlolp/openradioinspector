@@ -13,6 +13,7 @@ measurement and evaluation»: на каждой частотной точке с
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -203,7 +204,7 @@ class DutyInterval:
 
 def _format_interval(seconds: float) -> str:
     """Формат интервала в стиле исходного комплекса: «27сек646мс»."""
-    if seconds != seconds:  # NaN
+    if math.isnan(seconds):
         return "—"
     total_ms = int(round(seconds * 1000.0))
     return f"{total_ms // 1000}сек{total_ms % 1000:03d}мс"
