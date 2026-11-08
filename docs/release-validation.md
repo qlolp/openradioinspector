@@ -266,3 +266,59 @@ fixture-хешей совпали, собственные серверы ост�
 ConnectionResetError и прежние build warnings сохранены в журнале.
 Независимое review не оставило блокирующих замечаний. Новый hosted run
 должен подтвердить точный опубликованный коммит отдельно.
+
+## Диагностика неожиданного Windows exit
+
+В [Windows job 128799138693](https://github.com/qlolp/openradioinspector/actions/runs/42502852975/job/128799138693)
+на `3f3b15d` Python suite неожиданно завершился около второго периодического
+дампа, без unittest failure summary. Supervisor сообщил `4294967295`.
+Это не установленная причина падения: прежний Windows job на `6d678ee`
+прошёл два полных дампа и все 1087 случаев за 172.033 секунды при тех же
+версиях Python, NumPy, pySerial и runner image. Последний начатый тест
+не является доказанным источником ошибки.
+
+Windows supervisor теперь пишет исходный DWORD дочернего процесса в stderr
+как decimal и восьмизначный hex, затем передаёт в `sys.exit` эквивалентное
+signed32 значение. Это сохраняет биты native exit code: CPython 3.12
+преобразует SystemExit через signed C long, поэтому прежняя передача
+unsigned значений выше `0x7FFFFFFF` могла скрывать исходный код за `-1`.
+Диагностический Python child также включает fatal faulthandler reporting.
+Интервал периодических дампов, ownership, сроки и fail-closed проверки
+не изменены. Это исправление наблюдаемости, а не исправление причины crash.
+
+Pure regressions проверяют границы DWORD, точный журнал, signed32 mapping
+и запрет запуска до приватного `go` handshake. В существующем bounded
+owned-process тесте только на Windows добавлены synthetic `ExitProcess`
+подслучаи: они завершают исключительно собственный child, не вызывают
+реальный access violation и не расширяют skip allowlist. На других ОС
+проверяется pure mapping, но Windows propagation требует Windows run.
+Успешный повтор сам по себе не объясняет прежнее падение.
+
+Отдельно перенесён GIL-safe watchdog из
+[PR #96, commit 69f84cd](https://github.com/qlolp/openradioinspector/commit/69f84cd69efc16d17eebbbf37f532d9cbe74f4ef):
+CPython до 3.13.10 и ветка 3.14 до 3.14.1 используют периодический Python
+thread с `Event` и `faulthandler.dump_traceback`, вместо небезопасного на
+этих версиях native timer. Это mitigation известного
+[CPython gh-140815](https://github.com/python/cpython/issues/140815), не
+установленная атрибуция Windows crash. На 3.13.10 и 3.14.1+ остаётся
+GIL-independent C timer. Границы подтверждены исходниками этих релизов;
+это не утверждение об устранении всех возможных faulthandler races.
+
+Python watchdog требует GIL: если native операция удерживает его навсегда,
+дамп может не появиться, но прежний внешний owned-process deadline всё
+равно завершает команду. Watchdog останавливается через Event и bounded
+join (две секунды); ошибка вывода или незавершённый thread завершают gate
+ошибкой. `only_test`, fatal diagnostics и DWORD propagation сохранены.
+Версионные границы, повторные дампы, ошибки и join проверяются отдельно;
+synthetic outer-timeout child также использует policy-aware маршрут,
+сохраняя проверку настоящего вывода и отсутствия оставшегося процесса.
+
+
+Финальный локальный gate после диагностического follow-up: 1094
+Python/Node/Tk, 170 Swift SDK, 113 native Swift и unsigned Xcode PASS,
+без skips. Проверен GIL-safe маршрут Python 3.12.15; семь полных
+fixture-хешей неизменны, собственные серверы остановлены и временный корень
+удалён. Stale Tcl/Tcl_AsyncDelete отсутствуют; два нефатальных loopback
+ConnectionResetError и прежние build warnings остаются. Focused harness:
+52 PASS, независимое review без подтверждённых блокеров. Настоящая
+Windows DWORD propagation и hosted gate нового commit проверяются отдельно.

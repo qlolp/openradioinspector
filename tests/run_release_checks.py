@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from types import SimpleNamespace
@@ -237,10 +238,53 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
     return 0 if result.wasSuccessful() and result.testsRun > 0 and not unexpected else 1
 
 
+class _GilSafeWatchdog:
+    """Older CPython's C timer can read a concurrently freed frame (gh-140815)."""
+    def __init__(self, interval, stream):
+        self.interval, self.stream = interval, stream
+        self.stopped = threading.Event()
+        self.error = None
+        self.thread = threading.Thread(target=self._run, name="ori-diagnostic-watchdog", daemon=True)
+
+    def _run(self):
+        while not self.stopped.wait(self.interval):
+            try:
+                self.stream.write(f"Timeout ({self.interval:.6f}s): GIL-safe diagnostic watchdog\n")
+                self.stream.flush()
+                # Called by a Python thread holding the GIL, rather than the
+                # unsynchronized native timer walking changing Python frames.
+                faulthandler.dump_traceback(file=self.stream, all_threads=True)
+            except BaseException as error:
+                self.error = error
+                return
+
+    def start(self):
+        self.thread.start()
+
+    def close(self):
+        self.stopped.set()
+        self.thread.join(timeout=2)
+        if self.thread.is_alive():
+            raise ReleaseCheckError("Diagnostic watchdog did not stop")
+        if self.error is not None:
+            raise ReleaseCheckError(f"Diagnostic watchdog failed: {self.error}") from self.error
+
+
 def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, only_test: str | None = None) -> int:
-    # faulthandler has a process-global C watchdog. Only the dedicated CLI child
-    # owns it; nested run_python_suite unit regressions never arm or cancel it.
-    # Periodic dumps work even when Tk blocks while holding the Python GIL.
+    # Only the dedicated CLI child owns fatal handlers and the watchdog.
+    # CPython gh-140815 hardening landed in 3.13.10 / 3.14.1, not 3.12.
+    # The older-version Python watchdog requires the GIL; the unchanged outer
+    # owned-process deadline still terminates a native operation holding it.
+    faulthandler.enable(file=sys.__stderr__, all_threads=True)
+    version = tuple(sys.version_info[:3])
+    fixed = version >= (3, 14, 1) or (3, 13, 10) <= version < (3, 14, 0)
+    if not fixed:
+        watchdog = _GilSafeWatchdog(diagnostic_after, sys.__stderr__)
+        watchdog.start()
+        try:
+            return run_python_suite(report_path, diagnostics=True, **({"only_test": only_test} if only_test is not None else {}))
+        finally:
+            watchdog.close()
     faulthandler.dump_traceback_later(diagnostic_after, repeat=True, file=sys.__stderr__, exit=False)
     try:
         return run_python_suite(report_path, diagnostics=True, **({"only_test": only_test} if only_test is not None else {}))
@@ -724,6 +768,15 @@ def positive_seconds(value: str) -> float:
     return number
 
 
+def _windows_supervisor_exit_status(returncode: int) -> int:
+    """Preserve a child DWORD through CPython's signed C-long SystemExit path."""
+    if type(returncode) is not int or not 0 <= returncode <= 0xffffffff:
+        raise ValueError("Windows child exit status must be a DWORD")
+    print(f"[release-child-exit] decimal={returncode} hex=0x{returncode:08X}",
+          file=sys.stderr, flush=True)
+    return returncode if returncode < 0x80000000 else returncode - 0x100000000
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swift", action="store_true", help="Run both macOS Swift suites and an unsigned Xcode build")
@@ -744,7 +797,7 @@ def main(argv: list[str] | None = None) -> int:
         command = json.loads(args._supervise_command)
         if os.name == "posix":
             os.execvpe(command[0], command, os.environ)
-        return subprocess.call(command)
+        return _windows_supervisor_exit_status(subprocess.call(command))
     if args._python_suite is not None:
         return _run_diagnostic_python_suite(args._python_suite, args._diagnostic_after,
                                             **({"only_test": args._single_test} if args._single_test is not None else {}))

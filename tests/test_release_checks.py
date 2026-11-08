@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -119,15 +120,43 @@ class ReleaseGateTests(unittest.TestCase):
 
 
 class ReleaseDiagnosticTests(unittest.TestCase):
+    def test_windows_supervisor_preserves_dword_bits_and_logs_original_status(self):
+        for raw, signed in ((0, 0), (9, 9), (0x7fffffff, 0x7fffffff),
+                            (0x80000000, -0x80000000), (0xc0000005, -1073741819),
+                            (0xffffffff, -1)):
+            with self.subTest(raw=raw), redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(release._windows_supervisor_exit_status(raw), signed)
+                self.assertEqual(signed & 0xffffffff, raw)
+                self.assertEqual(output.getvalue(),
+                                 f"[release-child-exit] decimal={raw} hex=0x{raw:08X}\n")
+        for invalid in (-1, 0x100000000, True, 1.0, "1"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                release._windows_supervisor_exit_status(invalid)
+
+    def test_windows_supervisor_waits_for_assignment_and_propagates_child_status(self):
+        command = ["owned-python", "-c", "synthetic"]
+        for gate in (b"", b"wrong\n", b"go\n"):
+            with self.subTest(gate=gate), patch.object(release, "os", SimpleNamespace(name="nt")), patch.object(release.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(gate))), patch.object(release.subprocess, "call", return_value=0xc0000005) as call, redirect_stderr(io.StringIO()) as output:
+                result = release.main(["--_supervise-command", json.dumps(command)])
+                if gate == b"go\n":
+                    self.assertEqual(result, -1073741819)
+                    call.assert_called_once_with(command)
+                    self.assertIn("decimal=3221225477 hex=0xC0000005", output.getvalue())
+                else:
+                    self.assertEqual(result, 1)
+                    call.assert_not_called()
+                    self.assertEqual(output.getvalue(), "")
+
     def test_nested_plain_suite_never_changes_process_global_watchdog(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel, redirect_stderr(io.StringIO()):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel, redirect_stderr(io.StringIO()):
             release.run_python_suite(Path(directory) / "nested.json")
         arm.assert_not_called()
         cancel.assert_not_called()
+        enable.assert_not_called()
 
     def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
         for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
-            with self.subTest(outcome=outcome), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
                 if isinstance(outcome, BaseException):
                     suite.side_effect = outcome
                     with self.assertRaises(type(outcome)):
@@ -136,8 +165,83 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                     suite.return_value = outcome
                     self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
                 arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
+                enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
                 cancel.assert_called_once_with()
                 suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+
+    def test_watchdog_version_boundaries_preserve_single_selection_and_cleanup(self):
+        for version, native in (((3, 12, 10), False), ((3, 13, 9), False),
+                                ((3, 13, 10), True), ((3, 14, 0), False),
+                                ((3, 14, 1), True)):
+            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
+                with self.subTest(version=version, outcome=outcome), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                    if isinstance(outcome, BaseException):
+                        suite.side_effect = outcome
+                        with self.assertRaises(type(outcome)):
+                            release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
+                    else:
+                        suite.return_value = outcome
+                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
+                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
+                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                    if native:
+                        watchdog.assert_not_called()
+                        arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
+                        cancel.assert_called_once_with()
+                    else:
+                        arm.assert_not_called()
+                        cancel.assert_not_called()
+                        watchdog.assert_called_once_with(60, sys.__stderr__)
+                        watchdog.return_value.start.assert_called_once_with()
+                        watchdog.return_value.close.assert_called_once_with()
+
+    def test_gil_watchdog_repeats_and_records_dump_failure(self):
+        stream = io.StringIO()
+        watchdog = release._GilSafeWatchdog(60, stream)
+        watchdog.stopped = Mock()
+        watchdog.stopped.wait.side_effect = [False, False, True]
+        with patch.object(release.faulthandler, "dump_traceback") as dump:
+            watchdog._run()
+        self.assertEqual(dump.call_count, 2)
+        dump.assert_called_with(file=stream, all_threads=True)
+        self.assertEqual(stream.getvalue().count("GIL-safe diagnostic watchdog"), 2)
+        failure = RuntimeError("dump failed")
+        watchdog.stopped.wait.side_effect = [False]
+        with patch.object(release.faulthandler, "dump_traceback", side_effect=failure):
+            watchdog._run()
+        self.assertIs(watchdog.error, failure)
+
+    def test_gil_watchdog_join_is_bounded_and_errors_fail_closed(self):
+        for alive, error in ((False, None), (True, None), (False, RuntimeError("dump failed"))):
+            with self.subTest(alive=alive, error=error):
+                watchdog = release._GilSafeWatchdog(60, io.StringIO())
+                watchdog.thread = Mock()
+                watchdog.thread.is_alive.return_value = alive
+                watchdog.error = error
+                if alive or error:
+                    with self.assertRaises(release.ReleaseCheckError):
+                        watchdog.close()
+                else:
+                    watchdog.close()
+                self.assertTrue(watchdog.stopped.is_set())
+                watchdog.thread.join.assert_called_once_with(timeout=2)
+
+    def test_gil_watchdog_real_thread_dumps_and_joins(self):
+        dumped = threading.Event()
+        watchdog = release._GilSafeWatchdog(0.01, io.StringIO())
+        with patch.object(release.faulthandler, "dump_traceback", side_effect=lambda **kwargs: dumped.set()):
+            watchdog.start()
+            try:
+                self.assertTrue(dumped.wait(2), "owned watchdog did not dump")
+            finally:
+                watchdog.close()
+        self.assertFalse(watchdog.thread.is_alive())
+
+    def test_gil_watchdog_close_failure_cannot_turn_suite_into_success(self):
+        with patch.object(release.sys, "version_info", (3, 12, 10)), patch.object(release.faulthandler, "enable"), patch.object(release, "run_python_suite", return_value=0), patch.object(release, "_GilSafeWatchdog") as watchdog:
+            watchdog.return_value.close.side_effect = release.ReleaseCheckError("watchdog failed")
+            with self.assertRaisesRegex(release.ReleaseCheckError, "watchdog failed"):
+                release._run_diagnostic_python_suite(Path("unused.json"), 60)
 
     def test_test_boundaries_include_utc_exact_id_elapsed_and_duration(self):
         output = io.StringIO()
@@ -254,6 +358,19 @@ class OwnedProcessTests(unittest.TestCase):
             release.run_command([sys.executable, "-c", "print('проверка'); raise SystemExit(9)"],
                                 name="failed", environment=self.environment, directory=self.directory, timeout=5)
         self.assertIn("проверка", output.getvalue())
+        if sys.platform == "win32":
+            # Exit only our owned synthetic child, without generating a crash dump.
+            for status in (0x80000000, 0xc0000005, 0xffffffff):
+                body = ("import ctypes; from ctypes import wintypes; "
+                        "exit_process = ctypes.WinDLL('kernel32').ExitProcess; "
+                        "exit_process.argtypes = [wintypes.UINT]; "
+                        "exit_process.restype = None; "
+                        f"exit_process({status})")
+                with self.subTest(status=status), redirect_stdout(io.StringIO()) as output, self.assertRaisesRegex(release.ReleaseCheckError, f"status {status}$"):
+                    release.run_command([sys.executable, "-c", body], name="dword-exit",
+                                        environment=self.environment, directory=self.directory,
+                                        timeout=5, shutdown_timeout=2)
+                self.assertIn(f"decimal={status} hex=0x{status:08X}", output.getvalue())
         with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", "import time; time.sleep(30)"],
                                 name="timeout", environment=self.environment, directory=self.directory,
@@ -272,13 +389,19 @@ assert release._run_diagnostic_python_suite(Path('unused.json'), 0.03) == 0
 print('WATCHDOG_CANCELLED', flush=True)
 time.sleep(0.1)
 """
-        with redirect_stdout(io.StringIO()):
-            output = release.run_command([sys.executable, "-c", body], name="watchdog-regression",
-                                         environment=self.environment, directory=self.directory, timeout=5)
-        before, after = output.split("WATCHDOG_CANCELLED", 1)
-        self.assertIn("Timeout", before)
-        self.assertIn("synthetic_blocked_test", before)
-        self.assertNotIn("Timeout", after)
+        # Exercise the local policy and the older-version route with real dumps.
+        # Never force the native timer on an interpreter that lacks its fix.
+        for force_safe in (False, True):
+            selected = body.replace("release.run_python_suite =", "release.sys.version_info = (3, 12, 10)\nrelease.run_python_suite =") if force_safe else body
+            with self.subTest(force_safe=force_safe), redirect_stdout(io.StringIO()):
+                output = release.run_command([sys.executable, "-c", selected], name="watchdog-regression",
+                                             environment=self.environment, directory=self.directory, timeout=5)
+            before, after = output.split("WATCHDOG_CANCELLED", 1)
+            self.assertIn("Timeout", before)
+            self.assertIn("synthetic_blocked_test", before)
+            self.assertNotIn("Timeout", after)
+            if force_safe:
+                self.assertIn("GIL-safe diagnostic watchdog", before)
 
     def test_interrupted_command_is_reaped(self):
         process = Mock()
@@ -531,11 +654,11 @@ class IsolatedTkHarnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             ready, leaked = root / "ready", root / "leaked"
-            child = ("import faulthandler,sys,time; from pathlib import Path; "
+            child = ("import sys,time; from pathlib import Path; from tests import run_release_checks as r; "
                      f"Path({str(ready)!r}).write_text('ready'); "
                      "print('CHILD_STDOUT', flush=True); print('CHILD_STDERR', file=sys.stderr, flush=True); "
-                     "faulthandler.dump_traceback_later(0.05, repeat=True); "
-                     f"time.sleep(1.5); Path({str(leaked)!r}).write_text('leaked')")
+                     f"r.run_python_suite = lambda *args, **kwargs: (time.sleep(1.5), Path({str(leaked)!r}).write_text('leaked'))[-1]; "
+                     "r._run_diagnostic_python_suite(Path('unused.json'), 0.05)")
             parent = ("import subprocess,sys; from tests import run_release_checks as r; "
                       "original = subprocess.run; "
                       f"r.subprocess.run = lambda command, **kwargs: original([sys.executable, '-c', {child!r}], **kwargs); "
