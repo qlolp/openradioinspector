@@ -66,7 +66,7 @@
     return data;
   }
   function controls() {
-    dom.run.disabled = !(Boolean(scope) && connected && !suspended);
+    dom.run.disabled = Boolean(pending) || !(Boolean(scope) && connected && !suspended);
   }
   function clear() {
     pending?.abort(); pending = null; generation += 1; result = null;
@@ -90,7 +90,7 @@
       + " в результаты измерений (методика dvb_t_parameters).";
   }
   async function analyze() {
-    if (dom.run.disabled) return;
+    if (pending || dom.run.disabled) return;
     let body;
     try { body = request(); } catch (error) { clear(); dom.status.textContent = error.message; return; }
     const controller = new AbortController(); pending = controller; const current = ++generation;

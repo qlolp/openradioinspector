@@ -77,7 +77,7 @@ async function happyPath() {
   const app = setup();
   app.update();
   assert.equal(app.dom.run.disabled, false);
-  const promise = app.click('run'); app.click('run');
+  const promise = app.click('run'); app.window.OpenRadioDvbEvaluation.setConnected(true); app.click('run');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.requests.length, 1, 'single flight');
   assert.match(app.requests[0].url, /\/api\/v1\/sessions\/session%2F1\/dvb-evaluation$/);

@@ -96,6 +96,17 @@ class DvbPanelTests(unittest.TestCase):
         self.assertIsNone(p2.data)
         self.assertIn("недоступна", p2.info.set.call_args[0][0])
 
+    def test_edited_draft_invalidates_pending_verdict(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.analyze(); current = p.generation
+        p.entries['min_mer_db'].get.return_value = '30'
+        p.draft_changed()
+        future.set_result(response())
+        p.finish(current)
+        self.assertIsNone(p.data)
+        self.assertGreater(p.generation, current)
+
     def test_bad_inputs_never_reach_the_core(self):
         p = panel()
         p.entries["mer_db"].get.return_value = "abc"
