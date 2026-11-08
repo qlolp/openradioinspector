@@ -127,7 +127,7 @@ class ReleaseDiagnosticTests(unittest.TestCase):
 
     def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
         for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
-            with self.subTest(outcome=outcome), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
                 if isinstance(outcome, BaseException):
                     suite.side_effect = outcome
                     with self.assertRaises(type(outcome)):
@@ -138,6 +138,27 @@ class ReleaseDiagnosticTests(unittest.TestCase):
                 arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
                 cancel.assert_called_once_with()
                 suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+
+    def test_legacy_python_uses_joined_gil_safe_watchdog_without_c_timer(self):
+        import threading
+        existing_threads = set(threading.enumerate())
+        for outcome in (0, RuntimeError("synthetic failure")):
+            dumped = threading.Event()
+            def run(*args, **kwargs):
+                self.assertTrue(dumped.wait(1), "watchdog did not run")
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                return outcome
+            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 12, 10)), patch.object(release, "run_python_suite", side_effect=run), patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "dump_traceback", side_effect=lambda **kwargs: dumped.set()) as dump:
+                if isinstance(outcome, BaseException):
+                    with self.assertRaises(type(outcome)):
+                        release._run_diagnostic_python_suite(Path("unused.json"), 0.01)
+                else:
+                    self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.01), 0)
+                arm.assert_not_called()
+                dump.assert_called()
+                self.assertFalse(any(t.name == "ori-diagnostic-watchdog" and t not in existing_threads
+                                     for t in threading.enumerate()))
 
     def test_test_boundaries_include_utc_exact_id_elapsed_and_duration(self):
         output = io.StringIO()

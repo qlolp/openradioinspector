@@ -530,7 +530,7 @@ class HiddenTkTimerLifecycleTests(unittest.TestCase):
                 root.withdraw()
                 errors = []
                 root.report_callback_exception = lambda *error: errors.append(error)
-                root.tk.createcommand("bgerror", lambda error: errors.append(error))
+                root.tk.createcommand("bgerror", lambda error: errors.append((error, root.tk.call("set", "::errorInfo"))))
 
                 def unexpected_dialog(*_args):
                     errors.append("unexpected native dialog")
@@ -542,6 +542,11 @@ class HiddenTkTimerLifecycleTests(unittest.TestCase):
                 try:
                     app = SchedulerWindowsApp(root, tk, ttk, refresh_ms=1)
                     app.refresh = Mock()
+                    # Tk 8.6.12 queues a ttk theme idle during construction.
+                    # Exercise a fully initialized GUI before close; after(1)
+                    # application timers remain pending and must be cancelled.
+                    root.update_idletasks()
+                    self.assertEqual(errors, [])
                     panels = [app.comparison_panel, app.threshold_panel, app.mask_panel,
                               app.average_panel, app.three_thresholds_panel, app.sweep_context_panel,
                               app.frequency_rounding_panel, app.comparison_panel.catalog]
