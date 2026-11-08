@@ -2463,7 +2463,8 @@
     "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
     "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6u",
@@ -2482,7 +2483,8 @@
     "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
     "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformFrequencyRaster.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6v",
@@ -2501,7 +2503,8 @@
     "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
     "path_at_snapshot": "radioinspector/web/static/frequency-raster.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6w",
@@ -2520,7 +2523,8 @@
     "head_sha_at_snapshot": "3c44029482a5af8395e064270dca6af5aea22657",
     "path_at_snapshot": "radioinspector/web/static/frequency-raster.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vO",
@@ -2539,7 +2543,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vQ",
@@ -2558,7 +2563,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/web/static/platform.html",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vT",
@@ -2577,7 +2583,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/measurement_results.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vV",
@@ -2596,7 +2603,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/session_store.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vY",
@@ -2615,7 +2623,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "macos/DvoynoyObzor/MeasurementResultsPane.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vb",
@@ -2634,7 +2643,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-ve",
@@ -2653,7 +2663,8 @@
     "head_sha_at_snapshot": "68da64153f961389c673be3a210d2f9c6940f71b",
     "path_at_snapshot": "radioinspector/web/static/measurement-results.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVw",
@@ -2663,7 +2674,8 @@
     "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
     "path_at_snapshot": "radioinspector/frequency_counter.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVx",
@@ -2673,7 +2685,8 @@
     "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
     "path_at_snapshot": "radioinspector/frequency_counter.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVy",
@@ -2683,7 +2696,8 @@
     "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
     "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVz",
@@ -2693,7 +2707,8 @@
     "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
     "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLV2",
@@ -2703,7 +2718,8 @@
     "head_sha_at_snapshot": "53e8f8f5b5e43ffd49dabb38f1193965d3559920",
     "path_at_snapshot": "radioinspector/web/static/frequency-counter.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe6",
@@ -2713,7 +2729,8 @@
     "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
     "path_at_snapshot": "radioinspector/windows/dvb_parameters.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe8",
@@ -2723,7 +2740,8 @@
     "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
     "path_at_snapshot": "macos/DvoynoyObzor/DvbEvaluationPane.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe_",
@@ -2733,7 +2751,8 @@
     "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
     "path_at_snapshot": "radioinspector/web/static/dvb-evaluation.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUfB",
@@ -2743,7 +2762,8 @@
     "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
     "path_at_snapshot": "radioinspector/dvb_parameters.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bcm8",
@@ -2753,7 +2773,8 @@
     "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
     "path_at_snapshot": "radioinspector/session_service.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnA",
@@ -2763,7 +2784,8 @@
     "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
     "path_at_snapshot": "radioinspector/web/static/platform.html",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnB",
@@ -2773,7 +2795,8 @@
     "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
     "path_at_snapshot": "radioinspector/windows/phonogram.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnC",
@@ -2783,7 +2806,8 @@
     "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
     "path_at_snapshot": "radioinspector/phonogram.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnE",
@@ -2793,7 +2817,8 @@
     "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
     "path_at_snapshot": "radioinspector/web/static/phonogram.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmyx",
@@ -2803,7 +2828,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "macos/DvoynoyObzor/SignalListPane.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmyz",
@@ -2813,7 +2839,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "radioinspector/session_service.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy2",
@@ -2823,7 +2850,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "radioinspector/signal_list.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy5",
@@ -2833,7 +2861,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "radioinspector/windows/signal_list.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy6",
@@ -2843,7 +2872,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "radioinspector/web/static/platform.html",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy-",
@@ -2853,7 +2883,8 @@
     "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
     "path_at_snapshot": "radioinspector/web/static/signal-list.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKF",
@@ -2863,7 +2894,8 @@
     "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
     "path_at_snapshot": "radioinspector/web/static/measurement-map.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKG",
@@ -2873,7 +2905,8 @@
     "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
     "path_at_snapshot": "radioinspector/windows/measurement_map.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKH",
@@ -2883,7 +2916,8 @@
     "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
     "path_at_snapshot": "radioinspector/web/static/measurement-map.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKL",
@@ -2893,7 +2927,8 @@
     "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
     "path_at_snapshot": "macos/DvoynoyObzor/MeasurementMapPane.swift",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKN",
@@ -2903,7 +2938,8 @@
     "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
     "path_at_snapshot": "radioinspector/measurement_map.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CEB2",
@@ -2913,7 +2949,8 @@
     "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
     "path_at_snapshot": "radioinspector/web/static/audio-stream.js",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CEB7",
@@ -2923,7 +2960,8 @@
     "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
     "path_at_snapshot": "radioinspector/windows/audio_stream.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECA",
@@ -2933,7 +2971,8 @@
     "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
     "path_at_snapshot": "radioinspector/windows/audio_stream.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECI",
@@ -2943,7 +2982,8 @@
     "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
     "path_at_snapshot": "radioinspector/web/server.py",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECK",
@@ -2953,7 +2993,8 @@
     "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
     "path_at_snapshot": "radioinspector/web/static/platform.html",
     "server_resolved": false,
-    "snapshot_kind": "historical-release-87"
+    "snapshot_kind": "historical-release-87",
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6t",
@@ -2966,7 +3007,8 @@
     "evidence": [
       "tests/test_frequency_raster.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6u",
@@ -2979,7 +3021,8 @@
     "evidence": [
       "tests/test_frequency_raster.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6v",
@@ -2992,7 +3035,8 @@
     "evidence": [
       "tests/test_frequency_raster.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Ar6w",
@@ -3005,7 +3049,8 @@
     "evidence": [
       "tests/test_frequency_raster.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vO",
@@ -3018,7 +3063,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vQ",
@@ -3031,7 +3077,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vT",
@@ -3044,7 +3091,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vV",
@@ -3057,7 +3105,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vY",
@@ -3070,7 +3119,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-vb",
@@ -3083,7 +3133,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861A-ve",
@@ -3096,7 +3147,8 @@
     "evidence": [
       "tests/test_measurement_results.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVw",
@@ -3109,7 +3161,8 @@
     "evidence": [
       "tests/test_frequency_counter.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVx",
@@ -3122,7 +3175,8 @@
     "evidence": [
       "tests/test_frequency_counter.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVy",
@@ -3135,7 +3189,8 @@
     "evidence": [
       "tests/test_frequency_counter.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLVz",
@@ -3148,7 +3203,8 @@
     "evidence": [
       "tests/test_frequency_counter.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BLV2",
@@ -3161,7 +3217,8 @@
     "evidence": [
       "tests/test_frequency_counter.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe6",
@@ -3174,7 +3231,8 @@
     "evidence": [
       "tests/test_dvb_parameters.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe8",
@@ -3187,7 +3245,8 @@
     "evidence": [
       "tests/test_dvb_parameters.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUe_",
@@ -3200,7 +3259,8 @@
     "evidence": [
       "tests/test_dvb_parameters.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BUfB",
@@ -3213,7 +3273,8 @@
     "evidence": [
       "tests/test_dvb_parameters.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bcm8",
@@ -3226,7 +3287,8 @@
     "evidence": [
       "tests/test_phonogram.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnA",
@@ -3239,7 +3301,8 @@
     "evidence": [
       "tests/test_phonogram.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnB",
@@ -3252,7 +3315,8 @@
     "evidence": [
       "tests/test_phonogram.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnC",
@@ -3265,7 +3329,8 @@
     "evidence": [
       "tests/test_phonogram.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BcnE",
@@ -3278,7 +3343,8 @@
     "evidence": [
       "tests/test_phonogram.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmyx",
@@ -3291,7 +3357,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmyz",
@@ -3304,7 +3371,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy2",
@@ -3317,7 +3385,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy5",
@@ -3330,7 +3399,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy6",
@@ -3343,7 +3413,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861Bmy-",
@@ -3356,7 +3427,8 @@
     "evidence": [
       "tests/test_signal_list.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKF",
@@ -3369,7 +3441,8 @@
     "evidence": [
       "tests/test_measurement_map.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKG",
@@ -3382,7 +3455,8 @@
     "evidence": [
       "tests/test_measurement_map.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKH",
@@ -3395,7 +3469,8 @@
     "evidence": [
       "tests/test_measurement_map.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKL",
@@ -3408,7 +3483,8 @@
     "evidence": [
       "tests/test_measurement_map.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861BuKN",
@@ -3421,7 +3497,8 @@
     "evidence": [
       "tests/test_measurement_map.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CEB2",
@@ -3434,7 +3511,8 @@
     "evidence": [
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CEB7",
@@ -3447,7 +3525,8 @@
     "evidence": [
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECA",
@@ -3460,7 +3539,8 @@
     "evidence": [
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECI",
@@ -3473,7 +3553,8 @@
     "evidence": [
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861CECK",
@@ -3486,7 +3567,8 @@
     "evidence": [
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
-    ]
+    ],
+    "github_thread_resolved_at_cleanup": true
   },
   {
     "id": "PRRT_kwDOVh2Xd861DmoB",

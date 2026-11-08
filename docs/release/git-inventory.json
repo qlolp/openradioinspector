@@ -23,7 +23,9 @@
       "open_pr_heads_at_initial_snapshot": [
         4
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "codex/merge-prs-20261108",
@@ -40,7 +42,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "cursor/add-local-radioinspektor-cd-61c6",
@@ -57,7 +61,9 @@
       "deleted_in_first_batch": false,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "cursor/finish-scheduler-reports-12d6",
@@ -77,7 +83,9 @@
       "open_pr_heads_at_initial_snapshot": [
         3
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "cursor/macos-dvoynoy-obzor-36a1",
@@ -99,7 +107,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         4
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/adaptive-sweep-threshold",
@@ -116,7 +126,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/api-v1-current-contract",
@@ -137,7 +149,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         38
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-capacity-guard",
@@ -155,7 +169,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-export",
@@ -173,7 +189,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-export-stream",
@@ -195,7 +213,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         37
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-ingest",
@@ -213,7 +233,9 @@
       "deleted_in_first_batch": false,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-snapshot",
@@ -231,7 +253,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-stream",
@@ -249,7 +273,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/archive-sweep-comparison",
@@ -267,7 +293,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/automatic-candidate-detection",
@@ -284,7 +312,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/automatic-completion",
@@ -301,7 +331,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/automatic-handoff",
@@ -318,7 +350,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/averaged-sweep-analysis-export",
@@ -338,7 +372,9 @@
       "open_pr_heads_at_initial_snapshot": [
         79
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/averaged-sweep-reference",
@@ -358,7 +394,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         75
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/candidate-frequency-rounding",
@@ -375,7 +413,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/completion-limits",
@@ -396,7 +436,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         36
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/device-workers",
@@ -413,7 +455,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/docx-report",
@@ -432,7 +476,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         41
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/dvb-parameter-evaluation",
@@ -453,7 +499,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         94
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/external-archive-import",
@@ -471,7 +519,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/frequency-counter",
@@ -492,7 +542,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         93
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/frequency-raster-rounding",
@@ -513,7 +565,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         91
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/investigation-queue",
@@ -530,7 +584,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/investigations",
@@ -547,7 +603,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-analytics",
@@ -567,7 +625,9 @@
       "open_pr_heads_at_initial_snapshot": [
         26
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-analytics-on-demand",
@@ -585,7 +645,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-api",
@@ -603,7 +665,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-archive-export",
@@ -621,7 +685,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-completion",
@@ -643,7 +709,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         35
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-remote-api",
@@ -665,7 +733,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         19
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-request-cancellation",
@@ -683,7 +753,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-task-cancel",
@@ -701,7 +773,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-task-create",
@@ -719,7 +793,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-task-list",
@@ -737,7 +813,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-task-list-rebased",
@@ -757,7 +835,9 @@
       "open_pr_heads_at_initial_snapshot": [
         66
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-task-scheduler",
@@ -779,7 +859,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         45
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/macos-workflows",
@@ -799,7 +881,9 @@
       "open_pr_heads_at_initial_snapshot": [
         19
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/measurement-batch",
@@ -818,7 +902,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         23
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/measurement-map",
@@ -839,7 +925,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         98
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/measurement-results",
@@ -860,7 +948,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         92
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/named-sweep-references",
@@ -877,7 +967,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/phonogram-prehistory",
@@ -898,7 +990,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         95
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/raspberry-webui",
@@ -915,7 +1009,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/release-safety-fixes",
@@ -932,7 +1028,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/remote-audio-stream",
@@ -951,7 +1049,9 @@
       "open_pr_heads_at_initial_snapshot": [
         98
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/scpi-identify",
@@ -968,7 +1068,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/semi-automatic-handoff",
@@ -985,7 +1087,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/serial-adapters",
@@ -1005,7 +1109,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         22
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/serial-profiles",
@@ -1023,7 +1129,9 @@
       "deleted_in_first_batch": false,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/serial-ui-profiles",
@@ -1045,7 +1153,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         26
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/session-analytics",
@@ -1067,7 +1177,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         24
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/session-persistence",
@@ -1084,7 +1196,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/shared-core-foundation",
@@ -1101,7 +1215,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/signal-list-exchange",
@@ -1122,7 +1238,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         97
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/spectral-mask-analysis",
@@ -1139,7 +1257,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/stable-spectrum-view",
@@ -1161,7 +1281,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         102
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/sweep-change-detection",
@@ -1183,7 +1305,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         79
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/sweep-context-window",
@@ -1202,7 +1326,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         88
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/task-client-docs",
@@ -1220,7 +1346,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/task-scheduler",
@@ -1240,7 +1368,9 @@
       "open_pr_heads_at_initial_snapshot": [
         38
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/task-scheduler-api",
@@ -1262,7 +1392,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         42
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/task-scheduler-api-contract",
@@ -1284,7 +1416,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         46
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/task-scheduler-list",
@@ -1306,7 +1440,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         47
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/taskbook-cancel-api",
@@ -1324,7 +1460,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/taskbook-create-api",
@@ -1342,7 +1480,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/taskbook-public-fields",
@@ -1360,7 +1500,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/three-sweep-thresholds",
@@ -1377,7 +1519,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/tinysa-setup-guard",
@@ -1396,7 +1540,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         83
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-analytics",
@@ -1418,7 +1564,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         25
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-analytics-on-demand",
@@ -1436,7 +1584,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-archive-export",
@@ -1454,7 +1604,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-completion",
@@ -1471,7 +1623,9 @@
       "deleted_in_first_batch": false,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-completion-module",
@@ -1488,7 +1642,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-task-cancel",
@@ -1506,7 +1662,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-task-create",
@@ -1524,7 +1682,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-task-list",
@@ -1546,7 +1706,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         48
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/webui-task-scheduler",
@@ -1568,7 +1730,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         43
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-analytics",
@@ -1588,7 +1752,9 @@
       "open_pr_heads_at_initial_snapshot": [
         25
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-analytics-on-demand",
@@ -1606,7 +1772,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-archive-export",
@@ -1624,7 +1792,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-completion",
@@ -1643,7 +1813,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         34
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-core-serial",
@@ -1663,7 +1835,9 @@
       "open_pr_heads_at_initial_snapshot": [
         85
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-gui",
@@ -1680,7 +1854,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-policies",
@@ -1699,7 +1875,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         18
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-spectrum",
@@ -1717,7 +1895,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-task-cancel",
@@ -1735,7 +1915,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-task-create",
@@ -1753,7 +1935,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-task-list",
@@ -1775,7 +1959,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         66
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-task-scheduler",
@@ -1797,7 +1983,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         44
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "feature/windows-workflows",
@@ -1814,7 +2002,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "fix/macos-tk-test-isolation",
@@ -1834,7 +2024,9 @@
       "open_pr_heads_at_initial_snapshot": [
         102
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "fix/session-archive-integrity-20261105",
@@ -1852,7 +2044,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "fix/soapy-rx-constant-units-nan",
@@ -1872,7 +2066,9 @@
       "open_pr_heads_at_initial_snapshot": [
         81
       ],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "fix/tinysa-ultra-hardware-20261108",
@@ -1889,7 +2085,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "fix/windows-tk-lifecycle",
@@ -1906,7 +2104,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/averaged-analysis-export",
@@ -1924,7 +2124,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/release-sweep-changes",
@@ -1946,7 +2148,9 @@
       ],
       "open_pr_bases_at_initial_snapshot": [
         85
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/release-validation-current",
@@ -1963,7 +2167,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/soapy-release-fixes",
@@ -1981,7 +2187,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/stable-spectrum-release",
@@ -1999,7 +2207,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/tinysa-hardware-stack",
@@ -2018,7 +2228,9 @@
       "open_pr_heads_at_initial_snapshot": [],
       "open_pr_bases_at_initial_snapshot": [
         101
-      ]
+      ],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "integration/windows-serial-stack",
@@ -2036,7 +2248,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "main",
@@ -2057,7 +2271,8 @@
         81,
         3,
         2
-      ]
+      ],
+      "remote_deleted_at_cleanup": false
     },
     {
       "branch": "release/v0.4.0-preparation",
@@ -2074,7 +2289,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "remove/proprietary-distribution",
@@ -2091,7 +2308,9 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     },
     {
       "branch": "test/cross-platform-release-smoke",
@@ -2108,12 +2327,28 @@
       "deleted_in_first_batch": true,
       "delete_requires_unchanged_source_sha": true,
       "open_pr_heads_at_initial_snapshot": [],
-      "open_pr_bases_at_initial_snapshot": []
+      "open_pr_bases_at_initial_snapshot": [],
+      "remote_deleted_at_cleanup": true,
+      "verification_code_revision": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5"
     }
   ],
   "notes": [
     "Решения относятся к исходным SHA. Состояние GitHub проверяется перед каждой мутацией.",
     "Удаление replace-and-delete разрешено только после проверки замены в main.",
-    "Новые ветки cleanup/* — временные зависимости PR #106–#113 и итоговой ревизии."
+    "Новые ветки cleanup/* — временные зависимости PR #106–#113 и итоговой ревизии.",
+    "Исходные 110 веток удалены после проверки замен, зависимостей и точного SHA; итоговые ссылки на CI — cleanup-outcome.json."
+  ],
+  "active_work_discovered_during_cleanup": [
+    {
+      "branch": "feature/radio-research-improvements",
+      "pr": 115,
+      "observed_head_sha": "8d838516f184b5b96a358cd34f45104c4a5e1697",
+      "unique_commits_against_functional_main": 3,
+      "observed_head_checks": "13 successful required checks on the old base",
+      "blocker": "Conflict in radioinspector/web/server.py against functional main 851b3ed; Windows/macOS occupancy panes explicitly remain future work",
+      "next_verifiable_step": "Integrate the final main without losing new routes and raw-unit semantics; rerun all 13 checks and the HTTP/WebUI read-only occupancy regression on that updated head",
+      "decision": "preserve-active-unique-work",
+      "origin": "Created concurrently after the initial inventory; outside the replaced PR stack"
+    }
   ]
 }

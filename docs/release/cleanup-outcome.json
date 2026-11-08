@@ -1,0 +1,653 @@
+{
+  "snapshot_kind": "completed_original_repository_cleanup_before_audit_merge",
+  "date_utc": "2026-11-08",
+  "initial_main_sha": "d522bd49e5e767a93b0c7d724d62c0cd46733528",
+  "functional_main_sha": "851b3ed83d42b52c067a8d0015907708eacf978e",
+  "tested_feature_head_sha": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5",
+  "initial_remote_branches": 111,
+  "original_remote_branches_deleted": 110,
+  "remaining_original_branches": [
+    "main"
+  ],
+  "initial_open_pull_requests": 39,
+  "original_pull_requests_closed": [
+    2,
+    3,
+    4,
+    18,
+    19,
+    22,
+    23,
+    24,
+    25,
+    26,
+    34,
+    35,
+    36,
+    37,
+    38,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    66,
+    75,
+    79,
+    81,
+    83,
+    85,
+    88,
+    91,
+    92,
+    93,
+    94,
+    95,
+    97,
+    98,
+    101,
+    102
+  ],
+  "merged_replacement_pull_requests": [
+    {
+      "pr": 106,
+      "head_sha": "e21cc2bfea92e7f718f32ad11dcdba185877e5e2",
+      "merge_sha": "9d3c9787b7b42c13588951e6da01f1f0d8fcc147",
+      "checks": [
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272685"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272683"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272641"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427060/job/128837272592"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272575"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427060/job/128837272568"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272560"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427060/job/128837272541"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272523"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272520"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272515"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427091/job/128837272424"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42515427060/job/128837272397"
+        }
+      ]
+    },
+    {
+      "pr": 107,
+      "head_sha": "e8d6db181989321b62f3ddff522922ac70094c41",
+      "merge_sha": "81ee1a5597d14b2f6e9af0fe9b432c62ff3ae1b4",
+      "checks": [
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486298/job/128840521492"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486298/job/128840521426"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486298/job/128840521236"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521144"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486298/job/128840521113"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521098"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521080"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521078"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521077"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521052"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840521000"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840520982"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42516486273/job/128840520764"
+        }
+      ]
+    },
+    {
+      "pr": 108,
+      "head_sha": "5021a024ffae5d7e37d4f18085f6dfbf641977a3",
+      "merge_sha": "6643015e4dbe772ba347565a6bdbe42c72172bcc",
+      "checks": [
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847908118"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847908089"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847908084"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847908054"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847908012"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847907987"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847907979"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847907972"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920980/job/128847907838"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920793/job/128847907444"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920793/job/128847907418"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920793/job/128847907407"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518920793/job/128847907294"
+        }
+      ]
+    },
+    {
+      "pr": 109,
+      "head_sha": "e9f6ea3209be47e92e86d30114de77166abe319b",
+      "merge_sha": "adc49b02d6e1e6a9067575b8a3516f94896e0e7b",
+      "checks": [
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949468/job/128847994365"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949468/job/128847994352"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949468/job/128847994271"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994146"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994100"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994098"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994096"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994081"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994043"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949468/job/128847994027"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847994007"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847993999"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42518949363/job/128847993859"
+        }
+      ]
+    },
+    {
+      "pr": 110,
+      "head_sha": "19e98430ee41dac1041a13ffc6407e3c1d756d89",
+      "merge_sha": "5dbe4dcbe6cd4c463e38d8e84136cca7e6fc9bb7",
+      "checks": [
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667597"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667446"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667411"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667339"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667310"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667293"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667279"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855667205"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461929/job/128855667189"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461929/job/128855666978"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461929/job/128855666975"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461967/job/128855666940"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521461929/job/128855666691"
+        }
+      ]
+    },
+    {
+      "pr": 111,
+      "head_sha": "1c97901e58bbe00e976b5ab9103901dfcfbaf350",
+      "merge_sha": "247a1854d16bda74f8e24b1b37a293fcf2286842",
+      "checks": [
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861066246"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861061738"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861060534"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861055499"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861032884"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861032836"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861032435"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861032254"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464471/job/128861031973"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464482/job/128855674891"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464482/job/128855674824"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464482/job/128855674754"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521464482/job/128855674593"
+        }
+      ]
+    },
+    {
+      "pr": 112,
+      "head_sha": "01e466ec7646e476f7b46a929625b5ccebbcb6ad",
+      "merge_sha": "1b082b158bc6503f1ef1dc83b71b7545eac9a3cf",
+      "checks": [
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679568"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679543"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679518"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679504"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679491"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679476"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679444"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679399"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521466100/job/128855679283"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521465931/job/128855678885"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521465931/job/128855678795"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521465931/job/128855678758"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521465931/job/128855678650"
+        }
+      ]
+    },
+    {
+      "pr": 113,
+      "head_sha": "98be9f3a2899fc8a5b15c824d3ce9f1ebbe806e5",
+      "merge_sha": "851b3ed83d42b52c067a8d0015907708eacf978e",
+      "checks": [
+        {
+          "name": "synthetic-windows-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294671"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294624"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294579"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294571"
+        },
+        {
+          "name": "synthetic-windows-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294567"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294506"
+        },
+        {
+          "name": "synthetic-macos-latest-py3.14",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294454"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.10",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294446"
+        },
+        {
+          "name": "synthetic-ubuntu-latest-py3.12",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667937/job/128856294248"
+        },
+        {
+          "name": "desktop (macos-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667706/job/128856293296"
+        },
+        {
+          "name": "python",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667706/job/128856293288"
+        },
+        {
+          "name": "desktop (windows-latest)",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667706/job/128856293259"
+        },
+        {
+          "name": "native-review-regressions",
+          "conclusion": "success",
+          "html_url": "https://github.com/qlolp/openradioinspector/actions/runs/42521667706/job/128856293099"
+        }
+      ]
+    }
+  ],
+  "original_review_threads_resolved": 41,
+  "additional_review_threads_fixed_and_resolved": 17,
+  "backup_restore_and_fsck_verified": true,
+  "history_rewritten": false,
+  "release_published": false,
+  "hardware_acceptance": "BLOCKED",
+  "main_protection_application": "unconfirmed: GitHub App Administration API HTTP 403",
+  "temporary_cleanup_branches": "Remove only after their PR is merged and head is still unchanged; source refs are recorded in the private verified bundle.",
+  "active_work_discovered_during_cleanup": [
+    {
+      "branch": "feature/radio-research-improvements",
+      "pr": 115,
+      "observed_head_sha": "8d838516f184b5b96a358cd34f45104c4a5e1697",
+      "unique_commits_against_functional_main": 3,
+      "observed_head_checks": "13 successful required checks on the old base",
+      "blocker": "Conflict in radioinspector/web/server.py against functional main 851b3ed; Windows/macOS occupancy panes explicitly remain future work",
+      "next_verifiable_step": "Integrate the final main without losing new routes and raw-unit semantics; rerun all 13 checks and the HTTP/WebUI read-only occupancy regression on that updated head",
+      "decision": "preserve-active-unique-work",
+      "origin": "Created concurrently after the initial inventory; outside the replaced PR stack"
+    }
+  ]
+}
