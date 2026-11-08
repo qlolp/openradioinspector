@@ -138,6 +138,7 @@
   dom.clear.addEventListener("click", clear);
   for (const name of ["mer", "bertv", "berrs", "minmer", "maxtv", "maxrs", "guard", "code"]) {
     dom[name].addEventListener("change", clear);
+    if (!["guard", "code"].includes(name)) dom[name].addEventListener("input", clear);
   }
   window.addEventListener("offline", () => setConnected(false));
   window.addEventListener("pagehide", () => { suspended = true; clear(); });

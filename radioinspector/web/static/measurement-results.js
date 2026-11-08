@@ -203,8 +203,10 @@
     const current = generation;
     if (!catalog.length) {
       if (!catalogLoading) catalogLoading = loadCatalog();
-      if (!await catalogLoading || current !== generation) return;
-      catalogLoading = null;
+      const loading = catalogLoading;
+      const loaded = await loading;
+      if (catalogLoading === loading) catalogLoading = null;
+      if (!loaded || current !== generation) return;
     }
     return refresh();
   }

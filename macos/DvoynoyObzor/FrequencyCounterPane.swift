@@ -58,7 +58,7 @@ final class FrequencyCounterModel: ObservableObject {
     func reset() { configure(client: nil, scope: nil, sweeps: []) }
     func clear() {
         revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
-        pending = false; result = nil; errorText = nil
+        pending = false; result = nil; errorText = nil; infoText = nil
     }
     func analyze() {
         guard !pending, let client, let scope else { return }

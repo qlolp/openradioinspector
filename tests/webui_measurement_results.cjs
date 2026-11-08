@@ -194,6 +194,16 @@ async function transportAndScope() {
 }
 
 
+async function catalogRecoversAfterFailure() {
+  const app = setup(); app.update();
+  app.respond(0, {}, 500); await new Promise(resolve => setImmediate(resolve));
+  app.update();
+  assert.equal(app.requests.length, 2, 'failed catalog promise must be released for retry');
+  app.respond(1, CATALOG, 200); await new Promise(resolve => setImmediate(resolve));
+  app.respond(2, [], 200); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.dom.run.disabled, false);
+}
+
 async function refreshOwnership() {
   const app = setup(); app.update();
   assert.equal(app.requests.filter(r => r.url.includes('/measurement-results?')).length, 0,
@@ -215,6 +225,7 @@ async function refreshOwnership() {
 }
 
 (async () => {
+  await catalogRecoversAfterFailure();
   await refreshOwnership();
   await happyPath();
   await notMeasuredAndCatalogGuard();
