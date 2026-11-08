@@ -170,6 +170,18 @@ class AudioCancellationTests(unittest.TestCase):
             connection.cancel_read(); worker.join(3)
             response.close(); client.close(); peer.close()
 
+    def test_available_short_pcm_block_is_delivered_before_the_stream_ends(self):
+        import socket, http.client
+        from radioinspector.windows.client import AudioStreamConnection
+        client, peer = socket.socketpair(); client.settimeout(0.5)
+        peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: audio/pcm\r\nConnection: close\r\n\r\n12345678')
+        response = http.client.HTTPResponse(client); response.begin()
+        connection = AudioStreamConnection(response)
+        try:
+            self.assertEqual(connection.read_block(8192), b'12345678')
+        finally:
+            connection.cancel_read(); connection.close(); client.close(); peer.close()
+
     def test_stream_change_invalidates_pending_status(self):
         p = panel(); future = Future(); future.set_running_or_notify_cancel()
         p.executor.submit.side_effect = lambda *args: future
