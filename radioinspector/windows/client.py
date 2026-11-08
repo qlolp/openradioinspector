@@ -299,6 +299,22 @@ class PlatformClient:
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/dvb-evaluation",
                              payload, expected_statuses=(200,))
 
+    def phonogram_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/status?{query}",
+                             expected_statuses=(200,))
+
+    def phonogram_start(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/start",
+                             {"stream_id": stream_id}, expected_statuses=(200,))
+
+    def phonogram_stop(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/stop",
+                             {"stream_id": stream_id}, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

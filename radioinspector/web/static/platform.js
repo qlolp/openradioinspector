@@ -568,6 +568,7 @@
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
     window.OpenRadioDvbEvaluation?.update({ sessionId: state.sessionId });
+    window.OpenRadioPhonogram?.update({ sessionId: state.sessionId, streams: state.workers?.map(w => ({ id: w.stream_id || w.id, device: w.device })) || [] });
     window.OpenRadioSweepComparison?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
@@ -859,6 +860,7 @@
       window.OpenRadioMeasurementResults?.setConnected(true);
       window.OpenRadioFrequencyCounter?.setConnected(true);
       window.OpenRadioDvbEvaluation?.setConnected(true);
+      window.OpenRadioPhonogram?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
@@ -869,6 +871,7 @@
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);
       window.OpenRadioDvbEvaluation?.setConnected(false);
+      window.OpenRadioPhonogram?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -914,6 +917,7 @@
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);
       window.OpenRadioDvbEvaluation?.setConnected(false);
+      window.OpenRadioPhonogram?.setConnected(false);
     });
     const receive = (message) => {
       try {

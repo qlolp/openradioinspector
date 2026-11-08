@@ -44,6 +44,7 @@ from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, Worke
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES
 from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
 from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
+from ..phonogram import PhonogramError
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -632,6 +633,24 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "phonogram"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                if parts[5] == "status":
+                    result = self.sessions.phonogram_status(parts[3], stream_id)
+                    self._send_json(api_payload(result))
+                    return
+                if parts[5] == "wav":
+                    wav = self.sessions.phonogram_wav(parts[3], stream_id)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.end_headers()
+                    self.wfile.write(wav)
+                    return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "investigations"
                 and parts[5] == "next"
             ):
@@ -905,6 +924,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.dvb_evaluation(parts[3], payload)))
                 return
             if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "phonogram"
+                and parts[5] in ("frames", "start", "stop")
+            ):
+                if parts[5] == "frames":
+                    result = self.sessions.phonogram_push(parts[3], payload)
+                elif parts[5] == "start":
+                    result = self.sessions.phonogram_start(parts[3], payload)
+                else:
+                    result = self.sessions.phonogram_stop(parts[3], payload)
+                self._send_json(api_payload(result))
+                return
+            if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
@@ -1107,6 +1140,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "counter_incompatible", str(exc))
         except DvbEvaluationError as exc:
             self._send_api_error(409, "dvb_evaluation_error", str(exc))
+        except PhonogramError as exc:
+            self._send_api_error(409, "phonogram_error", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

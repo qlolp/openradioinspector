@@ -18,6 +18,7 @@
   <script src="/static/measurement-results.js" defer></script>
   <script src="/static/frequency-counter.js" defer></script>
   <script src="/static/dvb-evaluation.js" defer></script>
+  <script src="/static/phonogram.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -425,6 +426,25 @@
           <p id="dvb-status" role="status" aria-live="polite"></p>
           <p id="dvb-summary"></p>
           <ol id="dvb-items" aria-label="Вердикты по параметрам DVB-T"></ol>
+        </section>
+        <section class="phono-panel" aria-labelledby="phono-heading">
+          <h3 id="phono-heading">Фонограмма · запись с пятисекундной предысторией</h3>
+          <p>Рекордер держит скользящее окно последних 5 секунд аудиопотока; кнопка «Начать запись» фиксирует окно как предысторию — файл уже содержит звучавшее до нажатия. Запись — runtime-состояние: в архив сеанса ничего не пишется, исходные отсчёты не изменяются.</p>
+          <label for="phono-stream">Аудиопоток сеанса</label>
+          <select id="phono-stream" disabled aria-describedby="phono-source"></select>
+          <div class="form-actions">
+            <button id="phono-start" class="button" type="button" disabled>Начать запись (с предысторией 5 с)</button>
+            <button id="phono-stop" class="button" type="button" disabled>Остановить запись</button>
+            <button id="phono-refresh" class="button" type="button" disabled>Обновить состояние</button>
+          </div>
+          <p id="phono-source">Нет потоков выбранного сеанса.</p>
+          <p>Отсчёты поступают из аудиопотока (приборные потоки) или через API
+            <code>POST …/phonogram/frames</code>; панель их не генерирует и не подменяет.
+            Предыстория фиксирована — 5 секунд. WAV последней фонограммы:
+            <code>GET …/phonogram/wav?stream_id=…</code>.</p>
+          <p id="phono-status" role="status" aria-live="polite"></p>
+          <p id="phono-summary"></p>
+          <ol id="phono-items" aria-label="Состояние записи фонограммы"></ol>
         </section>
       </section>
 

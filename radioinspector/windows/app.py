@@ -330,6 +330,8 @@ class WindowsApp:
         self.counter_panel = FrequencyCounterPanel(self, notebook)
         from .dvb_parameters import DvbEvaluationPanel
         self.dvb_panel = DvbEvaluationPanel(self, notebook)
+        from .phonogram import PhonogramPanel
+        self.phonogram_panel = PhonogramPanel(self, notebook)
         from .sweep_average import AveragePanel
         self.average_panel = AveragePanel(self, notebook)
         from .sweep_three_thresholds import ThreeThresholdsPanel
@@ -376,6 +378,8 @@ class WindowsApp:
             self.counter_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
+        if hasattr(self, "phonogram_panel"):
+            self.phonogram_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -577,6 +581,8 @@ class WindowsApp:
             self.counter_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
+        if hasattr(self, "phonogram_panel"):
+            self.phonogram_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -753,6 +759,8 @@ class WindowsApp:
             self.counter_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
+        if hasattr(self, "phonogram_panel"):
+            self.phonogram_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -817,6 +825,8 @@ class WindowsApp:
             self.counter_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
+        if hasattr(self, "phonogram_panel"):
+            self.phonogram_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -1495,6 +1505,8 @@ class WindowsApp:
             self.counter_panel.close()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.close()
+        if hasattr(self, "phonogram_panel"):
+            self.phonogram_panel.close()
         if hasattr(self, "average_panel"):
             self.average_panel.close()
         if hasattr(self, "three_thresholds_panel"):

@@ -40,6 +40,7 @@ from .frequency_counter import (
     calculate_frequency_counter, validate_counter_request,
 )
 from .dvb_parameters import evaluate_dvb_parameters
+from .phonogram import PhonogramError, PhonogramRecorder
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -119,6 +120,7 @@ class SessionService:
         self._investigations: dict[str, Investigation] = {}
         self._investigation_sessions: dict[str, str] = {}
         self._measurement_results: list[dict[str, Any]] = []
+        self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
         self._sequence = 0
         self._subscriber_sequence = 0
@@ -203,6 +205,7 @@ class SessionService:
                 "measurement_methodology_catalog": True,
                 "frequency_counter": True,
                 "dvb_t_evaluation": True,
+                "phonogram_pre_history": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -650,6 +653,59 @@ class SessionService:
             self._get_locked(session_id)
             result = evaluate_dvb_parameters(payload)
             return {"session_id": session_id, **result}
+
+    def _phonogram_recorder(self, session_id: str, stream_id: str) -> Any:
+        """Runtime recorder per session and stream; nothing enters the archive."""
+        if not isinstance(stream_id, str) or not stream_id.strip():
+            raise ValueError("stream_id должен быть непустым ID потока")
+        session = self._get_locked(session_id)
+        if not any(item.id == stream_id for item in session.streams):
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+        key = (session_id, stream_id)
+        if key not in self._phonograms:
+            self._phonograms[key] = (PhonogramRecorder(), None)
+        return self._phonograms[key][0]
+
+    def phonogram_push(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Подать отсчёты аудиопотока в буфер предыстории."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id", "samples"}:
+            raise ValueError("Разрешены только поля stream_id и samples")
+        samples = payload["samples"]
+        if not isinstance(samples, list) or not samples or len(samples) > 4800:
+            raise ValueError("samples должен содержать от 1 до 4800 отсчётов")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            recorder.push(samples)
+            return recorder.status()
+
+    def phonogram_start(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Начать запись фонограммы; окно буфера становится предысторией."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id"}:
+            raise ValueError("Разрешено только поле stream_id")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            started = recorder.start()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **started}
+
+    def phonogram_stop(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Завершить запись: предыстория и записанная часть в одном результате."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id"}:
+            raise ValueError("Разрешено только поле stream_id")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            phonogram = recorder.stop()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **phonogram.as_dict()}
+
+    def phonogram_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, stream_id)
+            return {"session_id": session_id, "stream_id": stream_id, **recorder.status()}
+
+    def phonogram_wav(self, session_id: str, stream_id: str) -> bytes:
+        """WAV последней фонограммы; запись в архив не выполняется."""
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, stream_id)
+            return recorder.last_wav()
 
     def save_measurement_result(
         self, session_id: str, payload: dict[str, Any],
