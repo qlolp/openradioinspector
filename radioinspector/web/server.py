@@ -26,6 +26,7 @@ import tempfile
 import threading
 import time
 from contextlib import ExitStack
+from functools import wraps
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -72,6 +73,14 @@ from ..threshold import ThresholdLine
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def state_locked(method):
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return locked
+
+
 class ApplicationState:
     """Состояние веб-приложения: текущая база данных и список сигналов."""
 
@@ -82,7 +91,7 @@ class ApplicationState:
         self.signals = SignalList()
         self.threshold: Optional[ThresholdLine] = None
         self._subscribers: list[threading.Event] = []
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._version = 0
 
         if database:
@@ -92,30 +101,38 @@ class ApplicationState:
 
     def load_database(self, path: str) -> None:
         """Открывает базу данных панорам и перечитывает порог и сигналы."""
-        store = PanoramaStore(path)
-        self.store = store
-        self.database = path
+        candidate = Path(path).resolve()
+        if not candidate.is_file() or candidate.suffix.lower() != ".pan":
+            raise ValueError("Укажите существующую базу панорам .pan")
+        if self.library is not None and not candidate.is_relative_to(Path(self.library).resolve()):
+            raise ValueError("База находится вне настроенного каталога")
+        store = PanoramaStore(candidate)
+        try:
+            threshold = store.load_threshold(0)
+            if threshold is None:
+                latest = store.latest()
+                threshold = (ThresholdLine.default_for(latest.trace) if latest is not None
+                             else ThresholdLine.horizontal(0.0, 1.0, -80.0))
+            signals_file = candidate.with_name("signals.json")
+            if signals_file.exists():
+                signals = SignalList.load(signals_file)
+            else:
+                signals = SignalList()
+                for record in store.iter_panoramas():
+                    signals.update_from_trace(record.trace, threshold, record.recorded_at)
+        except Exception:
+            store.close()
+            raise
+        # Readers hold the same lock: never close a connection still in use.
+        with self._lock:
+            old = self.store
+            self.store, self.database = store, str(candidate)
+            self.signals, self.threshold = signals, threshold
+            self.bump()
+            if old is not None:
+                old.close()
 
-        threshold = store.load_threshold(0)
-        if threshold is None:
-            latest = store.latest()
-            threshold = (
-                ThresholdLine.default_for(latest.trace)
-                if latest is not None
-                else ThresholdLine.horizontal(0.0, 1.0, -80.0)
-            )
-        self.threshold = threshold
-
-        signals_file = Path(path).with_name("signals.json")
-        if signals_file.exists():
-            self.signals = SignalList.load(signals_file)
-        else:
-            self.signals = SignalList()
-            for record in store.iter_panoramas():
-                self.signals.update_from_trace(record.trace, threshold, record.recorded_at)
-
-        self.bump()
-
+    @state_locked
     def reload_signals(self) -> None:
         """Пересчёт списка сигналов по текущей линии порога."""
         if self.store is None or self.threshold is None:
@@ -152,6 +169,7 @@ class ApplicationState:
 
     # -- снимок состояния ---------------------------------------------------
 
+    @state_locked
     def snapshot(self, include_waterfall: bool = True) -> dict:
         payload: dict = {
             "version": self._version,
@@ -226,6 +244,7 @@ class ApplicationState:
         payload["points"] = points
         return payload
 
+    @state_locked
     def measurements(self, start_hz: float, stop_hz: float, norm_hz: Optional[float] = None) -> dict:
         if self.store is None:
             return {}
@@ -235,6 +254,7 @@ class ApplicationState:
         trace = latest.trace.slice(start_hz, stop_hz)
         return measure_signal(trace, norm_hz=norm_hz)
 
+    @state_locked
     def occupancy(self, threshold_db: Optional[float] = None) -> dict:
         """Оценка загрузки диапазона по сохранённой базе данных панорам."""
         if self.store is None:
@@ -243,6 +263,7 @@ class ApplicationState:
             threshold_db = self.threshold_level()
         return occupancy_from_store(self.store, threshold_db).as_dict()
 
+    @state_locked
     def efficiency(self, threshold_db: Optional[float] = None) -> dict:
         """Эффективность использования диапазона: доля моментов наблюдения."""
         if self.store is None:
@@ -251,6 +272,7 @@ class ApplicationState:
             threshold_db = self.threshold_level()
         return efficiency_from_store(self.store, threshold_db).as_dict()
 
+    @state_locked
     def threshold_level(self) -> float:
         """Уровень линии порога, дБ; при её отсутствии — 2/3 шкалы."""
         if self.threshold is not None and self.threshold.levels.size:
@@ -260,6 +282,7 @@ class ApplicationState:
             return -100.0
         return float(latest.trace.peak - 30.0)
 
+    @state_locked
     def coverage(self, rows: int = 30, cols: int = 30) -> dict:
         if self.store is None:
             return {}

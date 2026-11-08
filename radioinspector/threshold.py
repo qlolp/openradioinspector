@@ -25,6 +25,7 @@ from typing import Optional
 import numpy as np
 
 from .trace import Trace
+from .units import UnitError, normalize_unit
 
 #: Число линий порога, хранимых в базе данных панорам.
 THRESHOLD_LINES_COUNT = 3
@@ -215,6 +216,10 @@ def power_over_threshold(
     же единицах, что и порог мощности превышения (0,5–20 ркВт в
     исходном комплексе).
     """
+    trace_unit = normalize_unit(trace.unit)
+    line_unit = normalize_unit(line.unit)
+    if trace_unit not in ("dBm", "dBW") or line_unit != trace_unit:
+        raise UnitError("Абсолютная мощность требует согласованных dBm или dBW; относительные шкалы без калибровки недоступны")
     f_start, f_stop = interval
     segment = trace.slice(f_start, f_stop)
     if segment.size == 0:
@@ -223,4 +228,4 @@ def power_over_threshold(
     signal_mw = np.power(10.0, segment.levels / 10.0)
     threshold_mw = np.power(10.0, threshold / 10.0)
     excess = np.clip(signal_mw - threshold_mw, 0.0, None)
-    return float(np.sum(excess)) / 1000.0
+    return float(np.sum(excess)) / (1000.0 if trace_unit == "dBm" else 1.0)
