@@ -1,7 +1,7 @@
 include CHANGELOG.md
 recursive-include docs *.md *.json *.tsv
 recursive-include tools *.py *.txt *.md
-recursive-include tests *.py *.cjs
+recursive-include tests *.py *.cjs *.json
 recursive-include packaging *.py *.sh *.ps1 *.iss *.service *.md
 prune CD Ligtht 32314
 exclude docs/commercial-help-texts.md

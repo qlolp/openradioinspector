@@ -23,6 +23,15 @@ jobs:
             python tools/release/check_public_tree.py --artifact "$artifact"
           done
       - run: python tools/release/verify_sdist.py dist/*.tar.gz
+      - name: Check presentation contract from extracted sdist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/ori-sdist-presentation"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/ori-sdist-presentation"
+          cd "$RUNNER_TEMP"/ori-sdist-presentation/*
+          python -m unittest tests.test_windows_spectrum_view.SpectrumViewTests
+          node tests/webui_spectrum_view.cjs
       - run: python tools/release/package_evidence.py dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

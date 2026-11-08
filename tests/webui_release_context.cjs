@@ -33,7 +33,7 @@ if (which === 'context') {
 } else if (which === 'large') {
   const canvas={width:16,height:16,setAttribute(){}};let drawn=false;
   const drawing={createImageData(w,h){return {data:new Uint8ClampedArray(w*h*4)};},putImageData(){drawn=true;}};
-  const context=vm.createContext({dom:{waterfallCanvas:canvas,waterfallScale:{}},clearCanvas(){return drawing;},formatLevel(value){return String(value);}});
+  const context=vm.createContext({state:{spectrumView:{bounds:[-100,0]}},window:{OpenRadioSpectrumView:require("../radioinspector/web/static/spectrum-view.js")},dom:{waterfallCanvas:canvas,waterfallScale:{}},clearCanvas(){return drawing;},formatLevel(value){return String(value);}});
   loadFunction('waterfallColor',context);
   if(source.includes('  function waterfallLevels(')) loadFunction('waterfallLevels',context);
   loadFunction('drawWaterfall',context);

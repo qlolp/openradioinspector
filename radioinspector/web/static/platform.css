@@ -369,3 +369,7 @@ form.editor { border-style: solid; }
 #context-items button { white-space: normal; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
 #context-items button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
 #context-canvas { width: 100%; height: auto; margin-top: 10px; }
+
+.spectrum-view-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem; }
+.spectrum-view-controls input { width: 9rem; }
+#time-readout, #spectrum-view-status { overflow-wrap: anywhere; }

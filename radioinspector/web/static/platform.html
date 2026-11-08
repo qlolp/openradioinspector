@@ -15,6 +15,7 @@
   <script src="/static/sweep-three-thresholds.js" defer></script>
   <script src="/static/sweep-context.js" defer></script>
   <script src="/static/frequency-rounding.js" defer></script>
+  <script src="/static/spectrum-view.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -195,8 +196,18 @@
             <button id="mark-peak" class="button primary" type="button" disabled>Зафиксировать пик</button>
           </div>
         </div>
+        <form id="spectrum-scale-form" class="spectrum-view-controls" novalidate>
+          <button id="spectrum-pause" class="button" type="button">Pause view</button>
+          <button id="spectrum-fit" class="button" type="button">Fit</button>
+          <label>Min dBm <input id="spectrum-min" type="text" inputmode="decimal" placeholder="-120"></label>
+          <label>Max dBm <input id="spectrum-max" type="text" inputmode="decimal" placeholder="0"></label>
+          <button id="spectrum-apply" class="button" type="submit">Применить шкалу</button>
+        </form>
+        <p class="meta-line">Границы: десятичная точка, допустима экспонента (например -1.2e2).</p>
+        <p id="spectrum-scale-error" class="error-text" role="alert"></p>
+        <p id="spectrum-view-status" role="status"></p>
         <div class="scope-frame">
-          <div class="scope-ruler" aria-hidden="true"><span>АМПЛИТУДА</span><span>ВРЕМЯ ИЗМЕРЕНИЯ → ЧАСТОТА</span></div>
+          <div class="scope-ruler" aria-hidden="true"><span>АМПЛИТУДА</span><span>ЧАСТОТА →</span></div>
           <canvas id="spectrum-canvas" width="960" height="330" role="img" aria-label="Последний спектральный свип">Ваш браузер не поддерживает canvas.</canvas>
           <div id="spectrum-empty" class="canvas-empty">Нет свипов выбранного потока. Запустите исполнитель или примите измерение через API.</div>
         </div>
@@ -204,7 +215,7 @@
           <div><dt>Диапазон</dt><dd id="range-readout">—</dd></div>
           <div><dt>Пик</dt><dd id="peak-readout">—</dd></div>
           <div><dt>Точек</dt><dd id="points-readout">—</dd></div>
-          <div><dt>Начало UTC</dt><dd id="time-readout">—</dd></div>
+          <div><dt>Интервал UTC / источник</dt><dd id="time-readout">—</dd></div>
         </dl>
         <div class="waterfall-heading">
           <h3>История уровней · до 40 свипов</h3>
