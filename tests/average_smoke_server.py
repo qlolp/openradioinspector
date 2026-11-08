@@ -80,7 +80,7 @@ def main() -> None:
         service = SessionService(store=SQLiteSessionStore(str(path)))
         server = create_server(host='127.0.0.1', port=args.port, sessions=service)
         print(json.dumps({
-            'url': f'http://127.0.0.1:{args.port}/platform',
+            'url': f'http://127.0.0.1:{server.server_address[1]}/platform',
             'session': 'average-one', 'stream': 'spectrum-one',
             'reference_ids': ['one-sweep-1', 'one-sweep-2', 'one-sweep-3'],
             'target_id': 'one-sweep-4', 'points': 101,
