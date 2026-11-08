@@ -155,7 +155,6 @@ class SessionService:
                     store.save_session(session)
             self._sessions = {item.id: item for item in restored}
             self._candidates = {item.id: item for item in store.load_candidates()}
-            self._measurement_results = store.load_measurement_results()
             for session_id, investigation in store.load_investigations():
                 candidate = self._candidates.get(investigation.candidate_id)
                 if candidate is None or candidate.session_id != session_id:

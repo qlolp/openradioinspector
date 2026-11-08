@@ -174,7 +174,11 @@ final class MeasurementResultsModel: ObservableObject {
 }
 
 private func validUTC(_ value: String) -> Bool {
-    !value.isEmpty && value.hasSuffix("Z") && ISO8601DateFormatter().date(from: value) != nil
+    guard value.hasSuffix("Z") || value.hasSuffix("+00:00") else { return false }
+    let formatter = ISO8601DateFormatter()
+    if formatter.date(from: value) != nil { return true }
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.date(from: value) != nil
 }
 
 struct RemoteMeasurementResultsPane: View {

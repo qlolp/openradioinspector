@@ -237,6 +237,16 @@ async function refreshAndFileRaces() {
   app.dom.editor.value = 'user edit'; app.dom.editor.listeners.input();
   completeA(); await first;
   assert.equal(app.dom.editor.value, 'user edit', 'late file must not overwrite current draft');
+  const concurrent = setup(); concurrent.update([candidate()]); concurrent.select(['candidate/1']);
+  let finishRead;
+  concurrent.dom.file.files = [file(JSON.stringify(table()), done => { finishRead = done; })];
+  const reading = concurrent.dom.file.listeners.change();
+  const calculation = concurrent.click('run');
+  finishRead(); await reading;
+  assert.equal(concurrent.requests[0].options.signal.aborted, true, 'applying imported draft cancels an older calculation');
+  concurrent.respond(0, payload()); await calculation;
+  assert.equal(concurrent.dom.save.disabled, true, 'previous table cannot be exported beside imported draft');
+
 }
 
 (async () => {
