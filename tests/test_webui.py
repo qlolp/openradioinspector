@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import re
+import tempfile
 import threading
 import tomllib
 import unittest
@@ -85,6 +86,32 @@ class WebUiTests(unittest.TestCase):
                     self.assertEqual(status, 200)
                     self.assertEqual(content_type, expected + "; charset=utf-8")
                     self.assertEqual(body, (STATIC_DIR / name).read_bytes().decode("utf-8"))
+
+    def test_static_responses_preserve_crlf_utf8_bytes(self) -> None:
+        # Reproduce a Windows checkout on every OS without changing repository assets.
+        with tempfile.TemporaryDirectory() as directory:
+            static = Path(directory)
+            assets = ("platform.html", "platform.css", "platform.js", "scheduler.js",
+                      "analytics.js", "task-create.js")
+            for name in assets:
+                content = (STATIC_DIR / name).read_text(encoding="utf-8")
+                (static / name).write_bytes(content.replace("\n", "\r\n").encode("utf-8"))
+            with patch("radioinspector.web.server.STATIC_DIR", static):
+                for name in assets:
+                    with self.subTest(asset=name):
+                        route = "/platform.html" if name.endswith(".html") else f"/static/{name}"
+                        connection = http.client.HTTPConnection(self.host, self.port, timeout=5)
+                        try:
+                            connection.request("GET", route)
+                            response = connection.getresponse()
+                            body = response.read()
+                            self.assertEqual(response.status, 200)
+                            self.assertEqual(body, (static / name).read_bytes())
+                            self.assertEqual(int(response.getheader("Content-Length")), len(body))
+                            self.assertIn(b"\r\n", body)
+                            self.assertNotEqual(body.decode("utf-8"), (static / name).read_text(encoding="utf-8"))
+                        finally:
+                            connection.close()
 
     def test_assets_are_local_and_packaged(self) -> None:
         html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
@@ -185,7 +212,7 @@ class WebUiTests(unittest.TestCase):
         status, content_type, body = self.request("/static/scheduler.js")
         self.assertEqual(status, 200)
         self.assertTrue(content_type.startswith("text/javascript"))
-        self.assertEqual(body, javascript)
+        self.assertEqual(body, (STATIC_DIR / "scheduler.js").read_bytes().decode("utf-8"))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import tempfile
 import threading
 import unittest
@@ -116,9 +117,14 @@ class DocxReportTests(unittest.TestCase):
             template = ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Стандартный протокол")
             barrier = threading.Barrier(2)
             original_replace = Path.replace
+            attempted = set()
+            attempts_lock = threading.Lock()
 
             def synchronized_replace(source: Path, destination: Path) -> Path:
-                if source.parent == root and source.suffix == ".tmp":
+                with attempts_lock:
+                    first_attempt = source not in attempted
+                    attempted.add(source)
+                if first_attempt and source.parent == root and source.suffix == ".tmp":
                     barrier.wait(timeout=10)
                 return original_replace(source, destination)
 
@@ -137,6 +143,97 @@ class DocxReportTests(unittest.TestCase):
                         ET.fromstring(package.read(name))
                 document = package.read("word/document.xml").decode()
             self.assertTrue("Первый" in document or "Второй" in document)
+
+    def test_windows_replace_contention_retries_the_same_complete_staging_file(self) -> None:
+        for winerror in (5, 32, 33):
+            with self.subTest(winerror=winerror), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = root / "report.docx"
+                output.write_bytes(b"previous report")
+                original_replace = Path.replace
+                staged_paths = []
+                transient = PermissionError(errno.EACCES, "Windows replace contention")
+                transient.winerror = winerror
+
+                def replace(source: Path, destination: Path) -> Path:
+                    staged_paths.append(source)
+                    with zipfile.ZipFile(source) as package:
+                        self.assertIsNone(package.testzip())
+                    if len(staged_paths) < 3:
+                        self.assertEqual(output.read_bytes(), b"previous report")
+                        raise transient
+                    return original_replace(source, destination)
+
+                with mock.patch.object(Path, "replace", replace), mock.patch(
+                    "radioinspector.docx_report.time.sleep"
+                ) as sleep:
+                    result = write_docx_report(
+                        ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Report"),
+                        ReportContext(),
+                        output,
+                    )
+                self.assertEqual(result, output)
+                self.assertEqual(len(staged_paths), 3)
+                self.assertEqual(len(set(staged_paths)), 1)
+                self.assertEqual(sleep.call_count, 2)
+                with zipfile.ZipFile(output) as package:
+                    self.assertIsNone(package.testzip())
+                self.assertEqual(list(root.glob("*.tmp")), [])
+
+    def test_persistent_windows_replace_error_preserves_previous_report(self) -> None:
+        for winerror in (5, 32, 33):
+            with self.subTest(winerror=winerror), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = root / "report.docx"
+                output.write_bytes(b"previous report")
+                unrelated = root / "report.docx.other.tmp"
+                unrelated.write_bytes(b"other writer")
+                denied = PermissionError(errno.EACCES, "Windows replace denied")
+                denied.winerror = winerror
+                with mock.patch.object(Path, "replace", side_effect=denied) as replace, mock.patch(
+                    "radioinspector.docx_report.time.sleep"
+                ) as sleep:
+                    with self.assertRaises(PermissionError) as raised:
+                        write_docx_report(
+                            ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Report"),
+                            ReportContext(),
+                            output,
+                        )
+                self.assertIs(raised.exception, denied)
+                self.assertEqual(replace.call_count, 11)
+                self.assertEqual(sleep.call_count, 10)
+                self.assertEqual(output.read_bytes(), b"previous report")
+                self.assertEqual(unrelated.read_bytes(), b"other writer")
+                self.assertEqual(list(root.glob("*.tmp")), [unrelated])
+
+    def test_other_replace_errors_fail_immediately_and_preserve_previous_report(self) -> None:
+        errors = [
+            PermissionError(errno.EACCES, "POSIX denied"),
+            FileNotFoundError(errno.ENOENT, "Missing path"),
+            OSError(errno.ENOSPC, "Disk full"),
+        ]
+        unknown_windows = PermissionError(errno.EACCES, "Other Windows error")
+        unknown_windows.winerror = 123
+        errors.append(unknown_windows)
+        for error in errors:
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = root / "report.docx"
+                output.write_bytes(b"previous report")
+                with mock.patch.object(Path, "replace", side_effect=error) as replace, mock.patch(
+                    "radioinspector.docx_report.time.sleep"
+                ) as sleep:
+                    with self.assertRaises(OSError) as raised:
+                        write_docx_report(
+                            ProtocolTemplate("protocol", DEFAULT_TEMPLATE, "Report"),
+                            ReportContext(),
+                            output,
+                        )
+                self.assertIs(raised.exception, error)
+                replace.assert_called_once()
+                sleep.assert_not_called()
+                self.assertEqual(output.read_bytes(), b"previous report")
+                self.assertEqual(list(root.glob("*.tmp")), [])
 
     def test_invalid_xml_characters_are_removed_from_all_parts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -296,6 +297,21 @@ def _markdown_blocks(text: str) -> Iterable[tuple[str, object]]:
         index += 1
 
 
+def _replace_docx(staged: Path, destination: Path) -> None:
+    """Retry brief Windows replace contention without weakening atomicity."""
+    # Concurrent replacements and Windows file scanners can briefly hold the
+    # target. Never unlink it or fall back to a non-atomic copy. A persistent
+    # ACL/readonly/lock error remains an error after ten 50 ms retry delays.
+    for attempt in range(11):
+        try:
+            staged.replace(destination)
+            return
+        except OSError as error:
+            if getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 10:
+                raise
+            time.sleep(0.05)
+
+
 def write_docx_report(
     template: ProtocolTemplate, context: ReportContext, output: str | Path
 ) -> Path:
@@ -349,7 +365,7 @@ def write_docx_report(
         with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as package:
             for name, data in parts.items():
                 package.writestr(name, data.encode("utf-8"))
-        temporary.replace(destination)
+        _replace_docx(temporary, destination)
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()

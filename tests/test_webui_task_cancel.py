@@ -48,7 +48,7 @@ class WebUiTaskCancelTests(unittest.TestCase):
         connection.close()
         self.assertEqual(response.status, 200)
         self.assertTrue((response.getheader("Content-Type") or "").startswith("text/javascript"))
-        self.assertEqual(body, javascript)
+        self.assertEqual(body, (STATIC_DIR / "scheduler.js").read_bytes().decode("utf-8"))
 
 
 if __name__ == "__main__":
