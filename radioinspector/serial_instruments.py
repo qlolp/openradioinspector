@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import select
 import time
 from datetime import datetime
@@ -28,7 +29,42 @@ from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adap
 HARDWARE_VALIDATION_NOT_RUN = "not_run"
 
 
-class PosixSerialTransport:
+class _SerialFraming:
+    """Common reply framing; backends only move raw bytes with a timeout."""
+
+    def read_line(self, timeout: float, label: str) -> str:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            newline = self._stash.find(b"\n")
+            if newline >= 0:
+                raw = bytes(self._stash[:newline]).rstrip(b"\r")
+                del self._stash[: newline + 1]
+                return raw.decode("utf-8", errors="replace")
+            self._read_once(max(0.01, deadline - time.monotonic()), label)
+        raise WorkerError(f"Таймаут ответа {label} на {self.path}")
+
+    def read_until_quiet(self, quiet: float, maximum: float, label: str) -> str:
+        deadline = time.monotonic() + maximum
+        last_byte = time.monotonic()
+        received = False
+        while time.monotonic() < deadline:
+            chunk = self._read_once(min(quiet, max(0.01, deadline - time.monotonic())), label)
+            if chunk:
+                received = True
+                last_byte = time.monotonic()
+                text = self._stash.decode("utf-8", errors="replace").strip()
+                if text.endswith("ch>"):
+                    break
+            elif received and time.monotonic() - last_byte >= quiet:
+                break
+        if not received:
+            raise WorkerError(f"Пустой ответ {label} на {self.path}")
+        text = self._stash.decode("utf-8", errors="replace")
+        self._stash.clear()
+        return text
+
+
+class PosixSerialTransport(_SerialFraming):
     """Маленький blocking-by-timeout transport без внешних зависимостей."""
 
     def __init__(self, path: str, baud: int = 9600) -> None:
@@ -107,37 +143,6 @@ class PosixSerialTransport:
             except Exception as exc:
                 raise WorkerError(f"Ошибка записи в {self.path}: {exc}") from exc
 
-    def read_line(self, timeout: float, label: str) -> str:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            newline = self._stash.find(b"\n")
-            if newline >= 0:
-                raw = bytes(self._stash[:newline]).rstrip(b"\r")
-                del self._stash[: newline + 1]
-                return raw.decode("utf-8", errors="replace")
-            self._read_once(max(0.01, deadline - time.monotonic()), label)
-        raise WorkerError(f"Таймаут ответа {label} на {self.path}")
-
-    def read_until_quiet(self, quiet: float, maximum: float, label: str) -> str:
-        deadline = time.monotonic() + maximum
-        last_byte = time.monotonic()
-        received = False
-        while time.monotonic() < deadline:
-            chunk = self._read_once(min(quiet, max(0.01, deadline - time.monotonic())), label)
-            if chunk:
-                received = True
-                last_byte = time.monotonic()
-                text = self._stash.decode("utf-8", errors="replace").strip()
-                if text.endswith("ch>"):
-                    break
-            elif received and time.monotonic() - last_byte >= quiet:
-                break
-        if not received:
-            raise WorkerError(f"Пустой ответ {label} на {self.path}")
-        text = self._stash.decode("utf-8", errors="replace")
-        self._stash.clear()
-        return text
-
     def _read_once(self, timeout: float, label: str) -> bytes:
         try:
             ready, _, _ = select.select([self._fd], [], [], max(0.0, timeout))
@@ -170,6 +175,108 @@ class PosixSerialTransport:
             finally:
                 self._original_settings = None
                 self._stash.clear()
+
+
+class WindowsSerialTransport(_SerialFraming):
+    """Bounded COM I/O through optional pySerial, owned only by the core worker."""
+
+    def __init__(self, path: str, baud: int = 9600) -> None:
+        # Accept only native COM names, never pySerial URL handlers or arbitrary files.
+        if not isinstance(path, str):
+            raise WorkerError("Windows требует имя COM-порта, например COM3")
+        name = path[4:] if path.startswith("\\\\.\\") else path
+        if re.fullmatch(r"COM[1-9][0-9]*", name, re.IGNORECASE | re.ASCII) is None:
+            raise WorkerError("Windows требует имя COM-порта, например COM3")
+        if type(baud) is not int or baud not in (9600, 19200, 38400, 57600, 115200):
+            raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
+        self.path = name.upper()
+        self._stash = bytearray()
+        self._serial = None
+        try:
+            import serial
+        except ImportError as exc:
+            raise WorkerError(
+                'Для COM-портов установите на компьютере ядра: pip install "openradioinspector[serial]"'
+            ) from exc
+        try:
+            self._serial = serial.Serial(
+                port=None, baudrate=baud, bytesize=8, parity="N", stopbits=1,
+                timeout=0, write_timeout=1.0, xonxoff=False, rtscts=False, dsrdtr=False,
+            )
+            # Set control lines before opening, without enabling hardware flow control.
+            self._serial.dtr = False
+            self._serial.rts = False
+            self._serial.port = self.path
+            self._serial.open()
+            self._serial.reset_input_buffer()
+            self._serial.reset_output_buffer()
+        except Exception as exc:
+            try:
+                self.close()
+            except Exception:
+                pass  # Preserve the opening error after attempting to release the handle.
+            raise WorkerError(f"Не удалось открыть порт {self.path}: {exc}") from exc
+
+    def _opened(self):
+        if self._serial is None or not self._serial.is_open:
+            raise WorkerError(f"Порт {self.path} закрыт")
+        return self._serial
+
+    def send(self, data: bytes) -> None:
+        try:
+            port = self._opened()
+            view = memoryview(data)
+            sent = 0
+            deadline = time.monotonic() + 1.0
+            while sent < len(view):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WorkerError(f"Таймаут записи в {self.path}")
+                port.write_timeout = remaining
+                count = port.write(view[sent:])
+                if not isinstance(count, int) or not 0 < count <= len(view) - sent:
+                    raise WorkerError(f"Неполная запись в {self.path}")
+                sent += count
+        except WorkerError:
+            raise
+        except Exception as exc:
+            raise WorkerError(f"Ошибка записи в {self.path}: {exc}") from exc
+
+    def _read_once(self, timeout: float, label: str) -> bytes:
+        try:
+            port = self._opened()
+            port.timeout = max(0.0, timeout)
+            # Wait for one byte, then drain only bytes already available. A 4096-byte
+            # blocking read would delay a complete short reply until the timeout.
+            chunk = port.read(1)
+            if chunk:
+                port.timeout = 0
+                available = min(port.in_waiting, 4095)
+                if available:
+                    chunk += port.read(available)
+                self._stash.extend(chunk)
+            return chunk
+        except WorkerError:
+            raise
+        except Exception as exc:
+            raise WorkerError(f"Ошибка чтения {label} на {self.path}: {exc}") from exc
+
+    def close(self) -> None:
+        port = self._serial
+        self._serial = None
+        self._stash.clear()
+        if port is not None:
+            try:
+                port.close()
+            except Exception as exc:
+                raise WorkerError(f"Ошибка закрытия порта {self.path}: {exc}") from exc
+
+
+def create_serial_transport(path: str, baud: int = 9600):
+    """Select by the core OS, not the OS of an HTTP client."""
+    if os.name == "nt":
+        return WindowsSerialTransport(path, baud)
+    return PosixSerialTransport(path, baud)
 
 
 def _command(text: str) -> bytes:
@@ -282,7 +389,7 @@ class TinySASerialAdapter(SimulatedAdapter):
         *,
         clock: Callable[[], datetime] = utc_now,
         transport: Any = None,
-        transport_factory: Callable[..., Any] = PosixSerialTransport,
+        transport_factory: Callable[..., Any] = create_serial_transport,
     ) -> None:
         super().__init__(stream)
         if stream.role is not DeviceRole.SPECTRUM_ANALYZER:
@@ -442,7 +549,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         *,
         clock: Callable[[], datetime] = utc_now,
         transport: Any = None,
-        transport_factory: Callable[..., Any] = PosixSerialTransport,
+        transport_factory: Callable[..., Any] = create_serial_transport,
     ) -> None:
         super().__init__(stream)
         if stream.role is not DeviceRole.RECEIVER:
@@ -619,7 +726,7 @@ def create_device_adapter(
 ) -> SimulatedAdapter:
     """Создаёт sim или serial адаптер только по явному settings.adapter."""
     adapter = stream.settings.get("adapter")
-    factory = transport_factory or PosixSerialTransport
+    factory = transport_factory or create_serial_transport
     if adapter == TinySASerialAdapter.adapter_name:
         return TinySASerialAdapter(
             stream, clock=clock, transport=transport, transport_factory=factory

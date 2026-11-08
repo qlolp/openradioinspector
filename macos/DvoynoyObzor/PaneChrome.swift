@@ -580,7 +580,7 @@ struct RemoteSerialSessionPane: View {
                 .textFieldStyle(.roundedBorder)
             TextField("Порт AR-DV1", text: $model.receiverPort)
                 .textFieldStyle(.roundedBorder)
-            Text("Порты должны различаться и не использовать sim://. Аппаратный стенд не заявляется.")
+            Text("Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. Они должны различаться и не использовать sim://. Аппаратный стенд не проверен.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Отмена") { model.showSerialForm = false }

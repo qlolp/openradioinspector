@@ -1,0 +1,29 @@
+name: Windows core and clients
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - name: Install core with COM dependency
+        run: python -m pip install '.[serial]'
+      - name: Run synthetic Python, WebUI and hidden Tk tests
+        env:
+          ORI_WINDOWS_RELEASE_TK: '1'
+        run: python -m unittest discover -s tests -t . -v
+      # These runners have no receiver or analyzer; native COM hardware validation
+      # remains a separate acceptance step. POSIX PTY tests skip on Windows.

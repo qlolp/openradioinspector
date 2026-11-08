@@ -36,12 +36,14 @@ dependencies = ["numpy>=1.21"]
 # Графики и отчёты: PNG/vector-вывод диаграмм без веб-интерфейса.
 plot = ["matplotlib>=3.5"]
 # Аппаратные драйверы.
+serial = ["pyserial>=3.5,<4"]
 soapy = ["SoapySDR>=0.8"]
 rtl = ["pyrtlsdr>=0.1"]
 # Разбор кадров 802.11.
 wifi = ["scapy>=2.5"]
 # Всё необязательное сразу.
 all = [
+    "pyserial>=3.5,<4",
     "matplotlib>=3.5",
     "SoapySDR>=0.8",
     "pyrtlsdr>=0.1",

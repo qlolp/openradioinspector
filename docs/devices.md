@@ -26,6 +26,12 @@
 
 ### Исправления безопасности serial и происхождение частоты
 
+На Windows ядро использует COM backend pySerial вместо `termios`; POSIX
+backend остаётся прежним. Разбор ответов общий, настройка обоих приборов
+не меняется. Транспорт и формы трёх клиентов описаны в
+[windows-core-serial.md](windows-core-serial.md). Native COM/USB и аппаратура
+пока не проверены; автоматического переподключения нет.
+
 Серверный POSIX transport на Python 3.10+ задаёт raw 8N1 и baud через
 `tcgetattr`/`tcsetattr` (поля скоростей 4/5), а не отсутствующие в Python
 `cfmakeraw`/`cfsetispeed`/`cfsetospeed`. Исходные tty-атрибуты восстанавливаются

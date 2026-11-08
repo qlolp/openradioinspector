@@ -133,6 +133,11 @@ ITU-R SM.1880 п. 3.6.2 (процент времени выше порога).
 
 ## 4. Что не реализовано
 
+Для serial-адаптеров добавлен Windows COM backend с optional pySerial;
+общий разбор ответов и HTTP проверены синтетически. Это не подтверждение
+проверки native COM/USB, Windows installer или автопереподключения.
+Подробности: [windows-core-serial.md](windows-core-serial.md).
+
 * **Сложные шаблоны DOCX.** Собственный `docx_report.py` формирует протокол в
   WordprocessingML без Pandoc/LibreOffice и поддерживает заголовки, статическое
   содержание, абзацы, таблицы, header/footer и номер страницы. Бинарные `.doc`

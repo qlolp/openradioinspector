@@ -90,6 +90,32 @@ class WindowsReleaseFlowTests(unittest.TestCase):
         self.executor.finish()
         self.app._drain_messages()
 
+    def test_serial_form_selects_com_profile_without_starting_workers(self):
+        self.app._open_session_form()
+        window = self.app._active_form
+        window.withdraw()
+        frame = window.winfo_children()[0]
+        for row, text in ((1, 'COM12'), (2, 'COM13')):
+            entry = frame.grid_slaves(row=row, column=1)[0]
+            entry.delete(0, 'end')
+            entry.insert(0, text)
+        serial = frame.grid_slaves(row=8, column=0)[0]
+        serial.invoke()
+        simulated = frame.grid_slaves(row=7, column=0)[0]
+        self.assertFalse(simulated.instate(['selected']))
+        self.assertTrue(serial.instate(['selected']))
+        buttons = frame.grid_slaves(row=10, column=0)[0]
+        create = next(child for child in buttons.winfo_children() if child.cget('text') == 'Создать сеанс')
+        self.app.client.create_session.return_value = {'id': 'serial-created', 'state': 'draft'}
+        create.invoke()
+        self.assertEqual(len(self.executor.jobs), 1)
+        self.finish_action()
+        payload = self.app.client.create_session.call_args.args[0]
+        self.assertEqual([s['settings']['adapter'] for s in payload['streams']],
+                         ['tinysa-serial', 'ardv1-serial'])
+        self.app.client.start_session.assert_not_called()
+        self.app.client.start_workers.assert_not_called()
+
     def test_actual_default_string_duration_submits_once_and_displays_result(self):
         window, entries, buttons = self.open_form()
         self.assertEqual(entries["duration_s"].get(), "60")

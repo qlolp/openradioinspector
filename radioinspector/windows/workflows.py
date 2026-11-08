@@ -74,6 +74,7 @@ def session_payload(
     receiver_frequency_hz: Any,
     mode: Any,
     simulated: bool,
+    serial: bool = False,
 ) -> dict[str, Any]:
     """Создаёт двухприборный профиль; симуляторы выбираются только явно."""
     selected_name = required_text(name, "Название сеанса")
@@ -89,6 +90,12 @@ def session_payload(
     selected_mode = required_text(mode, "Режим receiver")
     if not isinstance(simulated, bool):
         raise ValueError("Признак симуляторов должен быть boolean")
+    if not isinstance(serial, bool) or (serial and simulated):
+        raise ValueError("Выберите либо serial-приборы, либо симуляторы")
+    if serial and (spectrum_port.startswith("sim://") or target_port.startswith("sim://")):
+        raise ValueError("Serial-профиль требует физических портов ядра, не sim://")
+    if serial and selected_mode not in ("FM", "AM"):
+        raise ValueError("Serial-профиль AR-DV1 поддерживает только FM/AM")
     spectrum_settings: dict[str, Any] = {
         "start_hz": first_hz,
         "stop_hz": last_hz,
@@ -107,6 +114,9 @@ def session_payload(
         receiver_settings.update(
             {"adapter": "ardv1-sim", "period_s": 0.25, "seed": 17}
         )
+    elif serial:
+        spectrum_settings.update({"adapter": "tinysa-serial", "period_s": 0.25})
+        receiver_settings.update({"adapter": "ardv1-serial", "period_s": 0.25})
     return {
         "name": selected_name,
         "streams": [
@@ -123,7 +133,7 @@ def session_payload(
                 "role": "receiver",
                 "level_unit": "s_meter_count",
                 "port": target_port,
-                "capabilities": ["tune", "audio", "hardware_decode"],
+                "capabilities": ["tune", "audio"] if serial else ["tune", "audio", "hardware_decode"],
                 "settings": receiver_settings,
             },
         ],

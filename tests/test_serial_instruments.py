@@ -507,12 +507,12 @@ class SerialAdapterTests(unittest.TestCase):
         tiny.responses["scan 100M 101M 3 3"] = ["100000000 -90 0\r\n"]
         receiver = ARDV1Transport.valid()
         receiver.responses["LM"] = ["20LM0551"] * 100
-        original_factory = __import__("radioinspector.serial_instruments", fromlist=["PosixSerialTransport"]).PosixSerialTransport
+        original_factory = __import__("radioinspector.serial_instruments", fromlist=["create_serial_transport"]).create_serial_transport
         try:
             def factory(path: str, baud: int):
                 return tiny if path == "/dev/ttyFAKE0" else receiver
             import radioinspector.serial_instruments as module
-            module.PosixSerialTransport = factory
+            module.create_serial_transport = factory
             manager.start_session(session.id)
             wait_until(
                 lambda: len(service.list_observations(session.id)) >= 3,
@@ -527,7 +527,7 @@ class SerialAdapterTests(unittest.TestCase):
             manager.close()
             service.close()
             import radioinspector.serial_instruments as module
-            module.PosixSerialTransport = original_factory
+            module.create_serial_transport = original_factory
 
 
 if __name__ == "__main__":
