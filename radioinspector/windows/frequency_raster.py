@@ -186,7 +186,10 @@ def result_text(data):
     return '\n'.join(lines)
 
 
-class FrequencyRasterPanel:
+from .tk_timers import TkTimerOwner
+
+
+class FrequencyRasterPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -196,6 +199,7 @@ class FrequencyRasterPanel:
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='frequency-raster')
         self.io_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='raster-file')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Округление частот')
@@ -301,7 +305,7 @@ class FrequencyRasterPanel:
         generation = self.generation
         self.future = self.executor.submit(self.app.client.frequency_rounding,
                                            self.app.session_id, candidate_ids, raw)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -310,7 +314,7 @@ class FrequencyRasterPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд. Черновик не проверен.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -332,7 +336,7 @@ class FrequencyRasterPanel:
         self.update(); self.clear()
         generation = self.generation
         self.io_future = self.io_executor.submit(read_raster_file, path)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'load'))
+        self._schedule_after(self.app.root, 'file', 50, self.finish_io, generation, 'load')
 
     def save(self):
         from tkinter import filedialog, messagebox
@@ -347,14 +351,14 @@ class FrequencyRasterPanel:
         self.update()
         if generation != self.generation or self.data is None: return
         self.io_future = self.io_executor.submit(save_raster_file, path, data['table'], overwrite)
-        self.app.root.after(50, lambda: self.finish_io(generation, 'save'))
+        self._schedule_after(self.app.root, 'file', 50, self.finish_io, generation, 'save')
 
     def finish_io(self, generation, operation):
         if self.closed: return
         self.update()
         if self.io_future is None: return
         if not self.io_future.done():
-            self.app.root.after(50, lambda: self.finish_io(generation, operation)); return
+            self._schedule_after(self.app.root, 'file', 50, self.finish_io, generation, operation); return
         future, self.io_future = self.io_future, None
         try:
             result = future.result()
@@ -378,7 +382,12 @@ class FrequencyRasterPanel:
             self.refresh_picker()
 
     def close(self):
-        self.clear(); self.closed = True
-        if self.io_future is not None: self.io_future.cancel()
+        if self.closed: return
+        self.closed = True
+        self._close_timers()
+        self.generation += 1
+        for future in (self.future, self.retired, self.io_future):
+            if future is not None: future.cancel()
+        self.future = self.retired = self.io_future = self.data = None
         self.io_executor.shutdown(wait=False, cancel_futures=True)
         self.executor.shutdown(wait=False, cancel_futures=True)
