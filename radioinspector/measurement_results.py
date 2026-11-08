@@ -72,6 +72,12 @@ METHODOLOGIES: dict[str, dict[str, Any]] = {
         "unit": "deg",
         "fields": ("latitude_deg", "longitude_deg"),
     },
+    "frequency_counter": {
+        "title": "Встроенный частотомер",
+        "original_table": "MEAS_COUNTER_FC_RESULTCODE",
+        "unit": "Hz",
+        "fields": ("measured_frequency_hz", "resolution_hz", "uncertainty_hz"),
+    },
 }
 
 

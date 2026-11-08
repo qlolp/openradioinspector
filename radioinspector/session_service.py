@@ -36,6 +36,9 @@ from .contracts import (
 from .frequency_raster import (
     calculate_frequency_rounding, parse_frequency_raster, validate_rounding_request,
 )
+from .frequency_counter import (
+    calculate_frequency_counter, validate_counter_request,
+)
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -197,6 +200,7 @@ class SessionService:
                 "frequency_raster_rounding": True,
                 "measurement_results": True,
                 "measurement_methodology_catalog": True,
+                "frequency_counter": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -625,6 +629,18 @@ class SessionService:
                 for candidate_id in candidate_ids
             ]
             return calculate_frequency_rounding(session_id, candidates, table)
+
+    def frequency_counter(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Measure the peak frequency of one archived sweep, without writes."""
+        request = validate_counter_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, request["sweep_id"])
+            return calculate_frequency_counter(
+                session_id, sweep,
+                resolution_hz=request["resolution_hz"],
+                start_hz=request["start_hz"], stop_hz=request["stop_hz"],
+            )
 
     def save_measurement_result(
         self, session_id: str, payload: dict[str, Any],
