@@ -205,6 +205,15 @@ class PlatformClient:
         query = urlencode({"reference_id": reference_id, "target_id": target_id})
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-comparison?{query}")
 
+    def sweep_mask_analysis(self, session_id: str, sweep_id: str, mask_json: str) -> dict[str, Any]:
+        from .spectral_mask import check_draft
+        check_draft(mask_json)
+        _segment(sweep_id, 'sweep_id')
+        payload = {'sweep_id': sweep_id, 'mask_json': mask_json}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 524288:
+            raise ValueError('Запрос превышает 524 288 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-mask-analysis", payload, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

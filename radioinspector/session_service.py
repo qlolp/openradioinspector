@@ -34,6 +34,7 @@ from .contracts import (
     utc_now,
 )
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
+from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
 from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
 from .sweep_references import (
@@ -175,6 +176,7 @@ class SessionService:
                 "measurement_archive": True,
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
+                "spectral_mask_analysis": True,
                 "named_sweep_references": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
@@ -538,6 +540,20 @@ class SessionService:
             return calculate_sweep_threshold(
                 session_id, sweep, window_points=window_points, margin_db=margin_db,
             )
+
+    def sweep_mask_analysis(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Evaluate an imported mask against one exact ID, without persistence."""
+        if not isinstance(payload, dict) or set(payload) != {"sweep_id", "mask_json"}:
+            raise ValueError("Разрешены только поля sweep_id и mask_json")
+        sweep_id = payload["sweep_id"]
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        if not isinstance(payload["mask_json"], str):
+            raise ValueError("mask_json должен быть строкой JSON UTF-8")
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_mask(session_id, sweep, mask_json=payload["mask_json"])
 
     def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
         if self._store is not None:

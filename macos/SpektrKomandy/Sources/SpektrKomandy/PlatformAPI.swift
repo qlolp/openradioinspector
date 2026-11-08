@@ -265,9 +265,10 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     public let frequenciesHz: [Int64]
     public let levels: [Double]
     public let levelUnit: String
+    public let settings: [String: PlatformComparisonSetting]?
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit
+        case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit, settings
     }
 
     public init(from decoder: Decoder) throws {
@@ -279,6 +280,7 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
         frequenciesHz = try container.decode([Int64].self, forKey: .frequenciesHz)
         levels = try container.decode([Double].self, forKey: .levels)
         levelUnit = try container.decode(String.self, forKey: .levelUnit)
+        settings = try container.decodeIfPresent([String: PlatformComparisonSetting].self, forKey: .settings)
         guard !frequenciesHz.isEmpty, frequenciesHz.count == levels.count,
               frequenciesHz.allSatisfy({ $0 >= 0 }),
               levels.allSatisfy({ $0.isFinite }),
@@ -939,13 +941,14 @@ public final class PlatformClient {
     }
 
     func post<Value: Decodable, Body: Encodable>(
-        _ path: String, body: Body, expectedStatuses: [Int]? = nil
+        _ path: String, body: Body, expectedStatuses: [Int]? = nil, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        try await request(method: "POST", path: path, query: [], body: body, expectedStatuses: expectedStatuses)
+        try await request(method: "POST", path: path, query: [], body: body, expectedStatuses: expectedStatuses, validateResponse: validateResponse)
     }
 
     private func request<Value: Decodable, Body: Encodable>(
-        method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?
+        method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
+        validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
@@ -995,6 +998,7 @@ public final class PlatformClient {
             throw PlatformError.invalidResponse("Неожиданный статус API: HTTP \(status)")
         }
         do {
+            try validateResponse?(data)
             return try decoder.decode(PlatformEnvelope<Value>.self, from: data).data
         } catch let error as PlatformError {
             throw error

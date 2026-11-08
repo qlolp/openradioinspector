@@ -50,6 +50,7 @@ from ..session_service import (
 )
 from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
+from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
 from ..sweep_threshold import ThresholdIncompatibleError
 from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflictError
@@ -364,6 +365,24 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Некорректный JSON") from None
             return {}
 
+    def _read_mask_request(self) -> dict:
+        """Bound only this new analysis route before reading any request bytes."""
+        lengths = self.headers.get_all("Content-Length", [])
+        if (self.headers.get_all("Transfer-Encoding") or len(lengths) != 1
+                or not re.fullmatch(r"[0-9]+", lengths[0])):
+            raise ValueError("Нужен один корректный Content-Length без Transfer-Encoding")
+        # Compare decimal strings first, so even enormous header integers are
+        # rejected without int conversion limits or allocation of a body.
+        digits = lengths[0].lstrip("0") or "0"
+        maximum = str(MAX_MASK_REQUEST_BYTES)
+        if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+            raise OverflowError("Тело запроса превышает 524288 байт")
+        length = int(digits)
+        raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError("Неполное тело запроса")
+        return strict_json_loads(raw.decode("utf-8", errors="strict"))
+
     # -- маршруты ----------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 - имя задано базовым классом
@@ -428,7 +447,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - имя задано базовым классом
         parsed = urlparse(self.path)
         route = parsed.path
-        if route.startswith("/api/v1/sessions/") and route.rstrip("/").endswith("/sweep-references"):
+        parts = route.strip("/").split("/")
+        if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-mask-analysis"):
+            try:
+                if "?" in self.path:
+                    raise ValueError("Анализ маски не принимает параметры запроса")
+                payload = self._read_mask_request()
+            except OverflowError as exc:
+                self.close_connection = True
+                self._send_api_error(413, "request_too_large", str(exc))
+                return
+            except (ValueError, UnicodeError) as exc:
+                self.close_connection = True
+                self._send_api_error(400, "invalid_request", str(exc))
+                return
+        elif route.startswith("/api/v1/sessions/") and route.rstrip("/").endswith("/sweep-references"):
             try:
                 payload = self._read_json(strict=True)
             except (ValueError, UnicodeError) as exc:
@@ -799,6 +833,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-mask-analysis"
+            ):
+                self._send_json(api_payload(self.sessions.sweep_mask_analysis(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-references"
             ):
                 if urlparse(self.path).query:
@@ -974,6 +1015,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SweepNotFoundError as exc:
             self._send_api_error(404, "sweep_not_found", str(exc.args[0]))
+        except MaskIncompatibleError as exc:
+            self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:
             self._send_api_error(409, "comparison_incompatible", str(exc))
         except ReferenceNameConflictError as exc:

@@ -42,6 +42,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}/sweep-comparison?reference_id=&target_id=` | Read-only разность двух совместимых архивных dBm свипов в dB |
 | `GET`, `POST` | `/api/v1/sessions/{id}/sweep-references` | Список именованных эталонов и идемпотентное создание ссылки на свип |
 | `GET` | `/api/v1/sessions/{id}/sweep-threshold?sweep_id=&window_points=&margin_db=` | Read-only адаптивный порог и области превышения одного архивного dBm свипа |
+| `POST` | `/api/v1/sessions/{id}/sweep-mask-analysis` | Read-only анализ архивного dBm свипа по переданному JSON артефакту маски |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -635,3 +636,12 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 порога имеют единицу `dBm`, превышение — `dB`. Новая функция не включает
 `automatic-detection`, не создаёт кандидатов и не меняет схему архива.
 Контракт, пример и ограничения: [adaptive-sweep-threshold.md](adaptive-sweep-threshold.md).
+
+## Табличная спектральная маска
+
+`features.spectral_mask_analysis` включает явный анализ одного архивного
+свипа по переносимому JSON артефакту. POST передаёт `{sweep_id, mask_json}`,
+где `mask_json` — исходный текст для центральной строгой проверки.
+Операция не пишет в архив, не создаёт событий/кандидатов и не меняет политики.
+Формат файла, интерполяция в dBm и пределы:
+[spectral-mask-analysis.md](spectral-mask-analysis.md).

@@ -1,0 +1,13 @@
+{
+  "format": "openradioinspector-spectral-mask",
+  "format_version": 1,
+  "name": "Пример маски, не норматив",
+  "frequency_unit": "Hz",
+  "level_unit": "dBm",
+  "interpolation": "linear_dbm",
+  "vertices": [
+    {"frequency_hz": 100000000, "limit_dbm": -85},
+    {"frequency_hz": 102000000, "limit_dbm": -75},
+    {"frequency_hz": 104000000, "limit_dbm": -75}
+  ]
+}

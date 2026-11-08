@@ -10,6 +10,7 @@
   <script src="/static/archive-capacity.js" defer></script>
   <script src="/static/sweep-comparison.js" defer></script>
   <script src="/static/sweep-threshold.js" defer></script>
+  <script src="/static/sweep-mask.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -239,6 +240,27 @@
           <p id="threshold-summary"></p>
           <canvas id="threshold-canvas" width="960" height="280" role="img" aria-label="Исходный свип и адаптивный порог, dBm" hidden></canvas>
           <ol id="threshold-regions" aria-label="Области превышения порога"></ol>
+        </section>
+        <section class="mask-panel" aria-labelledby="mask-heading">
+          <h3 id="mask-heading">Табличная спектральная маска · dBm</h3>
+          <p>Переносимый JSON: 2–128 вершин, целые Гц и пределы dBm. Ядро линейно интерполирует только пределы маски в dBm, без экстраполяции и изменения исходных измерений. Таблица не является подтверждением соответствия нормативам.</p>
+          <label for="mask-file">Загрузить локальный JSON UTF-8 (до 65 536 байт)</label>
+          <input id="mask-file" type="file" accept=".json,application/json">
+          <label for="mask-editor">Черновик маски · JSON</label>
+          <textarea id="mask-editor" rows="12" spellcheck="false" aria-describedby="mask-draft" placeholder="Загрузите JSON или создайте ненормативный пример"></textarea>
+          <p id="mask-draft" role="status" aria-live="polite">Черновик не проверен ядром.</p>
+          <p id="mask-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="mask-template" class="button" type="button" disabled>НЕНОРМАТИВНЫЙ пример −80 dBm</button>
+            <button id="mask-run" class="button" type="button" disabled>Проверить маску и анализировать свип</button>
+            <button id="mask-clear" class="button" type="button">Очистить результат</button>
+            <button id="mask-save" class="button" type="button" disabled>Сохранить проверенную маску</button>
+          </div>
+          <p>Импорт и редактирование локальны. Только кнопка анализа передаёт черновик выбранному ядру: без записи, кандидатов и команд прибору. Черновик сохраняется при смене области, но не применяется автоматически. Новые свипы не меняют зафиксированный результат. Равенство не превышение; области непрерывны по индексам.</p>
+          <p id="mask-status" role="status" aria-live="polite"></p>
+          <p id="mask-summary"></p>
+          <canvas id="mask-canvas" width="960" height="280" role="img" aria-label="Исходный свип и табличная маска, dBm" hidden></canvas>
+          <ol id="mask-regions" aria-label="Области превышения маски"></ol>
         </section>
       </section>
 

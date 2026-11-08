@@ -330,3 +330,13 @@ form.editor { border-style: solid; }
 .threshold-panel h3 { color: var(--cyan); font-size: 13px; }
 #threshold-summary { white-space: pre-line; line-height: 1.7; }
 #threshold-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
+
+/* Portable drafts stay local until an explicit read-only core analysis. */
+.mask-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.mask-panel h3 { color: var(--amber); font-size: 13px; }
+.mask-panel label { display: block; margin-top: 10px; }
+#mask-editor { box-sizing: border-box; width: 100%; min-width: 0; resize: vertical; background: var(--panel); color: var(--text); font: 12px monospace; }
+#mask-file { max-width: 100%; }
+#mask-summary { white-space: pre-line; line-height: 1.7; }
+#mask-draft { color: var(--amber); }
+#mask-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }

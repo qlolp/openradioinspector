@@ -77,26 +77,7 @@ def calculate_sweep_threshold(
     if any(not math.isfinite(value) for values in (baseline, threshold, excess) for value in values):
         raise ThresholdIncompatibleError("Производные уровни выходят за конечный числовой диапазон")
 
-    regions = []
-    index = 0
-    while index < points:
-        if excess[index] <= 0:
-            index += 1
-            continue
-        start = peak = index
-        index += 1
-        while index < points and excess[index] > 0:
-            if excess[index] > excess[peak]:
-                peak = index
-            index += 1
-        end = index - 1
-        regions.append({
-            "start_index": start, "end_index": end,
-            "start_frequency_hz": sweep.frequencies_hz[start],
-            "end_frequency_hz": sweep.frequencies_hz[end],
-            "peak_index": peak, "peak_frequency_hz": sweep.frequencies_hz[peak],
-            "peak_excess_db": excess[peak], "points": end - start + 1,
-        })
+    regions = exceedance_regions(sweep.frequencies_hz, excess)
 
     return {
         "session_id": session_id, "stream_id": sweep.stream_id,
@@ -114,3 +95,30 @@ def calculate_sweep_threshold(
         "excess_levels": excess, "delta_unit": "dB", "regions": regions, "points": points,
         "exceedance_points": sum(region["points"] for region in regions), "region_count": len(regions),
     }
+
+
+def exceedance_regions(frequencies_hz, excess) -> list[dict[str, Any]]:
+    """Maximal positive index runs; inclusive endpoints and first peak ties."""
+    points = len(excess)
+    regions = []
+    index = 0
+    while index < points:
+        if excess[index] <= 0:
+            index += 1
+            continue
+        start = peak = index
+        index += 1
+        while index < points and excess[index] > 0:
+            if excess[index] > excess[peak]:
+                peak = index
+            index += 1
+        end = index - 1
+        regions.append({
+            "start_index": start, "end_index": end,
+            "start_frequency_hz": frequencies_hz[start],
+            "end_frequency_hz": frequencies_hz[end],
+            "peak_index": peak, "peak_frequency_hz": frequencies_hz[peak],
+            "peak_excess_db": excess[peak], "points": end - start + 1,
+        })
+
+    return regions

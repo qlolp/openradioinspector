@@ -205,6 +205,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var receiverPort = "/dev/ttyUSB0"
     @Published var showSerialForm = false
 
+    let spectralMask = SpectralMaskModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -811,6 +812,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetComparisonScope() {
+        spectralMask.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1261,10 +1263,13 @@ final class RemoteDualModel: ObservableObject {
         }
         comparisonSweeps = selectedSweeps
         if let client, connectedServerURL == serverURL, let stream = analyzer?.id {
+            spectralMask.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                source: selectedSweeps.last)
             sweepThreshold.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
-        } else { sweepThreshold.reset() }
+        } else { sweepThreshold.reset(); spectralMask.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1412,6 +1417,7 @@ struct RemoteUltraPane: View {
                 WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
                 RemoteSweepComparisonPane(model: model)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
+                RemoteSpectralMaskPane(model: model.spectralMask)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

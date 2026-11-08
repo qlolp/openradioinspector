@@ -564,6 +564,9 @@
     window.OpenRadioSweepThreshold?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
+    window.OpenRadioSweepMask?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
   }
 
   function renderSpectrum() {
@@ -829,8 +832,10 @@
       state.refreshQueued = false;
       await performRefresh();
       window.OpenRadioSweepThreshold?.setConnected(true);
+      window.OpenRadioSweepMask?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
+      window.OpenRadioSweepMask?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
