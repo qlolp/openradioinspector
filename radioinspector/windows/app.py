@@ -14,6 +14,7 @@ from .archive_capacity import CAPACITY_NOTE, archive_capacity_color, archive_cap
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
 from .tk_timers import TkTimerOwner
+from .spectrum_view import SpectrumView, fit_bounds, fraction
 from .workflows import (
     automatic_detection_payload,
     automatic_handoff_payload,
@@ -103,6 +104,8 @@ class WindowsApp(TkTimerOwner):
         self.snapshot = PlatformSnapshot({}, {}, [])
         self.session_id: Optional[str] = None
         self._last_selected_stream_id: Optional[str] = None
+        self.spectrum_view = SpectrumView()
+        self._spectrum_available = True
         self._waterfall_photo: Any = None
         self._spectrum_draw_key: Any = None
         self._waterfall_draw_key: Any = None
@@ -328,6 +331,21 @@ class WindowsApp(TkTimerOwner):
         self.waterfall_canvas.bind(
             "<Configure>", lambda _event: self._render_spectrum()
         )
+        controls = ttk.Frame(spectrum_tab)
+        controls.grid(row=4, column=0, sticky="ew")
+        self.pause_view_button = ttk.Button(controls, text="Pause view", command=self._toggle_spectrum_pause)
+        self.pause_view_button.pack(side="left")
+        self.fit_view_button = ttk.Button(controls, text="Fit", command=self._fit_spectrum)
+        self.fit_view_button.pack(side="left")
+        self.lower_view_var = self.tk.StringVar()
+        self.upper_view_var = self.tk.StringVar()
+        for label, variable in (("Lower dBm", self.lower_view_var), ("Upper dBm", self.upper_view_var)):
+            ttk.Label(controls, text=label).pack(side="left")
+            ttk.Entry(controls, textvariable=variable, width=14).pack(side="left")
+        self.apply_view_button = ttk.Button(controls, text="Apply", command=self._apply_spectrum_bounds)
+        self.apply_view_button.pack(side="left")
+        self.view_status_var = self.tk.StringVar()
+        ttk.Label(spectrum_tab, textvariable=self.view_status_var, wraplength=1050).grid(row=5, column=0, sticky="ew")
         notebook.add(spectrum_tab, text="Спектр и водопад")
         from .sweep_comparison import ComparisonPanel
         self.comparison_panel = ComparisonPanel(self, notebook)
@@ -371,6 +389,7 @@ class WindowsApp(TkTimerOwner):
             self.connection_var.set(str(exc))
             return
         self.session_id = None
+        self._clear_spectrum("Подключение: ожидание данных")
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
         if hasattr(self, "threshold_panel"):
@@ -462,6 +481,9 @@ class WindowsApp(TkTimerOwner):
                     if kind == "snapshot":
                         self._refresh_running = False
                         self.connection_var.set(f"Ошибка обновления: {exc}")
+                        self._spectrum_available = False
+                        if hasattr(self, "spectrum_view"):
+                            self._clear_spectrum("Спектр недоступен: ошибка соединения")
                         if hasattr(self, "average_panel"):
                             self.average_panel.clear()
                         if hasattr(self, "three_thresholds_panel"):
@@ -505,6 +527,7 @@ class WindowsApp(TkTimerOwner):
         self.archive_capacity_label.configure(foreground=archive_capacity_color(status, error))
 
     def _apply_snapshot(self, snapshot: PlatformSnapshot) -> None:
+        self._spectrum_available = True
         self.snapshot = snapshot
         self._show_archive_capacity(snapshot.archive_capacity, snapshot.archive_capacity_error)
         selected_exists = any(item.get("id") == self.session_id for item in snapshot.sessions)
@@ -575,6 +598,12 @@ class WindowsApp(TkTimerOwner):
             self.refresh()
 
     def _clear_spectrum(self, message: str) -> None:
+        if hasattr(self, "spectrum_view"):
+            self.spectrum_view.clear()
+            self._shown_view_bounds = None
+            if not hasattr(self, "spectrum_canvas"):
+                return
+            self._sync_spectrum_controls()
         self._spectrum_draw_key = None
         self._waterfall_draw_key = None
         self.spectrum_canvas.delete("all")
@@ -582,6 +611,30 @@ class WindowsApp(TkTimerOwner):
         self._waterfall_photo = None
         self.spectrum_info_var.set(message)
         self.waterfall_info_var.set("Водопад: ожидание данных")
+
+    def _toggle_spectrum_pause(self) -> None:
+        self.spectrum_view.toggle_pause()
+        self._render_spectrum()
+        self._render_controls()
+
+    def _fit_spectrum(self) -> None:
+        self.spectrum_view.fit()
+        self._render_spectrum()
+
+    def _apply_spectrum_bounds(self) -> None:
+        self.spectrum_view.set_bounds(self.lower_view_var.get(), self.upper_view_var.get())
+        self._render_spectrum()
+
+    def _sync_spectrum_controls(self) -> None:
+        view = self.spectrum_view
+        self.pause_view_button.configure(text="Live" if view.paused else "Pause view", state="normal" if view.displayed else "disabled")
+        for button in (self.fit_view_button, self.apply_view_button):
+            button.configure(state="normal" if view.displayed else "disabled")
+        self.view_status_var.set(view.error or f"{'Unavailable' if not view.displayed else 'PAUSED view' if view.paused else 'LIVE view'} · clipped: {view.clipped} · acquisition/archive state unchanged · bounds: decimal dot, optional exponent")
+        if view.bounds and view.bounds != getattr(self, "_shown_view_bounds", None):
+            self._shown_view_bounds = view.bounds
+            self.lower_view_var.set(str(view.bounds[0]))
+            self.upper_view_var.set(str(view.bounds[1]))
 
     def _render_spectrum(self) -> None:
         if hasattr(self, "comparison_panel"):
@@ -608,26 +661,24 @@ class WindowsApp(TkTimerOwner):
         if self.snapshot.spectrum_stream_id != stream.get("id"):
             self._clear_spectrum(f"Загрузка реальных sweeps потока {stream.get('id')}…")
             return
-        sweeps = self.snapshot.sweeps[-40:]
-        if not sweeps:
-            self._clear_spectrum(
-                f"Поток {stream.get('id')} пока не вернул спектральных sweeps."
-            )
+        if not self._spectrum_available:
+            self._clear_spectrum("Спектр недоступен: ошибка соединения")
             return
-        try:
-            if any(item.get("level_unit") != "dBm" for item in sweeps):
-                raise ValueError("Спектр принимает только исходные dBm")
-            latest = sweeps[-1]
-            peak_index, peak_level, peak_frequency = peak_of(latest)
-        except (TypeError, ValueError) as exc:
-            self._clear_spectrum(f"Некорректный спектральный ответ: {exc}")
+        view = self.spectrum_view
+        if not view.update(getattr(self.client, "base_url", ""), self.session_id, stream.get("id"), self.snapshot.sweeps):
+            error = view.error
+            self._clear_spectrum(f"Спектр недоступен: {error}")
             return
-        frequencies = latest["frequencies_hz"]
-        levels = latest["levels"]
-        started_at = (latest.get("interval") or {}).get("started_at", "?")
+        sweeps = view.displayed
+        latest = sweeps[-1]
+        peak_index, peak_level, peak_frequency = peak_of(latest)
+        frequencies, levels = latest["frequencies_hz"], latest["levels"]
+        interval = latest["interval"]
+        self._sync_spectrum_controls()
         self.spectrum_info_var.set(
-            f"{stream.get('device', stream.get('id'))} · {frequencies[0]}…{frequencies[-1]} Гц · "
-            f"пик {peak_frequency} Гц, {peak_level:g} dBm · {len(levels)} точек · {started_at}"
+            f"{'PAUSED' if view.paused else 'LIVE'} · {latest['id']} · {frequencies[0]}…{frequencies[-1]} Гц · "
+            f"пик {peak_frequency} Гц, {peak_level:g} dBm · {len(levels)} точек · "
+            f"UTC {interval['started_at']} … {interval['ended_at']}"
         )
         self._draw_spectrum(latest, peak_index, peak_level, peak_frequency)
         self._draw_waterfall(sweeps)
@@ -642,7 +693,8 @@ class WindowsApp(TkTimerOwner):
         canvas = self.spectrum_canvas
         width = max(int(canvas.winfo_width()), 640)
         height = max(int(canvas.winfo_height()), 240)
-        draw_key = (sweep.get("id"), width, height)
+        bounds = getattr(getattr(self, "spectrum_view", None), "bounds", None) or fit_bounds(sweep["levels"])
+        draw_key = (repr(sweep), bounds, width, height)
         if getattr(self, "_spectrum_draw_key", None) == draw_key:
             return
         canvas.delete("all")
@@ -652,9 +704,7 @@ class WindowsApp(TkTimerOwner):
         frequencies = sweep["frequencies_hz"]
         levels = sweep["levels"]
         first_frequency, last_frequency = frequencies[0], frequencies[-1]
-        raw_minimum, raw_maximum = min(levels), max(levels)
-        padding = max((raw_maximum - raw_minimum) * 0.08, 1.0)
-        minimum, maximum = raw_minimum - padding, raw_maximum + padding
+        minimum, maximum = bounds
 
         def x(frequency: float) -> float:
             return left + (frequency - first_frequency) / max(
@@ -662,12 +712,12 @@ class WindowsApp(TkTimerOwner):
             ) * plot_width
 
         def y(level: float) -> float:
-            return top + (maximum - level) / max(maximum - minimum, 1.0) * plot_height
+            return top + (1 - fraction(level, minimum, maximum)) * plot_height
 
         canvas.create_rectangle(0, 0, width, height, fill="#07131c", outline="")
         for row in range(5):
             py = top + plot_height * row / 4
-            level = maximum - (maximum - minimum) * row / 4
+            level = maximum * (1 - row / 4) + minimum * (row / 4)
             canvas.create_line(left, py, width - right, py, fill="#18384a")
             canvas.create_text(
                 left - 10, py, text=f"{level:.1f}", fill="#9eb5c2", anchor="e"
@@ -709,7 +759,8 @@ class WindowsApp(TkTimerOwner):
         canvas = self.waterfall_canvas
         width = min(max(int(canvas.winfo_width()), 320), 1000)
         height = max(int(canvas.winfo_height()), 120)
-        draw_key = (tuple(item.get("id") for item in sweeps[-40:]), width, height)
+        bounds = getattr(getattr(self, "spectrum_view", None), "bounds", None) or fit_bounds([v for item in sweeps for v in item["levels"]])
+        draw_key = (repr(sweeps), bounds, width, height)
         if getattr(self, "_waterfall_draw_key", None) == draw_key:
             return
         canvas.delete("all")
@@ -718,6 +769,7 @@ class WindowsApp(TkTimerOwner):
             self._waterfall_photo = None
             self.waterfall_info_var.set("Водопад: ожидание данных")
             return
+        minimum, maximum = bounds
         row_height = max(1, height // len(rows))
         photo = self.tk.PhotoImage(width=width, height=row_height * len(rows))
         pixel_rows: list[str] = []
@@ -732,7 +784,7 @@ class WindowsApp(TkTimerOwner):
         canvas.create_image(0, 0, image=photo, anchor="nw")
         self.waterfall_info_var.set(
             f"Водопад: {len(rows)} sweeps · {minimum:g}…{maximum:g} dBm · "
-            "старые ↑ / новые ↓ · max-агрегация столбцов"
+            "старые ↑ / новые ↓ · sweep-order, не elapsed time · bin-order, не равные Гц · max-агрегация"
         )
 
     @staticmethod
@@ -827,6 +879,8 @@ class WindowsApp(TkTimerOwner):
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
             self.average_panel.update()
+        if not stream and changed:
+            self._clear_spectrum("Выберите поток спектра")
         if not stream or not changed:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
@@ -998,6 +1052,10 @@ class WindowsApp(TkTimerOwner):
             "score": "",
         }
         if from_peak:
+            view = getattr(self, "spectrum_view", None)
+            if view is not None and (view.paused or not view.displayed):
+                self.action_var.set("Пик недоступен: вернитесь в Live с корректными данными.")
+                return
             if self.snapshot.spectrum_stream_id != stream.get("id") or not self.snapshot.sweeps:
                 self.action_var.set(
                     "Для фиксации пика выберите spectrum_analyzer с полученными dBm sweeps."
@@ -1054,6 +1112,10 @@ class WindowsApp(TkTimerOwner):
         source = dict(stream)
 
         def submit() -> None:
+            view = getattr(self, "spectrum_view", None)
+            if from_peak and view is not None and (view.paused or not view.displayed):
+                error_var.set("Пик недоступен: вернитесь в Live с корректными данными.")
+                return
             try:
                 payload = candidate_payload(
                     source,
@@ -1486,6 +1548,8 @@ class WindowsApp(TkTimerOwner):
             and self.snapshot.spectrum_stream_id == stream.get("id")
             and self.snapshot.sweeps
         )
+        view = getattr(self, "spectrum_view", None)
+        peak_available = peak_available and (view is None or bool(view.displayed) and not view.paused)
         set_state("peak_candidate_button", peak_available)
         candidate = (
             self._selected_candidate()

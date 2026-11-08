@@ -129,7 +129,10 @@ class WindowsCapacityTests(unittest.TestCase):
         app.connection_var = Mock()
         app._revision = 1
         app.refresh = Mock()
+        # This capacity-only fixture deliberately does not build spectrum widgets.
+        app._clear_spectrum = Mock()
         app.connect()
+        app._clear_spectrum.assert_called_once()
         self.assertIn("состояние не получено", app.archive_capacity_var.set.call_args.args[0])
         self.assertEqual(app._revision, 2)
 

@@ -67,6 +67,7 @@
   };
 
   const state = {
+    spectrumView: new window.OpenRadioSpectrumView.View(),
     sessions: [], sessionId: null, session: null, workers: [],
     candidates: [], investigations: [], nextInvestigation: null, automaticHandoff: null,
     automaticDetection: null,
@@ -323,7 +324,7 @@
     const items = analyzers.map((stream) => ({ value: stream.id, label: `${stream.device} · ${stream.level_unit}` }));
     setOptions(dom.spectrumStream, items, state.spectrumStreamId, analyzers.length ? undefined : "Нет spectrum analyzer");
     dom.spectrumStream.disabled = !analyzers.length || state.actionPending;
-    dom.markPeak.disabled = !state.sweeps.length || state.actionPending;
+    dom.markPeak.disabled = !state.spectrumView.display.length || state.spectrumView.paused || state.actionPending;
 
     const sources = (state.session?.streams || []).map((stream) => ({
       value: stream.id, label: `${stream.device} · ${stream.level_unit}`,
@@ -583,7 +584,9 @@
 
   function renderSpectrum() {
     updateComparison();
-    const latest = state.sweeps.at(-1);
+    const view = state.spectrumView;
+    const latest = view.display.at(-1);
+    renderSpectrumControls();
     dom.spectrumCanvas.hidden = !latest;
     dom.spectrumEmpty.hidden = Boolean(latest);
     if (!latest) {
@@ -603,10 +606,10 @@
     dom.range.textContent = `${formatHz(firstFrequency)} — ${formatHz(lastFrequency)}`;
     dom.peak.textContent = `${formatHz(peak.frequency_hz)} · ${formatLevel(peak.value, latest.level_unit)}`;
     dom.points.textContent = `${integerFormatter.format(latest.levels.length)} · ${latest.level_unit}`;
-    dom.time.textContent = formatTime(latest.interval.started_at);
+    dom.time.textContent = `${latest.interval.started_at} → ${latest.interval.ended_at} · ID: ${latest.id}`;
     dom.spectrumCanvas.setAttribute("aria-label", `Спектр ${axisFrequency(firstFrequency)} — ${axisFrequency(lastFrequency)}, пик ${formatHz(peak.frequency_hz)}, ${formatLevel(peak.value, latest.level_unit)}`);
     drawSpectrum(latest, peak);
-    drawWaterfall(state.sweeps);
+    drawWaterfall(view.display);
   }
 
   function drawSpectrum(sweep, peak) {
@@ -619,19 +622,15 @@
     const plotHeight = height - margin.top - margin.bottom;
     const minFrequency = sweep.frequencies_hz[0];
     const maxFrequency = sweep.frequencies_hz.at(-1);
-    const rawMin = Math.min(...sweep.levels);
-    const rawMax = Math.max(...sweep.levels);
-    const padding = Math.max((rawMax - rawMin) * 0.08, 1);
-    const minLevel = rawMin - padding;
-    const maxLevel = rawMax + padding;
+    const [minLevel, maxLevel] = state.spectrumView.bounds;
     const x = (frequency) => margin.left + (frequency - minFrequency) / Math.max(maxFrequency - minFrequency, 1) * plotWidth;
-    const y = (level) => margin.top + (maxLevel - level) / Math.max(maxLevel - minLevel, 1) * plotHeight;
+    const y = (level) => margin.top + (1 - window.OpenRadioSpectrumView.fraction(level, state.spectrumView.bounds)) * plotHeight;
 
     context.font = "12px monospace";
     context.lineWidth = 1;
     context.textBaseline = "middle";
     for (let row = 0; row <= 4; row += 1) {
-      const level = maxLevel - (maxLevel - minLevel) * row / 4;
+      const level = maxLevel * (1 - row / 4) + minLevel * (row / 4);
       const py = margin.top + plotHeight * row / 4;
       context.strokeStyle = "#18384a";
       context.beginPath();
@@ -746,20 +745,13 @@
   function drawWaterfall(sweeps) {
     const canvas = dom.waterfallCanvas;
     const context = clearCanvas(canvas);
-    let minLevel = Infinity;
-    let maxLevel = -Infinity;
+    const [minLevel, maxLevel] = state.spectrumView.bounds;
     let minimum = Infinity;
     let maximum = -Infinity;
     for (const sweep of sweeps) {
-      for (const level of sweep.levels) {
-        minLevel = Math.min(minLevel, level);
-        maxLevel = Math.max(maxLevel, level);
-      }
       minimum = Math.min(minimum, sweep.frequencies_hz[0]);
       maximum = Math.max(maximum, sweep.frequencies_hz.at(-1));
     }
-    if (!Number.isFinite(minLevel) || !Number.isFinite(maxLevel)) return;
-    const span = Math.max(maxLevel - minLevel, 1);
     const image = context.createImageData(canvas.width, canvas.height);
     const rowHeight = canvas.height / sweeps.length;
     for (let row = 0; row < sweeps.length; row += 1) {
@@ -769,7 +761,7 @@
       const rowLevels = waterfallLevels(sweep, minimum, maximum, canvas.width);
       for (let x = 0; x < canvas.width; x += 1) {
         const level = rowLevels[x];
-        const [red, green, blue] = waterfallColor((level - minLevel) / span);
+        const [red, green, blue] = waterfallColor(window.OpenRadioSpectrumView.fraction(level, state.spectrumView.bounds));
         for (let y = yStart; y < Math.min(yEnd, canvas.height); y += 1) {
           const offset = (y * canvas.width + x) * 4;
           image.data[offset] = red;
@@ -780,7 +772,7 @@
       }
     }
     context.putImageData(image, 0, 0);
-    dom.waterfallScale.textContent = `${sweeps.length} свипов · ${formatLevel(minLevel, sweeps.at(-1).level_unit)} … ${formatLevel(maxLevel, sweeps.at(-1).level_unit)} · старые ↑ / новые ↓`;
+    dom.waterfallScale.textContent = `${sweeps.length} свипов · ${formatLevel(minLevel, sweeps.at(-1).level_unit)} … ${formatLevel(maxLevel, sweeps.at(-1).level_unit)} · старые ↑ / новые ↓ · строки: порядок свипов, не время; столбцы: общая шкала частоты (Гц)`;
     dom.waterfallCanvas.setAttribute("aria-label", `Водопад ${sweeps.length} свипов, уровни ${formatLevel(minLevel, sweeps.at(-1).level_unit)} — ${formatLevel(maxLevel, sweeps.at(-1).level_unit)}`);
   }
 
@@ -809,6 +801,7 @@
       state.detectionFormDirty = false;
       state.events = [];
       state.sweeps = [];
+      state.spectrumView?.clear();
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
       state.revision = (state.revision || 0) + 1;
       updateComparison();
@@ -831,6 +824,7 @@
     if (!analyzers.some((stream) => stream.id === state.spectrumStreamId)) {
       state.spectrumStreamId = analyzers[0]?.id || null;
       state.sweeps = [];
+      state.spectrumView?.clear();
       updateComparison();
     }
     const revision = state.revision || 0;
@@ -861,7 +855,9 @@
     state.automaticHandoff = automaticHandoff;
     state.automaticDetection = automaticDetection;
     state.events = events;
-    state.sweeps = sweeps.slice(-MAX_SWEEPS);
+    state.sweeps = Array.isArray(sweeps) ? sweeps.slice(-MAX_SWEEPS) : [];
+    state.spectrumView.update({ server: window.location.origin, session: sessionId, stream: spectrumStreamId },
+      streamById(spectrumStreamId)?.level_unit === "dBm" ? sweeps : []);
     return true;
   }
 
@@ -889,6 +885,9 @@
       window.OpenRadioSweepThreeThresholds?.setConnected(true);
       window.OpenRadioSweepContext?.setConnected(true);
     } catch (error) {
+      state.spectrumView?.clear();
+      state.sweeps = [];
+      state.health = null;
       window.OpenRadioFrequencyRounding?.setConnected(false);
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
@@ -978,7 +977,8 @@
   }
 
   function markLatestPeak() {
-    const sweep = state.sweeps.at(-1);
+    if (state.spectrumView.paused) return;
+    const sweep = state.spectrumView.display.at(-1);
     if (!sweep) return;
     const peak = peakOf(sweep);
     dom.candidateSource.value = sweep.stream_id;
@@ -989,7 +989,7 @@
     const step = sweep.frequencies_hz.length > 1
       ? Math.abs(sweep.frequencies_hz[1] - sweep.frequencies_hz[0])
       : 1;
-    dom.candidateBandwidth.value = String(sweep.settings.rbw_hz || Math.max(step, 1));
+    dom.candidateBandwidth.value = String(sweep.settings?.rbw_hz || Math.max(step, 1));
     dom.candidateLevel.value = String(peak.value);
     dom.candidateScore.value = "";
     dom.candidateForm.dataset.observationId = sweep.id;
@@ -1153,6 +1153,8 @@
     dom.candidateEditor.open = false;
     state.session = null;
     state.sweeps = [];
+    state.spectrumView?.clear();
+    if (state.spectrumView) renderSpectrum();
     updateComparison();
     state.automaticHandoff = null;
     state.automaticDetection = null;
@@ -1167,10 +1169,39 @@
   function changeSpectrumStream() {
     state.spectrumStreamId = dom.spectrumStream.value || null;
     state.sweeps = [];
+    state.spectrumView?.clear();
+    if (state.spectrumView) renderSpectrum();
     updateComparison();
     state.revision = (state.revision || 0) + 1;
     refresh();
   }
+
+  function renderSpectrumControls() {
+    const view = state.spectrumView;
+    byId("spectrum-pause").disabled = !view.display.length;
+    byId("spectrum-pause").textContent = view.paused ? "Live" : "Pause view";
+    byId("spectrum-fit").disabled = !view.display.length;
+    byId("spectrum-apply").disabled = !view.display.length;
+    byId("spectrum-view-status").textContent = view.display.length
+      ? `${view.paused ? "PAUSED: пауза только просмотра; состояние сбора не изменено" : "LIVE"} · отсечено значений: ${view.clipped()} · шкала ${view.bounds[0]} … ${view.bounds[1]} dBm`
+      : "Нет доступного спектра";
+    byId("spectrum-scale-error").textContent = view.error;
+    dom.markPeak.disabled = !view.display.length || view.paused || state.actionPending;
+  }
+  byId("spectrum-pause").addEventListener("click", () => {
+    if (state.spectrumView.paused) state.spectrumView.resume(); else state.spectrumView.pause();
+    renderSpectrum();
+  });
+  byId("spectrum-fit").addEventListener("click", () => { state.spectrumView.fit(); renderSpectrum(); });
+  byId("spectrum-scale-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const read = (id) => {
+      const text = byId(id).value.replace(/^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g, "");
+      return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(text) ? Number(text) : NaN;
+    };
+    state.spectrumView.manual(read("spectrum-min"), read("spectrum-max"));
+    renderSpectrum();
+  });
 
   dom.refresh.addEventListener("click", () => refresh());
   dom.sessionSelect.addEventListener("change", changeSession);

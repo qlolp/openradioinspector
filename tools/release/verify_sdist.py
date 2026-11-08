@@ -4,6 +4,14 @@ import sys
 import tarfile
 
 required = {
+    'tests/fixtures/spectrum-presentation-v1.json',
+    'tests/test_windows_spectrum_view.py',
+    'tests/test_webui_spectrum_view.py',
+    'tests/webui_spectrum_view.cjs',
+    'radioinspector/windows/spectrum_view.py',
+    'radioinspector/web/static/spectrum-view.js',
+    'macos/SpektrKomandy/Sources/SpektrKomandy/PlatformSpectrumPresentation.swift',
+
     'macos/DvoynoyObzor.xcodeproj/project.pbxproj',
     'macos/DvoynoyObzor/ContentView.swift',
     'macos/SpektrKomandy/Package.swift',

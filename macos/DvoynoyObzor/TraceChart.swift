@@ -1,4 +1,5 @@
 import SwiftUI
+import SpektrKomandy
 
 struct PlotPoint: Equatable {
     var x: Double
@@ -35,6 +36,7 @@ struct TraceChart: View {
     var yTitle: String
     var currentTitle = "текущая"
     var thresholdTitle = "порог"
+    var displayScale: PlatformSpectrumScale? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -87,7 +89,7 @@ struct TraceChart: View {
         }
         func map(_ point: PlotPoint) -> CGPoint {
             let xRatio = (point.x - xMin) / (xMax - xMin)
-            let yRatio = verticalScale.fraction(point.y)
+            let yRatio = displayScale?.fraction(point.y) ?? verticalScale.fraction(point.y)
             return CGPoint(
                 x: plot.minX + xRatio * plot.width,
                 y: plot.maxY - yRatio * plot.height
