@@ -63,13 +63,13 @@ class SoapyInstrument(Instrument):
         if self._device is None:
             raise InstrumentError(f"Устройство не найдено: {self.device_args}")
 
-        self._device.setSampleRate(SOAPY_SDR_RX, 0, self.sample_rate)
-        self._device.setFrequency(SOAPY_SDR_RX, 0, self.center_frequency_hz)
-        self._device.setGain(SOAPY_SDR_RX, 0, self.gain_db)
-        self._device.setGainMode(SOAPY_SDR_RX, 0, True)
+        self._device.setSampleRate(self._SoapySDR.SOAPY_SDR_RX, 0, self.sample_rate)
+        self._device.setFrequency(self._SoapySDR.SOAPY_SDR_RX, 0, self.center_frequency_hz)
+        self._device.setGain(self._SoapySDR.SOAPY_SDR_RX, 0, self.gain_db)
+        self._device.setGainMode(self._SoapySDR.SOAPY_SDR_RX, 0, True)
 
         self._stream = self._device.setupStream(
-            SOAPY_SDR_RX, SOAPY_SDR_CF32, [0]
+            self._SoapySDR.SOAPY_SDR_RX, SOAPY_SDR_CF32, [0]
         )
         self._stream.activate()
         self._info = InstrumentInfo(
