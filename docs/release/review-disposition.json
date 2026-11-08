@@ -251,7 +251,7 @@
     "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
     "path_at_snapshot": "radioinspector/session_service.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z8mFy",
@@ -267,7 +267,7 @@
     "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
     "path_at_snapshot": "radioinspector/session_service.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z8mF1",
@@ -282,8 +282,7 @@
     "reason": "Historical rows are now time-filtered inside SQL and only IDs returned, resolving Python history parsing. Query still uses CASE normalized time and complete_investigation holds service lock; index usability/performance of long archives needs measurement before asserting residual P1.",
     "head_sha_at_snapshot": "2d5239483f4380717a8d584e9ca15c3c94570007",
     "path_at_snapshot": "radioinspector/session_store.py",
-    "server_resolved": false,
-    "preparation_status": "Проверено 100001 синтетическое наблюдение: EXPLAIN использует observations_target_time по session/stream/frequency/времени; 1 совпадение около0,00027с. Нет доказательства остаточного P1; длительная аппаратная приёмка отдельно."
+    "server_resolved": false
   },
   {
     "id": "PRRT_kwDOVh2Xd86z9_Ai",
@@ -300,7 +299,7 @@
     "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
     "path_at_snapshot": "radioinspector/web/static/platform.js",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z9_Al",
@@ -315,7 +314,7 @@
     "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
     "path_at_snapshot": "radioinspector/web/static/platform.js",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z9_Ao",
@@ -330,7 +329,7 @@
     "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
     "path_at_snapshot": "radioinspector/web/static/platform.js",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z9_Av",
@@ -346,7 +345,7 @@
     "head_sha_at_snapshot": "5aa31ca0b8012cba7cf957b905356ae5be69e406",
     "path_at_snapshot": "radioinspector/web/static/platform.js",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd86z_LCw",
@@ -362,7 +361,7 @@
     "head_sha_at_snapshot": "07175bf9121e076214a0b1bb56f3a30512819e74",
     "path_at_snapshot": "radioinspector/web/server.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860Bc-3",
@@ -377,7 +376,7 @@
     "head_sha_at_snapshot": "0cedd2b7f8a3a4577e08ef6e3f20859831bd4a7d",
     "path_at_snapshot": "radioinspector/automatic_handoff.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860Bc-8",
@@ -393,7 +392,7 @@
     "head_sha_at_snapshot": "0cedd2b7f8a3a4577e08ef6e3f20859831bd4a7d",
     "path_at_snapshot": "radioinspector/automatic_handoff.py",
     "server_resolved": false,
-    "preparation_status": "Отложено: автоматический handoff нескольких receiver в одном сеансе; v0.4.0 принимает один tinySA и один AR-DV1. Ручные потоки независимы; ограничение задокументировано."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860ElW2",
@@ -408,7 +407,7 @@
     "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
     "path_at_snapshot": "radioinspector/automatic_detection.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860ElW7",
@@ -423,7 +422,7 @@
     "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
     "path_at_snapshot": "radioinspector/automatic_detection.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860ElXE",
@@ -440,7 +439,7 @@
     "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
     "path_at_snapshot": "radioinspector/automatic_detection.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860ElXJ",
@@ -456,7 +455,7 @@
     "head_sha_at_snapshot": "4667b4c5a78f3f14ee3390f1b7930650f1e31e57",
     "path_at_snapshot": "radioinspector/automatic_detection.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860GINO",
@@ -473,7 +472,7 @@
     "head_sha_at_snapshot": "d4eef03e73d7cea8a1111f45f8201014e2d665d1",
     "path_at_snapshot": "radioinspector/windows/app.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860GINU",
@@ -490,7 +489,7 @@
     "head_sha_at_snapshot": "d4eef03e73d7cea8a1111f45f8201014e2d665d1",
     "path_at_snapshot": "radioinspector/windows/app.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860IToV",
@@ -507,7 +506,7 @@
     "head_sha_at_snapshot": "6fc8ca18f6f4dcdee9f964bd13ad3f24164b60d2",
     "path_at_snapshot": "radioinspector/windows/app.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860IToc",
@@ -523,7 +522,7 @@
     "head_sha_at_snapshot": "6fc8ca18f6f4dcdee9f964bd13ad3f24164b60d2",
     "path_at_snapshot": "radioinspector/windows/client.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860KM4n",
@@ -539,7 +538,7 @@
     "head_sha_at_snapshot": "e7306c48580869f7fdf0dcede32055133f37de8a",
     "path_at_snapshot": "radioinspector/windows/app.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860LncB",
@@ -556,7 +555,7 @@
     "head_sha_at_snapshot": "f225cdbf5ecd102e73c573ea84c24befdc3120e9",
     "path_at_snapshot": "radioinspector/windows/app.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860NUQY",
@@ -671,7 +670,7 @@
     "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
     "path_at_snapshot": "radioinspector/device_workers.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860SFCC",
@@ -689,7 +688,7 @@
     "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
     "path_at_snapshot": "radioinspector/serial_instruments.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860SFCD",
@@ -707,7 +706,7 @@
     "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
     "path_at_snapshot": "radioinspector/serial_instruments.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860SFCH",
@@ -739,7 +738,7 @@
     "head_sha_at_snapshot": "062bb6617d9c974ce3caca35af1f0b079a5867e5",
     "path_at_snapshot": "radioinspector/serial_instruments.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860TymG",
@@ -1488,7 +1487,7 @@
     "head_sha_at_snapshot": "53f9b5ec8c187402e4e70299677b3883e4c1ae0b",
     "path_at_snapshot": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
     "server_resolved": false,
-    "preparation_status": "Native Swift regression добавлена; исправление и CI ожидаются. Не считать закрытым."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd860uAPR",
@@ -1753,7 +1752,7 @@
     "head_sha_at_snapshot": "ee27de890c5e14599fffcbe682ac4e55397df61e",
     "path_at_snapshot": "radioinspector/tasks.py",
     "server_resolved": false,
-    "preparation_status": "Исправление включено в локальную подготовку; профильные регрессии и строгий Linux runner пройдены. Перед закрытием сверить итоговый SHA/матрицу CI."
+    "preparation_status": "исправление или релизный блокер: см. status.md и test_release_v040.py; требуется сверка точного итогового SHA"
   },
   {
     "id": "PRRT_kwDOVh2Xd8600E3R",
@@ -2604,6 +2603,195 @@
     "reason": "Файл отсутствует в принятом #87 и текущей подготовке; функция отложена целиком. Замечание сохраняется для своего PR, не закрывается как исправленное.",
     "head_sha_at_snapshot": "24925a524d464f8913360577735d1ea08b5d6ca2",
     "path_at_snapshot": "radioinspector/dvb_parameters.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bcm8",
+    "pr": 94,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #94 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BcnA",
+    "pr": 94,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #94 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
+    "path_at_snapshot": "radioinspector/web/static/platform.html",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BcnB",
+    "pr": 94,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #94 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
+    "path_at_snapshot": "radioinspector/windows/phonogram.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BcnC",
+    "pr": 94,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #94 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
+    "path_at_snapshot": "radioinspector/phonogram.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BcnE",
+    "pr": 94,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #94 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1155579fe892dcff6859f3101768f62469e8df45",
+    "path_at_snapshot": "radioinspector/web/static/phonogram.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmyx",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "macos/DvoynoyObzor/SignalListPane.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmyz",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "radioinspector/session_service.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmy2",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "radioinspector/signal_list.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmy5",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "radioinspector/windows/signal_list.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmy6",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "radioinspector/web/static/platform.html",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Bmy-",
+    "pr": 95,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #95 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "988a9cb41bc6bd43a2195e5848dda82e79a13bec",
+    "path_at_snapshot": "radioinspector/web/static/signal-list.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BuKF",
+    "pr": 97,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #97 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
+    "path_at_snapshot": "radioinspector/web/static/measurement-map.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BuKG",
+    "pr": 97,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #97 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
+    "path_at_snapshot": "radioinspector/windows/measurement_map.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BuKH",
+    "pr": 97,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #97 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
+    "path_at_snapshot": "radioinspector/web/static/measurement-map.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BuKL",
+    "pr": 97,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #97 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
+    "path_at_snapshot": "macos/DvoynoyObzor/MeasurementMapPane.swift",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861BuKN",
+    "pr": 97,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #97 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "a775bab047627662db0e4357edc62bcca1afc3ea",
+    "path_at_snapshot": "radioinspector/measurement_map.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861CEB2",
+    "pr": 98,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #98 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
+    "path_at_snapshot": "radioinspector/web/static/audio-stream.js",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861CEB7",
+    "pr": 98,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #98 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
+    "path_at_snapshot": "radioinspector/windows/audio_stream.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861CECA",
+    "pr": 98,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #98 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
+    "path_at_snapshot": "radioinspector/windows/audio_stream.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861CECI",
+    "pr": 98,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #98 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
+    "path_at_snapshot": "radioinspector/web/server.py",
+    "server_resolved": false
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861CECK",
+    "pr": 98,
+    "disposition": "future_release",
+    "reason": "Обсуждение новой функции PR #98 за пределами среза #87; соответствующий модуль/обработчик не включён в релизную ветку. Сохранить с исходным PR; не закрывать как исправленное.",
+    "head_sha_at_snapshot": "1cca523356bdbf05786e25dd57d417ab39ff19c6",
+    "path_at_snapshot": "radioinspector/web/static/platform.html",
     "server_resolved": false
   }
 ]
