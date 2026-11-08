@@ -193,3 +193,35 @@ Tcl_AsyncDelete сообщений нет; два нефатальных loopbac
 тестов и три focused actual-Tk случая. Независимое ревью не оставило
 подтверждённых замечаний. Hosted Tk 8.6.16 пока не объявляется проверенным
 на новом коммите.
+
+
+## Hosted Swift SDK: явный deployment target
+
+[CI 42499338572](https://github.com/qlolp/openradioinspector/actions/runs/42499338572)
+на `9595b6c` прошёл Python/Node/Tk gate на всех трёх ОС (1087 случаев на
+каждой), включая прежний зависавший actual-Tk случай на hosted macOS
+с Tk 8.6.16. Затем компиляция Swift SDK остановилась на availability errors
+для `Task`, `checkCancellation` и `JSONEncoder.OutputFormatting.withoutEscapingSlashes`.
+Swift SDK tests, native Swift tests и Xcode build в этом hosted прогоне
+не выполнялись.
+
+SDK теперь явно задаёт `platforms: [.macOS(.v14)]`, как существующий native
+пакет `macos/Package.swift` и все четыре `MACOSX_DEPLOYMENT_TARGET = 14.0`
+в Xcode-проекте. Перенесена только эта строка из
+[PR #96, точный источник 78130ac](https://github.com/qlolp/openradioinspector/blob/78130acb67b593b031ba81cf96d27c13b4e2b1e5/macos/SpektrKomandy/Package.swift).
+Это согласование поддерживаемого минимума macOS 14, а не заявление поддержки
+macOS 10.15. Декларация macOS minimum не исключает сборку SDK на Linux.
+Ранее явный target SDK отсутствовал; успешная локальная сборка не подтверждала
+переносимость неявного deployment target на hosted toolchain. Причина различия
+локального и hosted поведения отдельно не установлена. Исправление target
+ещё требует нового полного hosted прогона; предыдущий локальный успех
+не является его проверкой.
+
+
+После добавления явного target повторно прошёл полный локальный gate:
+1087 Python/Node/Tk, 170 Swift SDK, 113 native Swift, без skips, unsigned
+Xcode BUILD SUCCEEDED. Все семь fixture-хешей совпали, собственные серверы
+остановлены и временный корень удалён. Stale Tcl/Tcl_AsyncDelete нет,
+два нефатальных loopback ConnectionResetError сохранены в журнале.
+`swift package dump-package` подтвердил platform macos 14.0. Новый hosted
+результат должен подтверждаться отдельно на опубликованном коммите.
