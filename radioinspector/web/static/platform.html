@@ -22,6 +22,7 @@
   <script src="/static/frequency-counter.js" defer></script>
   <script src="/static/dvb-evaluation.js" defer></script>
   <script src="/static/phonogram.js" defer></script>
+  <script src="/static/signal-list.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -478,6 +479,25 @@
           <p id="phono-status" role="status" aria-live="polite"></p>
           <p id="phono-summary"></p>
           <ol id="phono-items" aria-label="Состояние записи фонограммы"></ol>
+        </section>
+        <section class="siglist-panel" aria-labelledby="siglist-heading">
+          <h3 id="siglist-heading">Список сигналов · выгрузка и загрузка</h3>
+          <p>Переносимый JSON-список сигналов, как «Save RadioInspector signal's data to file» и «Load from network (from other instrument)» оригинала. Экспорт сериализует архивных кандидатов сеанса; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.</p>
+          <div class="form-grid">
+            <label>Имя списка для экспорта<input id="siglist-name" type="text" value="Список сигналов"></label>
+            <label>Поток обмена<select id="siglist-stream" disabled aria-describedby="siglist-source"></select></label>
+          </div>
+          <label for="siglist-editor">Черновик списка · JSON</label>
+          <textarea id="siglist-editor" rows="10" spellcheck="false" placeholder="Экспорт заполнит это поле; можно вставить чужой список"></textarea>
+          <div class="form-actions">
+            <button id="siglist-export" class="button" type="button" disabled>Выгрузить список сигналов</button>
+            <button id="siglist-import" class="button" type="button" disabled>Загрузить список сигналов</button>
+          </div>
+          <p id="siglist-source">Нет потоков выбранного сеанса.</p>
+          <p>Импорт — явная запись: каждый сигнал становится кандидатом в состоянии <code>new</code>. Автопреобразование единиц запрещено; запись с чужой единицей отклоняется целиком.</p>
+          <p id="siglist-status" role="status" aria-live="polite"></p>
+          <p id="siglist-summary"></p>
+          <ol id="siglist-items" aria-label="Итог обмена списком сигналов"></ol>
         </section>
       </section>
 

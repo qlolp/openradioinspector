@@ -92,6 +92,7 @@
 				<string>0E1C559C9B0E6BC5FB381D38</string>
 				<string>63B99351FA1E3A291D966A64</string>
 				<string>3441CC4813876FFA757FD267</string>
+				<string>81D0A664797023CCF309AB5D</string>
 				<string>2DDEEDA3ADF67F81C1CB4DDB</string>
 				<string>B2F1583BC1A2DE20C7D40614</string>
 				<string>96549CB25E5811DD33BB644B</string>
@@ -160,6 +161,7 @@
 				<string>F1E7DD015164A3E7F7B342D3</string>
 				<string>C4FFD0902F739BD706AE937F</string>
 				<string>ECF0ADEA4135CB110F8D87E0</string>
+				<string>CF8BC443193E27C1E4B8B92A</string>
 				<string>556F633825D058FAEBE370CD</string>
 				<string>D4BA29CA13C7314CB6F2A242</string>
 				<string>0A1B13BEFADAE168A39A14AD</string>
@@ -667,6 +669,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>3441CC4813876FFA757FD267</string>
+		</dict>
+		<key>81D0A664797023CCF309AB5D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>SignalListPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>CF8BC443193E27C1E4B8B92A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>81D0A664797023CCF309AB5D</string>
 		</dict>
 		<key>2DDEEDA3ADF67F81C1CB4DDB</key>
 		<dict>

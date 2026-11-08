@@ -224,6 +224,7 @@ final class RemoteDualModel: ObservableObject {
     let frequencyCounter = FrequencyCounterModel()
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
+    let signalList = SignalListModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -300,9 +301,11 @@ final class RemoteDualModel: ObservableObject {
     private func applyAuxiliaryStream() {
         guard let client = auxiliaryClient, let session = auxiliarySession,
               session.streams.contains(where: { PlatformThreeSweepThresholds.sameID($0.id, auxiliaryStreamID) }) else {
-            phonogram.reset(); return
+            phonogram.reset(); signalList.reset(); return
         }
         phonogram.configure(client: client,
+            scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
+        signalList.configure(client: client,
             scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
     }
 
@@ -885,6 +888,7 @@ final class RemoteDualModel: ObservableObject {
         frequencyCounter.reset()
         dvbEvaluation.reset()
         phonogram.reset()
+        signalList.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1562,6 +1566,7 @@ struct RemoteUltraPane: View {
                     }
                 }.disabled(model.session?.streams.isEmpty ?? true)
                 RemotePhonogramPane(model: model.phonogram)
+                RemoteSignalListPane(model: model.signalList)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

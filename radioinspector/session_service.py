@@ -48,6 +48,9 @@ from .frequency_counter import (
 )
 from .dvb_parameters import evaluate_dvb_parameters
 from .phonogram import PhonogramError, PhonogramRecorder
+from .signal_list import (
+    SignalListError, build_signal_list, import_candidates, parse_signal_list,
+)
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -218,6 +221,7 @@ class SessionService:
                 "frequency_counter": True,
                 "dvb_t_evaluation": True,
                 "phonogram_pre_history": True,
+                "signal_list_exchange": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -762,6 +766,67 @@ class SessionService:
             recorder = self._phonogram_recorder(session_id, stream_id)
             phonogram = recorder.completed()
         return phonogram.wav_bytes()
+
+    def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
+        """Export archived candidates as a portable signal list; read-only."""
+        with self._lock:
+            session = self._get_locked(session_id)
+            if stream_id is not None and not any(stream.id == stream_id for stream in session.streams):
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            candidates = [
+                item for item in self._candidates.values()
+                if item.session_id == session_id and (stream_id is None or item.source_stream_id == stream_id)
+            ]
+            candidates.sort(key=lambda item: (item.interval.started_at, item.id))
+            artifact = build_signal_list(candidates, name)
+            return {
+                "session_id": session_id,
+                "exported": len(artifact["entries"]),
+                "list": artifact,
+            }
+
+    def signal_list_import(
+        self, session_id: str, payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create new candidates from an imported signal list.
+
+        This is an explicit write through the normal candidate lifecycle:
+        each entry becomes one ``new`` candidate on the chosen stream, with
+        its own creation event. Levels are never converted.
+        """
+        if not isinstance(payload, dict) or set(payload) != {"stream_id", "list_json"}:
+            raise ValueError("Разрешены только поля stream_id и list_json")
+        stream_id = payload["stream_id"]
+        if not isinstance(stream_id, str) or not stream_id.strip():
+            raise ValueError("stream_id должен быть непустым ID потока")
+        artifact = parse_signal_list(payload["list_json"])
+        with self._lock:
+            session = self._get_locked(session_id)
+            stream = next((item for item in session.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            payloads = import_candidates(stream_id, stream.level_unit, artifact)
+            candidates = [Candidate.from_dict(dict(item, session_id=session_id, state="new"))
+                          for item in payloads]
+            created = [candidate.id for candidate in candidates]
+            if len(set(created)) != len(created) or any(identifier in self._candidates for identifier in created):
+                raise ValueError("Повторяющийся ID кандидата")
+            events = []
+            for index, candidate in enumerate(candidates, 1):
+                self._validate_measurement_locked(session_id, candidate.source_stream_id, candidate.level_unit)
+                events.append(SessionEvent(sequence=self._sequence + index, event_type="candidate.created",
+                                           occurred_at=self._clock(), session_id=session_id,
+                                           payload={"candidate": to_primitive(candidate)}))
+            if self._store is not None:
+                self._store.save_candidates_batch(list(zip(candidates, events)))
+            for candidate, event in zip(candidates, events):
+                self._candidates[candidate.id] = candidate
+                self._publish_event_locked(event)
+            return {
+                "session_id": session_id, "stream_id": stream_id,
+                "imported": len(created), "candidate_ids": created,
+                "name": artifact["name"],
+            }
 
     def save_measurement_result(
         self, session_id: str, payload: dict[str, Any],
