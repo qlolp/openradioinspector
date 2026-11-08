@@ -218,6 +218,7 @@ final class RemoteDualModel: ObservableObject {
     let measurementResults = MeasurementResultsModel()
     let frequencyCounter = FrequencyCounterModel()
     let dvbEvaluation = DvbEvaluationModel()
+    let phonogram = PhonogramModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -845,6 +846,7 @@ final class RemoteDualModel: ObservableObject {
         measurementResults.reset()
         frequencyCounter.reset()
         dvbEvaluation.reset()
+        phonogram.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1253,7 +1255,11 @@ final class RemoteDualModel: ObservableObject {
                 sweeps: snapshot.sweeps)
             dvbEvaluation.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID))
-        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset() }
+            if let stream = analyzer?.id {
+                phonogram.configure(client: client,
+                    scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
+            } else { phonogram.reset() }
+        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1512,6 +1518,7 @@ struct RemoteUltraPane: View {
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
+                RemotePhonogramPane(model: model.phonogram)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
