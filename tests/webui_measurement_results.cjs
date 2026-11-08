@@ -113,7 +113,9 @@ async function happyPath() {
   assert.match(post.url, /\/api\/v1\/sessions\/session%2F1\/measurement-results$/);
   const sent = JSON.parse(post.options.body);
   assert.deepEqual(Object.keys(sent).sort(),
-    ['frequency_hz', 'interval', 'methodology', 'result_code', 'values']);
+    ['frequency_hz', 'interval', 'methodology', 'result_code', 'stream_id', 'values']);
+  assert.equal(sent.stream_id, 'tiny/1');
+  assert.equal(app.dom.methodology.disabled, false);
   assert.equal(sent.methodology, 'beta2_bandwidth');
   assert.equal(sent.result_code, 'norm');
   assert.equal(sent.values.bandwidth_hz, 1);
@@ -191,7 +193,29 @@ async function transportAndScope() {
   assert.equal(moved.requests.filter(r => r.url.includes('/measurement-catalog')).length, 2);
 }
 
+
+async function refreshOwnership() {
+  const app = setup(); app.update();
+  assert.equal(app.requests.filter(r => r.url.includes('/measurement-results?')).length, 0,
+    'catalog must load before validating any archived record');
+  await boot(app, [record()]);
+  app.update();
+  const latest = app.requests.length - 1;
+  app.respond(latest, [record({id: 'remote/2'})], 200);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.dom.items.children.length, 1);
+  app.window.OpenRadioMeasurementResults.setConnected(false);
+  app.window.OpenRadioMeasurementResults.setConnected(true);
+  assert(app.requests.length > latest + 1, 'reconnection refreshes records');
+  const late = app.requests.length - 1;
+  app.update('session/2');
+  app.respond(late, [record()], 200);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.dom.items.children.length, 0, 'old-session list cannot reappear');
+}
+
 (async () => {
+  await refreshOwnership();
   await happyPath();
   await notMeasuredAndCatalogGuard();
   await transportAndScope();

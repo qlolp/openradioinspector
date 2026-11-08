@@ -16,7 +16,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from .contracts import to_primitive, utc_now
+from .contracts import TimeInterval, to_primitive, utc_now
 from .sweep_references import normalize_reference_name
 
 MAX_RESULTS_PER_REQUEST = 256
@@ -100,6 +100,7 @@ def validate_result_payload(payload: Any) -> dict[str, Any]:
         value = interval[key]
         if not isinstance(value, str) or not value:
             raise ValueError(f"{key} должен быть непустой строкой UTC")
+    interval = to_primitive(TimeInterval.from_dict(interval))
     values = payload["values"]
     expected = METHODOLOGIES[methodology]["fields"]
     if code == "not_measured":

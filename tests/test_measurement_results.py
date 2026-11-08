@@ -84,6 +84,16 @@ class ResultContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_result_payload(payload(result_code="not_measured", values={"bandwidth_hz": 1.0}))
 
+    def test_interval_validation_and_utc_normalization(self):
+        for started, ended in [('not-a-date', INTERVAL['ended_at']),
+                               ('2026-11-08T12:00:00', INTERVAL['ended_at']),
+                               (INTERVAL['ended_at'], INTERVAL['started_at'])]:
+            with self.subTest(started=started), self.assertRaises(ValueError):
+                validate_result_payload(payload(interval={'started_at': started, 'ended_at': ended}))
+        parsed = validate_result_payload(payload(interval={
+            'started_at': '2026-11-08T15:00:00+03:00', 'ended_at': '2026-11-08T15:00:01+03:00'}))
+        self.assertEqual(parsed['interval'], INTERVAL)
+
     def test_catalog_lists_implemented_methodologies(self):
         catalog = describe_catalog()
         self.assertEqual(len(catalog), len(METHODOLOGIES))
@@ -125,6 +135,11 @@ class ResultServiceMixin:
         self.assertEqual(items[1]["result_code"], "not_norm")
         self.assertEqual(items[2]["values"], {})
 
+    def test_limit_returns_newest_window_in_chronological_order(self):
+        saved = [self.save() for _ in range(3)]
+        items = self.service.list_measurement_results(self.session.id, limit=2)
+        self.assertEqual([r['id'] for r in items], [r['id'] for r in saved[-2:]])
+
     def test_values_are_detached_and_archive_survives_restart(self):
         record = self.save(payload(values={"bandwidth_hz": 7.5, "lower_edge_hz": 1.0,
                                            "upper_edge_hz": 2.0, "center_hz": 1.5}))
@@ -134,7 +149,7 @@ class ResultServiceMixin:
         source["values"]["bandwidth_hz"] = 999
         self.assertEqual(saved["values"]["bandwidth_hz"], 1.0)
         if self.service._store is None:
-            self.skipTest("memory-only service has no restart")
+            return  # Memory assertions above are complete; SQLite cases also verify restart.
         path = self.path
         self.service.close()
         restored = SessionService(store=SQLiteSessionStore(path))
@@ -175,6 +190,26 @@ class SQLiteResultTests(ResultServiceMixin, unittest.TestCase):
         self.service = SessionService(store=SQLiteSessionStore(self.path))
         self.addCleanup(self.service.close)
         self.session = create_session(self.service)
+
+
+class ResultMigrationTests(unittest.TestCase):
+    def test_v3_upgrade_preserves_existing_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'v3.sqlite')
+            service = SessionService(store=SQLiteSessionStore(path))
+            session = create_session(service)
+            service.close()
+            import sqlite3
+            with sqlite3.connect(path) as connection:
+                connection.execute('DROP TABLE measurement_results')
+                connection.execute('PRAGMA user_version = 3')
+            service = SessionService(store=SQLiteSessionStore(path))
+            try:
+                self.assertEqual(service.get_session(session.id).id, session.id)
+                saved = service.save_measurement_result(session.id, dict(payload(), stream_id=session.streams[0].id))
+                self.assertEqual(service.list_measurement_results(session.id)[0]['id'], saved['id'])
+            finally:
+                service.close()
 
 
 class ResultHTTPTests(unittest.TestCase):

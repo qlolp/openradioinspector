@@ -8,8 +8,8 @@
     "frequency", "started", "ended", "values", "source", "status", "summary", "items"]
     .map(name => [name, byId(`meas-${name}`)]));
   if (!dom.status) return;
-  let scope = "", snapshot = "", connected = true, suspended = false, result = null;
-  let catalog = [], results = [], generation = 0, pending = null;
+  let scope = "", stream = "", snapshot = "", connected = true, suspended = false, result = null;
+  let catalog = [], results = [], generation = 0, pending = null, catalogLoading = null, listing = null;
   const MAX_RESPONSE_BYTES = 2000000;
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   const finite = value => typeof value === "number" && Number.isFinite(value);
@@ -58,7 +58,7 @@
     utc(dom.started.value); utc(dom.ended.value);
     if (utc(dom.started.value) > utc(dom.ended.value)) throw new Error("Интервал: начало позже окончания");
     return {
-      methodology: spec.methodology, result_code: code, frequency_hz: frequency,
+      stream_id: stream, methodology: spec.methodology, result_code: code, frequency_hz: frequency,
       interval: { started_at: dom.started.value, ended_at: dom.ended.value },
       values: chosenValues(spec, code),
     };
@@ -82,12 +82,14 @@
     }
   }
   function controls() {
-    const ready = Boolean(scope) && connected && !suspended;
-    dom.run.disabled = !ready;
+    const ready = Boolean(scope && stream) && connected && !suspended && catalog.length > 0;
+    dom.methodology.disabled = !ready || Boolean(pending);
+    dom.run.disabled = !ready || Boolean(pending);
     dom.save.disabled = !result || suspended;
   }
   function clear() {
     pending?.abort(); pending = null; generation += 1; result = null;
+    results = []; catalogLoading = null; listing = null;
     dom.summary.textContent = ""; dom.status.textContent = "";
     dom.items.replaceChildren();
     controls();
@@ -108,6 +110,7 @@
       : "Результатов измерений в сеансе нет.";
   }
   async function loadCatalog() {
+    const current = generation;
     try {
       const response = await fetch("/api/v1/measurement-catalog", { cache: "no-store" });
       const envelope = await response.json();
@@ -118,6 +121,7 @@
         if (!object(item) || typeof item.methodology !== "string" || !Array.isArray(item.fields) ||
             !Array.isArray(item.result_codes)) throw new Error("Некорректный каталог методик");
       }
+      if (current !== generation || suspended || !connected) return false;
       catalog = envelope.data;
       const options = catalog.map(item => {
         const option = document.createElement("option");
@@ -126,9 +130,12 @@
         return option;
       });
       dom.methodology.replaceChildren(...options);
-      syncCodes();
+      syncCodes(); controls();
+      return true;
     } catch (error) {
+      if (current !== generation) return false;
       dom.status.textContent = `Каталог методик недоступен: ${error.message}`;
+      return false;
     }
   }
   function syncCodes() {
@@ -143,7 +150,7 @@
     dom.code.replaceChildren(...options);
   }
   async function analyze() {
-    if (dom.run.disabled) return;
+    if (pending || dom.run.disabled) return;
     let body;
     try { body = request(); } catch (error) { clear(); dom.status.textContent = error.message; return; }
     const controller = new AbortController(); pending = controller; const current = ++generation;
@@ -174,38 +181,52 @@
     }
   }
   async function refresh() {
-    if (!scope || suspended) return;
+    if (!scope || suspended || !connected || listing || pending || !catalog.length) return;
+    const current = generation, token = {}; listing = token;
+    const session = scope;
     try {
       const response = await fetch(
-        `/api/v1/sessions/${encodeURIComponent(scope)}/measurement-results?limit=100`, { cache: "no-store" });
+        `/api/v1/sessions/${encodeURIComponent(session)}/measurement-results?limit=100`, { cache: "no-store" });
       const envelope = await response.json();
+      if (current !== generation || suspended || !connected) return;
       if (!response.ok) throw new Error(envelope?.error?.message || `Ошибка ядра ${response.status}`);
-      if (!Array.isArray(envelope.data)) throw new Error("Некорректный список результатов");
+      if (envelope.contract !== "openradioinspector-platform" || !Array.isArray(envelope.data)) throw new Error("Некорректный список результатов");
       for (const record of envelope.data) validate(record);
       results = envelope.data;
       render();
     } catch (error) {
-      dom.status.textContent = `Список результатов недоступен: ${error.message}`;
+      if (current === generation) dom.status.textContent = `Список результатов недоступен: ${error.message}`;
+    } finally { if (listing === token) listing = null; }
+  }
+  async function ensureCatalogAndRefresh() {
+    if (!scope || !connected || suspended) return;
+    const current = generation;
+    if (!catalog.length) {
+      if (!catalogLoading) catalogLoading = loadCatalog();
+      if (!await catalogLoading || current !== generation) return;
+      catalogLoading = null;
     }
+    return refresh();
   }
   function update(next) {
-    const sessionId = next.sessionId || "";
-    const signature = JSON.stringify([sessionId, next.streamId || ""]);
-    if (signature === snapshot) { controls(); return; }
-    snapshot = signature;
+    const sessionId = next.sessionId || "", streamId = next.streamId || "";
+    const signature = JSON.stringify([sessionId, streamId]);
+    if (signature === snapshot) { controls(); ensureCatalogAndRefresh(); return; }
     const sessionChanged = sessionId !== scope;
-    scope = sessionId;
-    if (sessionChanged) clear();
+    clear();
+    scope = sessionId; stream = streamId; snapshot = signature;
+    if (sessionChanged) catalog = [];
     dom.source.textContent = scope
       ? `Сеанс: ${scope}. Результаты привязаны к потоку и методике.`
       : "Нет выбранного сеанса.";
-    controls();
-    if (sessionChanged) { loadCatalog(); refresh(); }
+    controls(); ensureCatalogAndRefresh();
   }
   function setConnected(value) {
+    const wasConnected = connected;
     connected = Boolean(value);
     if (!connected) clear();
     controls();
+    if (connected && !wasConnected) ensureCatalogAndRefresh();
   }
   dom.run.addEventListener("click", analyze);
   dom.clear.addEventListener("click", clear);

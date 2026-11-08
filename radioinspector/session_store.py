@@ -1025,10 +1025,13 @@ class SQLiteSessionStore:
             " ORDER BY created_at, id"
         )
         if limit is not None:
-            query += " LIMIT ?"
+            query = (f"SELECT * FROM measurement_results WHERE {clause}"
+                     " ORDER BY created_at DESC, id DESC LIMIT ?")
             parameters.append(limit)
         with self._lock:
             rows = self._connection.execute(query, parameters).fetchall()
+            if limit is not None:
+                rows.reverse()
             return [self._measurement_result(row) for row in rows]
 
     @staticmethod

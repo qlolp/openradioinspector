@@ -87,6 +87,8 @@ final class MeasurementResultsModelTests: XCTestCase {
         XCTAssertNil(model.chosenValues, "missing methodology fields are refused")
         model.draft.values = "{\"bandwidth_hz\": 1, \"lower_edge_hz\": 2, \"upper_edge_hz\": 3, \"center_hz\": 4}"
         XCTAssertNotNil(model.chosenValues)
+        model.draft.values = "{\"bandwidth_hz\": true, \"lower_edge_hz\": 2, \"upper_edge_hz\": 3, \"center_hz\": 4}"
+        XCTAssertNil(model.chosenValues, "JSON booleans must never become measurement values")
         model.draft.values = "{bad"
         XCTAssertNil(model.chosenValues, "malformed JSON is refused")
         model.draft.resultCode = "not_measured"

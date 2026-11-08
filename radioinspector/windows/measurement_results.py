@@ -86,7 +86,10 @@ def result_text(items):
     return '\n'.join(lines)
 
 
-class MeasurementResultPanel:
+from .tk_timers import TkTimerOwner
+
+
+class MeasurementResultPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -95,6 +98,7 @@ class MeasurementResultPanel:
         self.closed = False
         self.items = []
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='measurement-results')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Результаты измерений')
@@ -197,7 +201,7 @@ class MeasurementResultPanel:
         self.expected = (self.app.session_id, stream)
         self.future = self.executor.submit(
             self.app.client.save_measurement_result, self.app.session_id, body)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -206,7 +210,7 @@ class MeasurementResultPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -229,7 +233,7 @@ class MeasurementResultPanel:
         session = self.app.session_id
         self.future = self.executor.submit(
             self.app.client.list_measurement_results, session)
-        self.app.root.after(50, lambda: self.finish_refresh(generation, session))
+        self._schedule_after(self.app.root, 'request', 50, self.finish_refresh, generation, session)
 
     def finish_refresh(self, generation, session):
         if self.closed: return
@@ -238,7 +242,7 @@ class MeasurementResultPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish_refresh(generation, session)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish_refresh, generation, session); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -258,5 +262,11 @@ class MeasurementResultPanel:
             self.clear()
 
     def close(self):
-        self.clear(); self.closed = True
+        if self.closed: return
+        self.closed = True
+        self._close_timers()
+        self.generation += 1
+        for future in (self.future, self.retired):
+            if future is not None: future.cancel()
+        self.future = self.retired = None
         self.executor.shutdown(wait=False, cancel_futures=True)

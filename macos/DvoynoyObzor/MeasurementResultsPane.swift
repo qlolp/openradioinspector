@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 import SwiftUI
 import SpektrKomandy
 
@@ -67,8 +68,9 @@ final class MeasurementResultsModel: ObservableObject {
         guard Set(object.keys) == names else { return nil }
         var result: [String: Double] = [:]
         for name in entry.fields {
-            let value = object[name]
-            let number = (value as? NSNumber)?.doubleValue ?? (value as? Double)
+            guard let value = object[name] as? NSNumber,
+                  CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
+            let number: Double? = value.doubleValue
             guard let number, number.isFinite else { return nil }
             result[name] = number
         }
