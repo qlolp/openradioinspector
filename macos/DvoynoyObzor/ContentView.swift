@@ -226,6 +226,7 @@ final class RemoteDualModel: ObservableObject {
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()
     let measurementMap = MeasurementMapModel()
+    let audioStream = AudioStreamModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -302,11 +303,13 @@ final class RemoteDualModel: ObservableObject {
     private func applyAuxiliaryStream() {
         guard let client = auxiliaryClient, let session = auxiliarySession,
               session.streams.contains(where: { PlatformThreeSweepThresholds.sameID($0.id, auxiliaryStreamID) }) else {
-            phonogram.reset(); signalList.reset(); return
+            phonogram.reset(); signalList.reset(); audioStream.reset(); return
         }
         phonogram.configure(client: client,
             scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
         signalList.configure(client: client,
+            scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
+        audioStream.configure(client: client,
             scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
     }
 
@@ -891,6 +894,7 @@ final class RemoteDualModel: ObservableObject {
         phonogram.reset()
         signalList.reset()
         measurementMap.reset()
+        audioStream.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1572,6 +1576,7 @@ struct RemoteUltraPane: View {
                 RemotePhonogramPane(model: model.phonogram)
                 RemoteSignalListPane(model: model.signalList)
                 RemoteMeasurementMapPane(model: model.measurementMap)
+                RemoteAudioStreamPane(model: model.audioStream)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
