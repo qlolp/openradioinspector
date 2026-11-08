@@ -145,6 +145,31 @@ class AudioStreamPumpTests(unittest.TestCase):
 
 
 class AudioCancellationTests(unittest.TestCase):
+    def test_idle_stream_waits_past_header_timeout_and_delivers_later_pcm(self):
+        import socket, http.client, threading
+        from radioinspector.windows.client import AudioStreamConnection
+        client, peer = socket.socketpair()
+        client.settimeout(0.05)
+        peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: audio/pcm\r\nConnection: close\r\n\r\n')
+        response = http.client.HTTPResponse(client); response.begin()
+        connection = AudioStreamConnection(response)
+        done = threading.Event(); blocks = []; errors = []
+        def read():
+            try: blocks.append(connection.read_block(8192))
+            except OSError as error: errors.append(error)
+            finally: done.set()
+        worker = threading.Thread(target=read)
+        try:
+            worker.start()
+            self.assertFalse(done.wait(0.15), 'Idle PCM must outlive the header timeout')
+            peer.sendall(b'12345678')
+            self.assertTrue(done.wait(1))
+            self.assertEqual(errors, [])
+            self.assertEqual(blocks, [b'12345678'])
+        finally:
+            connection.cancel_read(); worker.join(3)
+            connection.close(); client.close(); peer.close()
+
     def test_cancellation_interrupts_real_blocked_read_without_closing_on_gui(self):
         import socket, http.client, threading, time
         from radioinspector.windows.client import AudioStreamConnection
