@@ -49,7 +49,7 @@ from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_
 from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
 from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..phonogram import PhonogramError
-from ..signal_list import SignalListError
+from ..signal_list import SignalListError, MAX_IMPORT_REQUEST_BYTES
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -568,6 +568,18 @@ class Handler(BaseHTTPRequestHandler):
                     "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
+            except OverflowError as exc:
+                self.close_connection = True
+                self._send_api_error(413, "request_too_large", str(exc))
+                return
+            except (ValueError, UnicodeError) as exc:
+                self.close_connection = True
+                self._send_api_error(400, "invalid_request", str(exc))
+                return
+        elif (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
+              and parts[4:] == ["signal-list", "import"]):
+            try:
+                payload = self._read_bounded_analysis_request(MAX_IMPORT_REQUEST_BYTES)
             except OverflowError as exc:
                 self.close_connection = True
                 self._send_api_error(413, "request_too_large", str(exc))

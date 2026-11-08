@@ -764,7 +764,8 @@ class SessionService:
         """WAV последней фонограммы; запись в архив не выполняется."""
         with self._lock:
             recorder = self._phonogram_recorder(session_id, stream_id)
-            return recorder.last_wav()
+            phonogram = recorder.completed()
+        return phonogram.wav_bytes()
 
     def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
         """Export archived candidates as a portable signal list; read-only."""
