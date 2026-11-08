@@ -41,6 +41,7 @@ from ..automatic_detection import AutomaticCandidateDetector
 from ..automatic_handoff import AutomaticHandoffScheduler
 from ..contracts import api_payload
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
+from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -452,7 +453,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         parts = route.strip("/").split("/")
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds", "sweep-context")):
+                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds", "sweep-context", "frequency-rounding")):
             try:
                 if "?" in self.path:
                     raise ValueError("Анализ не принимает параметры запроса")
@@ -461,6 +462,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
                     "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
                     "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
+                    "frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -550,6 +552,7 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"]["automatic_investigation_completion"] = True
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
+                capabilities["features"]["frequency_raster_rounding"] = True
                 self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/task-scheduler":
@@ -859,6 +862,13 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "sweep-context"
             ):
                 self._send_json(api_payload(self.sessions.sweep_context(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "frequency-rounding"
+            ):
+                self._send_json(api_payload(self.sessions.frequency_rounding(parts[3], payload)))
                 return
             if (
                 len(parts) == 5

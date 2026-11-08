@@ -251,6 +251,21 @@ class PlatformClient:
             raise ValueError('Запрос превышает 524 288 байт')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-mask-analysis", payload, expected_statuses=(200,))
 
+    def frequency_rounding(self, session_id: str, candidate_ids: list, table_json: str) -> dict[str, Any]:
+        from .frequency_raster import check_draft
+        check_draft(table_json)
+        if not isinstance(candidate_ids, list) or not 1 <= len(candidate_ids) <= 256:
+            raise ValueError('Нужен от 1 до 256 ID кандидатов')
+        for candidate_id in candidate_ids:
+            _segment(candidate_id, 'candidate_id')
+        if len(set(candidate_ids)) != len(candidate_ids):
+            raise ValueError('ID кандидатов не должны повторяться')
+        payload = {'table_json': table_json, 'candidate_ids': candidate_ids}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 524288:
+            raise ValueError('Запрос превышает 524 288 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/frequency-rounding",
+                             payload, expected_statuses=(200,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

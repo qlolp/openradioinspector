@@ -366,6 +366,9 @@
   }
 
   function renderCandidates() {
+    window.OpenRadioFrequencyRaster?.update({
+      sessionId: state.sessionId, candidates: state.candidates,
+    });
     const filter = dom.candidateFilter.value;
     const candidates = state.candidates.filter((candidate) => !filter || candidate.state === filter).slice().reverse();
     if (!candidates.length) {
@@ -845,12 +848,14 @@
       window.OpenRadioSweepAverage?.setConnected(true);
       window.OpenRadioSweepThreeThresholds?.setConnected(true);
       window.OpenRadioSweepContext?.setConnected(true);
+      window.OpenRadioFrequencyRaster?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
       window.OpenRadioSweepAverage?.setConnected(false);
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
+      window.OpenRadioFrequencyRaster?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -892,6 +897,7 @@
       window.OpenRadioSweepAverage?.setConnected(false);
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
+      window.OpenRadioFrequencyRaster?.setConnected(false);
     });
     const receive = (message) => {
       try {

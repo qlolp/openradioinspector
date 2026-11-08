@@ -33,6 +33,9 @@ from .contracts import (
     to_primitive,
     utc_now,
 )
+from .frequency_raster import (
+    calculate_frequency_rounding, parse_frequency_raster, validate_rounding_request,
+)
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
@@ -186,6 +189,7 @@ class SessionService:
                 "spectral_mask_analysis": True,
                 "averaged_sweep_reference": True,
                 "named_sweep_references": True,
+                "frequency_raster_rounding": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -600,6 +604,20 @@ class SessionService:
             self._get_locked(session_id)
             sweep = self._get_sweep_locked(session_id, sweep_id)
             return calculate_sweep_mask(session_id, sweep, mask_json=payload["mask_json"])
+
+    def frequency_rounding(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Round archived candidate frequencies by an imported table, without writes."""
+        table_json, candidate_ids = validate_rounding_request(payload)
+        # The table is validated before any lookup: a malformed artifact must
+        # not depend on archive contents to be rejected.
+        table = parse_frequency_raster(table_json)
+        with self._lock:
+            self._get_locked(session_id)
+            candidates = [
+                self._get_candidate_locked(session_id, candidate_id)
+                for candidate_id in candidate_ids
+            ]
+            return calculate_frequency_rounding(session_id, candidates, table)
 
     def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
         if self._store is not None:

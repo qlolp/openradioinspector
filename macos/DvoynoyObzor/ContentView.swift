@@ -209,6 +209,7 @@ final class RemoteDualModel: ObservableObject {
     let threeSweepThresholds = ThreeSweepThresholdsModel()
     let sweepContext = SweepContextModel()
     let spectralMask = SpectralMaskModel()
+    let frequencyRaster = FrequencyRasterModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -822,6 +823,7 @@ final class RemoteDualModel: ObservableObject {
         threeSweepThresholds.reset()
         sweepContext.reset()
         spectralMask.reset()
+        frequencyRaster.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1213,6 +1215,10 @@ final class RemoteDualModel: ObservableObject {
         _ snapshot: PlatformSnapshot, schedulerRevision: Int
     ) {
         candidates = snapshot.candidates
+        frequencyRaster.configure(client: (connectedServerURL == serverURL ? client : nil),
+            scope: connectedServerURL == serverURL
+                ? .init(server: serverURL, session: selectedSessionID) : nil,
+            candidates: snapshot.candidates)
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1439,6 +1445,7 @@ struct RemoteUltraPane: View {
                 RemoteSweepContextPane(model: model.sweepContext)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
                 RemoteSpectralMaskPane(model: model.spectralMask)
+                RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

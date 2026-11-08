@@ -14,6 +14,7 @@
   <script src="/static/sweep-average.js" defer></script>
   <script src="/static/sweep-three-thresholds.js" defer></script>
   <script src="/static/sweep-context.js" defer></script>
+  <script src="/static/frequency-raster.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -328,6 +329,28 @@
           <p id="mask-summary"></p>
           <canvas id="mask-canvas" width="960" height="280" role="img" aria-label="Исходный свип и табличная маска, dBm" hidden></canvas>
           <ol id="mask-regions" aria-label="Области превышения маски"></ol>
+        </section>
+        <section class="raster-panel" aria-labelledby="raster-heading">
+          <h3 id="raster-heading">Округление частоты обнаруженных сигналов · таблица сетки</h3>
+          <p>Переносимый JSON: 1–64 записей «диапазон + шаг сетки». Ядро округляет центральные частоты выбранных кандидатов до ближайшей точки сетки своей записи; при равном расстоянии берётся более высокая точка. Исходные частоты архива не изменяются. Частоты вне всех записей не округляются.</p>
+          <label for="raster-candidates">Кандидаты сеанса (выбор с Ctrl/Cmd)</label>
+          <select id="raster-candidates" multiple size="5" disabled aria-describedby="raster-source"></select>
+          <label for="raster-file">Загрузить локальный JSON UTF-8 (до 65 536 байт)</label>
+          <input id="raster-file" type="file" accept=".json,application/json">
+          <label for="raster-editor">Черновик таблицы · JSON</label>
+          <textarea id="raster-editor" rows="12" spellcheck="false" aria-describedby="raster-draft" placeholder="Загрузите JSON или создайте ненормативный пример"></textarea>
+          <p id="raster-draft" role="status" aria-live="polite">Черновик не проверен ядром.</p>
+          <p id="raster-source">Нет кандидатов выбранного сеанса.</p>
+          <div class="form-actions">
+            <button id="raster-template" class="button" type="button" disabled>НЕНОРМАТИВНЫЙ пример 100 кГц</button>
+            <button id="raster-run" class="button" type="button" disabled>Округлить частоты выбранных кандидатов</button>
+            <button id="raster-clear" class="button" type="button">Очистить результат</button>
+            <button id="raster-save" class="button" type="button" disabled>Сохранить проверенную таблицу</button>
+          </div>
+          <p>Импорт и редактирование локальны. Только кнопка округления передаёт черновик ядру: без записи, изменения кандидатов и команд прибору. Сетка записи — точки start_hz + k·grid_step_hz внутри диапазона. Это не калибровка и не сверка с нормативной сеткой каналов.</p>
+          <p id="raster-status" role="status" aria-live="polite"></p>
+          <p id="raster-summary"></p>
+          <ol id="raster-items" aria-label="Результат округления по кандидатам"></ol>
         </section>
       </section>
 
