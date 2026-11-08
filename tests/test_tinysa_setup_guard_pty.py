@@ -56,7 +56,8 @@ class TinySASetupPTYTests(unittest.TestCase):
         self.assertEqual(actual, expected)
 
     def start_server(self, *, fault_command: str | None = None, fault: bytes | None = None,
-                     late: bool = False, fragment: bool = False) -> None:
+                     late: bool = False, fragment: bool = False,
+                     scan_chunks: tuple[bytes, ...] | None = None) -> None:
         def write(data: bytes) -> None:
             view = memoryview(data)
             while view:
@@ -85,6 +86,12 @@ class TinySASetupPTYTests(unittest.TestCase):
                                     raise TimeoutError("test did not release late prompt")
                                 write(b"ch> ")
                                 self.late_sent.set()
+                            continue
+                        if command == SCAN_COMMAND and scan_chunks is not None:
+                            for index, chunk in enumerate(scan_chunks):
+                                if index and self.stopped.wait(0.35):
+                                    return
+                                write(chunk)
                             continue
                         reply = IDENTITY_REPLIES.get(command)
                         if command == SCAN_COMMAND:
@@ -116,6 +123,51 @@ class TinySASetupPTYTests(unittest.TestCase):
         self.assertEqual(sweep.settings["generator_output_source"], "command_acknowledged")
         self.assertFalse(sweep.settings["generator_output_readback"])
         self.assertEqual(sweep.settings["hardware_validation"], "not_run")
+
+    def assert_delayed_scan(self, chunks: tuple[bytes, ...]) -> None:
+        self.start_server(scan_chunks=chunks)
+        sweep = self.adapter.poll()
+        self.assertEqual(sweep.levels, (-90.0, -42.5, -80.0))
+        self.assertEqual(self.commands, [*IDENTITY_COMMANDS, *SETUP_COMMANDS, SCAN_COMMAND])
+        self.assertFalse(self.adapter.details()["restart_required"])
+        self.assertEqual(sweep.settings["generator_output_source"], "command_acknowledged")
+
+    def test_scan_echo_then_gap_longer_than_quiet_still_waits_for_data(self) -> None:
+        self.assert_delayed_scan((
+            (SCAN_COMMAND + "\r\n").encode("ascii"), SCAN_REPLY.encode("ascii"),
+        ))
+
+    def test_partial_scan_then_gap_still_waits_for_remaining_rows(self) -> None:
+        first, rest = SCAN_REPLY.split("\r\n", 1)
+        self.assert_delayed_scan((
+            (SCAN_COMMAND + "\r\n" + first + "\r\n").encode("ascii"),
+            rest.encode("ascii"),
+        ))
+
+    def test_scan_timeout_is_bounded_and_never_retries_or_reads_late_data(self) -> None:
+        self.start_server(fault_command=SCAN_COMMAND,
+                          fault=(SCAN_COMMAND + "\r\n100000000 -90 0\r\n").encode("ascii"),
+                          late=True)
+        original_read = self.transport.read_until_quiet
+        def bounded_read(quiet: float, maximum: float, label: str) -> str:
+            return original_read(0.01, 0.08, label) if label == SCAN_COMMAND else original_read(quiet, maximum, label)
+        started = time.monotonic()
+        with patch.object(self.transport, "read_until_quiet", side_effect=bounded_read):
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                self.adapter.poll()
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.release_late.set()
+        self.assertTrue(self.late_sent.wait(1.0))
+        before = list(self.commands)
+        self.assertEqual(before, [*IDENTITY_COMMANDS, *SETUP_COMMANDS, SCAN_COMMAND])
+        for _ in range(2):
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                self.adapter.poll()
+        self.assertEqual(self.commands, before)
+        self.assertTrue(select.select([self.transport._fd], [], [], 0.5)[0])
+        self.assertEqual(os.read(self.transport._fd, 4096), b"ch> ")
+        self.assertTrue(self.adapter.details()["restart_required"])
+        self.assertEqual(self.adapter.details()["generator_output"], "unknown")
 
     def test_rejected_output_off_stops_before_mode_and_scan(self) -> None:
         self.start_server(fault_command="output off", fault=b"ERROR: command rejected\r\nch>")

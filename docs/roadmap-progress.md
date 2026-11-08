@@ -390,3 +390,13 @@ SDK и 108 native-тестов без пропусков; unsigned Xcode BUILD S
 compileall, Node syntax и diff check успешны. Все семь собственных HTTP
 fixtures остановлены, полные logical dump SHA-256 SQLite до/после совпали.
 Это Mac/synthetic проверка, а не подтверждение Windows CI или COM/USB стенда.
+
+
+### Аппаратный tinySA Ultra: ожидание scan
+
+На MacBook Air подтверждена ошибка раннего завершения shell-ответа после
+эха `scan`. Общий POSIX/COM framing теперь ждёт prompt до общего deadline,
+сохраняя fail-closed и запрет повторов на неопределённом соединении.
+Физические sweeps, HTTP/SQLite, stop/start, анализ и экспорт проверены
+на tinySA ULTRA ZS405 с tinySA4_v1.4-235-gea71dfd. AR-DV1 не подключён.
+Результаты и границы проверки: [tinysa-hardware-acceptance.md](tinysa-hardware-acceptance.md).

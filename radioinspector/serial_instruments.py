@@ -51,24 +51,24 @@ class _SerialFraming:
         raise WorkerError(f"Таймаут ответа {label} на {self.path}")
 
     def read_until_quiet(self, quiet: float, maximum: float, label: str) -> str:
+        # Keep the public method name for transport compatibility. A quiet gap
+        # is only a polling interval, never a shell reply terminator: tinySA
+        # echoes scan immediately, then can measure silently for many seconds.
+        # The same applies to gaps between rows and fragments of the prompt.
         deadline = time.monotonic() + maximum
-        last_byte = time.monotonic()
-        received = False
         while time.monotonic() < deadline:
-            chunk = self._read_once(min(quiet, max(0.01, deadline - time.monotonic())), label)
+            remaining = deadline - time.monotonic()
+            chunk = self._read_once(min(quiet, max(0.0, remaining)), label)
             if chunk:
-                received = True
-                last_byte = time.monotonic()
-                text = self._stash.decode("utf-8", errors="replace").strip()
-                if text.endswith("ch>"):
-                    break
-            elif received and time.monotonic() - last_byte >= quiet:
-                break
-        if not received:
+                text = self._stash.decode("utf-8", errors="replace")
+                if text.strip().endswith("ch>"):
+                    self._stash.clear()
+                    return text
+        if not self._stash:
             raise WorkerError(f"Пустой ответ {label} на {self.path}")
-        text = self._stash.decode("utf-8", errors="replace")
-        self._stash.clear()
-        return text
+        # Do not clear, resynchronize, retry or send another command. The
+        # adapter taints this connection, so a late prompt cannot ACK setup.
+        raise WorkerError(f"Незавершённый ответ {label} на {self.path}: таймаут завершающего ch>")
 
 
 class PosixSerialTransport(_SerialFraming):
