@@ -390,6 +390,24 @@ class PlatformClient:
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/stop",
                              {"stream_id": stream_id}, expected_statuses=(200,))
 
+    def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
+        from ..signal_list import parse_signal_list
+        # The name is validated by the core through the artifact builder; here
+        # only the request size is bounded before it leaves the client.
+        query = urlencode({"name": name or "Список сигналов"})
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/export?{query}",
+                             expected_statuses=(200,))
+
+    def signal_list_import(self, session_id: str, stream_id: str, list_json: str) -> dict[str, Any]:
+        from ..signal_list import MAX_IMPORT_REQUEST_BYTES, parse_signal_list
+        parse_signal_list(list_json)
+        _segment(stream_id, 'stream_id')
+        payload = {"stream_id": stream_id, "list_json": list_json}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > MAX_IMPORT_REQUEST_BYTES:
+            raise ValueError('Запрос превышает 524 288 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/import",
+                             payload, expected_statuses=(201,))
+
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
         from .sweep_threshold import validate_parameters
         validate_parameters(window_points, margin_db)

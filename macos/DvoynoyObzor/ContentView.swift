@@ -219,6 +219,7 @@ final class RemoteDualModel: ObservableObject {
     let frequencyCounter = FrequencyCounterModel()
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
+    let signalList = SignalListModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -847,6 +848,7 @@ final class RemoteDualModel: ObservableObject {
         frequencyCounter.reset()
         dvbEvaluation.reset()
         phonogram.reset()
+        signalList.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1258,8 +1260,10 @@ final class RemoteDualModel: ObservableObject {
             if let stream = analyzer?.id {
                 phonogram.configure(client: client,
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
-            } else { phonogram.reset() }
-        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset() }
+                signalList.configure(client: client,
+                    scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
+            } else { phonogram.reset(); signalList.reset() }
+        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset(); signalList.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1519,6 +1523,7 @@ struct RemoteUltraPane: View {
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
                 RemotePhonogramPane(model: model.phonogram)
+                RemoteSignalListPane(model: model.signalList)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

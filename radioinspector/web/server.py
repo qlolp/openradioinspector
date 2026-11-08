@@ -49,6 +49,7 @@ from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_
 from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
 from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..phonogram import PhonogramError
+from ..signal_list import SignalListError
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -766,6 +767,16 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "signal-list"
+                and parts[5] == "export"
+            ):
+                name = query.get("name", ["Список сигналов"])[0]
+                result = self.sessions.signal_list_export(parts[3], name)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "investigations"
                 and parts[5] == "next"
             ):
@@ -1069,6 +1080,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(result))
                 return
             if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "signal-list"
+                and parts[5] == "import"
+            ):
+                result = self.sessions.signal_list_import(parts[3], payload)
+                self._send_json(api_payload(result), 201)
+                return
+            if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
@@ -1279,6 +1299,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "dvb_evaluation_error", str(exc))
         except PhonogramError as exc:
             self._send_api_error(409, "phonogram_error", str(exc))
+        except SignalListError as exc:
+            self._send_api_error(409, "signal_list_error", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

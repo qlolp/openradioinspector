@@ -101,6 +101,7 @@
 				<string>AC0000000000000000000001</string>
 				<string>AD0000000000000000000001</string>
 				<string>AE0000000000000000000001</string>
+				<string>AF0000000000000000000001</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -349,6 +350,7 @@
 				<string>AC0000000000000000000002</string>
 				<string>AD0000000000000000000002</string>
 				<string>AE0000000000000000000002</string>
+				<string>AF0000000000000000000002</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -829,6 +831,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>AE0000000000000000000001</string>
+		</dict>
+		<key>AF0000000000000000000001</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>SignalListPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>AF0000000000000000000002</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>AF0000000000000000000001</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>
