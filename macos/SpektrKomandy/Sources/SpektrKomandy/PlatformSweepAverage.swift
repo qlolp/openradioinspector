@@ -135,6 +135,36 @@ public struct PlatformSweepChangeDetection: Decodable, Equatable {
 public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
     public let comparison: PlatformSweepAverageComparison
     public let detection: PlatformSweepChangeDetection
+    private var exportPayload: Data?
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.comparison == rhs.comparison && lhs.detection == rhs.detection
+    }
+
+    /// Retain the validated wire payload. Decoding settings into Double is never an export path.
+    public static func validatedResponse(_ bytes: Data) throws -> Self {
+        try averageResponseShape(bytes, detection: true)
+        struct Response: Decodable {
+            let contract: String
+            let contractVersion: Int
+            let data: PlatformSweepAverageChangeDetection
+        }
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let response = try decoder.decode(Response.self, from: bytes)
+        guard response.contract == "openradioinspector-platform", response.contractVersion == 1 else {
+            throw PlatformError.invalidResponse("Неподдерживаемый контракт ответа сервера")
+        }
+        var result = response.data
+        result.exportPayload = try averageRawPayload(bytes)
+        return result
+    }
+
+    fileprivate func exportData() throws -> Data {
+        guard let exportPayload else {
+            throw PlatformError.invalidResponse("Исходный проверенный JSON недоступен. Повторите анализ.")
+        }
+        return exportPayload
+    }
 
     private enum CodingKeys: String, CodingKey { case comparison, detection }
     public init(from decoder: Decoder) throws {
@@ -190,6 +220,63 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
             throw PlatformError.invalidResponse("Области обнаружения не согласованы с разностью свипов")
         }
     }
+}
+
+/// Versioned local artifact. The payload is the exact validated server JSON, not a re-encoding.
+public struct PlatformSweepAverageExportArtifact {
+    public let data: PlatformSweepAverageChangeDetection
+    public init(data: PlatformSweepAverageChangeDetection) { self.data = data }
+    public func canonicalData() throws -> Data {
+        var bytes = Data("{\"format\":\"openradioinspector-sweep-average-change-detection\",\"format_version\":1,\"data\":".utf8)
+        bytes.append(try data.exportData())
+        bytes.append(contentsOf: "}\n".utf8)
+        return bytes
+    }
+}
+
+/// Locate the top-level data object without Foundation bridging, key normalization or numeric conversion.
+/// The complete document has already passed duplicate-key, shape and semantic validation.
+private func averageRawPayload(_ data: Data) throws -> Data {
+    let bytes = Array(data)
+    var index = 0
+    func whitespace() { while index < bytes.count && [9, 10, 13, 32].contains(bytes[index]) { index += 1 } }
+    func stringEnd() {
+        index += 1
+        while index < bytes.count {
+            let byte = bytes[index]; index += 1
+            if byte == 92 { index += 1 }
+            else if byte == 34 { return }
+        }
+    }
+    func valueEnd() {
+        var depth = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 34 { stringEnd(); continue }
+            if byte == 123 || byte == 91 { depth += 1 }
+            if byte == 125 || byte == 93 {
+                if depth == 0 { return }
+                depth -= 1
+                if depth == 0 { index += 1; return }
+            }
+            if byte == 44 && depth == 0 { return }
+            index += 1
+        }
+    }
+    whitespace(); index += 1
+    while index < bytes.count {
+        whitespace()
+        guard bytes[index] == 34 else { break }
+        let keyStart = index; stringEnd()
+        let key = try JSONDecoder().decode(String.self, from: Data(bytes[keyStart..<index]))
+        whitespace(); index += 1; whitespace()
+        let start = index; valueEnd()
+        if key == "data" { return Data(bytes[start..<index]) }
+        whitespace()
+        guard index < bytes.count, bytes[index] == 44 else { break }
+        index += 1
+    }
+    throw PlatformError.invalidResponse("Исходный JSON не содержит результата анализа")
 }
 
 private func averageSameID(_ left: String, _ right: String) -> Bool {
@@ -310,7 +397,7 @@ private struct AverageRawEnvelope: Decodable {
 
 /// Preserve wire field spellings, integer types and provenance before JSONDecoder's key conversion.
 private func averageResponseShape(_ bytes: Data, detection: Bool) throws {
-    var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
+    var scanner = MaskJSONScanner(bytes: Array(bytes), exactKeyIdentity: detection); try scanner.check()
     _ = try JSONDecoder().decode(AverageRawEnvelope.self, from: bytes)
     func invalid() -> PlatformError { .invalidResponse("Некорректные поля или JSON-типы усреднённого эталона") }
     func object(_ value: Any?, keys: Set<String>) throws -> [String: Any] {
@@ -402,12 +489,18 @@ extension PlatformClient {
             throw PlatformError.invalidCommand("Запрос превышает 8192 байта")
         }
         try Task.checkCancellation()
-        let result: PlatformSweepAverageChangeDetection = try await post(
+        var wireResponse: Data?
+        let _: PlatformSweepAverageChangeDetection = try await post(
             "/sessions/\(Self.segment(sessionID))/sweep-average-change-detection",
             body: body, expectedStatuses: [200],
-            validateResponse: { try averageResponseShape($0, detection: true) },
+            validateResponse: { bytes in
+                try averageResponseShape(bytes, detection: true)
+                wireResponse = bytes
+            },
         )
         try Task.checkCancellation()
+        guard let wireResponse else { throw PlatformError.invalidResponse("Отсутствует исходный ответ анализа") }
+        let result = try PlatformSweepAverageChangeDetection.validatedResponse(wireResponse)
         guard averageSameID(result.comparison.sessionId, sessionID),
               averageSameIDs(result.comparison.reference.sourceIds, referenceIDs),
               averageSameID(result.comparison.target.id, targetID) else {

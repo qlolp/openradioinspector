@@ -58,6 +58,66 @@ final class SweepAverageModelTests: XCTestCase {
         ["comparison": comparison ?? body(),
          "detection": ["minimum_increase_db": 6.0, "minimum_bins": 2, "regions": [], "count": 0]]
     }
+    private func exportableResult() throws -> PlatformSweepAverageChangeDetection {
+        try PlatformSweepAverageChangeDetection.validatedResponse(JSONSerialization.data(withJSONObject: [
+            "contract": "openradioinspector-platform", "contract_version": 1, "data": detectionBody(),
+        ]))
+    }
+    @MainActor func testExportTicketFreezesResultAndRejectsStaleReentryAndDismissal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("analysis.json")
+        let value = try exportableResult(), client = try api()
+        let model = SweepAverageModel(fetch: { _, _, _, _, _, _ in value })
+        XCTAssertNil(model.beginExport())
+        model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
+        XCTAssertNil(model.beginExport())
+        try await waitFor { model.result != nil }
+        let ticket = try XCTUnwrap(model.beginExport())
+        XCTAssertNil(model.beginExport())
+        model.configure(client: client, scope: scope, sweeps: try sweeps(1...5))
+        XCTAssertTrue(model.finishExport(ticket, to: destination))
+        let saved = try Data(contentsOf: destination)
+        XCTAssertEqual(saved, try PlatformSweepAverageExportArtifact(data: value).canonicalData())
+        XCTAssertFalse(model.finishExport(ticket, to: destination))
+        let cancelled = try XCTUnwrap(model.beginExport())
+        XCTAssertFalse(model.finishExport(cancelled, to: nil))
+        XCTAssertFalse(model.exporting); XCTAssertNotNil(model.result)
+        let stale = try XCTUnwrap(model.beginExport())
+        // An identical replacement result must not revive a dialog from the previous revision.
+        model.configure(client: client, scope: scope, sweeps: try sweeps())
+        model.compare(); try await waitFor { model.result != nil }
+        XCTAssertEqual(model.result, value)
+        XCTAssertFalse(model.finishExport(stale, to: destination))
+        XCTAssertEqual(try Data(contentsOf: destination), saved)
+        let parameterTicket = try XCTUnwrap(model.beginExport())
+        model.minimumBinsText = "1"
+        XCTAssertFalse(model.finishExport(parameterTicket, to: destination))
+        model.minimumBinsText = "2"; model.compare(); try await waitFor { model.result != nil }
+        let closing = try XCTUnwrap(model.beginExport())
+        model.clear()
+        XCTAssertFalse(model.finishExport(closing, to: destination))
+        model.pin(); model.compare(); try await waitFor { model.result != nil }
+        let changedScope = try XCTUnwrap(model.beginExport())
+        model.reset()
+        XCTAssertFalse(model.finishExport(changedScope, to: destination))
+        XCTAssertEqual(try Data(contentsOf: destination), saved)
+    }
+    @MainActor func testExportWriteFailureKeepsCompletedResultAndDestination() async throws {
+        let client = try api(), value = try exportableResult()
+        let model = SweepAverageModel(fetch: { _, _, _, _, _, _ in value })
+        model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
+        try await waitFor { model.result != nil }
+        let ticket = try XCTUnwrap(model.beginExport())
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("analysis.json")
+        XCTAssertFalse(model.finishExport(ticket, to: missing))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missing.path))
+        XCTAssertNotNil(model.errorText); XCTAssertNotNil(model.result); XCTAssertFalse(model.exporting)
+        let retry = try XCTUnwrap(model.beginExport())
+        XCTAssertFalse(model.finishExport(retry, to: URL(string: "https://example.test/analysis.json")))
+        XCTAssertNotNil(model.result)
+    }
     @MainActor private func waitFor(_ predicate: () -> Bool) async throws {
         for _ in 0..<200 { if predicate() { return }; try await Task.sleep(nanoseconds: 5_000_000) }
         XCTFail("Timed out waiting for average state")

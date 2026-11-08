@@ -1,19 +1,20 @@
 import io
 import json
 import os
+import tempfile
 import unittest
 import urllib.error
 from concurrent.futures import Future
 from copy import deepcopy
 from math import isfinite
 from time import monotonic
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from tests.test_windows_sweep_threshold import panel as base_panel
 from radioinspector.windows.sweep_average import (
     AveragePanel, validate_average, validate_change_detection, validate_change_parameters,
-    validate_ids, source_text,
+    validate_ids, source_text, save_average_change_file,
 )
-from radioinspector.windows.client import PlatformClient, PlatformClientError, MAX_RESPONSE_BYTES
+from radioinspector.windows.client import PlatformClient, PlatformClientError, MAX_RESPONSE_BYTES, AverageChangeResult
 from radioinspector.contracts import api_payload
 
 
@@ -57,6 +58,7 @@ def region_fixture():
 
 def panel():
     base=base_panel(); p=AveragePanel.__new__(AveragePanel); p.__dict__.update(base.__dict__)
+    p.export_button=Mock();p.exporting=False;p.result_json=None
     p.sources=None;p.detection=None;p.count=Mock();p.count.get.return_value='3'
     p.threshold=Mock();p.threshold.get.return_value='6'
     p.minimum_bins=Mock();p.minimum_bins.get.return_value='2'
@@ -186,6 +188,148 @@ class AverageValidationTests(unittest.TestCase):
             if n<=16384:validate_change_detection(result,('session','s'),sweeps[:3],sweeps[-1],0,1)
             else:
                 with self.assertRaises(ValueError):validate_change_detection(result,('session','s'),sweeps[:3],sweeps[-1],0,1)
+
+    def test_analysis_export_is_complete_atomic_and_create_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'analysis.json')
+            save_average_change_file(path, response(), detection_response()['detection'])
+            with open(path, encoding='utf-8') as file:
+                artifact = json.load(file)
+            self.assertEqual(artifact['format'], 'openradioinspector-sweep-average-change-detection')
+            self.assertEqual(artifact['format_version'], 1)
+            self.assertEqual(artifact['data']['comparison'], response())
+            self.assertEqual(artifact['data']['detection'], detection_response()['detection'])
+            with self.assertRaises(FileExistsError):
+                save_average_change_file(path, {}, {}, overwrite=False)
+            with open(path, encoding='utf-8') as file:
+                self.assertEqual(json.load(file)['data']['comparison'], response())
+            save_average_change_file(path, response(), detection_response()['detection'], overwrite=True)
+            self.assertEqual(os.listdir(directory), ['analysis.json'])
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'invalid.json')
+            with self.assertRaises(ValueError):
+                save_average_change_file(path, {'not_finite': float('nan')}, {})
+            self.assertEqual(os.listdir(directory), [])
+
+class AverageExportLifecycleTests(unittest.TestCase):
+    def ready(self):
+        p = panel(); p.pin(); p.compare()
+        result = detection_response()
+        result = AverageChangeResult(result, json.dumps(result))
+        p.future.set_result(result); p.finish(p.generation)
+        self.assertIsNotNone(p.data)
+        return p, result
+
+    def test_transport_to_file_preserves_exact_numeric_metadata(self):
+        p = panel(); result = detection_response()
+        settings = [source['settings'] for source in p.app.snapshot.sweeps]
+        settings += [source['settings'] for source in result['comparison']['reference']['sources']]
+        settings += [result['comparison']['target']['settings']]
+        for item in settings:
+            item.update({'é': 'composed', 'é': 'decomposed', '\ufeffkey': 'BOM'})
+            item.update(precise=1.2345678901234567, large=9007199254740993,
+                        text='"data": {"brace": "}"}', data={'comparison': {'points': 2.25}})
+        data_json = json.dumps(result, ensure_ascii=False).replace('1.2345678901234567', '1.2345678901234567890123456789').replace('2.25', '2.25e0')
+        wire = ('{"data": ' + data_json + ', "contract":"openradioinspector-platform","contract_version":1}').encode()
+        opener = Mock(); reply = Mock(status=200)
+        reply.__enter__ = Mock(return_value=reply); reply.__exit__ = Mock(return_value=False)
+        reply.read.return_value = wire; opener.open.return_value = reply
+        p.app.client = PlatformClient('http://localhost', opener=opener)
+        p.pin(); p.compare()
+        received = p.app.client.detect_average_sweep_changes('session', ['0','1','2'], '3', 6, 2)
+        self.assertEqual(received.data_json, data_json)
+        p.future.set_result(received); p.finish(p.generation)
+        self.assertIsNotNone(p.data)
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'analysis.json')
+            with patch('tkinter.filedialog.asksaveasfilename', return_value=path): p.export_result()
+            with open(path, encoding='utf-8') as file: saved = file.read()
+            self.assertEqual(saved, '{"format":"openradioinspector-sweep-average-change-detection","format_version":1,"data":' + data_json + '}\n')
+        # A parsed-only test double may still render, but cannot promise a lossless export.
+        p.compare(); p.future.set_result(result); p.finish(p.generation)
+        self.assertIsNotNone(p.data); self.assertIsNone(p.result_json)
+        with patch('tkinter.filedialog.asksaveasfilename') as dialog: p.export_result()
+        dialog.assert_not_called()
+
+    def test_export_frozen_complete_and_reentry(self):
+        p, result = self.ready()
+        expected = deepcopy(result)
+        result['comparison']['target']['settings']['large'] = 9007199254740993
+        def choose(**kwargs):
+            p.export_result()  # Native file dialogs run a nested Tk event loop.
+            p.app.snapshot.sweeps = []
+            return '/synthetic/analysis.json'
+        with patch('tkinter.filedialog.asksaveasfilename', side_effect=choose) as dialog, \
+             patch('os.path.lexists', return_value=False), \
+             patch('radioinspector.windows.sweep_average.save_average_change_file') as save:
+            p.export_result()
+        dialog.assert_called_once()
+        save.assert_called_once_with('/synthetic/analysis.json', expected['comparison'], expected['detection'], False, data_json=json.dumps(expected))
+        self.assertFalse(p.exporting)
+
+    def test_stale_callbacks_cannot_save(self):
+        for stage in ('choose', 'overwrite'):
+            for action in ('clear', 'parameters', 'pin', 'compare', 'server', 'session', 'stream', 'disconnect', 'close'):
+                with self.subTest(stage=stage, action=action):
+                    p, _ = self.ready()
+                    def change(*args, **kwargs):
+                        if action == 'parameters': p.parameters_changed()
+                        elif action == 'server': p.app.client = Mock()
+                        elif action == 'session': p.app.session_id = 'other'
+                        elif action == 'stream': p.app.selected_stream_id = lambda: 'other'
+                        elif action == 'disconnect': p.app.client = None
+                        else: getattr(p, action)()
+                        return '/synthetic/analysis.json' if stage == 'choose' else True
+                    with patch('tkinter.filedialog.asksaveasfilename', side_effect=change if stage == 'choose' else None,
+                               return_value='/synthetic/analysis.json'), \
+                         patch('os.path.lexists', return_value=True), \
+                         patch('tkinter.messagebox.askyesno', side_effect=change if stage == 'overwrite' else None,
+                               return_value=True), \
+                         patch('radioinspector.windows.sweep_average.save_average_change_file') as save:
+                        p.export_result()
+                    save.assert_not_called()
+                    self.assertFalse(p.exporting)
+
+    def test_cancel_decline_and_write_failure(self):
+        for path, overwrite, approved, failure in [('', False, True, None), ('fixture.json', True, False, None),
+                                                  ('fixture.json', True, True, OSError('disk full'))]:
+            p, _ = self.ready()
+            with patch('tkinter.filedialog.asksaveasfilename', return_value=path), \
+                 patch('os.path.lexists', return_value=overwrite), \
+                 patch('tkinter.messagebox.askyesno', return_value=approved), \
+                 patch('radioinspector.windows.sweep_average.save_average_change_file', side_effect=failure) as save:
+                p.export_result()
+            self.assertFalse(p.exporting)
+            if failure:
+                save.assert_called_once(); self.assertIn('disk full', p.info.set.call_args.args[0])
+            else: save.assert_not_called()
+            self.assertIsNotNone(p.data)
+
+    def test_dialog_tcl_errors_and_closed_panel_are_quiet(self):
+        from tkinter import TclError
+        for stage in ('choose', 'overwrite'):
+            p, _ = self.ready()
+            with patch('tkinter.filedialog.asksaveasfilename', return_value='fixture.json',
+                       side_effect=TclError('root destroyed') if stage == 'choose' else None), \
+                 patch('os.path.lexists', return_value=True), \
+                 patch('tkinter.messagebox.askyesno', side_effect=TclError('root destroyed')), \
+                 patch('radioinspector.windows.sweep_average.save_average_change_file') as save:
+                p.export_result()
+            save.assert_not_called(); self.assertFalse(p.exporting)
+        p.close(); p.update = Mock(side_effect=AssertionError('closed widgets must not update'))
+        p.export_result()
+
+    def test_atomic_failure_preserves_destination_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'analysis.json')
+            save_average_change_file(path, {'large': 9007199254740993, 'é': 'é'}, {})
+            with open(path, 'rb') as file: original = file.read()
+            self.assertIn(b'9007199254740993', original)
+            for operation in ('fsync', 'replace'):
+                with patch('radioinspector.windows.sweep_average.os.' + operation, side_effect=OSError('failure')):
+                    with self.assertRaises(OSError): save_average_change_file(path, {}, {}, overwrite=True)
+                with open(path, 'rb') as file: self.assertEqual(file.read(), original)
+                self.assertEqual(os.listdir(directory), ['analysis.json'])
 
 
 class AverageLifecycleTests(unittest.TestCase):
@@ -317,7 +461,7 @@ class AverageHTTPTests(unittest.TestCase):
         c._request.assert_called_once_with(
             'POST','/sessions/s%2Fa/sweep-average-change-detection',
             {'reference_ids':['a','b'],'target_id':'c','minimum_increase_db':6.0,'minimum_bins':2},
-            expected_statuses=(200,),strict_json=True,timeout=8.0,exact_envelope=True,
+            expected_statuses=(200,),strict_json=True,timeout=8.0,exact_envelope=True,preserve_data_json=True,
         )
         for threshold, bins in ((-1,2),(121,2),(float('nan'),2),(True,2),(6,0),(6,16385),(6,2.0)):
             with self.assertRaises(ValueError):
@@ -401,6 +545,32 @@ class AverageHTTPTests(unittest.TestCase):
 
 
 class AverageActualTkHTTPTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('ORI_AVERAGE_DETECTION_SMOKE_BASE_URL'), 'Explicit Tk desktop opt-in required')
+    def test_hidden_root_destroyed_inside_export_dialog(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from types import SimpleNamespace
+        for stage in ('choose', 'overwrite'):
+            root = tk.Tk(); root.withdraw()
+            app = SimpleNamespace(tk=tk, ttk=ttk, root=root, client=Mock(), session_id='session',
+                selected_stream_id=lambda: 's', snapshot=SimpleNamespace(
+                    session={'id': 'session'}, spectrum_stream_id='s', sweeps=sources()))
+            notebook = ttk.Notebook(root); notebook.pack(); p = AveragePanel(app, notebook)
+            p.update(); result = detection_response()
+            p.data = result['comparison']; p.detection = result['detection']; p.result_json = json.dumps(result)
+            def destroy(*args, **kwargs):
+                def close(): p.close(); root.destroy()
+                root.after(0, close); root.update()
+                raise tk.TclError('dialog parent destroyed')
+            with patch('tkinter.filedialog.asksaveasfilename', return_value='fixture.json',
+                       side_effect=destroy if stage == 'choose' else None), \
+                 patch('os.path.lexists', return_value=True), \
+                 patch('tkinter.messagebox.askyesno', side_effect=destroy), \
+                 patch('radioinspector.windows.sweep_average.save_average_change_file') as save:
+                p.export_result()
+            save.assert_not_called(); self.assertTrue(p.closed); self.assertFalse(p.exporting)
+            p.export_result()  # No access to destroyed widgets.
+
     @unittest.skipUnless(os.environ.get('ORI_AVERAGE_SMOKE_BASE_URL'), 'Explicit synthetic fixture and Tk desktop required')
     def test_hidden_panel_detection_parameters_and_original_comparison(self):
         import tkinter as tk
@@ -463,6 +633,25 @@ class AverageActualTkHTTPTests(unittest.TestCase):
             self.assertEqual(p.data,client.compare_average_sweeps('changes-one',[s['id'] for s in frozen],sweeps[-1]['id']))
             self.assertEqual([(r['start_index'],r['end_index'],r['peak_index']) for r in p.detection['regions']],[(30,33,31),(69,70,70)])
             self.assertEqual([r['peak_increase_db'] for r in p.detection['regions']],[12,9])
+            with tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, 'analysis.json')
+                def choose(**kwargs):
+                    root.update(); p.export_result()
+                    return path
+                with patch('tkinter.filedialog.asksaveasfilename', side_effect=choose) as dialog:
+                    p.export_result()
+                dialog.assert_called_once()
+                with open(path, encoding='utf-8') as file: artifact = json.load(file)
+                self.assertEqual(artifact['data'], {'comparison': p.data, 'detection': p.detection})
+                with open(path, 'rb') as file: saved = file.read()
+                def overwrite(*args, **kwargs):
+                    p.threshold.set('120'); root.update(); return True
+                with patch('tkinter.filedialog.asksaveasfilename', return_value=path), \
+                     patch('tkinter.messagebox.askyesno', side_effect=overwrite):
+                    p.export_result()
+                with open(path, 'rb') as file: self.assertEqual(file.read(), saved)
+                p.threshold.set('6'); p.compare(); finish()
+
             lines=[i for i in p.canvas.find_all() if p.canvas.type(i)=='line'];self.assertEqual(len(lines),3)
             for line in lines:self.assertEqual(len(p.canvas.coords(line)),202)
             highlights=[i for i in p.canvas.find_all() if p.canvas.type(i)=='rectangle' and p.canvas.itemcget(i,'fill')=='#285538']

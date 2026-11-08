@@ -228,6 +228,8 @@ private func validateMaskShape(_ mask: [String: Any]) throws {
 // Also used by strict derived endpoints that must not lose provenance keys during Dictionary decoding.
 struct MaskJSONScanner {
     let bytes: [UInt8]
+    // Only raw-preserving consumers may allow canonically equivalent but byte-distinct keys.
+    var exactKeyIdentity = false
     var index = 0
     mutating func check() throws {
         try value(depth: 0); whitespace()
@@ -249,11 +251,11 @@ struct MaskJSONScanner {
         whitespace(); guard depth <= 128, index < bytes.count else { throw invalid() }
         if bytes[index] == 34 { _ = try string(); return }
         if bytes[index] == 123 {
-            index += 1; whitespace(); var keys = Set<String>()
+            index += 1; whitespace(); var keys = Set<String>(); var exactKeys = Set<Data>()
             if index < bytes.count && bytes[index] == 125 { index += 1; return }
             while true {
                 whitespace(); let key = try string()
-                guard keys.insert(key).inserted else { throw invalid() }
+                guard exactKeyIdentity ? exactKeys.insert(Data(key.utf8)).inserted : keys.insert(key).inserted else { throw invalid() }
                 whitespace(); guard index < bytes.count && bytes[index] == 58 else { throw invalid() }
                 index += 1; try value(depth: depth + 1); whitespace()
                 guard index < bytes.count else { throw invalid() }

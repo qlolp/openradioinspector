@@ -2,6 +2,10 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import datetime, timedelta
+import json
+import os
+from pathlib import Path
+import tempfile
 from math import isfinite
 from time import monotonic
 import re
@@ -159,10 +163,48 @@ def source_text(sources):
     return '\n'.join(lines)
 
 
+def average_change_artifact(comparison, detection):
+    return {
+        'format': 'openradioinspector-sweep-average-change-detection',
+        'format_version': 1,
+        'data': {'comparison': comparison, 'detection': detection},
+    }
+
+
+def save_average_change_file(path, comparison, detection, overwrite=False, *, data_json=None):
+    if data_json is not None:
+        require(same_json(json.loads(data_json), {'comparison': comparison, 'detection': detection}))
+        payload = ('{"format":"openradioinspector-sweep-average-change-detection",'
+                   '"format_version":1,"data":' + data_json + '}\n').encode('utf-8')
+    else:
+        payload = (json.dumps(
+            average_change_artifact(comparison, detection),
+            ensure_ascii=False, indent=2, allow_nan=False,
+        ) + '\n').encode('utf-8')
+    destination = Path(path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, prefix='.sweep-average-', delete=False,
+        ) as file:
+            temporary = file.name
+            if file.write(payload) != len(payload):
+                raise OSError('Неполная запись файла')
+            file.flush()
+            os.fsync(file.fileno())
+        if overwrite:
+            os.replace(temporary, destination)
+        else:
+            os.link(temporary, destination)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 class AveragePanel(ThresholdPanel):
     def __init__(self, app, notebook):
         self.app = app; self.scope = None; self.generation = 0
-        self.future = self.retired = self.data = self.detection = self.sources = None; self.closed = False
+        self.future = self.retired = self.data = self.detection = self.sources = None; self.closed = False; self.exporting = False; self.result_json = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-average')
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8); notebook.add(frame, text='Усреднённый опорный')
@@ -177,6 +219,8 @@ class AveragePanel(ThresholdPanel):
         row = ttk.Frame(frame); row.pack(fill='x')
         ttk.Button(row, text='Закрепить N перед последним dBm sweep', command=self.pin).pack(side='left')
         self.button = ttk.Button(row, text='Сравнить и найти изменения', command=self.compare); self.button.pack(side='left')
+        self.export_button = ttk.Button(row, text='Экспорт JSON…', command=self.export_result, state='disabled')
+        self.export_button.pack(side='left')
         ttk.Button(row, text='Очистить', command=self.clear).pack(side='left')
         self.info = tk.StringVar(value='Закрепите N источников; сравнение только по кнопке.')
         ttk.Label(frame, textvariable=self.info, wraplength=1050).pack(fill='x')
@@ -190,11 +234,13 @@ class AveragePanel(ThresholdPanel):
 
     def parameters_changed(self):
         self.abandon(); self.data = self.detection = None
+        self.result_json = None; self.export_button.configure(state='disabled')
         self.canvas.delete('all'); self.show_details(source_text(self.sources) if self.sources else '')
         self.info.set('Параметры обнаружения изменены. Повторите анализ по кнопке; закреплённые источники сохранены.')
 
     def clear(self):
         self.abandon(); self.sources = self.data = self.detection = None
+        self.result_json = None; self.export_button.configure(state='disabled')
         self.canvas.delete('all'); self.show_details('')
         self.info.set('Опорные источники не закреплены. N предыдущих + последний dBm sweep должны быть в полученном окне.')
 
@@ -237,7 +283,8 @@ class AveragePanel(ThresholdPanel):
             validate_ids([s['id'] for s in self.sources], target['id'])
         except (ValueError, TypeError, KeyError) as exc:
             self.info.set(str(exc)); return
-        self.abandon(); self.data = self.detection = None; self.canvas.delete('all')
+        self.abandon(); self.data = self.detection = None
+        self.result_json = None; self.export_button.configure(state='disabled'); self.canvas.delete('all')
         self.show_details(source_text(self.sources)); self.target = target
         self.expected = (self.app.session_id, self.app.selected_stream_id())
         self.info.set(f"Сравнение с {target['id']}…"); self.button.configure(state='disabled')
@@ -258,11 +305,14 @@ class AveragePanel(ThresholdPanel):
         if not self.future.done(): self.app.root.after(50, lambda: self.finish(generation)); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
+            result = future.result()
             self.data, self.detection = validate_change_detection(
-                future.result(), self.expected, self.sources, self.target,
+                result, self.expected, self.sources, self.target,
                 self.minimum_increase_db, self.minimum_bins_value,
             )
             self.data = deepcopy(self.data); self.detection = deepcopy(self.detection)
+            self.result_json = getattr(result, 'data_json', None)
+            self.export_button.configure(state='normal' if self.result_json is not None else 'disabled')
             target = self.data['target']; interval = target['interval']
             regions = self.detection['regions']
             region_text = '\n'.join(
@@ -280,7 +330,47 @@ class AveragePanel(ThresholdPanel):
                 + region_text)
             self.info.set('Read-only результат ядра. Голубой: target dBm; оранжевый: mean-power dBm. Нижний график: Δ dB, все точки и области прироста. Кандидаты, события и архив не изменяются.'); self.draw()
         except Exception as exc:
-            self.data = self.detection = None; self.info.set(f'Усреднённое сравнение недоступно: {exc}')
+            self.data = self.detection = None; self.result_json = None; self.export_button.configure(state='disabled'); self.info.set(f'Усреднённое сравнение недоступно: {exc}')
+
+    def export_result(self):
+        from tkinter import TclError, filedialog, messagebox
+        if self.closed or self.exporting: return
+        self.update()
+        if self.closed or self.exporting or self.future is not None or self.data is None or self.detection is None or self.result_json is None:
+            return
+        generation, data, detection = self.generation, self.data, self.detection
+        comparison_copy, detection_copy = deepcopy(data), deepcopy(detection)
+        data_json = self.result_json
+        self.exporting = True
+
+        def current():
+            if self.closed: return False
+            self.update()
+            return (not self.closed and self.generation == generation and self.future is None
+                    and self.data is data and self.detection is detection)
+
+        try:
+            path = filedialog.asksaveasfilename(
+                parent=self.app.root, title='Экспорт результата усреднённого анализа',
+                defaultextension='.json', initialfile='sweep-average-change-detection.json',
+                filetypes=[('JSON', '*.json')],
+            )
+            if not current() or not path:
+                return
+            overwrite = os.path.lexists(path)
+            if overwrite:
+                approved = messagebox.askyesno('Заменить файл?', f'Заменить {path}?', parent=self.app.root)
+                if not current() or not approved:
+                    return
+            save_average_change_file(path, comparison_copy, detection_copy, overwrite, data_json=data_json)
+            self.info.set(f'Результат анализа сохранён: {path}')
+        except TclError:
+            # Native dialogs can outlive the root in their nested event loop.
+            return
+        except (OSError, ValueError, TypeError) as exc:
+            if current(): self.info.set(f'Не удалось экспортировать результат: {exc}')
+        finally:
+            self.exporting = False
 
     def draw(self):
         self.canvas.delete('all')

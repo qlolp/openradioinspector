@@ -55,15 +55,23 @@ function setup() {
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['count', 'threshold', 'minimumBins', 'pin', 'run', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
+  for (const name of ['count', 'threshold', 'minimumBins', 'pin', 'run', 'export', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
   dom.count.value = '3'; dom.threshold.value = '6'; dom.minimumBins.value = '2';
+  const downloads = [], revoked = [];
+  const urlApi = { createObjectURL(blob) { downloads.push(blob); return 'blob:analysis'; },
+    revokeObjectURL(url) { revoked.push(url); } };
+  class SyntheticBlob { constructor(parts, options) { this.parts = parts; this.type = options.type; } }
   const window = { location: { origin: 'http://server-a' }, addEventListener(event, fn) { events[event] = fn; },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); } };
   const context = vm.createContext({ window, document: { getElementById(id) {
     if (id === 'average-detect-threshold') return dom.threshold;
     if (id === 'average-detect-bins') return dom.minimumBins;
     return dom[id.replace('average-', '')];
-  } },
+  }, createElement(tag) {
+    assert.equal(tag, 'a');
+    return { remove() { this.removed = true; }, click() { this.clicked = true; downloads.push(this); } };
+  }, body: { appendChild(link) { link.appended = true; } } },
+    URL: urlApi, Blob: SyntheticBlob,
     URLSearchParams, AbortController, TextDecoder, TextEncoder, fetch(url, options) { return new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })); } });
   vm.runInContext(code, context);
   function update(sweeps, sessionId = 'session/1', streamId = 'tiny/1') { window.OpenRadioSweepAverage.update({ sweeps, sessionId, streamId }); }
@@ -77,7 +85,7 @@ function setup() {
     const body = Buffer.from(json); requests[index].resolve(streamResponse([body], String(body.length), status));
   }
   function pin(sweeps = group(), n = 3) { dom.count.value = String(n); update(sweeps); click('pin'); }
-  return { dom, events, requests, timers, drawing, window, context, update, click, respond, pin };
+  return { dom, events, requests, timers, drawing, downloads, revoked, window, context, update, click, respond, pin };
 }
 function streamResponse(chunks, length = null, status = 200) {
   const state = { reads: 0, cancelled: 0, released: 0 };
@@ -107,8 +115,19 @@ async function happyAndFrozen() {
   all.at(-1).settings.nested.array[0] = 999; all.at(-1).levels[0] = -500;
   app.respond(0, payload(sources, target)); await promise;
   assert.equal(app.dom.overlay.hidden, false, app.dom.status.textContent); assert.equal(app.dom.delta.hidden, false);
+  assert.equal(app.dom.export.disabled, false);
   assert.match(app.dom.summary.textContent, /\+5 dB @ 200/); assert.match(app.dom.summary.textContent, /-2 dB @ 500/);
   assert.match(app.dom.summary.textContent, /Все 7 точек/); assert.match(app.dom.status.textContent, /read-only/);
+  app.click('export');
+  const artifact = JSON.parse(app.downloads[0].parts[0]);
+  assert.equal(app.downloads[0].type, 'application/json;charset=utf-8');
+  assert.equal(app.downloads[1].download, 'sweep-average-change-detection.json');
+  assert.equal(artifact.format, 'openradioinspector-sweep-average-change-detection');
+  assert.equal(artifact.format_version, 1);
+  assert.deepEqual(artifact.data.comparison.reference.source_ids, sources.map(source => source.id));
+  assert.deepEqual(artifact.data.detection.regions, detection(payload(sources, target)).detection.regions);
+  for (const [id, { fn }] of app.timers) { fn(); app.timers.delete(id); }
+  assert.deepEqual(app.revoked, ['blob:analysis']);
   assert.equal(app.dom.reference.textContent, pinnedText); assert.equal(app.timers.size, 0);
   assert.equal(app.drawing.filter(row => ['moveTo', 'lineTo'].includes(row[0])).length, 23, 'all three traces plus zero line');
   const frozen = app.dom.summary.textContent;
@@ -117,6 +136,7 @@ async function happyAndFrozen() {
   const again = app.click('run'); app.respond(1, payload(sources, next)); await again;
   assert.match(app.dom.summary.textContent, /new-target/);
   app.click('clear'); assert.equal(app.dom.summary.textContent, ''); assert.equal(app.dom.run.disabled, true);
+  assert.equal(app.dom.export.disabled, true);
   assert.equal(app.dom.overlay.hidden, true); assert.equal(app.dom.delta.hidden, true);
 }
 async function pinBoundaries() {
@@ -254,6 +274,36 @@ async function strictWireJSON() {
   assert.equal(app.dom.overlay.hidden, false, app.dom.status.textContent);
   assert.match(app.dom.summary.textContent, /областей: 1/);
 }
+async function losslessExportAndInvalidation() {
+  for (const action of ['clear', 'count', 'threshold', 'minimumBins', 'scope', 'connection', 'pagehide', 'run']) {
+    const app = setup(), all = group();
+    all.forEach(source => { source.settings.large = 9007199254740992;
+      source.settings.text = '"data": {"braces": "}"}'; });
+    app.click('export'); assert.equal(app.downloads.length, 0);
+    app.pin(all); const pending = app.click('run');
+    app.click('export'); assert.equal(app.downloads.length, 0);
+    const rawData = JSON.stringify(detection(payload(all.slice(0, -1), all.at(-1))))
+      .replaceAll('9007199254740992', '9007199254740993').replaceAll('"rbw_hz":1000', '"rbw_hz":1e3');
+    // data need not be the final envelope member; metadata has nested data keys and braces.
+    const wire = `{"data": ${rawData}, "contract_version":1,"contract":"openradioinspector-platform"}`;
+    app.requests[0].resolve(streamResponse([Buffer.from(wire)])); await pending;
+    assert.equal(app.dom.export.disabled, false, app.dom.status.textContent);
+    app.update([...all, sweep('new-target')]); app.click('export');
+    assert.equal(app.downloads[0].parts[0], `{"format":"openradioinspector-sweep-average-change-detection","format_version":1,"data":${rawData}}\n`);
+    const before = app.downloads.length;
+    if (action === 'scope') app.update([], 'new-session');
+    else if (action === 'connection') app.window.OpenRadioSweepAverage.setConnected(false);
+    else if (action === 'pagehide') app.events.pagehide();
+    else if (['count', 'threshold', 'minimumBins'].includes(action)) app.dom[action].listeners.input();
+    else app.click(action);
+    assert.equal(app.dom.export.disabled, true, action);
+    app.click('export'); assert.equal(app.downloads.length, before, action);
+  }
+  const app = setup(); app.pin(); const pending = app.click('run'); app.respond(0, payload()); await pending;
+  app.context.URL.createObjectURL = () => { throw new Error('download unavailable'); };
+  app.click('export'); assert.match(app.dom.status.textContent, /download unavailable/);
+  assert.equal(app.dom.export.disabled, false);
+}
 async function corruptResponses() {
   const changes = [d => d.session_id = 'wrong', d => d.stream_id = 'wrong', d => d.points = true,
     d => d.points = 0, d => d.points = 16385, d => d.frequencies_hz.pop(), d => d.frequencies_hz[0] = true,
@@ -289,6 +339,7 @@ async function corruptResponses() {
     const app = setup(); app.pin(); const p = app.click('run'), d = payload(); change(d); app.respond(0, d); await p;
     assert.equal(app.dom.overlay.hidden, true, String(change)); assert.equal(app.dom.delta.hidden, true, String(change));
     assert.match(app.dom.status.textContent, /Сравнение недоступно/, String(change));
+    assert.equal(app.dom.export.disabled, true); app.click('export'); assert.equal(app.downloads.length, 0);
   }
   const appBadDetection = setup(); appBadDetection.pin(); const pending = appBadDetection.click('run');
   const wrongDetection = detection(payload()); wrongDetection.detection.regions.push({
@@ -523,7 +574,7 @@ async function detectionHttpSmoke(base) {
   console.log('Web live HTTP detection passed: all 101 bins, two maximal regions, duplicate-bin first peak, parameter edits, preserved sources');
 }
 (async () => {
-  await happyAndFrozen(); await pinBoundaries(); await exactUnicodeIdentities(); await strictWireJSON();
+  await losslessExportAndInvalidation(); await happyAndFrozen(); await pinBoundaries(); await exactUnicodeIdentities(); await strictWireJSON();
   await corruptResponses(); await staleAndLifecycle(); await bodiesAndStatuses();
   await detectionRegionsAndEdits(); await completeDrawing(); await platformIntegration();
   if (process.argv[4]) await httpSmoke(process.argv[4]);

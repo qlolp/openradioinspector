@@ -85,6 +85,45 @@ final class SweepAverageTests: XCTestCase {
         try await (api ?? client()).sweepAverageChangeDetection(sessionID: "s", referenceIDs: refs, targetID: target, minimumIncreaseDb: threshold, minimumBins: bins)
     }
 
+    func testExportPreservesExactNestedSettingsAndNumericTokens() async throws {
+        let payload = String(decoding: try JSONSerialization.data(withJSONObject: detectionFixture(), options: .sortedKeys), as: UTF8.self)
+            .replacingOccurrences(of: "\"rbw_hz\":1000", with: #""rbw_hz":1000,"\uFEFFkey":{"nested":[9007199254740993,18446744073709551616,1.234567890123456789e20,false,"a}\\\"b"],"é":1,"e\u0301":2}"#)
+        let payloadWithLiteralKey = payload.replacingOccurrences(of: #"\uFEFFkey"#, with: "\u{FEFF}key")
+        for payload in [payload, payloadWithLiteralKey] {
+            let response = Data((#"{"contract":"openradioinspector-platform","contract_version":1,"d\u0061ta":"# + payload + "}").utf8)
+            Stub.handler = { $0.respondBytes(response) }
+            let value = try await detect()
+            let bytes = try PlatformSweepAverageExportArtifact(data: value).canonicalData()
+            let text = String(decoding: bytes, as: UTF8.self)
+            XCTAssertEqual(text, #"{"format":"openradioinspector-sweep-average-change-detection","format_version":1,"data":"# + payload + "}\n")
+            XCTAssertTrue(text.contains("9007199254740993"))
+            XCTAssertTrue(text.contains(#""\uFEFFkey""#) || text.contains("\u{FEFF}key"))
+            XCTAssertTrue(text.contains(#""e\u0301":2"#))
+            XCTAssertTrue(text.contains("18446744073709551616"))
+            XCTAssertTrue(text.contains("1.234567890123456789e20"))
+            let exported = try JSONSerialization.jsonObject(with: bytes) as! [String: Any]
+            XCTAssertEqual(exported["format_version"] as? Int, 1)
+            let analysis = exported["data"] as! [String: Any]
+            XCTAssertEqual((analysis["detection"] as! [String: Any])["count"] as? Int, 0)
+            XCTAssertEqual((analysis["comparison"] as! [String: Any])["delta_unit"] as? String, "dB")
+        }
+    }
+    func testExportRejectsMissingWirePayloadAndMalformedResponse() throws {
+        let decoded: PlatformSweepAverageChangeDetection = try decode(detectionFixture())
+        XCTAssertThrowsError(try PlatformSweepAverageExportArtifact(data: decoded).canonicalData())
+        var envelope: [String: Any] = ["contract": "openradioinspector-platform", "contract_version": 1, "data": detectionFixture()]
+        let bytes = try JSONSerialization.data(withJSONObject: envelope)
+        let valid = try PlatformSweepAverageChangeDetection.validatedResponse(bytes)
+        XCTAssertEqual(valid, decoded)
+        XCTAssertNoThrow(try PlatformSweepAverageExportArtifact(data: valid).canonicalData())
+        envelope["unexpected"] = 1
+        XCTAssertThrowsError(try PlatformSweepAverageChangeDetection.validatedResponse(JSONSerialization.data(withJSONObject: envelope)))
+        let duplicateKeys = String(decoding: bytes, as: UTF8.self).replacingOccurrences(of: "\"rbw_hz\":1000", with: #""rbw_hz":1000,"same":1,"s\u0061me":2"#)
+        XCTAssertThrowsError(try PlatformSweepAverageChangeDetection.validatedResponse(Data(duplicateKeys.utf8)))
+        envelope.removeValue(forKey: "unexpected"); envelope["contract"] = "other"
+        XCTAssertThrowsError(try PlatformSweepAverageChangeDetection.validatedResponse(JSONSerialization.data(withJSONObject: envelope)))
+    }
+
     func testDetectionMaximalRegionsEqualityFilteringAndFirstPeakTies() throws {
         let deltas: [Double] = [6, 12, 12, 6, -1, 20, -10, 7, 9]
         let frequencies = deltas.indices.map { Int64(100 + $0 / 2) }

@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import SpektrKomandy
 
 /// Value-type snapshots are local only. Polling changes the next target, never a pin or completed result.
@@ -27,6 +29,13 @@ final class SweepAverageModel: ObservableObject {
     private var request: Task<Void, Never>?
     private var timeout: Task<Void, Never>?
     private var revision = 0
+    @Published private(set) var exporting = false
+    private var exportID: UUID?
+    struct ExportTicket {
+        fileprivate let id: UUID
+        fileprivate let revision: Int
+        fileprivate let bytes: Data
+    }
     private let timeoutNanoseconds: UInt64
     private let fetch: (PlatformClient, String, [String], String, Double, Int) async throws -> PlatformSweepAverageChangeDetection
 
@@ -65,6 +74,28 @@ final class SweepAverageModel: ObservableObject {
         pending = false; result = nil; errorText = nil
     }
     func clear() { cancelRequest(); sources = [] }
+    /// Freeze bytes before showing the panel, but write only after confirmation in the same revision.
+    func beginExport() -> ExportTicket? {
+        guard !exporting, !pending, let result else { return nil }
+        do {
+            let bytes = try PlatformSweepAverageExportArtifact(data: result).canonicalData()
+            let id = UUID(); exportID = id; exporting = true
+            return ExportTicket(id: id, revision: revision, bytes: bytes)
+        } catch { errorText = describeSession(error); return nil }
+    }
+    @discardableResult func finishExport(_ ticket: ExportTicket, to url: URL?) -> Bool {
+        guard exportID == ticket.id else { return false }
+        defer { exportID = nil; exporting = false }
+        guard let url else { return false }
+        guard ticket.revision == revision, result != nil, !pending, url.isFileURL else {
+            errorText = "Результат изменился или назначение недоступно. Повторите анализ и экспорт."
+            return false
+        }
+        do {
+            try ticket.bytes.write(to: url, options: .atomic)
+            errorText = nil; return true
+        } catch { errorText = describeSession(error); return false }
+    }
     func pin() {
         clear()
         guard let count else { errorText = "N должно быть целым числом 2–16."; return }
@@ -142,6 +173,9 @@ struct RemoteSweepAveragePane: View {
                     TextField("Точек: 1–16384", text: $model.minimumBinsText).textFieldStyle(.roundedBorder).frame(width: 120)
                     Button("PIN · закрепить N предыдущих") { model.pin() }.disabled(model.pending)
                     Button("Сравнить и найти изменения") { model.compare() }.disabled(!model.canCompare || model.pending)
+                    if model.result != nil {
+                        Button("Экспорт JSON…") { exportFile() }.disabled(model.pending || model.exporting)
+                    }
                     Button(model.pending ? "Отмена и очистка" : "Очистить эталон") { model.clear() }
                     if model.pending { ProgressView().controlSize(.small) }
                 }
@@ -161,6 +195,15 @@ struct RemoteSweepAveragePane: View {
                 Text("Равновесное среднее линейной мощности отображается в dBm; ядро находит непрерывные области, где target превышает опорный на заданную величину в dB. Только чтение и расчёт по кнопке: кандидаты, события и архив не меняются. Новые polling/SSE данные не меняют закреплённые источники или результат.")
                     .foregroundStyle(.secondary)
             }.font(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        }.onDisappear { model.clear() }
+    }
+    private func exportFile() {
+        guard let ticket = model.beginExport() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "sweep-average-change-detection.json"
+        panel.begin { response in
+            _ = model.finishExport(ticket, to: response == .OK ? panel.url : nil)
         }
     }
     private func resultView(_ result: PlatformSweepAverageChangeDetection) -> some View {

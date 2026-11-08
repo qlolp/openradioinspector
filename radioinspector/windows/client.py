@@ -16,6 +16,36 @@ from .archive_capacity import validate_archive_capacity
 MAX_RESPONSE_BYTES = 2_000_000
 
 
+class AverageChangeResult(dict):
+    """Parsed presentation data paired with its original bounded JSON representation."""
+
+    def __init__(self, data, data_json):
+        super().__init__(data)
+        self._data_json = data_json
+
+    @property
+    def data_json(self):
+        return self._data_json
+
+
+def _data_json(raw):
+    # The entire envelope has already passed the strict decoder. Decode only its
+    # top-level members to locate data, never by searching inside quoted metadata.
+    decoder = json.JSONDecoder()
+    index = raw.index('{') + 1
+    while True:
+        while raw[index].isspace(): index += 1
+        key, index = decoder.raw_decode(raw, index)
+        while raw[index].isspace(): index += 1
+        index += 1  # colon
+        while raw[index].isspace(): index += 1
+        start = index
+        _, index = decoder.raw_decode(raw, index)
+        if key == 'data': return raw[start:index]
+        while raw[index].isspace(): index += 1
+        index += 1  # comma; the validated envelope contains data
+
+
 class PlatformClientError(RuntimeError):
     """Ошибка транспорта, контракта или команды общего API."""
 
@@ -94,7 +124,7 @@ class PlatformClient:
     def _request(
         self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
         *, expected_statuses: Optional[tuple[int, ...]] = None, strict_json: bool = False,
-        timeout: Optional[float] = None, exact_envelope: bool = False
+        timeout: Optional[float] = None, exact_envelope: bool = False, preserve_data_json: bool = False
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
@@ -160,6 +190,8 @@ class PlatformClient:
             raise PlatformClientError(
                 "В ответе отсутствует data", status=status, code="invalid_envelope"
             )
+        if preserve_data_json and isinstance(envelope["data"], dict):
+            return AverageChangeResult(envelope["data"], _data_json(raw.decode("utf-8")))
         return envelope["data"]
 
     @staticmethod
@@ -243,7 +275,7 @@ class PlatformClient:
             raise ValueError('Запрос превышает 8192 байт')
         return self._request(
             'POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-change-detection",
-            payload, expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True,
+            payload, expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True, preserve_data_json=True,
         )
 
     def sweep_context(self, session_id: str, sweep_id: str, before: int = 2, after: int = 2) -> dict[str, Any]:
