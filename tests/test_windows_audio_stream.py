@@ -167,8 +167,8 @@ class AudioCancellationTests(unittest.TestCase):
             self.assertEqual(errors, [])
             self.assertEqual(blocks, [b'12345678'])
         finally:
-            connection.cancel_read(); worker.join(3)
-            connection.close(); client.close(); peer.close()
+            connection.cancel_read(); peer.close(); worker.join(3)
+            connection.close(); client.close()
 
     def test_cancellation_interrupts_real_blocked_read_without_closing_on_gui(self):
         import socket, http.client, threading, time
@@ -190,10 +190,16 @@ class AudioCancellationTests(unittest.TestCase):
             p = panel(); p.connection = connection
             started = time.monotonic(); p.stop_pump()
             self.assertLess(time.monotonic() - started, 0.5)
-            worker.join(1); self.assertFalse(worker.is_alive())
+            worker.join(1)
+            if worker.is_alive():
+                import sys, traceback
+                frame = sys._current_frames().get(worker.ident)
+                details = ''.join(traceback.format_stack(frame)) if frame else 'No worker frame'
+                self.fail(f'PCM worker did not stop; socket={connection._socket!r}; '
+                          f'timeout={client.gettimeout()!r}\n{details}')
         finally:
-            connection.cancel_read(); worker.join(3)
-            response.close(); client.close(); peer.close()
+            connection.cancel_read(); peer.close(); worker.join(3)
+            response.close(); client.close()
 
     def test_available_short_pcm_block_is_delivered_before_the_stream_ends(self):
         import socket, http.client
