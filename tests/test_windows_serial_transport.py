@@ -15,6 +15,9 @@ from radioinspector.device_workers import WorkerError
 from radioinspector.session_service import SessionService
 from tests.test_serial_instruments import serial_session, TinySATransport, ARDV1Transport
 from tests.test_device_workers import wait_until
+from tests.test_tinysa_setup_guard import (
+    IDENTITY_COMMANDS, IDENTITY_REPLIES, SETUP_COMMANDS, SCAN_COMMAND, SCAN_REPLY,
+)
 from radioinspector.web.server import create_server
 
 try:
@@ -64,6 +67,39 @@ class FakeSerial:
         if bytes(data[:count]) in self.responses:
             self.received.extend(self.responses[bytes(data[:count])])
         return count
+
+
+class ScheduledSerial(FakeSerial):
+    """Virtual-time COM stream: blocking reads advance to bytes or timeout."""
+
+    def __init__(self, scan_chunks):
+        super().__init__()
+        self.now = 0.0
+        self.timeout = 0.0
+        self.pending = deque()
+        self.scan_chunks = scan_chunks
+        self.commands = []
+
+    def write(self, data):
+        self.written.extend(data)
+        command = bytes(data).decode("ascii").rstrip("\r")
+        self.commands.append(command)
+        if command == SCAN_COMMAND:
+            self.pending.extend((self.now + delay, chunk) for delay, chunk in self.scan_chunks)
+        else:
+            reply = IDENTITY_REPLIES.get(command, command + "\r\nch> ")
+            self.received.extend(reply.encode("ascii"))
+        return len(data)
+
+    def read(self, count):
+        if not self.received:
+            deadline = self.now + self.timeout
+            if self.pending and self.pending[0][0] <= deadline:
+                self.now, chunk = self.pending.popleft()
+                self.received.extend(chunk)
+            else:
+                self.now = deadline
+        return super().read(count)
 
 
 class WindowsSerialTransportTests(unittest.TestCase):
@@ -143,6 +179,96 @@ class WindowsSerialTransportTests(unittest.TestCase):
             transport.read_line(0.001, 'LM')
         with self.assertRaises(WorkerError):
             transport.read_until_quiet(0.001, 0.002, 'scan')
+
+    def delayed_adapter(self, scan_chunks):
+        self.port = ScheduledSerial(scan_chunks)
+        self.factory.return_value = self.port
+        transport = self.transport()
+        session = SessionService().create_session(serial_session())
+        adapter = instruments.TinySASerialAdapter(session.streams[0], transport=transport)
+        self.addCleanup(adapter.close)
+        clock = types.SimpleNamespace(monotonic=lambda: self.port.now)
+        return adapter, transport, clock
+
+    def test_delayed_scan_echo_rows_and_fragmented_prompt_use_overall_deadline(self):
+        echo = (SCAN_COMMAND + "\r\n").encode("ascii")
+        rows = SCAN_REPLY.removesuffix("ch> ").encode("ascii")
+        first, rest = rows.split(b"\r\n", 1)
+        cases = (
+            ((0.0, echo), (0.6, rows + b"ch> ")),
+            ((0.6, echo), (1.2, rows + b"ch> ")),
+            ((0.0, echo + first + b"\r\n"), (0.6, rest + b"ch> ")),
+            ((0.0, echo + rows), (0.4, b"c"), (0.8, b"h"), (1.2, b"> ")),
+        )
+        for chunks in cases:
+            with self.subTest(chunks=chunks):
+                adapter, transport, clock = self.delayed_adapter(chunks)
+                with patch.object(instruments, "time", clock):
+                    sweep = adapter.poll()
+                self.assertEqual(sweep.levels, (-90.0, -42.5, -80.0))
+                self.assertEqual(self.port.commands, [*IDENTITY_COMMANDS, *SETUP_COMMANDS, SCAN_COMMAND])
+                self.assertEqual(transport._stash, bytearray())
+                self.assertFalse(adapter.details()["restart_required"])
+                self.assertEqual(self.port.now, chunks[-1][0])
+                self.assertEqual((self.port.input_resets, self.port.output_resets), (1, 1))
+
+    def test_incomplete_scan_waits_to_deadline_then_taints_without_retry(self):
+        chunks = ((0.0, (SCAN_COMMAND + "\r\n100000000 -90 0\r\n").encode("ascii")),
+                  (20.0, b"ch> "))
+        adapter, transport, clock = self.delayed_adapter(chunks)
+        original_read = transport.read_until_quiet
+        def bounded_read(quiet, maximum, label):
+            return original_read(0.1, 0.5, label)
+        with patch.object(instruments, "time", clock), patch.object(
+                transport, "read_until_quiet", side_effect=bounded_read):
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                adapter.poll()
+            self.assertAlmostEqual(self.port.now, 0.5)
+            before = bytes(self.port.written)
+            pending = list(self.port.pending)
+            for _ in range(2):
+                with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                    adapter.poll()
+            self.assertEqual(bytes(self.port.written), before)
+            self.assertEqual(list(self.port.pending), pending)
+            self.assertEqual(pending, [(20.0, b"ch> ")])
+        self.assertEqual(adapter.details()["generator_output"], "unknown")
+        self.assertTrue(adapter.details()["restart_required"])
+
+    def test_continuous_partial_reply_does_not_extend_scan_deadline(self):
+        chunks = ((0.0, (SCAN_COMMAND + "\r\n").encode("ascii")),
+                  (0.2, b"100000000 -90 0\r\n"),
+                  (0.4, b"101000000 -42.5 0\r\n"),
+                  (0.6, b"102000000 -80 0\r\nch> "))
+        adapter, transport, clock = self.delayed_adapter(chunks)
+        original_read = transport.read_until_quiet
+        with patch.object(instruments, "time", clock), patch.object(
+                transport, "read_until_quiet",
+                side_effect=lambda quiet, maximum, label: original_read(0.25, 0.5, label)):
+            with self.assertRaisesRegex(WorkerError, "таймаут.*перезапуск"):
+                adapter.poll()
+            self.assertAlmostEqual(self.port.now, 0.5)
+            self.assertTrue(transport._stash.endswith(b"101000000 -42.5 0\r\n"))
+            pending = list(self.port.pending)
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                adapter.poll()
+            self.assertEqual(list(self.port.pending), pending)
+            self.assertEqual(pending, [chunks[-1]])
+        self.assertEqual(self.port.commands.count(SCAN_COMMAND), 1)
+        self.assertTrue(adapter.details()["restart_required"])
+
+    def test_silent_scan_uses_deadline_and_taints_connection(self):
+        adapter, transport, clock = self.delayed_adapter(())
+        original_read = transport.read_until_quiet
+        with patch.object(instruments, "time", clock), patch.object(
+                transport, "read_until_quiet",
+                side_effect=lambda quiet, maximum, label: original_read(0.1, 0.5, label)):
+            with self.assertRaisesRegex(WorkerError, "Пустой ответ.*перезапуск"):
+                adapter.poll()
+            self.assertAlmostEqual(self.port.now, 0.5)
+        self.assertEqual(transport._stash, bytearray())
+        self.assertEqual(adapter.details()["generator_output"], "unknown")
+        self.assertTrue(adapter.details()["restart_required"])
 
     def test_close_is_idempotent_and_closed_transport_rejects_io(self):
         transport = self.transport()
