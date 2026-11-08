@@ -88,8 +88,8 @@ class CounterContractTests(unittest.TestCase):
                                              start_hz=100, stop_hz=400)
         self.assertEqual(result["method"], "peak_bin")
         self.assertEqual(result["measured_frequency_hz"], 100.0)
-        self.assertEqual(result["raster_hz"], 0)
-        self.assertEqual(result["uncertainty_hz"], 5.0, "without raster only resolution remains")
+        self.assertEqual(result["raster_hz"], 100)
+        self.assertEqual(result["uncertainty_hz"], 50.0, "edge peaks retain the recorded spacing bound")
         # Ties resolve to the first maximum: the leftmost peak is an edge peak.
         source = sweep(frequencies=[100, 200, 300], levels=[-50.0, -50.0, -60.0])
         result = calculate_frequency_counter("session", source, resolution_hz=10,
@@ -101,7 +101,7 @@ class CounterContractTests(unittest.TestCase):
         result = calculate_frequency_counter("session", source, resolution_hz=10,
                                              start_hz=100, stop_hz=300)
         self.assertEqual(result["method"], "peak_bin")
-        self.assertEqual(result["raster_hz"], 0)
+        self.assertEqual(result["raster_hz"], 100)
         # A steep asymmetric slope stays inside the peak bin span.
         source = sweep(frequencies=[100, 200, 300], levels=[-100.0, -1.0, -1000.0])
         result = calculate_frequency_counter("session", source, resolution_hz=1,
@@ -109,6 +109,15 @@ class CounterContractTests(unittest.TestCase):
         self.assertEqual(result["method"], "parabolic")
         self.assertGreater(result["measured_frequency_hz"], 150.0)
         self.assertLess(result["measured_frequency_hz"], 250.0)
+
+    def test_non_dbm_units_and_nonuniform_uncertainty(self):
+        source = sweep(frequencies=[100, 200, 500], levels=[-60.0, -50.0, -60.0])
+        result = calculate_frequency_counter('session', source, resolution_hz=1, start_hz=100, stop_hz=500)
+        self.assertEqual(result['method'], 'peak_bin')
+        self.assertEqual(result['uncertainty_hz'], 150.0)
+        source.level_unit = 's_meter_count'
+        with self.assertRaises(CounterIncompatibleError):
+            calculate_frequency_counter('session', source, resolution_hz=1, start_hz=100, stop_hz=500)
 
     def test_window_without_bins_and_bad_sweeps_rejected(self):
         source = sweep(frequencies=[100, 200, 300], levels=[-60.0, -50.0, -60.0])

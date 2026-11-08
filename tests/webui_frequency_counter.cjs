@@ -81,6 +81,7 @@ async function happyPath() {
   const app = setup();
   app.update([sweep(), { ...sweep('other'), level_unit: 's_meter_count' }]);
   assert.equal(app.dom.sweep.options.length, 1, 'only dBm sweeps are offered');
+  assert.equal(app.dom.sweep.disabled, false);
   assert.equal(app.dom.run.disabled, false);
   const promise = app.click('run'); app.click('run');
   await new Promise(resolve => setImmediate(resolve));
@@ -149,7 +150,20 @@ async function guards() {
   assert.equal(lost.dom.resolution.value, '10');
 }
 
+
+async function refreshAndStreamOwnership() {
+  const app = setup(); app.update([sweep()]);
+  const request = app.click('run');
+  app.update([sweep()]); app.window.OpenRadioFrequencyCounter.setConnected(true); app.click('run');
+  assert.equal(app.requests.length, 1, 'polling preserves single flight');
+  app.window.OpenRadioFrequencyCounter.update({sessionId: 'session/1', streamId: 'tiny/2', sweeps: []});
+  assert.equal(app.requests[0].options.signal.aborted, true);
+  app.respond(0, result()); await request;
+  assert.equal(app.dom.items.children.length, 0, 'late result belongs to previous stream');
+}
+
 (async () => {
+  await refreshAndStreamOwnership();
   await happyPath();
   await guards();
   const wiring = setup();

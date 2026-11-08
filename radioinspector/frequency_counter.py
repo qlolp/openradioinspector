@@ -78,6 +78,8 @@ def calculate_frequency_counter(
         })
     except ValueError as exc:
         raise CounterIncompatibleError(str(exc)) from exc
+    if sweep.level_unit != "dBm":
+        raise CounterIncompatibleError("Частотомер требует исходные уровни dBm")
     frequencies = sweep.frequencies_hz
     if any(type(f) is not int or not 0 <= f <= MAX_FREQUENCY_HZ for f in frequencies):
         raise CounterIncompatibleError("Частоты свипа выходят за диапазон безопасных целых Hz")
@@ -91,15 +93,20 @@ def calculate_frequency_counter(
     level = sweep.levels[peak]
     left = peak - 1 if peak - 1 in inside else None
     right = peak + 1 if peak + 1 in inside else None
-    raster = 0
-    if left is not None and right is not None:
-        left_step = frequencies[peak] - frequencies[left]
-        right_step = frequencies[right] - frequencies[peak]
-        if left_step == right_step:
-            raster = left_step
+    # Uncertainty follows the adjacent recorded spacing even at an edge or
+    # when the grid is ineligible for interpolation.
+    spacings = [frequencies[b] - frequencies[a]
+                for a, b in ((peak - 1, peak), (peak, peak + 1))
+                if a >= 0 and b < len(frequencies) and frequencies[b] > frequencies[a]]
+    if not spacings:
+        raise CounterIncompatibleError("Недостаточно различных частот для оценки погрешности")
+    raster = max(spacings)
+    interpolatable = (left is not None and right is not None
+                     and frequencies[peak] - frequencies[left] == frequencies[right] - frequencies[peak]
+                     and frequencies[peak] > frequencies[left])
     measured = float(frequencies[peak])
     method = "peak_bin"
-    if raster > 0:
+    if interpolatable:
         y_left, y_center, y_right = sweep.levels[left], level, sweep.levels[right]
         denominator = y_left - 2 * y_center + y_right
         if denominator != 0:

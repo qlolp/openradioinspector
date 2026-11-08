@@ -59,7 +59,10 @@ def result_text(data):
             "Значения готовы для записи в результаты измерений (методика frequency_counter).")
 
 
-class FrequencyCounterPanel:
+from .tk_timers import TkTimerOwner
+
+
+class FrequencyCounterPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -67,6 +70,7 @@ class FrequencyCounterPanel:
         self.future = self.retired = self.data = None
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='frequency-counter')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Частотомер')
@@ -146,7 +150,7 @@ class FrequencyCounterPanel:
         generation = self.generation
         self.future = self.executor.submit(
             self.app.client.frequency_counter, self.app.session_id, *sent)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -155,7 +159,7 @@ class FrequencyCounterPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -175,5 +179,11 @@ class FrequencyCounterPanel:
             self.clear()
 
     def close(self):
-        self.clear(); self.closed = True
+        if self.closed: return
+        self.closed = True
+        self._close_timers()
+        self.generation += 1
+        for future in (self.future, self.retired):
+            if future is not None: future.cancel()
+        self.future = self.retired = None
         self.executor.shutdown(wait=False, cancel_futures=True)

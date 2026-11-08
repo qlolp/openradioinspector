@@ -8,7 +8,7 @@
     "source", "status", "summary", "items"]
     .map(name => [name, byId(`counter-${name}`)]));
   if (!dom.status) return;
-  let scope = "", snapshot = "", connected = true, suspended = false, result = null;
+  let scope = "", stream = "", snapshot = "", connected = true, suspended = false, result = null;
   let sweeps = [], generation = 0, pending = null;
   const MAX_RESPONSE_BYTES = 2000000;
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -55,7 +55,8 @@
   }
   function controls() {
     const ready = Boolean(scope) && connected && !suspended && sweeps.length > 0;
-    dom.run.disabled = !ready;
+    dom.sweep.disabled = !ready || Boolean(pending);
+    dom.run.disabled = !ready || Boolean(pending);
   }
   function clear() {
     pending?.abort(); pending = null; generation += 1; result = null;
@@ -75,7 +76,7 @@
       + "Значения готовы для записи в результаты измерений (методика frequency_counter).";
   }
   async function analyze() {
-    if (dom.run.disabled) return;
+    if (pending || dom.run.disabled) return;
     let body;
     try { body = request(); } catch (error) { clear(); dom.status.textContent = error.message; return; }
     const controller = new AbortController(); pending = controller; const current = ++generation;
@@ -108,9 +109,10 @@
     const sessionId = next.sessionId || "";
     const incoming = Array.isArray(next.sweeps) ? next.sweeps.filter(item => item && item.level_unit === "dBm") : [];
     const signature = JSON.stringify(incoming.map(item => item.id));
-    const sessionChanged = sessionId !== scope;
+    const streamId = next.streamId || "";
+    const sessionChanged = sessionId !== scope || streamId !== stream;
     if (!sessionChanged && signature === snapshot) { controls(); return; }
-    scope = sessionId; snapshot = signature;
+    scope = sessionId; stream = streamId; snapshot = signature;
     if (sessionChanged) clear();
     sweeps = incoming;
     const previous = dom.sweep.value;
