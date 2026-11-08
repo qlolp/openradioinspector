@@ -146,7 +146,17 @@ async function guards() {
   assert.equal(lost.dom.mer.value, '20');
 }
 
+async function inputInvalidatesVerdictBeforeBlur() {
+  const app = setup(); app.update();
+  const running = app.click('run');
+  app.dom.minmer.value = '30'; app.dom.minmer.listeners.input();
+  assert.equal(app.requests[0].options.signal.aborted, true);
+  app.respond(0, result()); await running;
+  assert.equal(app.dom.items.children.length, 0);
+}
+
 (async () => {
+  await inputInvalidatesVerdictBeforeBlur();
   await happyPath();
   await guards();
   const slice = platformCode.slice(platformCode.indexOf('  function updateComparison('),
