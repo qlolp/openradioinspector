@@ -15,7 +15,7 @@ from radioinspector.web.server import ApplicationState, Handler
 class TestWebRelease(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.path = Path(self.temp.name) / 'input.pan'
+        self.path = Path(self.temp.name).resolve() / 'input.pan'
         with PanoramaStore(self.path, ScanSettings(start_hz=1, stop_hz=3, points=3)) as store:
             store.append(Trace([1,2,3], [-90,-20,-90]))
         self.state = ApplicationState(database=str(self.path))

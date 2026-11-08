@@ -139,9 +139,62 @@ class DiagnosticTestResult(unittest.TextTestResult):
         self._event("stop", test, time.monotonic())
 
 
-def run_python_suite(report_path: Path, *, diagnostics: bool = False) -> int:
+MACOS_TK_CLASSES = frozenset({
+    "tests.test_windows_release_flows.WindowsReleaseFlowTests",
+    "tests.test_windows_sweep_context.ActualTkHTTPTests",
+    "tests.test_windows_three_thresholds.ActualTkHTTPTests",
+    "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
+    "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+})
+
+
+class IsolatedTkTest(unittest.TestCase):
+    """A fresh Tcl interpreter/process per actual GUI case; outcomes stay strict."""
+    def __init__(self, test_id):
+        super().__init__("runTest")
+        self.test_id = test_id
+
+    def id(self):
+        return self.test_id
+
+    def __str__(self):
+        return self.test_id + " (isolated Tk process)"
+
+    def runTest(self):
+        with tempfile.TemporaryDirectory(prefix="ori-tk-case-") as temporary:
+            report_path = Path(temporary)/"result.json"
+            # Inherit only the outer runner's already isolated HOME/temp and
+            # owned fixture URLs. The child shares its registered process group.
+            completed = subprocess.run([sys.executable, "-m", "tests.run_release_checks",
+                "--_single-test", self.test_id, "--_python-suite", str(report_path)],
+                capture_output=True, text=True, timeout=90)
+            print(completed.stdout, end="")
+            print(completed.stderr, end="", file=sys.stderr)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["tests_run"], 1, "Child did not run exactly one requested case")
+            if report["skipped"]:
+                self.skipTest(report["skipped"][0][1])
+            self.assertEqual(completed.returncode, 0, "Isolated GUI case failed")
+            self.assertTrue(report["successful"])
+
+
+def isolate_tk_cases(suite):
+    result = unittest.TestSuite()
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            result.addTests(isolate_tk_cases(item))
+        else:
+            case = IsolatedTkTest(item.id()) if item.id().rsplit(".", 1)[0] in MACOS_TK_CLASSES else item
+            result.addTest(case)
+    return result
+
+
+def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test: str | None = None) -> int:
     with local_loopback_names():
-        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+        suite = (unittest.defaultTestLoader.loadTestsFromName(only_test) if only_test else
+                 unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT)))
+        if not only_test and (sys.platform == "darwin" or os.environ.get("ORI_RELEASE_ISOLATE_TK") == "1"):
+            suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
@@ -675,6 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
     parser.add_argument("--_python-suite", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--_single-test", help=argparse.SUPPRESS)
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_diagnostic-after", type=positive_seconds, default=60, help=argparse.SUPPRESS)
     parser.add_argument("--_supervise-command", help=argparse.SUPPRESS)
@@ -687,6 +741,8 @@ def main(argv: list[str] | None = None) -> int:
             os.execvpe(command[0], command, os.environ)
         return subprocess.call(command)
     if args._python_suite is not None:
+        if args._single_test is not None:
+            return run_python_suite(args._python_suite, only_test=args._single_test)
         return _run_diagnostic_python_suite(args._python_suite, args._diagnostic_after)
     if args._dependency_check:
         check_dependencies()

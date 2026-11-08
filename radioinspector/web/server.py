@@ -805,7 +805,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Некорректное percent-кодирование параметров")
                 reference_query = parse_qs(
                     raw_query, keep_blank_values=True, strict_parsing=True, errors="strict",
-                )
+                ) if raw_query else {}
                 if set(reference_query) - {"stream_id"} or any(
                     len(values) != 1 or not values[0].strip()
                     for values in reference_query.values()
@@ -825,7 +825,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Некорректное percent-кодирование параметров")
                 threshold_query = parse_qs(
                     raw_query, keep_blank_values=True, strict_parsing=True, errors="strict",
-                )
+                ) if raw_query else {}
                 if set(threshold_query) != {"sweep_id", "window_points", "margin_db"} or any(
                     len(values) != 1 or not values[0].strip()
                     for values in threshold_query.values()

@@ -522,3 +522,31 @@ class OrchestrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class IsolatedTkProcessTests(unittest.TestCase):
+    def test_child_runs_exact_named_case_and_reports_success(self):
+        case = release.IsolatedTkTest('tests.test_release_v040.AbsolutePowerTests.test_dbw_and_dbm_report_the_same_physical_power')
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertEqual(result.testsRun,1)
+        self.assertTrue(result.wasSuccessful(),result.errors+result.failures)
+        self.assertEqual(result.skipped,[])
+
+    def test_unknown_case_cannot_be_reported_as_success(self):
+        case = release.IsolatedTkTest('tests.test_release_v040.NoSuchCase')
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertFalse(result.wasSuccessful())
+
+    def test_gui_cases_are_partitioned_without_dropping_any_ids(self):
+        suite = unittest.defaultTestLoader.loadTestsFromName('tests.test_windows_sweep_average')
+        def flatten(items):
+            for item in items:
+                if isinstance(item,unittest.TestSuite):yield from flatten(item)
+                else:yield item
+        before=list(flatten(suite))
+        after=list(release.isolate_tk_cases(suite))
+        self.assertEqual([test.id() for test in before],[test.id() for test in after])
+        expected=[test for test in before if type(test).__name__=='AverageActualTkHTTPTests']
+        self.assertEqual(sum(isinstance(test,release.IsolatedTkTest) for test in after),len(expected))
+        self.assertGreater(len(expected),0)

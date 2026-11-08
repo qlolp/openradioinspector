@@ -58,10 +58,10 @@ class DesktopCoreTests(unittest.TestCase):
 
     def test_default_data_paths_are_platform_specific(self):
         from radioinspector.launcher import default_data_directory
-        home=Path('/example/home')
+        home=Path(tempfile.gettempdir()).resolve()/'example-home'
         self.assertEqual(default_data_directory('darwin',{},home),home/'Library/Application Support/OpenRadioInspector')
-        self.assertEqual(default_data_directory('win32',{'LOCALAPPDATA':'/local'},home),Path('/local/OpenRadioInspector'))
-        self.assertEqual(default_data_directory('linux',{'XDG_DATA_HOME':'/xdg'},home),Path('/xdg/openradioinspector'))
+        self.assertEqual(default_data_directory('win32',{'LOCALAPPDATA':str(home/'local')},home),home/'local/OpenRadioInspector')
+        self.assertEqual(default_data_directory('linux',{'XDG_DATA_HOME':str(home/'xdg')},home),home/'xdg/openradioinspector')
 
 class CoreProcessTests(unittest.TestCase):
     def test_ready_file_and_stdin_eof_own_only_the_child(self):
@@ -78,7 +78,8 @@ class CoreProcessTests(unittest.TestCase):
                 deadline = time.monotonic()+15
                 while not ready.exists() and child.poll() is None and time.monotonic()<deadline:
                     time.sleep(.02)
-                self.assertTrue(ready.exists(), 'core did not become ready')
+                startup_error = child.stderr.read().decode() if child.poll() is not None else 'process has not exited'
+                self.assertTrue(ready.exists(), 'core did not become ready: '+startup_error)
                 url = ready.read_text().strip()
                 self.assertEqual(json.load(urlopen(url+'/api/v1/health'))['data']['status'], 'ok')
                 result = subprocess.run([sys.executable, '-m', 'radioinspector.launcher',
@@ -102,3 +103,11 @@ class InstalledSmokeTests(unittest.TestCase):
             with patch('radioinspector.windows.scheduler_app.main', side_effect=AssertionError('GUI opened')):
                 self.assertEqual(main(['--data-dir',directory,'--self-check']),0)
             self.assertTrue((Path(directory)/'sessions.sqlite3').is_file())
+
+class OwnedReadinessTests(unittest.TestCase):
+    def test_readiness_does_not_use_global_proxy_or_urlopen(self):
+        from radioinspector.launcher import LocalCore
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('global opener used')):
+                with LocalCore(Path(directory)) as core:
+                    self.assertTrue(core.url.startswith('http://127.0.0.1:'))

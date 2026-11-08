@@ -33,7 +33,7 @@ class AbsolutePowerTests(unittest.TestCase):
 
 class LegacyDatabaseTransactionTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name)
+        self.temp=tempfile.TemporaryDirectory();self.root=Path(self.temp.name).resolve()
         self.a=self.root/'first'/'x.pan';self.b=self.root/'second'/'x.pan'
         for path in [self.a,self.b]:
             with PanoramaStore(path) as store:

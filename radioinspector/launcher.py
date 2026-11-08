@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from http.client import HTTPConnection, HTTPException
 import os
 from pathlib import Path
 import signal
 import sys
 import threading
 import time
-from urllib.request import urlopen
 
 from .tasks import TaskBook
 from .web.server import create_server
@@ -32,6 +32,19 @@ def default_data_directory(platform=None, environment=None, home=None) -> Path:
         return home/'Library/Application Support/OpenRadioInspector'
     xdg = environment.get('XDG_DATA_HOME', '')
     return (Path(xdg) if Path(xdg).is_absolute() else home/'.local/share')/'openradioinspector'
+
+
+def _core_ready(host, port, timeout=5):
+    connection = HTTPConnection(host, port, timeout=timeout)
+    try:
+        connection.request('GET', '/api/v1/health')
+        response = connection.getresponse()
+        body = response.read(65537)
+        if response.status != 200 or len(body) > 65536:
+            return False
+        return json.loads(body).get('data', {}).get('status') == 'ok'
+    finally:
+        connection.close()
 
 
 class LocalCore:
@@ -78,9 +91,7 @@ class LocalCore:
             self.thread.start()
             host = '127.0.0.1' if self.host == '0.0.0.0' else self.host
             self.url = f'http://{host}:{self.server.server_address[1]}'
-            with urlopen(self.url+'/api/v1/health', timeout=5) as response:
-                health = json.load(response)
-            if health.get('data', {}).get('status') != 'ok':
+            if not _core_ready(host, self.server.server_address[1]):
                 raise RuntimeError('Локальное ядро не подтвердило готовность')
             return self.url
         except BaseException:
@@ -154,11 +165,9 @@ def core_main(argv=None) -> int:
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             try:
-                with urlopen(f'http://{host}:{args.port}/api/v1/health', timeout=1) as response:
-                    health = json.load(response)
-                if health.get('data', {}).get('status') == 'ok':
+                if _core_ready(host, args.port, timeout=1):
                     return 0
-            except (OSError, ValueError):
+            except (OSError, ValueError, HTTPException):
                 pass
             time.sleep(.1)
         return 1
