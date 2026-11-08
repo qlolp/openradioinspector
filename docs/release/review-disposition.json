@@ -3487,5 +3487,231 @@
       "tests/test_audio_stream.py",
       "docs/release/integration.md"
     ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DmoB",
+    "pr": 106,
+    "path": "radioinspector/web/static/frequency-raster.js",
+    "is_resolved": true,
+    "title": "Invalidate active calculations when an imported draft is applied",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_frequency_raster.py",
+      "tests/webui_frequency_raster.cjs"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Do1U",
+    "pr": 107,
+    "path": "radioinspector/web/static/measurement-results.js",
+    "is_resolved": true,
+    "title": "Release the catalog-loading promise after failed requests",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_measurement_results.py",
+      "tests/webui_measurement_results.cjs",
+      "macos/Tests/MeasurementResultsModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Do1X",
+    "pr": 107,
+    "path": "radioinspector/session_service.py",
+    "is_resolved": true,
+    "title": "Avoid loading the entire result archive during startup",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_measurement_results.py",
+      "tests/webui_measurement_results.cjs",
+      "macos/Tests/MeasurementResultsModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861Do1a",
+    "pr": 107,
+    "path": "macos/DvoynoyObzor/MeasurementResultsPane.swift",
+    "is_resolved": true,
+    "title": "Accept fractional-second UTC measurement timestamps",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_measurement_results.py",
+      "tests/webui_measurement_results.cjs",
+      "macos/Tests/MeasurementResultsModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DoYK",
+    "pr": 108,
+    "path": "macos/DvoynoyObzor/FrequencyCounterPane.swift",
+    "is_resolved": true,
+    "title": "Clear the measurement summary when resetting the result",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "macos/Tests/FrequencyCounterModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DpXg",
+    "pr": 109,
+    "path": "radioinspector/web/static/dvb-evaluation.js",
+    "is_resolved": true,
+    "title": "Invalidate the WebUI verdict on input rather than blur",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/webui_dvb_evaluation.cjs",
+      "macos/Tests/DvbEvaluationModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DpXj",
+    "pr": 109,
+    "path": "macos/DvoynoyObzor/ContentView.swift",
+    "is_resolved": true,
+    "title": "Configure DVB evaluation independently of the analyzer stream",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/webui_dvb_evaluation.cjs",
+      "macos/Tests/DvbEvaluationModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DsFR",
+    "pr": 110,
+    "path": "macos/DvoynoyObzor/ContentView.swift",
+    "is_resolved": true,
+    "title": "Configure phonograms independently of the spectrum analyzer",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_phonogram.py",
+      "macos/Tests/PhonogramModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DsFV",
+    "pr": 110,
+    "path": "radioinspector/session_service.py",
+    "is_resolved": true,
+    "title": "Encode phonogram WAVs outside the service-wide lock",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_phonogram.py",
+      "macos/Tests/PhonogramModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DvB-",
+    "pr": 111,
+    "path": "macos/DvoynoyObzor/ContentView.swift",
+    "is_resolved": true,
+    "title": "Allow selecting the receiver stream for signal-list import",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_signal_list.py",
+      "tests/test_windows_signal_list.py",
+      "tests/webui_signal_list.cjs",
+      "macos/Tests/SignalListModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DvCD",
+    "pr": 111,
+    "path": "radioinspector/web/server.py",
+    "is_resolved": true,
+    "title": "Bound the import request before reading its body",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_signal_list.py",
+      "tests/test_windows_signal_list.py",
+      "tests/webui_signal_list.cjs",
+      "macos/Tests/SignalListModelTests.swift"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DvWC",
+    "pr": 112,
+    "path": "radioinspector/measurement_map.py",
+    "is_resolved": true,
+    "title": "Split sectors that cross the antimeridian",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_measurement_map.py",
+      "tests/webui_measurement_map.cjs"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DwMb",
+    "pr": 113,
+    "path": "radioinspector/windows/client.py",
+    "is_resolved": true,
+    "title": "Read available PCM without waiting for a full 8 KiB buffer",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_windows_audio_stream.py"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DwMd",
+    "pr": 113,
+    "path": "macos/SpektrKomandy/Sources/SpektrKomandy/PlatformAPI.swift",
+    "is_resolved": true,
+    "title": "Preserve cancellation until the prefix callback is installed",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_windows_audio_stream.py"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861DwMf",
+    "pr": 113,
+    "path": "macos/DvoynoyObzor/ContentView.swift",
+    "is_resolved": true,
+    "title": "Select the audio source independently of the spectrum analyzer",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_windows_audio_stream.py"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861EDNk",
+    "pr": 114,
+    "path": "radioinspector/session_service.py",
+    "is_resolved": true,
+    "title": "Partition signal-list exports by stream or level unit",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_signal_list.py",
+      "tests/test_audio_stream.py",
+      "tests/test_phonogram.py"
+    ]
+  },
+  {
+    "id": "PRRT_kwDOVh2Xd861EDNo",
+    "pr": 114,
+    "path": "radioinspector/session_service.py",
+    "is_resolved": true,
+    "title": "Keep live audio flowing when a recording reaches its limit",
+    "snapshot_kind": "cleanup-replacement-review-20261108",
+    "disposition": "fixed_with_regression",
+    "evidence": [
+      "tests/test_signal_list.py",
+      "tests/test_audio_stream.py",
+      "tests/test_phonogram.py"
+    ]
   }
 ]

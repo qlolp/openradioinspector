@@ -5,7 +5,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "cursor/add-local-radioinspektor-cd-61c6",
+    "source_base_branch": "main"
   },
   {
     "pr": 2,
@@ -13,7 +15,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "cursor/macos-dvoynoy-obzor-36a1",
+    "source_base_branch": "main"
   },
   {
     "pr": 3,
@@ -21,7 +25,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "cursor/finish-scheduler-reports-12d6",
+    "source_base_branch": "main"
   },
   {
     "pr": 4,
@@ -29,7 +35,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "codex/macos-integration-fixes",
+    "source_base_branch": "cursor/macos-dvoynoy-obzor-36a1"
   },
   {
     "pr": 5,
@@ -37,7 +45,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/shared-core-foundation",
+    "source_base_branch": "main"
   },
   {
     "pr": 6,
@@ -45,7 +55,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/session-persistence",
+    "source_base_branch": "feature/shared-core-foundation"
   },
   {
     "pr": 7,
@@ -53,7 +65,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "fix/session-archive-integrity-20261105",
+    "source_base_branch": "feature/session-persistence"
   },
   {
     "pr": 8,
@@ -61,7 +75,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/device-workers",
+    "source_base_branch": "feature/session-persistence"
   },
   {
     "pr": 9,
@@ -69,7 +85,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/investigation-queue",
+    "source_base_branch": "feature/device-workers"
   },
   {
     "pr": 10,
@@ -77,7 +95,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/raspberry-webui",
+    "source_base_branch": "feature/investigation-queue"
   },
   {
     "pr": 11,
@@ -85,7 +105,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/semi-automatic-handoff",
+    "source_base_branch": "feature/raspberry-webui"
   },
   {
     "pr": 12,
@@ -93,7 +115,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/automatic-handoff",
+    "source_base_branch": "feature/semi-automatic-handoff"
   },
   {
     "pr": 13,
@@ -101,7 +125,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/automatic-candidate-detection",
+    "source_base_branch": "feature/automatic-handoff"
   },
   {
     "pr": 14,
@@ -109,7 +135,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-gui",
+    "source_base_branch": "feature/automatic-candidate-detection"
   },
   {
     "pr": 15,
@@ -117,7 +145,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-spectrum",
+    "source_base_branch": "feature/windows-gui"
   },
   {
     "pr": 16,
@@ -125,7 +155,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-workflows",
+    "source_base_branch": "feature/windows-spectrum"
   },
   {
     "pr": 17,
@@ -133,7 +165,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-policies",
+    "source_base_branch": "feature/windows-workflows"
   },
   {
     "pr": 18,
@@ -141,7 +175,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-remote-api",
+    "source_base_branch": "feature/windows-policies"
   },
   {
     "pr": 19,
@@ -149,7 +185,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-workflows",
+    "source_base_branch": "feature/macos-remote-api"
   },
   {
     "pr": 20,
@@ -157,7 +195,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/serial-adapters",
+    "source_base_branch": "feature/windows-policies"
   },
   {
     "pr": 21,
@@ -165,7 +205,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/measurement-batch",
+    "source_base_branch": "feature/serial-adapters"
   },
   {
     "pr": 22,
@@ -173,7 +215,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/serial-ui-profiles",
+    "source_base_branch": "feature/serial-adapters"
   },
   {
     "pr": 23,
@@ -181,7 +225,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/session-analytics",
+    "source_base_branch": "feature/measurement-batch"
   },
   {
     "pr": 24,
@@ -189,7 +235,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/webui-analytics",
+    "source_base_branch": "feature/session-analytics"
   },
   {
     "pr": 25,
@@ -197,7 +245,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/windows-analytics",
+    "source_base_branch": "feature/webui-analytics"
   },
   {
     "pr": 26,
@@ -205,7 +255,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-analytics",
+    "source_base_branch": "feature/serial-ui-profiles"
   },
   {
     "pr": 27,
@@ -213,7 +265,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/external-archive-import",
+    "source_base_branch": "feature/measurement-batch"
   },
   {
     "pr": 28,
@@ -221,7 +275,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/archive-export",
+    "source_base_branch": "feature/external-archive-import"
   },
   {
     "pr": 29,
@@ -229,7 +285,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/archive-snapshot",
+    "source_base_branch": "feature/archive-export"
   },
   {
     "pr": 30,
@@ -237,7 +295,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/archive-stream",
+    "source_base_branch": "feature/archive-snapshot"
   },
   {
     "pr": 31,
@@ -245,7 +305,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/automatic-completion",
+    "source_base_branch": "feature/archive-stream"
   },
   {
     "pr": 32,
@@ -253,7 +315,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/webui-completion-module",
+    "source_base_branch": "feature/automatic-completion"
   },
   {
     "pr": 33,
@@ -261,7 +325,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-completion",
+    "source_base_branch": "feature/webui-completion-module"
   },
   {
     "pr": 34,
@@ -269,7 +335,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-completion",
+    "source_base_branch": "feature/windows-completion"
   },
   {
     "pr": 35,
@@ -277,7 +345,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/completion-limits",
+    "source_base_branch": "feature/macos-completion"
   },
   {
     "pr": 36,
@@ -285,7 +355,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/archive-export-stream",
+    "source_base_branch": "feature/completion-limits"
   },
   {
     "pr": 37,
@@ -293,7 +365,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/api-v1-current-contract",
+    "source_base_branch": "feature/archive-export-stream"
   },
   {
     "pr": 38,
@@ -301,7 +375,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/task-scheduler",
+    "source_base_branch": "feature/api-v1-current-contract"
   },
   {
     "pr": 39,
@@ -309,7 +385,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "remove/proprietary-distribution",
+    "source_base_branch": "main"
   },
   {
     "pr": 40,
@@ -317,7 +395,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/docx-report",
+    "source_base_branch": "feature/task-scheduler"
   },
   {
     "pr": 41,
@@ -325,7 +405,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/task-scheduler-api",
+    "source_base_branch": "feature/docx-report"
   },
   {
     "pr": 42,
@@ -333,7 +415,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/webui-task-scheduler",
+    "source_base_branch": "feature/task-scheduler-api"
   },
   {
     "pr": 43,
@@ -341,7 +425,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/windows-task-scheduler",
+    "source_base_branch": "feature/webui-task-scheduler"
   },
   {
     "pr": 44,
@@ -349,7 +435,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-task-scheduler",
+    "source_base_branch": "feature/windows-task-scheduler"
   },
   {
     "pr": 45,
@@ -357,7 +445,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/task-scheduler-api-contract",
+    "source_base_branch": "feature/macos-task-scheduler"
   },
   {
     "pr": 46,
@@ -365,7 +455,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/task-scheduler-list",
+    "source_base_branch": "feature/task-scheduler-api-contract"
   },
   {
     "pr": 47,
@@ -373,7 +465,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/webui-task-list",
+    "source_base_branch": "feature/task-scheduler-list"
   },
   {
     "pr": 48,
@@ -381,7 +475,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/windows-task-list",
+    "source_base_branch": "feature/webui-task-list"
   },
   {
     "pr": 49,
@@ -389,7 +485,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-task-list",
+    "source_base_branch": "feature/windows-task-list"
   },
   {
     "pr": 50,
@@ -397,7 +495,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-analytics-on-demand",
+    "source_base_branch": "feature/macos-task-list"
   },
   {
     "pr": 51,
@@ -405,7 +505,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/webui-analytics-on-demand",
+    "source_base_branch": "feature/windows-analytics-on-demand"
   },
   {
     "pr": 52,
@@ -413,7 +515,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-analytics-on-demand",
+    "source_base_branch": "feature/webui-analytics-on-demand"
   },
   {
     "pr": 53,
@@ -421,7 +525,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/taskbook-public-fields",
+    "source_base_branch": "feature/macos-analytics-on-demand"
   },
   {
     "pr": 54,
@@ -429,7 +535,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/webui-archive-export",
+    "source_base_branch": "feature/taskbook-public-fields"
   },
   {
     "pr": 55,
@@ -437,7 +545,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-archive-export",
+    "source_base_branch": "feature/webui-archive-export"
   },
   {
     "pr": 56,
@@ -445,7 +555,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/taskbook-create-api",
+    "source_base_branch": "feature/windows-archive-export"
   },
   {
     "pr": 57,
@@ -453,7 +565,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/webui-task-create",
+    "source_base_branch": "feature/taskbook-create-api"
   },
   {
     "pr": 58,
@@ -461,7 +575,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-task-create",
+    "source_base_branch": "feature/webui-task-create"
   },
   {
     "pr": 59,
@@ -469,7 +585,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-task-create",
+    "source_base_branch": "feature/windows-task-create"
   },
   {
     "pr": 60,
@@ -477,7 +595,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-archive-export",
+    "source_base_branch": "feature/macos-task-create"
   },
   {
     "pr": 61,
@@ -485,7 +605,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/taskbook-cancel-api",
+    "source_base_branch": "feature/macos-archive-export"
   },
   {
     "pr": 62,
@@ -493,7 +615,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/webui-task-cancel",
+    "source_base_branch": "feature/taskbook-cancel-api"
   },
   {
     "pr": 63,
@@ -501,7 +625,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/windows-task-cancel",
+    "source_base_branch": "feature/webui-task-cancel"
   },
   {
     "pr": 64,
@@ -509,7 +635,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-task-cancel",
+    "source_base_branch": "feature/windows-task-cancel"
   },
   {
     "pr": 65,
@@ -517,7 +645,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/task-client-docs",
+    "source_base_branch": "feature/macos-task-cancel"
   },
   {
     "pr": 66,
@@ -525,7 +655,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/macos-task-list-rebased",
+    "source_base_branch": "feature/windows-task-list"
   },
   {
     "pr": 67,
@@ -533,7 +665,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/macos-request-cancellation",
+    "source_base_branch": "feature/task-client-docs"
   },
   {
     "pr": 68,
@@ -541,7 +675,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/archive-capacity-guard",
+    "source_base_branch": "feature/macos-request-cancellation"
   },
   {
     "pr": 69,
@@ -549,7 +685,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/archive-sweep-comparison",
+    "source_base_branch": "feature/archive-capacity-guard"
   },
   {
     "pr": 70,
@@ -557,7 +695,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/named-sweep-references",
+    "source_base_branch": "feature/archive-sweep-comparison"
   },
   {
     "pr": 71,
@@ -565,7 +705,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/adaptive-sweep-threshold",
+    "source_base_branch": "feature/named-sweep-references"
   },
   {
     "pr": 72,
@@ -573,7 +715,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/spectral-mask-analysis",
+    "source_base_branch": "feature/adaptive-sweep-threshold"
   },
   {
     "pr": 73,
@@ -581,7 +725,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/averaged-sweep-reference",
+    "source_base_branch": "feature/spectral-mask-analysis"
   },
   {
     "pr": 74,
@@ -589,7 +735,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/three-sweep-thresholds",
+    "source_base_branch": "feature/averaged-sweep-reference"
   },
   {
     "pr": 75,
@@ -597,7 +745,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/sweep-change-detection",
+    "source_base_branch": "feature/averaged-sweep-reference"
   },
   {
     "pr": 77,
@@ -605,7 +755,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/sweep-context-window",
+    "source_base_branch": "feature/three-sweep-thresholds"
   },
   {
     "pr": 78,
@@ -613,7 +765,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/candidate-frequency-rounding",
+    "source_base_branch": "feature/sweep-context-window"
   },
   {
     "pr": 79,
@@ -621,7 +775,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/averaged-sweep-analysis-export",
+    "source_base_branch": "feature/sweep-change-detection"
   },
   {
     "pr": 80,
@@ -629,7 +785,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/release-safety-fixes",
+    "source_base_branch": "feature/candidate-frequency-rounding"
   },
   {
     "pr": 81,
@@ -637,7 +795,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "fix/soapy-rx-constant-units-nan",
+    "source_base_branch": "main"
   },
   {
     "pr": 82,
@@ -645,7 +805,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "feature/tinysa-setup-guard",
+    "source_base_branch": "feature/release-safety-fixes"
   },
   {
     "pr": 83,
@@ -653,7 +815,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "integration/release-sweep-changes",
+    "source_base_branch": "feature/tinysa-setup-guard"
   },
   {
     "pr": 84,
@@ -661,7 +825,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/averaged-analysis-export",
+    "source_base_branch": "integration/release-sweep-changes"
   },
   {
     "pr": 85,
@@ -669,7 +835,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/windows-core-serial",
+    "source_base_branch": "integration/release-sweep-changes"
   },
   {
     "pr": 86,
@@ -677,7 +845,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/soapy-release-fixes",
+    "source_base_branch": "integration/averaged-analysis-export"
   },
   {
     "pr": 87,
@@ -685,7 +855,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/windows-serial-stack",
+    "source_base_branch": "integration/soapy-release-fixes"
   },
   {
     "pr": 88,
@@ -693,7 +865,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 106,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/frequency-raster-rounding",
+    "source_base_branch": "feature/sweep-context-window"
   },
   {
     "pr": 89,
@@ -701,7 +875,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "fix/tinysa-ultra-hardware-20261108",
+    "source_base_branch": "integration/windows-serial-stack"
   },
   {
     "pr": 90,
@@ -709,7 +885,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "test/cross-platform-release-smoke",
+    "source_base_branch": "integration/windows-serial-stack"
   },
   {
     "pr": 91,
@@ -717,7 +895,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 107,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/measurement-results",
+    "source_base_branch": "feature/frequency-raster-rounding"
   },
   {
     "pr": 92,
@@ -725,7 +905,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 108,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/frequency-counter",
+    "source_base_branch": "feature/measurement-results"
   },
   {
     "pr": 93,
@@ -733,7 +915,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 109,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/dvb-parameter-evaluation",
+    "source_base_branch": "feature/frequency-counter"
   },
   {
     "pr": 94,
@@ -741,7 +925,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 110,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/phonogram-prehistory",
+    "source_base_branch": "feature/dvb-parameter-evaluation"
   },
   {
     "pr": 95,
@@ -749,7 +935,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 111,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/signal-list-exchange",
+    "source_base_branch": "feature/phonogram-prehistory"
   },
   {
     "pr": 96,
@@ -757,7 +945,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "release/v0.4.0-preparation",
+    "source_base_branch": "integration/windows-serial-stack"
   },
   {
     "pr": 97,
@@ -765,7 +955,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 112,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/measurement-map",
+    "source_base_branch": "feature/signal-list-exchange"
   },
   {
     "pr": 98,
@@ -773,7 +965,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 113,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/remote-audio-stream",
+    "source_base_branch": "feature/measurement-map"
   },
   {
     "pr": 99,
@@ -781,7 +975,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "fix/windows-tk-lifecycle",
+    "source_base_branch": "test/cross-platform-release-smoke"
   },
   {
     "pr": 100,
@@ -789,7 +985,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/tinysa-hardware-stack",
+    "source_base_branch": "fix/windows-tk-lifecycle"
   },
   {
     "pr": 101,
@@ -797,7 +995,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "feature/stable-spectrum-view",
+    "source_base_branch": "integration/tinysa-hardware-stack"
   },
   {
     "pr": 102,
@@ -805,7 +1005,9 @@
     "state_at_initial_snapshot": "open",
     "decision": "superseded",
     "replacement_pr": 105,
-    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main"
+    "reason": "Сверить действующую реализацию и CI замены; закрыть исходный PR после включения в main",
+    "source_head_branch": "fix/macos-tk-test-isolation",
+    "source_base_branch": "feature/stable-spectrum-view"
   },
   {
     "pr": 103,
@@ -813,7 +1015,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/release-validation-current",
+    "source_base_branch": "release/v0.4.0-preparation"
   },
   {
     "pr": 104,
@@ -821,7 +1025,9 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "integration/stable-spectrum-release",
+    "source_base_branch": "integration/release-validation-current"
   },
   {
     "pr": 105,
@@ -829,6 +1035,8 @@
     "state_at_initial_snapshot": "closed",
     "decision": "historical-closed",
     "replacement_pr": null,
-    "reason": "Исторический PR; не открывать повторно"
+    "reason": "Исторический PR; не открывать повторно",
+    "source_head_branch": "codex/merge-prs-20261108",
+    "source_base_branch": "main"
   }
 ]

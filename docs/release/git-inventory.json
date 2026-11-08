@@ -19,7 +19,11 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        4
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "codex/merge-prs-20261108",
@@ -34,7 +38,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "cursor/add-local-radioinspektor-cd-61c6",
@@ -49,7 +55,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "cursor/finish-scheduler-reports-12d6",
@@ -65,7 +73,11 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        3
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "cursor/macos-dvoynoy-obzor-36a1",
@@ -81,7 +93,13 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        2
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        4
+      ]
     },
     {
       "branch": "feature/adaptive-sweep-threshold",
@@ -96,7 +114,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/api-v1-current-contract",
@@ -111,7 +131,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        37
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        38
+      ]
     },
     {
       "branch": "feature/archive-capacity-guard",
@@ -127,7 +153,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/archive-export",
@@ -143,7 +171,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/archive-export-stream",
@@ -159,7 +189,13 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        36
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        37
+      ]
     },
     {
       "branch": "feature/archive-ingest",
@@ -175,7 +211,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/archive-snapshot",
@@ -191,7 +229,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/archive-stream",
@@ -207,7 +247,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/archive-sweep-comparison",
@@ -223,7 +265,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/automatic-candidate-detection",
@@ -238,7 +282,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/automatic-completion",
@@ -253,7 +299,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/automatic-handoff",
@@ -268,7 +316,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/averaged-sweep-analysis-export",
@@ -284,7 +334,11 @@
         "tests/test_sweep_average.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        79
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/averaged-sweep-reference",
@@ -300,7 +354,11 @@
         "tests/test_sweep_average.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        75
+      ]
     },
     {
       "branch": "feature/candidate-frequency-rounding",
@@ -315,7 +373,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/completion-limits",
@@ -330,7 +390,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        35
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        36
+      ]
     },
     {
       "branch": "feature/device-workers",
@@ -345,7 +411,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/docx-report",
@@ -360,7 +428,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        41
+      ]
     },
     {
       "branch": "feature/dvb-parameter-evaluation",
@@ -375,7 +447,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        93
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        94
+      ]
     },
     {
       "branch": "feature/external-archive-import",
@@ -391,7 +469,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/frequency-counter",
@@ -406,7 +486,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        92
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        93
+      ]
     },
     {
       "branch": "feature/frequency-raster-rounding",
@@ -421,7 +507,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        88
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        91
+      ]
     },
     {
       "branch": "feature/investigation-queue",
@@ -436,7 +528,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/investigations",
@@ -451,7 +545,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-analytics",
@@ -467,7 +563,11 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        26
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-analytics-on-demand",
@@ -483,7 +583,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-api",
@@ -499,7 +601,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-archive-export",
@@ -515,7 +619,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-completion",
@@ -531,7 +637,13 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        34
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        35
+      ]
     },
     {
       "branch": "feature/macos-remote-api",
@@ -547,7 +659,13 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        18
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        19
+      ]
     },
     {
       "branch": "feature/macos-request-cancellation",
@@ -563,7 +681,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-task-cancel",
@@ -579,7 +699,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-task-create",
@@ -595,7 +717,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-task-list",
@@ -611,7 +735,9 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-task-list-rebased",
@@ -627,7 +753,11 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        66
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/macos-task-scheduler",
@@ -643,7 +773,13 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        44
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        45
+      ]
     },
     {
       "branch": "feature/macos-workflows",
@@ -659,7 +795,11 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        19
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/measurement-batch",
@@ -674,7 +814,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        23
+      ]
     },
     {
       "branch": "feature/measurement-map",
@@ -689,7 +833,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        97
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        98
+      ]
     },
     {
       "branch": "feature/measurement-results",
@@ -704,7 +854,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        91
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        92
+      ]
     },
     {
       "branch": "feature/named-sweep-references",
@@ -719,7 +875,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/phonogram-prehistory",
@@ -734,7 +892,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        94
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        95
+      ]
     },
     {
       "branch": "feature/raspberry-webui",
@@ -749,7 +913,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/release-safety-fixes",
@@ -764,7 +930,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/remote-audio-stream",
@@ -779,7 +947,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        98
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/scpi-identify",
@@ -794,7 +966,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/semi-automatic-handoff",
@@ -809,7 +983,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/serial-adapters",
@@ -825,7 +1001,11 @@
         "tests/test_windows_serial_transport.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        22
+      ]
     },
     {
       "branch": "feature/serial-profiles",
@@ -841,7 +1021,9 @@
         "tests/test_windows_serial_transport.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/serial-ui-profiles",
@@ -857,7 +1039,13 @@
         "tests/test_windows_serial_transport.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        22
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        26
+      ]
     },
     {
       "branch": "feature/session-analytics",
@@ -873,7 +1061,13 @@
         "tests/test_webui_analytics.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        23
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        24
+      ]
     },
     {
       "branch": "feature/session-persistence",
@@ -888,7 +1082,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/shared-core-foundation",
@@ -903,7 +1099,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/signal-list-exchange",
@@ -918,7 +1116,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        95
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        97
+      ]
     },
     {
       "branch": "feature/spectral-mask-analysis",
@@ -933,7 +1137,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/stable-spectrum-view",
@@ -949,7 +1155,13 @@
         "tests/webui_spectrum_view.cjs"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        101
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        102
+      ]
     },
     {
       "branch": "feature/sweep-change-detection",
@@ -965,7 +1177,13 @@
         "tests/test_sweep_average.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        75
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        79
+      ]
     },
     {
       "branch": "feature/sweep-context-window",
@@ -980,7 +1198,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        88
+      ]
     },
     {
       "branch": "feature/task-client-docs",
@@ -996,7 +1218,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/task-scheduler",
@@ -1012,7 +1236,11 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        38
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/task-scheduler-api",
@@ -1028,7 +1256,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        41
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        42
+      ]
     },
     {
       "branch": "feature/task-scheduler-api-contract",
@@ -1044,7 +1278,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        45
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        46
+      ]
     },
     {
       "branch": "feature/task-scheduler-list",
@@ -1060,7 +1300,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        46
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        47
+      ]
     },
     {
       "branch": "feature/taskbook-cancel-api",
@@ -1076,7 +1322,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/taskbook-create-api",
@@ -1092,7 +1340,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/taskbook-public-fields",
@@ -1108,7 +1358,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/three-sweep-thresholds",
@@ -1123,7 +1375,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/tinysa-setup-guard",
@@ -1138,7 +1392,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        83
+      ]
     },
     {
       "branch": "feature/webui-analytics",
@@ -1154,7 +1412,13 @@
         "tests/test_webui_analytics.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        24
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        25
+      ]
     },
     {
       "branch": "feature/webui-analytics-on-demand",
@@ -1170,7 +1434,9 @@
         "tests/test_webui_analytics.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-archive-export",
@@ -1186,7 +1452,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-completion",
@@ -1201,7 +1469,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-completion-module",
@@ -1216,7 +1486,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-task-cancel",
@@ -1232,7 +1504,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-task-create",
@@ -1248,7 +1522,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/webui-task-list",
@@ -1264,7 +1540,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        47
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        48
+      ]
     },
     {
       "branch": "feature/webui-task-scheduler",
@@ -1280,7 +1562,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        42
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        43
+      ]
     },
     {
       "branch": "feature/windows-analytics",
@@ -1296,7 +1584,11 @@
         "tests/test_webui_analytics.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        25
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-analytics-on-demand",
@@ -1312,7 +1604,9 @@
         "tests/test_webui_analytics.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-archive-export",
@@ -1328,7 +1622,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-completion",
@@ -1343,7 +1639,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        34
+      ]
     },
     {
       "branch": "feature/windows-core-serial",
@@ -1359,7 +1659,11 @@
         "tests/test_windows_serial_transport.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        85
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-gui",
@@ -1374,7 +1678,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-policies",
@@ -1389,7 +1695,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        18
+      ]
     },
     {
       "branch": "feature/windows-spectrum",
@@ -1405,7 +1715,9 @@
         "tests/webui_spectrum_view.cjs"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-task-cancel",
@@ -1421,7 +1733,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-task-create",
@@ -1437,7 +1751,9 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "feature/windows-task-list",
@@ -1453,7 +1769,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        48
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        66
+      ]
     },
     {
       "branch": "feature/windows-task-scheduler",
@@ -1469,7 +1791,13 @@
         "tests/test_task_scheduler_api.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        43
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        44
+      ]
     },
     {
       "branch": "feature/windows-workflows",
@@ -1484,7 +1812,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "fix/macos-tk-test-isolation",
@@ -1500,7 +1830,11 @@
         "macos/Tests"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        102
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "fix/session-archive-integrity-20261105",
@@ -1516,7 +1850,9 @@
         "tests/test_archive_regressions.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "fix/soapy-rx-constant-units-nan",
@@ -1532,7 +1868,11 @@
         "docs/SOAPY_LIFECYCLE.md"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        81
+      ],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "fix/tinysa-ultra-hardware-20261108",
@@ -1547,7 +1887,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "fix/windows-tk-lifecycle",
@@ -1562,7 +1904,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "integration/averaged-analysis-export",
@@ -1578,7 +1922,9 @@
         "tests/test_sweep_average.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "integration/release-sweep-changes",
@@ -1594,7 +1940,13 @@
         "tests/test_sweep_average.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [
+        83
+      ],
+      "open_pr_bases_at_initial_snapshot": [
+        85
+      ]
     },
     {
       "branch": "integration/release-validation-current",
@@ -1609,7 +1961,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "integration/soapy-release-fixes",
@@ -1625,7 +1979,9 @@
         "docs/SOAPY_LIFECYCLE.md"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "integration/stable-spectrum-release",
@@ -1641,7 +1997,9 @@
         "tests/webui_spectrum_view.cjs"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "integration/tinysa-hardware-stack",
@@ -1656,7 +2014,11 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        101
+      ]
     },
     {
       "branch": "integration/windows-serial-stack",
@@ -1672,7 +2034,9 @@
         "tests/test_windows_serial_transport.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "main",
@@ -1687,7 +2051,13 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": false,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": [
+        81,
+        3,
+        2
+      ]
     },
     {
       "branch": "release/v0.4.0-preparation",
@@ -1702,7 +2072,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "remove/proprietary-distribution",
@@ -1717,7 +2089,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     },
     {
       "branch": "test/cross-platform-release-smoke",
@@ -1732,7 +2106,9 @@
         "tests/run_release_checks.py"
       ],
       "deleted_in_first_batch": true,
-      "delete_requires_unchanged_source_sha": true
+      "delete_requires_unchanged_source_sha": true,
+      "open_pr_heads_at_initial_snapshot": [],
+      "open_pr_bases_at_initial_snapshot": []
     }
   ],
   "notes": [
