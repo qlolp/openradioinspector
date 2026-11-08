@@ -11,6 +11,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+verifier/
 
 # Данные измерений и базы панорам (*.pan) — не подлежат хранению в репозитории
 *.pan

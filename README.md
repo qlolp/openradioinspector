@@ -51,6 +51,7 @@ RInspectorWiFi и описание IQ_ProcessPRO.
 | **Планирование** | Модель планового задания, шесть статусов, ошибки и предупреждения, профиль контроля фиксированных частот (7–11 точек, пороги 6/20/30 дБ) |
 | **Обмен данными** | Экспорт в CEF (ITU-R SM.1809), SigMF 1.2.0, CSV |
 | **Веб-интерфейс** | Живой просмотр спектра, спектрограмма, карта точек, измерение параметров, оценка загрузки; поток событий SSE |
+| **Общая платформа** | Версионированный `/api/v1`, совместные сеансы AR-DV1/tinySA, REST/SSE, приём исходных измерений и SQLite-архив с восстановлением после перезапуска |
 | **Оборудование** | Драйверы SCPI (GPIB/TCP), SCPI через последовательный порт, SoapySDR, RTL-SDR, встроенный генератор измерений |
 
 ---
@@ -136,7 +137,8 @@ python3 -m radioinspector iq --standards DECT,GSM,TETRA,APCO25,DMR \
 
 ```bash
 python3 -m radioinspector serve --host 127.0.0.1 --port 8770 \
-    --database /path/to/<файл>.pan
+    --database /path/to/<файл>.pan \
+    --session-database /path/to/sessions.sqlite
 ```
 
 REST API:
@@ -152,6 +154,17 @@ REST API:
 | `GET` | `/api/coverage?rows=&cols=` | карта покрытия (GeoJSON) |
 | `GET` | `/api/stream` | поток событий (SSE) |
 | `POST` | `/api/threshold` | изменение уровня линии порога |
+| `GET` | `/api/v1/health`, `/api/v1/capabilities` | состояние и фактические возможности общей платформы |
+| `POST`, `GET` | `/api/v1/sessions` | создание и список совместных сеансов |
+| `POST` | `/api/v1/sessions/{id}/start`, `/stop` | жизненный цикл сеанса |
+| `POST`, `GET` | `/api/v1/sessions/{id}/sweeps` | приём и выборка спектральных свипов |
+| `POST`, `GET` | `/api/v1/sessions/{id}/observations` | приём и выборка наблюдений приёмника |
+| `GET` | `/api/v1/events`, `/api/v1/events/history` | SSE и история событий с replay |
+
+`--session-database` включает постоянный архив сеансов, событий, свипов и
+наблюдений. Без этого параметра используется memory-only режим; фактический
+режим возвращает `/api/v1/capabilities`. Общий контракт и примеры измерений
+описаны в [`docs/api-v1.md`](docs/api-v1.md).
 
 Веб-интерфейс не использует внешние JavaScript-библиотеки: графики
 отрисовываются на `<canvas>` средствами браузера.
@@ -177,6 +190,9 @@ radioinspector/
 ├── reporting.py     протоколы измерений
 ├── keywords.py      словарь 317 ключевых слов протоколов
 ├── tasks.py         плановые задания и профиль контроля фиксированных частот
+├── contracts.py     общие модели сеансов, измерений и исследований
+├── session_service.py  жизненный цикл сеансов, измерения и события платформы
+├── session_store.py   SQLite-архив сеансов, событий и исходных измерений
 ├── cli.py           командный интерфейс
 ├── devices/         SCPI, SCPI-over-serial, SoapySDR, RTL-SDR, симулятор
 ├── export/          CEF, SigMF, CSV
@@ -188,7 +204,10 @@ tools/analysis/    программы разбора коммерческого 
 
 Подробности — в [`docs/`](docs/):
 
+* [`AGENTS.md`](AGENTS.md) — обязательные правила автономной работы ИИ-агентов;
 * [`docs/architecture.md`](docs/architecture.md) — архитектура и модель данных;
+* [`docs/platform-architecture.md`](docs/platform-architecture.md) — общее ядро и клиенты Raspberry Pi, Windows и macOS;
+* [`docs/api-v1.md`](docs/api-v1.md) — REST/SSE-контракт общей платформы;
 * [`docs/original-architecture.md`](docs/original-architecture.md) — архитектура
   исходного комплекса: подсистемы и федерация пяти баз данных;
 * [`docs/report-keywords.md`](docs/report-keywords.md) — справочник ключевых

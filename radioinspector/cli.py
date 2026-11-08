@@ -430,7 +430,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     """Запуск веб-интерфейса."""
     from .web.server import serve
 
-    serve(host=args.host, port=args.port, database=args.database)
+    serve(
+        host=args.host,
+        port=args.port,
+        database=args.database,
+        session_database=args.session_database,
+    )
     return 0
 
 
@@ -687,7 +692,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help="веб-интерфейс")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8770)
-    p.add_argument("--database")
+    p.add_argument("--database", help="база спектральных панорам (*.pan)")
+    p.add_argument(
+        "--session-database",
+        help="SQLite-архив общих сеансов и измерений; без него используется память",
+    )
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser(

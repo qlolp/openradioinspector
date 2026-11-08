@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import queue
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,9 +28,12 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from ..assignments import AssignmentDatabase
+from ..contracts import api_payload
+from ..session_service import SessionNotFoundError, SessionService
+from ..session_store import SQLiteSessionStore
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
@@ -252,6 +256,7 @@ class Handler(BaseHTTPRequestHandler):
 
     server_version = "OpenRadioInspector"
     state: ApplicationState
+    sessions: SessionService
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
@@ -266,6 +271,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_api_error(self, status: int, code: str, message: str) -> None:
+        self._send_json(
+            {
+                "contract": "openradioinspector-platform",
+                "contract_version": 1,
+                "error": {"code": code, "message": message},
+            },
+            status,
+        )
 
     def _send_file(self, path: Path) -> None:
         if not path.exists():
@@ -295,6 +310,10 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path
         query = parse_qs(parsed.query)
+
+        if route.startswith("/api/v1/"):
+            self._api_v1_get(route, query)
+            return
 
         if route in ("/", "/index.html"):
             self._send_file(STATIC_DIR / "index.html")
@@ -348,6 +367,10 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         payload = self._read_json()
 
+        if route.startswith("/api/v1/"):
+            self._api_v1_post(route, payload)
+            return
+
         if route == "/api/threshold":
             line = self.state.threshold
             if line is None:
@@ -386,6 +409,139 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_error(404, "Not found")
 
+    # -- общий API платформы, версия 1 --------------------------------------
+
+    def _api_v1_get(self, route: str, query: dict) -> None:
+        try:
+            if route == "/api/v1/health":
+                self._send_json(api_payload(self.sessions.health()))
+                return
+            if route == "/api/v1/capabilities":
+                self._send_json(api_payload(self.sessions.capabilities()))
+                return
+            if route == "/api/v1/sessions":
+                self._send_json(api_payload(self.sessions.list_sessions()))
+                return
+            if route == "/api/v1/events/history":
+                after = int(query.get("after", ["0"])[0])
+                limit = min(int(query.get("limit", ["100"])[0]), 1000)
+                self._send_json(
+                    api_payload(self.sessions.events(after=after, limit=limit))
+                )
+                return
+            if route == "/api/v1/events":
+                raw_after = self.headers.get("Last-Event-ID") or query.get(
+                    "after", ["0"]
+                )[0]
+                self._stream_session_events(int(raw_after))
+                return
+            parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Decode only the ID after splitting, so encoded slashes stay in it.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("sweeps", "observations")
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                limit = int(query.get("limit", ["100"])[0])
+                if parts[4] == "sweeps":
+                    measurements = self.sessions.list_sweeps(
+                        parts[3], stream_id=stream_id, limit=limit
+                    )
+                else:
+                    measurements = self.sessions.list_observations(
+                        parts[3], stream_id=stream_id, limit=limit
+                    )
+                self._send_json(api_payload(measurements))
+                return
+            if len(parts) == 4 and parts[:3] == ["api", "v1", "sessions"]:
+                self._send_json(api_payload(self.sessions.get_session(parts[3])))
+                return
+            self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except SessionNotFoundError as exc:
+            self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except (TypeError, ValueError) as exc:
+            self._send_api_error(400, "invalid_request", str(exc))
+
+    def _api_v1_post(self, route: str, payload: dict) -> None:
+        try:
+            if route == "/api/v1/sessions":
+                session = self.sessions.create_session(payload)
+                self._send_json(api_payload(session), 201)
+                return
+            parts = route.strip("/").split("/")
+            if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
+                # Decode only the ID after splitting, so encoded slashes stay in it.
+                parts[3] = unquote(parts[3])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("sweeps", "observations")
+            ):
+                measurement = dict(payload)
+                supplied_session = measurement.get("session_id")
+                if supplied_session is not None and supplied_session != parts[3]:
+                    raise ValueError("session_id в теле не совпадает с маршрутом")
+                measurement["session_id"] = parts[3]
+                if parts[4] == "sweeps":
+                    result = self.sessions.ingest_sweep(measurement)
+                else:
+                    result = self.sessions.ingest_observation(measurement)
+                self._send_json(api_payload(result), 201)
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] in ("start", "stop")
+            ):
+                if parts[4] == "start":
+                    session = self.sessions.start_session(parts[3])
+                else:
+                    session = self.sessions.stop_session(parts[3])
+                self._send_json(api_payload(session))
+                return
+            self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except SessionNotFoundError as exc:
+            self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except KeyError as exc:
+            self._send_api_error(400, "missing_field", f"Отсутствует поле: {exc.args[0]}")
+        except (TypeError, ValueError) as exc:
+            self._send_api_error(400, "invalid_request", str(exc))
+
+    def _stream_session_events(self, after: int = 0) -> None:
+        """SSE с монотонным id и повторной выдачей после Last-Event-ID."""
+        if after < 0:
+            raise ValueError("Last-Event-ID должен быть неотрицательным")
+        subscriber_id, events = self.sessions.subscribe(after=after)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        try:
+            while True:
+                try:
+                    event = events.get(timeout=15.0)
+                except queue.Empty:
+                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+                    continue
+                data = json_dumps(api_payload(event))
+                frame = (
+                    f"id: {event.sequence}\n"
+                    f"event: {event.event_type}\n"
+                    f"data: {data}\n\n"
+                )
+                self.wfile.write(frame.encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            self.sessions.unsubscribe(subscriber_id)
+
     def _stream_events(self) -> None:
         """Потоковая выдача состояния по протоколу Server-Sent Events."""
         self.send_response(200)
@@ -414,19 +570,54 @@ class Handler(BaseHTTPRequestHandler):
             self.state.unsubscribe(event)
 
 
+def create_server(
+    host: str = "127.0.0.1",
+    port: int = 8770,
+    database: Optional[str] = None,
+    library: Optional[str] = None,
+    sessions: Optional[SessionService] = None,
+    session_database: Optional[str] = None,
+) -> ThreadingHTTPServer:
+    """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
+    if sessions is not None and session_database is not None:
+        raise ValueError("Передайте либо sessions, либо session_database, но не оба")
+    state = ApplicationState(database=database, library=library)
+    if sessions is not None:
+        session_service = sessions
+    elif session_database:
+        session_service = SessionService(store=SQLiteSessionStore(session_database))
+    else:
+        session_service = SessionService()
+    handler = type(
+        "BoundHandler",
+        (Handler,),
+        {"state": state, "sessions": session_service},
+    )
+    httpd = ThreadingHTTPServer((host, port), handler)
+    httpd.daemon_threads = True
+    return httpd
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = 8770,
     database: Optional[str] = None,
     library: Optional[str] = None,
+    session_database: Optional[str] = None,
 ) -> None:
     """Запуск веб-интерфейса."""
-    state = ApplicationState(database=database, library=library)
-    handler = type("BoundHandler", (Handler,), {"state": state})
-    httpd = ThreadingHTTPServer((host, port), handler)
+    httpd = create_server(
+        host=host,
+        port=port,
+        database=database,
+        library=library,
+        session_database=session_database,
+    )
     print(f"Веб-интерфейс: http://{host}:{port}")
     if database:
-        print(f"База данных: {database}")
+        print(f"База данных панорам: {database}")
+    if session_database:
+        print(f"Архив сеансов: {session_database}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
