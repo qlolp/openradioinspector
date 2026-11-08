@@ -660,7 +660,7 @@ public final class PlatformClient {
     }
 
     public func createSerialSession(
-        name: String, tinySAPort: String, ardv1Port: String
+        name: String, tinySAPort: String, ardv1Port: String = ""
     ) async throws -> PlatformSession {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let spectrumPort = tinySAPort.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -668,14 +668,19 @@ public final class PlatformClient {
         guard !trimmed.isEmpty else {
             throw PlatformError.invalidCommand("Название сеанса не должно быть пустым")
         }
-        guard !spectrumPort.isEmpty, !targetPort.isEmpty else {
-            throw PlatformError.invalidCommand("Последовательные порты не должны быть пустыми")
+        guard !spectrumPort.isEmpty else {
+            throw PlatformError.invalidCommand("Последовательный порт tinySA не должен быть пустым")
         }
-        guard spectrumPort != targetPort else {
-            throw PlatformError.invalidCommand("Порты tinySA и AR-DV1 должны различаться")
-        }
-        guard !spectrumPort.hasPrefix("sim://"), !targetPort.hasPrefix("sim://") else {
+        guard !spectrumPort.hasPrefix("sim://") else {
             throw PlatformError.invalidCommand("Serial-профиль не должен использовать sim://")
+        }
+        if !targetPort.isEmpty {
+            guard spectrumPort != targetPort else {
+                throw PlatformError.invalidCommand("Порты tinySA и AR-DV1 должны различаться")
+            }
+            guard !targetPort.hasPrefix("sim://") else {
+                throw PlatformError.invalidCommand("Serial-профиль не должен использовать sim://")
+            }
         }
         let analyzer = StreamDraft(
             device: "tinySA Ultra", role: "spectrum_analyzer", levelUnit: "dBm",
@@ -689,18 +694,22 @@ public final class PlatformClient {
                 "period_s": .floating(0.25),
             ]
         )
-        let receiver = StreamDraft(
-            device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
-            port: targetPort, capabilities: ["tune", "audio"],
-            settings: [
-                "adapter": .string("ardv1-serial"),
-                "frequency_hz": .integer(145_500_000),
-                "mode": .string("FM"),
-                "squelch": .integer(10),
-                "period_s": .floating(0.25),
-            ]
-        )
-        return try await post("/sessions", body: SessionDraft(name: trimmed, streams: [analyzer, receiver]))
+        var streams = [analyzer]
+        if !targetPort.isEmpty {
+            let receiver = StreamDraft(
+                device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
+                port: targetPort, capabilities: ["tune", "audio"],
+                settings: [
+                    "adapter": .string("ardv1-serial"),
+                    "frequency_hz": .integer(145_500_000),
+                    "mode": .string("FM"),
+                    "squelch": .integer(10),
+                    "period_s": .floating(0.25),
+                ]
+            )
+            streams.append(receiver)
+        }
+        return try await post("/sessions", body: SessionDraft(name: trimmed, streams: streams))
     }
 
     public func startSession(_ id: String) async throws -> PlatformSession {
