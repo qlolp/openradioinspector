@@ -1,13 +1,14 @@
-"""Служба жизненного цикла совместных сеансов наблюдения.
+"""Служба совместных сеансов, событий и исходных измерений.
 
-Первый срез намеренно хранит сеансы в памяти. Персистентный архив будет
-подключён к этой же службе отдельным адаптером, без изменения HTTP-контракта.
+SQLite-архив подключается через ``SQLiteSessionStore``. Без него служба сохраняет
+прежний memory-only режим, а ``capabilities`` честно сообщает выбранный режим.
 """
 
 from __future__ import annotations
 
 import copy
 import queue
+import sqlite3
 import threading
 from collections import deque
 from datetime import datetime
@@ -17,10 +18,13 @@ from .contracts import (
     API_VERSION,
     CONTRACT_VERSION,
     MonitoringSession,
+    ReceiverObservation,
     SessionEvent,
+    Sweep,
     to_primitive,
     utc_now,
 )
+from .session_store import SQLiteSessionStore
 
 
 class SessionNotFoundError(KeyError):
@@ -30,7 +34,7 @@ class SessionNotFoundError(KeyError):
 
 
 class SessionService:
-    """Потокобезопасный реестр сеансов и журнал событий платформы."""
+    """Потокобезопасный реестр сеансов, измерений и журнала событий."""
 
     def __init__(
         self,
@@ -38,28 +42,38 @@ class SessionService:
         clock: Callable[[], datetime] = utc_now,
         history_limit: int = 1000,
         subscriber_queue_size: int = 100,
+        store: Optional[SQLiteSessionStore] = None,
     ) -> None:
         if history_limit < 1 or subscriber_queue_size < 1:
             raise ValueError("Размеры журнала и очереди должны быть положительными")
         self._clock = clock
         self._history_limit = history_limit
         self._subscriber_queue_size = subscriber_queue_size
+        self._store = store
         self._sessions: dict[str, MonitoringSession] = {}
         self._events: deque[SessionEvent] = deque(maxlen=history_limit)
+        self._sweeps: list[Sweep] = []
+        self._observations: list[ReceiverObservation] = []
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
         self._sequence = 0
         self._subscriber_sequence = 0
         self._lock = threading.RLock()
+        if store is not None:
+            restored = store.load_sessions()
+            self._sessions = {item.id: item for item in restored}
+            events = store.load_events(limit=history_limit)
+            self._events.extend(events)
+            self._sequence = events[-1].sequence if events else 0
 
-    @staticmethod
-    def capabilities() -> dict[str, Any]:
-        """Фактические возможности текущего среза, без обещаний будущих функций."""
+    def capabilities(self) -> dict[str, Any]:
+        """Фактические возможности текущего экземпляра без обещаний будущих функций."""
+        persistent = self._store is not None
         return {
             "api_version": API_VERSION,
             "contract_version": CONTRACT_VERSION,
             "hardware_ownership": "core",
-            "session_storage": "memory",
-            "persistent_archive": False,
+            "session_storage": "sqlite" if persistent else "memory",
+            "persistent_archive": persistent,
             "clients": ["raspberry-pi-webui", "windows-gui", "macos-swiftui"],
             "features": {
                 "monitoring_sessions": True,
@@ -67,7 +81,9 @@ class SessionService:
                 "session_lifecycle": True,
                 "session_event_history": True,
                 "sse_replay": True,
-                "measurement_ingest": False,
+                "session_recovery": persistent,
+                "measurement_ingest": True,
+                "measurement_archive": True,
                 "candidate_investigations": False,
                 "hardware_control": False,
             },
@@ -90,16 +106,32 @@ class SessionService:
     def create_session(self, payload: dict[str, Any]) -> MonitoringSession:
         if not isinstance(payload, dict):
             raise TypeError("Тело запроса должно быть JSON-объектом")
-        session = MonitoringSession.from_dict(payload)
+        if payload.get("state", "draft") != "draft":
+            raise ValueError("Новый сеанс должен иметь состояние draft")
+        for field in ("created_at", "started_at", "ended_at"):
+            if payload.get(field) is not None:
+                raise ValueError(f"{field} назначается службой жизненного цикла")
+        creation = dict(payload)
+        creation["created_at"] = to_primitive(self._clock())
+        session = MonitoringSession.from_dict(creation)
         with self._lock:
             if session.id in self._sessions:
                 raise ValueError(f"Сеанс уже существует: {session.id}")
-            self._sessions[session.id] = session
-            self._append_event_locked(
+            existing_ids = {
+                stream.id for item in self._sessions.values() for stream in item.streams
+            }
+            for stream in session.streams:
+                if stream.id in existing_ids:
+                    raise ValueError(f"Поток уже принадлежит другому сеансу: {stream.id}")
+            event = self._make_event_locked(
                 "session.created",
                 session_id=session.id,
                 payload={"session": to_primitive(session)},
             )
+            if self._store is not None:
+                self._store.save_session(session, event=event)
+            self._sessions[session.id] = session
+            self._publish_event_locked(event)
             return copy.deepcopy(session)
 
     def list_sessions(self) -> list[MonitoringSession]:
@@ -117,27 +149,147 @@ class SessionService:
         self, session_id: str, *, at: Optional[datetime] = None
     ) -> MonitoringSession:
         with self._lock:
-            session = self._get_locked(session_id)
+            session = copy.deepcopy(self._get_locked(session_id))
             session.start(at or self._clock())
-            self._append_event_locked(
-                "session.started",
-                session_id=session.id,
-                payload={"session": to_primitive(session)},
-            )
-            return copy.deepcopy(session)
+            return self._save_transition_locked(session, "session.started")
 
     def stop_session(
         self, session_id: str, *, at: Optional[datetime] = None
     ) -> MonitoringSession:
         with self._lock:
-            session = self._get_locked(session_id)
+            session = copy.deepcopy(self._get_locked(session_id))
             session.stop(at or self._clock())
-            self._append_event_locked(
-                "session.stopped",
-                session_id=session.id,
-                payload={"session": to_primitive(session)},
+            return self._save_transition_locked(session, "session.stopped")
+
+    def _save_transition_locked(
+        self, session: MonitoringSession, event_type: str
+    ) -> MonitoringSession:
+        event = self._make_event_locked(
+            event_type, session_id=session.id, payload={"session": to_primitive(session)}
+        )
+        if self._store is not None:
+            self._store.save_session(session, event=event)
+        self._sessions[session.id] = session
+        self._publish_event_locked(event)
+        return copy.deepcopy(session)
+
+    def ingest_sweep(self, payload: dict[str, Any] | Sweep) -> Sweep:
+        sweep = payload if isinstance(payload, Sweep) else Sweep.from_dict(payload)
+        with self._lock:
+            self._validate_measurement_locked(
+                sweep.session_id, sweep.stream_id, sweep.level_unit
             )
-            return copy.deepcopy(session)
+            if self._store is None and any(item.id == sweep.id for item in self._sweeps):
+                raise ValueError(f"Свип уже существует: {sweep.id}")
+            event = self._make_event_locked(
+                "sweep.received",
+                session_id=sweep.session_id,
+                payload={"sweep": to_primitive(sweep)},
+            )
+            try:
+                if self._store is not None:
+                    self._store.record_sweep(sweep, event=event)
+                else:
+                    self._sweeps.append(copy.deepcopy(sweep))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"Свип уже существует или нарушает связи: {sweep.id}") from exc
+            self._publish_event_locked(event)
+            return copy.deepcopy(sweep)
+
+    def ingest_observation(
+        self, payload: dict[str, Any] | ReceiverObservation
+    ) -> ReceiverObservation:
+        observation = (
+            payload
+            if isinstance(payload, ReceiverObservation)
+            else ReceiverObservation.from_dict(payload)
+        )
+        with self._lock:
+            self._validate_measurement_locked(
+                observation.session_id, observation.stream_id, observation.level_unit
+            )
+            if self._store is None and any(
+                item.id == observation.id for item in self._observations
+            ):
+                raise ValueError(f"Наблюдение уже существует: {observation.id}")
+            event = self._make_event_locked(
+                "observation.received",
+                session_id=observation.session_id,
+                payload={"observation": to_primitive(observation)},
+            )
+            try:
+                if self._store is not None:
+                    self._store.record_observation(observation, event=event)
+                else:
+                    self._observations.append(copy.deepcopy(observation))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Наблюдение уже существует или нарушает связи: {observation.id}"
+                ) from exc
+            self._publish_event_locked(event)
+            return copy.deepcopy(observation)
+
+    @staticmethod
+    def _limit(limit: int) -> int:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit должен быть целым от 1 до 1000")
+        return limit
+
+    def list_sweeps(
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+    ) -> list[Sweep]:
+        limit = self._limit(limit)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                return self._store.list_sweeps(session_id, stream_id=stream_id, limit=limit)
+            selected = [
+                item for item in self._sweeps
+                if item.session_id == session_id
+                and (stream_id is None or item.stream_id == stream_id)
+            ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
+            return copy.deepcopy(selected[-limit:])
+
+    def list_observations(
+        self, session_id: str, *, stream_id: Optional[str] = None, limit: int = 100
+    ) -> list[ReceiverObservation]:
+        limit = self._limit(limit)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                return self._store.list_observations(
+                    session_id, stream_id=stream_id, limit=limit
+                )
+            selected = [
+                item for item in self._observations
+                if item.session_id == session_id
+                and (stream_id is None or item.stream_id == stream_id)
+            ]
+            selected.sort(key=lambda item: (item.interval.started_at, item.id))
+            return copy.deepcopy(selected[-limit:])
+
+    def _validate_stream_query_locked(
+        self, session_id: str, stream_id: Optional[str]
+    ) -> None:
+        session = self._get_locked(session_id)
+        if stream_id is not None and not any(
+            item.id == stream_id for item in session.streams
+        ):
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+
+    def _validate_measurement_locked(
+        self, session_id: str, stream_id: str, level_unit: str
+    ) -> None:
+        session = self._get_locked(session_id)
+        stream = next((item for item in session.streams if item.id == stream_id), None)
+        if stream is None:
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+        if stream.level_unit != level_unit:
+            raise ValueError(
+                f"Единица измерения {level_unit!r} не совпадает с потоком "
+                f"{stream.level_unit!r}; автоматическое преобразование запрещено"
+            )
 
     def publish(
         self,
@@ -146,7 +298,7 @@ class SessionService:
         session_id: Optional[str] = None,
         payload: Optional[dict[str, Any]] = None,
     ) -> SessionEvent:
-        """Публикует событие следующих слоёв: измерения, кандидатов и приборов."""
+        """Публикует событие следующих слоёв: кандидатов и состояния приборов."""
         with self._lock:
             if session_id is not None:
                 self._get_locked(session_id)
@@ -158,6 +310,8 @@ class SessionService:
         if after < 0 or limit < 1:
             raise ValueError("after должен быть неотрицательным, limit — положительным")
         with self._lock:
+            if self._store is not None:
+                return self._store.events(after=after, limit=limit)
             selected = [item for item in self._events if item.sequence > after]
             return copy.deepcopy(selected[:limit])
 
@@ -181,6 +335,11 @@ class SessionService:
         with self._lock:
             self._subscribers.pop(subscriber_id, None)
 
+    def close(self) -> None:
+        with self._lock:
+            if self._store is not None:
+                self._store.close()
+
     def _get_locked(self, session_id: str) -> MonitoringSession:
         try:
             return self._sessions[session_id]
@@ -194,14 +353,31 @@ class SessionService:
         session_id: Optional[str],
         payload: dict[str, Any],
     ) -> SessionEvent:
-        self._sequence += 1
-        event = SessionEvent(
-            sequence=self._sequence,
+        event = self._make_event_locked(
+            event_type, session_id=session_id, payload=payload
+        )
+        if self._store is not None:
+            self._store.append_event(event)
+        return self._publish_event_locked(event)
+
+    def _make_event_locked(
+        self,
+        event_type: str,
+        *,
+        session_id: Optional[str],
+        payload: dict[str, Any],
+    ) -> SessionEvent:
+        return SessionEvent(
+            sequence=self._sequence + 1,
             event_type=event_type,
             occurred_at=self._clock(),
             session_id=session_id,
             payload=copy.deepcopy(payload),
         )
+
+    def _publish_event_locked(self, event: SessionEvent) -> SessionEvent:
+        """Update replay and subscribers only after the archive commit succeeds."""
+        self._sequence = event.sequence
         self._events.append(event)
         for subscriber in self._subscribers.values():
             self._offer(subscriber, event)
