@@ -38,6 +38,7 @@ from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
 from .sweep_average import calculate_sweep_average_comparison, validate_average_request
 from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
+from .sweep_three_thresholds import calculate_sweep_three_thresholds, validate_three_thresholds_request
 from .sweep_references import (
     MAX_SWEEP_REFERENCES, check_reference_creation, normalize_reference_name,
 )
@@ -177,6 +178,7 @@ class SessionService:
                 "measurement_archive": True,
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
+                "three_sweep_thresholds": True,
                 "spectral_mask_analysis": True,
                 "averaged_sweep_reference": True,
                 "named_sweep_references": True,
@@ -551,6 +553,14 @@ class SessionService:
             return calculate_sweep_threshold(
                 session_id, sweep, window_points=window_points, margin_db=margin_db,
             )
+
+    def sweep_three_thresholds(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Evaluate three independent lines over one exact ID without writes."""
+        sweep_id, levels_dbm = validate_three_thresholds_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_three_thresholds(session_id, sweep, levels_dbm=levels_dbm)
 
     def sweep_mask_analysis(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Evaluate an imported mask against one exact ID, without persistence."""

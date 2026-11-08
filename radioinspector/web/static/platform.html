@@ -12,6 +12,7 @@
   <script src="/static/sweep-threshold.js" defer></script>
   <script src="/static/sweep-mask.js" defer></script>
   <script src="/static/sweep-average.js" defer></script>
+  <script src="/static/sweep-three-thresholds.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -241,6 +242,30 @@
           <p id="average-summary"></p>
           <canvas id="average-overlay" width="960" height="280" role="img" aria-label="Средняя мощность и целевой свип, dBm" hidden></canvas>
           <canvas id="average-delta" width="960" height="260" role="img" aria-label="Разность цели и усреднённого опорного, dB" hidden></canvas>
+        </section>
+        <section class="three-thresholds-panel" aria-labelledby="three-thresholds-heading">
+          <h3 id="three-thresholds-heading">Три горизонтальных порога архивного свипа · dBm</h3>
+          <p>Три независимые ручные линии, в любом порядке, в том числе одинаковые. Начальные −90, −80, −70 dBm — только примеры, не нормативные пределы. Это не автоматический детектор, не калибровка и не объединение с маской или адаптивным порогом.</p>
+          <div class="form-grid">
+            <label>line-1 · жёлтый, длинный штрих · dBm<input id="three-thresholds-level-1" type="number" step="any" value="-90" required></label>
+            <label>line-2 · оранжевый, короткий штрих · dBm<input id="three-thresholds-level-2" type="number" step="any" value="-80" required></label>
+            <label>line-3 · сиреневый, штрих-точка · dBm<input id="three-thresholds-level-3" type="number" step="any" value="-70" required></label>
+          </div>
+          <p id="three-thresholds-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="actions">
+            <button id="three-thresholds-run" class="button" type="button" disabled>Анализировать последний dBm свип</button>
+            <button id="three-thresholds-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Анализ только по кнопке. Новые свипы обновляют следующую цель, а результат сохраняет исходный свип, UTC, настройки и три введённых уровня. Редактирование очищает результат. Совпадающие линии различаются вложенными кольцами, исходный свип — малым квадратом.</p>
+          <p id="three-thresholds-status" role="status" aria-live="polite"></p>
+          <p id="three-thresholds-summary"></p>
+          <canvas id="three-thresholds-canvas" width="960" height="300" role="img" aria-label="Исходный свип и три горизонтальных порога, dBm" hidden></canvas>
+          <p id="three-thresholds-line-1-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-1-regions" class="three-thresholds-regions" aria-label="Области превышения line-1, dB"></ol>
+          <p id="three-thresholds-line-2-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-2-regions" class="three-thresholds-regions" aria-label="Области превышения line-2, dB"></ol>
+          <p id="three-thresholds-line-3-summary" class="three-thresholds-line-summary"></p>
+          <ol id="three-thresholds-line-3-regions" class="three-thresholds-regions" aria-label="Области превышения line-3, dB"></ol>
         </section>
         <section class="threshold-panel" aria-labelledby="threshold-heading">
           <h3 id="threshold-heading">Адаптивный порог архивного свипа · dBm</h3>

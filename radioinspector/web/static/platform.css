@@ -345,3 +345,10 @@ form.editor { border-style: solid; }
 .average-panel h3 { color: var(--cyan); font-size: 13px; }
 #average-reference, #average-summary { white-space: pre-line; line-height: 1.7; }
 #average-overlay, #average-delta { width: 100%; height: auto; margin-top: 10px; }
+
+/* Three manual thresholds are independent of adaptive/mask/live panels. */
+.three-thresholds-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.three-thresholds-panel h3 { color: var(--cyan); font-size: 13px; }
+#three-thresholds-summary, .three-thresholds-line-summary { white-space: pre-line; line-height: 1.7; }
+.three-thresholds-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
+#three-thresholds-canvas { width: 100%; height: auto; margin-top: 10px; }

@@ -110,16 +110,16 @@ struct PinnedSweepReference {
 @MainActor
 final class RemoteDualModel: ObservableObject {
     @Published var serverURL = "http://127.0.0.1:8770" {
-        didSet { if serverURL != oldValue { resetComparisonScope() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope() } }
     }
     @Published var sessions: [PlatformSession] = []
     @Published var selectedSessionID = "" {
-        didSet { if selectedSessionID != oldValue { resetComparisonScope() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope() } }
     }
     @Published var session: PlatformSession? {
         didSet {
-            if session?.streams.first(where: { $0.isDbmAnalyzer })?.id
-                != oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id {
+            if !PlatformThreeSweepThresholds.sameID(session?.streams.first(where: { $0.isDbmAnalyzer })?.id,
+                oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id) {
                 resetComparisonScope()
             }
         }
@@ -206,6 +206,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var showSerialForm = false
 
     let sweepAverage = SweepAverageModel()
+    let threeSweepThresholds = ThreeSweepThresholdsModel()
     let spectralMask = SpectralMaskModel()
     let sweepThreshold: SweepThresholdModel
 
@@ -320,7 +321,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func selectSession(_ id: String) {
-        guard id != selectedSessionID else { return }
+        guard !PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
         generation += 1
         selectedSessionID = id
         busy = false
@@ -425,7 +426,7 @@ final class RemoteDualModel: ObservableObject {
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             let snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false)
-            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+            guard requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             session = snapshot.session
             if let modes = receiver?.tuneModes, !modes.contains(mode) {
                 mode = modes.first ?? "FM"
@@ -436,8 +437,9 @@ final class RemoteDualModel: ObservableObject {
             errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
-            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+            guard requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             sweepAverage.reset()
+            threeSweepThresholds.reset()
             errorText = describeSession(error)
         }
     }
@@ -815,6 +817,7 @@ final class RemoteDualModel: ObservableObject {
 
     private func resetComparisonScope() {
         sweepAverage.reset()
+        threeSweepThresholds.reset()
         spectralMask.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
@@ -1262,10 +1265,14 @@ final class RemoteDualModel: ObservableObject {
         var found: [Exceedance] = []
         let level = thresholdDbm ?? -80
         let selectedSweeps = snapshot.sweeps.filter {
-            $0.sessionId == selectedSessionID && $0.streamId == analyzer?.id && $0.levelUnit == "dBm"
+            PlatformThreeSweepThresholds.sameID($0.sessionId, selectedSessionID)
+                && PlatformThreeSweepThresholds.sameID($0.streamId, analyzer?.id) && $0.levelUnit == "dBm"
         }
         comparisonSweeps = selectedSweeps
-        if let client, connectedServerURL == serverURL, let stream = analyzer?.id {
+        if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
+            threeSweepThresholds.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                source: selectedSweeps.last)
             sweepAverage.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: selectedSweeps)
@@ -1275,7 +1282,7 @@ final class RemoteDualModel: ObservableObject {
             sweepThreshold.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
-        } else { sweepAverage.reset(); sweepThreshold.reset(); spectralMask.reset() }
+        } else { sweepAverage.reset(); threeSweepThresholds.reset(); sweepThreshold.reset(); spectralMask.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1423,6 +1430,7 @@ struct RemoteUltraPane: View {
                 WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
                 RemoteSweepComparisonPane(model: model)
                 RemoteSweepAveragePane(model: model.sweepAverage)
+                RemoteThreeSweepThresholdsPane(model: model.threeSweepThresholds)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
                 RemoteSpectralMaskPane(model: model.spectralMask)
                 GroupBox("Превышения порога") {

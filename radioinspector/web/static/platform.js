@@ -570,6 +570,9 @@
     window.OpenRadioSweepAverage?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
+    window.OpenRadioSweepThreeThresholds?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
   }
 
   function renderSpectrum() {
@@ -837,10 +840,12 @@
       window.OpenRadioSweepThreshold?.setConnected(true);
       window.OpenRadioSweepMask?.setConnected(true);
       window.OpenRadioSweepAverage?.setConnected(true);
+      window.OpenRadioSweepThreeThresholds?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
       window.OpenRadioSweepAverage?.setConnected(false);
+      window.OpenRadioSweepThreeThresholds?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -880,6 +885,7 @@
     source.addEventListener("error", () => {
       setSseStatus("SSE переподключение · polling", "warning");
       window.OpenRadioSweepAverage?.setConnected(false);
+      window.OpenRadioSweepThreeThresholds?.setConnected(false);
     });
     const receive = (message) => {
       try {

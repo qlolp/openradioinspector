@@ -215,6 +215,16 @@ class PlatformClient:
             raise ValueError('Запрос превышает 8192 байт')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-comparison", payload, expected_statuses=(200,))
 
+    def sweep_three_thresholds(self, session_id: str, sweep_id: str, levels_dbm: list[float]) -> dict[str, Any]:
+        from .sweep_average import identity
+        from .sweep_three_thresholds import validate_levels
+        if not identity(sweep_id): raise ValueError('Некорректный sweep_id')
+        validate_levels(levels_dbm)
+        payload = {'sweep_id': sweep_id, 'levels_dbm': levels_dbm}
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 8192:
+            raise ValueError('Запрос превышает 8192 байта')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-three-thresholds", payload, expected_statuses=(200,))
+
     def sweep_mask_analysis(self, session_id: str, sweep_id: str, mask_json: str) -> dict[str, Any]:
         from .spectral_mask import check_draft
         check_draft(mask_json)

@@ -225,7 +225,8 @@ private func validateMaskShape(_ mask: [String: Any]) throws {
 
 /// Bounded raw scan prevents Foundation from silently collapsing duplicate JSON object keys.
 /// JSONSerialization / JSONDecoder still perform complete grammar and value validation afterward.
-private struct MaskJSONScanner {
+// Also used by strict derived endpoints that must not lose provenance keys during Dictionary decoding.
+struct MaskJSONScanner {
     let bytes: [UInt8]
     var index = 0
     mutating func check() throws {

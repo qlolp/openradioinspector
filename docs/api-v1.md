@@ -44,6 +44,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}/sweep-threshold?sweep_id=&window_points=&margin_db=` | Read-only адаптивный порог и области превышения одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/sweep-mask-analysis` | Read-only анализ архивного dBm свипа по переданному JSON артефакту маски |
 | `POST` | `/api/v1/sessions/{id}/sweep-average-comparison` | Read-only среднее мощности 2–16 архивных свипов и разность с отдельным target |
+| `POST` | `/api/v1/sessions/{id}/sweep-three-thresholds` | Read-only три горизонтальных порога одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -654,3 +655,10 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 совместимых архивных свипов и возвращает производную панораму в dBm,
 разность в dB и происхождение всех источников. Каталог и архив не меняются.
 Контракт, численная устойчивость и пределы: [averaged-sweep-reference.md](averaged-sweep-reference.md).
+
+## Три горизонтальных порога
+
+`features.three_sweep_thresholds` включает read-only POST с `{sweep_id, levels_dbm}`.
+Три уровня сохраняют порядок и идентичность даже при совпадении; каждое
+превышение и область вычисляются ядром отдельно. Общего OR-детектора нет.
+Контракт и пределы: [three-sweep-thresholds.md](three-sweep-thresholds.md).

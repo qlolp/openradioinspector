@@ -114,7 +114,7 @@ private func averageScopeID(_ id: String) -> Bool {
 private func averageID(_ id: String) -> Bool {
     !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && id.unicodeScalars.count <= 128
 }
-private func averageKnown(_ settings: [String: PlatformComparisonSetting]) -> [String: PlatformComparisonSetting]? {
+func averageKnown(_ settings: [String: PlatformComparisonSetting]) -> [String: PlatformComparisonSetting]? {
     func recorded(_ value: PlatformComparisonSetting) -> Bool {
         switch value {
         case .null: return false
@@ -128,7 +128,7 @@ private func averageKnown(_ settings: [String: PlatformComparisonSetting]) -> [S
     return !known.isEmpty && known.values.allSatisfy(recorded) ? known : nil
 }
 // Foundation's ISO8601DateFormatter truncates fractional seconds. Parse them separately.
-private func averageInterval(_ interval: PlatformInterval) -> (Int64, Int64)? {
+func averageInterval(_ interval: PlatformInterval) -> (Int64, Int64)? {
     func instant(_ text: String) -> Int64? {
         let body: String
         if text.hasSuffix("Z") { body = String(text.dropLast()) }
