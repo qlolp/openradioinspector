@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import queue
+import re
 import tempfile
 import threading
 import time
@@ -45,9 +46,11 @@ from ..session_service import (
     InvestigationNotFoundError,
     SessionNotFoundError,
     SessionService,
+    SweepNotFoundError,
 )
 from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
+from ..sweep_comparison import ComparisonIncompatibleError
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..jsonio import dumps as json_dumps
@@ -627,6 +630,30 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-comparison"
+            ):
+                # Reparse only this new route strictly; preserve legacy query
+                # behavior elsewhere. Blank and repeated values must not vanish.
+                raw_query = urlparse(self.path).query
+                if re.search(r"%(?![0-9a-fA-F]{2})", raw_query):
+                    raise ValueError("Некорректное percent-кодирование параметров")
+                comparison_query = parse_qs(
+                    raw_query, keep_blank_values=True,
+                    strict_parsing=True, errors="strict",
+                )
+                if set(comparison_query) != {"reference_id", "target_id"} or any(
+                    len(values) != 1 or not values[0].strip()
+                    for values in comparison_query.values()
+                ):
+                    raise ValueError("Нужны ровно по одному reference_id и target_id")
+                self._send_json(api_payload(self.sessions.compare_sweeps(
+                    parts[3], reference_id=comparison_query["reference_id"][0],
+                    target_id=comparison_query["target_id"][0],
+                )))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in ("sweeps", "observations")
             ):
                 stream_id = query.get("stream_id", [None])[0]
@@ -647,6 +674,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
+        except SweepNotFoundError as exc:
+            self._send_api_error(404, "sweep_not_found", str(exc.args[0]))
+        except ComparisonIncompatibleError as exc:
+            self._send_api_error(409, "comparison_incompatible", str(exc))
         except TaskNotFoundError as exc:
             self._send_api_error(404, "task_not_found", str(exc.args[0]))
         except CandidateNotFoundError as exc:

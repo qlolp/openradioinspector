@@ -970,10 +970,15 @@ public final class PlatformClient {
                 throw PlatformError.connection("Перенаправление на другой origin отклонено")
             }
         } catch let error as PlatformError {
+            if Task.isCancelled { throw CancellationError() }
             throw error
         } catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+                throw CancellationError()
+            }
             throw PlatformError.connection(error.localizedDescription)
         }
+        try Task.checkCancellation()
         guard data.count <= maximumResponseBytes else { throw PlatformError.responseTooLarge }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let decoder = JSONDecoder()

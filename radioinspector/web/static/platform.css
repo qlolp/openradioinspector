@@ -314,3 +314,9 @@ form.editor { border-style: solid; }
 #archive-capacity-status[data-state="warning"] { color: #ffd36e; }
 #archive-capacity-status[data-state="full"] { color: #ff8f86; font-weight: 700; }
 #archive-capacity-status[data-state="unavailable"] { color: var(--muted); }
+
+/* Comparison is derived dB, kept apart from raw dBm trace and waterfall. */
+.comparison-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.comparison-panel h3 { font-size: 13px; color: var(--amber); }
+.comparison-panel select { width: 100%; max-width: 100%; }
+#comparison-summary { white-space: pre-line; line-height: 1.7; }

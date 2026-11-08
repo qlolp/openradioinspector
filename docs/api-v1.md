@@ -39,6 +39,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/sweeps` | Приём спектрального свипа |
 | `POST` | `/api/v1/sessions/{id}/sweeps/batch` | Атомарный приём пакета свипов |
 | `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
+| `GET` | `/api/v1/sessions/{id}/sweep-comparison?reference_id=&target_id=` | Read-only разность двух совместимых архивных dBm свипов в dB |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -607,3 +608,11 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 Это ограничитель приёма измерений, а не жёсткая квота файловой системы: WAL и
 временные копии не учитываются, служебные записи остаются разрешены. Поля,
 команда запуска и границы описаны в [archive-capacity.md](archive-capacity.md).
+
+## Эталон и разность архивных свипов
+
+`features.sweep_comparison` включает сравнение точной пары записей без изменения
+архива. Расчёт `target − reference` допускается для одного потока, одинаковой
+частотной сетки и записанных настроек (кроме `sequence`), только из `dBm` в `dB`.
+Срез ограничен 16 384 точками, не интерполирует данные и не запускает detector.
+Контракт, коды ошибок и сценарии трёх клиентов: [sweep-comparison.md](sweep-comparison.md).

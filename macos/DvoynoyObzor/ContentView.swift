@@ -92,10 +92,21 @@ import SwiftUI
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
-    @Published var serverURL = "http://127.0.0.1:8770"
+    @Published var serverURL = "http://127.0.0.1:8770" {
+        didSet { if serverURL != oldValue { resetComparisonScope() } }
+    }
     @Published var sessions: [PlatformSession] = []
-    @Published var selectedSessionID = ""
-    @Published var session: PlatformSession?
+    @Published var selectedSessionID = "" {
+        didSet { if selectedSessionID != oldValue { resetComparisonScope() } }
+    }
+    @Published var session: PlatformSession? {
+        didSet {
+            if session?.streams.first(where: { $0.isDbmAnalyzer })?.id
+                != oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id {
+                resetComparisonScope()
+            }
+        }
+    }
     @Published var workers: [PlatformWorker] = []
     @Published var connected = false
     @Published var busy = false
@@ -135,6 +146,12 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskCreatePending = false
     @Published var taskCancelStatus = "Queued ControlTask не отменена"
     @Published var taskCancelPending = false
+    @Published private(set) var comparisonSweeps: [PlatformSweep] = []
+    @Published var comparisonSelectionID = ""
+    @Published private(set) var comparisonReference: PlatformSweep?
+    @Published private(set) var sweepComparison: PlatformSweepComparison?
+    @Published private(set) var sweepComparisonError: String?
+    @Published private(set) var sweepComparisonPending = false
     @Published var archiveCapacity: PlatformArchiveCapacity?
     @Published var archiveCapacityError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
@@ -163,6 +180,10 @@ final class RemoteDualModel: ObservableObject {
     @Published var showSerialForm = false
 
     private let makeClient: (String) throws -> PlatformClient
+    private let comparisonTimeoutNanoseconds: UInt64
+    private var comparisonTask: Task<Void, Never>?
+    private var comparisonTimeoutTask: Task<Void, Never>?
+    private var comparisonRevision = 0
     private var connectionGeneration = 0
     private var capacityRequestRevision = 0
     private var client: PlatformClient?
@@ -174,8 +195,12 @@ final class RemoteDualModel: ObservableObject {
     private var completionFormInitialized = false
     private var taskSchedulerCommandRevision = 0
 
-    init(makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) }) {
+    init(
+        makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) },
+        comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000
+    ) {
         self.makeClient = makeClient
+        self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
     }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
@@ -196,6 +221,7 @@ final class RemoteDualModel: ObservableObject {
     func connect(startPolling: Bool = true) {
         do {
             client = try makeClient(serverURL)
+            resetComparisonScope()
             connectionGeneration += 1
             archiveCapacity = nil
             archiveCapacityError = nil
@@ -549,6 +575,104 @@ final class RemoteDualModel: ObservableObject {
         configureTaskScheduler(enabled: false)
     }
 
+    var canPinComparisonReference: Bool {
+        connected && comparisonSweeps.contains(where: { $0.id == comparisonSelectionID })
+    }
+
+    var canCompareSweep: Bool {
+        connected && comparisonReference != nil && comparisonSweeps.last != nil
+    }
+
+    func pinComparisonReference() {
+        guard connected, let selected = comparisonSweeps.first(where: { $0.id == comparisonSelectionID }),
+              selected.sessionId == selectedSessionID, selected.streamId == analyzer?.id,
+              selected.levelUnit == "dBm" else { return }
+        cancelSweepComparison()
+        comparisonReference = selected
+    }
+
+    func clearSweepComparison() {
+        cancelSweepComparison()
+        comparisonReference = nil
+    }
+
+    func cancelSweepComparison() {
+        comparisonRevision += 1
+        comparisonTask?.cancel()
+        comparisonTimeoutTask?.cancel()
+        comparisonTask = nil
+        comparisonTimeoutTask = nil
+        sweepComparisonPending = false
+        sweepComparison = nil
+        sweepComparisonError = nil
+    }
+
+    private func resetComparisonScope() {
+        clearSweepComparison()
+        comparisonSweeps = []
+        comparisonSelectionID = ""
+    }
+
+    /// Explicit only: polling never moves the pinned reference or refreshes its comparison.
+    func compareLatestSweep() {
+        guard connected, let client, let reference = comparisonReference,
+              let target = comparisonSweeps.last, reference.sessionId == selectedSessionID,
+              target.sessionId == selectedSessionID, reference.streamId == analyzer?.id,
+              target.streamId == reference.streamId else { return }
+        cancelSweepComparison()
+        let revision = comparisonRevision
+        let requestGeneration = generation
+        let connection = connectionGeneration
+        let sessionID = selectedSessionID
+        let streamID = reference.streamId
+        sweepComparisonPending = true
+        comparisonTask = Task { [weak self] in
+            do {
+                let result = try await client.sweepComparison(
+                    sessionID: sessionID, referenceID: reference.id, targetID: target.id
+                )
+                guard let self, !Task.isCancelled, revision == self.comparisonRevision,
+                      requestGeneration == self.generation, connection == self.connectionGeneration,
+                      self.client === client, self.selectedSessionID == sessionID,
+                      self.analyzer?.id == streamID else { return }
+                guard result.streamId == streamID else {
+                    throw PlatformError.invalidResponse("Сервер вернул сравнение другого потока")
+                }
+                self.sweepComparison = result
+                self.finishSweepComparison()
+            } catch {
+                guard let self, !Task.isCancelled, revision == self.comparisonRevision,
+                      requestGeneration == self.generation, connection == self.connectionGeneration,
+                      self.client === client, self.selectedSessionID == sessionID,
+                      self.analyzer?.id == streamID else { return }
+                self.sweepComparison = nil
+                switch error {
+                case PlatformError.http(status: 404, code: _, message: _):
+                    self.sweepComparisonError = "Архивный свип не найден или сервер не поддерживает сравнение (404)"
+                case PlatformError.http(status: 409, code: _, message: let message):
+                    self.sweepComparisonError = "Свипы несовместимы (409): \(message)"
+                default:
+                    self.sweepComparisonError = describeSession(error)
+                }
+                self.finishSweepComparison()
+            }
+        }
+        comparisonTimeoutTask = Task { [weak self, comparisonTimeoutNanoseconds] in
+            do { try await Task.sleep(nanoseconds: comparisonTimeoutNanoseconds) }
+            catch { return }
+            guard let self, revision == self.comparisonRevision, self.sweepComparisonPending else { return }
+            self.cancelSweepComparison()
+            self.sweepComparisonError = "Время ожидания сравнения истекло. Можно повторить запрос."
+        }
+    }
+
+    private func finishSweepComparison() {
+        comparisonTimeoutTask?.cancel()
+        comparisonTimeoutTask = nil
+        comparisonTask = nil
+        sweepComparisonPending = false
+    }
+
     func refreshArchiveAnalytics() {
         guard let client, !selectedSessionID.isEmpty, !archiveAnalyticsPending else { return }
         let sessionID = selectedSessionID
@@ -818,6 +942,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func clearMeasurements() {
+        resetComparisonScope()
         session = nil
         workers = []
         latestSweep = nil
@@ -919,7 +1044,14 @@ final class RemoteDualModel: ObservableObject {
         var envelope = TraceEnvelope()
         var found: [Exceedance] = []
         let level = thresholdDbm ?? -80
-        for sweep in snapshot.sweeps where sweep.levelUnit == "dBm" {
+        let selectedSweeps = snapshot.sweeps.filter {
+            $0.sessionId == selectedSessionID && $0.streamId == analyzer?.id && $0.levelUnit == "dBm"
+        }
+        comparisonSweeps = selectedSweeps
+        if !selectedSweeps.contains(where: { $0.id == comparisonSelectionID }) {
+            comparisonSelectionID = selectedSweeps.last?.id ?? ""
+        }
+        for sweep in selectedSweeps {
             let bins = zip(sweep.frequenciesHz, sweep.levels).map {
                 LevelBin(frequency: $0, level: $1)
             }
@@ -931,7 +1063,7 @@ final class RemoteDualModel: ObservableObject {
                 waterfallRevision += 1
             }
         }
-        latestSweep = snapshot.sweeps.last
+        latestSweep = selectedSweeps.last
         latestObservation = snapshot.observations.last
         if let latestSweep {
             current = plot(latestSweep)
@@ -1058,6 +1190,7 @@ struct RemoteUltraPane: View {
                     threshold: model.thresholdDbm, yTitle: "дБм (исходные)"
                 )
                 WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
+                RemoteSweepComparisonPane(model: model)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)
@@ -1116,4 +1249,67 @@ final class WindowCloseView: NSView {
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
+}
+
+struct RemoteSweepComparisonPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        GroupBox("Сравнение архивных свипов · dB") {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Опорный свип из snapshot", selection: $model.comparisonSelectionID) {
+                    if model.comparisonSweeps.isEmpty { Text("Нет dBm свипов").tag("") }
+                    ForEach(model.comparisonSweeps) { sweep in
+                        Text("\(sweep.id) · \(sweep.interval.startedAt)").tag(sweep.id)
+                    }
+                }
+                Button("Закрепить опорный свип") { model.pinComparisonReference() }
+                    .disabled(!model.canPinComparisonReference)
+                if let reference = model.comparisonReference {
+                    Text("Опорный: \(reference.id)")
+                    Text("UTC: \(reference.interval.startedAt) — \(reference.interval.endedAt)")
+                        .font(.caption)
+                    HStack {
+                        Button("Сравнить с последним свипом") { model.compareLatestSweep() }
+                            .disabled(!model.canCompareSweep)
+                        Button("Очистить") { model.clearSweepComparison() }
+                    }
+                    if model.sweepComparisonPending {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text("Ядро сравнивает архивные свипы…").font(.caption)
+                            Button("Отмена") { model.cancelSweepComparison() }
+                        }
+                    }
+                }
+                if let result = model.sweepComparison {
+                    Text("Целевой: \(result.target.id)")
+                    Text("UTC: \(result.target.interval.startedAt) — \(result.target.interval.endedAt)")
+                        .font(.caption)
+                    Text("Опорный результат: \(result.reference.id) · UTC \(result.reference.interval.startedAt) — \(result.reference.interval.endedAt)")
+                        .font(.caption)
+                    TraceChart(
+                        current: zip(result.frequenciesHz, result.deltaLevels).map {
+                            PlotPoint(x: Double($0) / 1_000_000, y: $1)
+                        }, minimum: [], maximum: [], threshold: 0, yTitle: "dB · целевой − опорный",
+                        currentTitle: "разность", thresholdTitle: "ноль"
+                    )
+                    Text("Частота, МГц").font(.caption).foregroundStyle(.secondary)
+                    Text("Максимальное изменение: \(change(result.maxIncrease))")
+                    Text("Минимальное изменение: \(change(result.minChange))")
+                    Text("\(result.points) точек · исходные уровни dBm сохранены отдельно")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ErrorLine(text: model.sweepComparisonError)
+                Text("Только по кнопке, без интерполяции и калибровки. Настройки сравнивает ядро; совпадение записанных настроек не доказывает одинаковую антенну или состояние прибора.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func change(_ value: PlatformComparisonExtremum) -> String {
+        String(format: "%+.2f dB · %.6f МГц", value.deltaDb, Double(value.frequencyHz) / 1_000_000)
+    }
 }

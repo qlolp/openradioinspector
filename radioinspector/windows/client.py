@@ -195,6 +195,10 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/workers"
         )
 
+    def compare_sweeps(self, session_id: str, reference_id: str, target_id: str) -> dict[str, Any]:
+        query = urlencode({"reference_id": reference_id, "target_id": target_id})
+        return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-comparison?{query}")
+
     def list_sweeps(
         self, session_id: str, stream_id: str, *, limit: int = 40
     ) -> list[dict[str, Any]]:

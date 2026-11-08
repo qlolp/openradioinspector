@@ -512,6 +512,33 @@ class SQLiteSessionStore:
             parameters.append(stream_id)
         return clause, parameters
 
+    @staticmethod
+    def _sweep_from_row(row: sqlite3.Row) -> Sweep:
+        return Sweep.from_dict(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "stream_id": row["stream_id"],
+                "interval": {
+                    "started_at": row["started_at"], "ended_at": row["ended_at"]
+                },
+                "frequencies_hz": json.loads(row["frequencies_json"]),
+                "levels": json.loads(row["levels_json"]),
+                "level_unit": row["level_unit"],
+                "settings": _object(row["settings_json"]),
+            }
+        )
+
+    def get_sweep(self, sweep_id: str, *, session_id: Optional[str] = None) -> Optional[Sweep]:
+        """Read one immutable measurement via its primary key, without a scan."""
+        with self._lock:
+            clause = "id = ?" if session_id is None else "id = ? AND session_id = ?"
+            parameters = (sweep_id,) if session_id is None else (sweep_id, session_id)
+            row = self._connection.execute(
+                f"SELECT * FROM sweeps WHERE {clause}", parameters
+            ).fetchone()
+            return None if row is None else self._sweep_from_row(row)
+
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
@@ -531,23 +558,7 @@ class SQLiteSessionStore:
                 """,
                 query_parameters,
             ).fetchall()
-            return [
-                Sweep.from_dict(
-                    {
-                        "id": row["id"],
-                        "session_id": row["session_id"],
-                        "stream_id": row["stream_id"],
-                        "interval": {
-                            "started_at": row["started_at"], "ended_at": row["ended_at"]
-                        },
-                        "frequencies_hz": json.loads(row["frequencies_json"]),
-                        "levels": json.loads(row["levels_json"]),
-                        "level_unit": row["level_unit"],
-                        "settings": _object(row["settings_json"]),
-                    }
-                )
-                for row in rows
-            ]
+            return [self._sweep_from_row(row) for row in rows]
 
     def list_observations(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100

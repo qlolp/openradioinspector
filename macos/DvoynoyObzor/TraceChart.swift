@@ -5,12 +5,36 @@ struct PlotPoint: Equatable {
     var y: Double
 }
 
+/// Rendering-only normalization; scientific levels and deltas are never changed.
+struct TraceChartVerticalScale {
+    private let magnitude: Double
+    private let lower: Double
+    private let upper: Double
+
+    init(minimum: Double, maximum: Double) {
+        // Subtracting unscaled +/- Double.max would overflow despite finite input.
+        magnitude = max(abs(minimum), abs(maximum), 1)
+        var low = minimum / magnitude
+        var high = maximum / magnitude
+        if high <= low { low -= 1; high += 1 }
+        let padding = (high - low) * 0.08
+        lower = low - padding
+        upper = high + padding
+    }
+
+    func fraction(_ level: Double) -> Double {
+        (level / magnitude - lower) / (upper - lower)
+    }
+}
+
 struct TraceChart: View {
     var current: [PlotPoint]
     var minimum: [PlotPoint]
     var maximum: [PlotPoint]
     var threshold: Double?
     var yTitle: String
+    var currentTitle = "текущая"
+    var thresholdTitle = "порог"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -21,10 +45,10 @@ struct TraceChart: View {
             .background(Color.primary.opacity(0.04))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             HStack(spacing: 14) {
-                swatch(Color.primary, "текущая")
-                swatch(Color.blue, "минимум")
-                swatch(Color.orange, "максимум")
-                swatch(Color.red, "порог")
+                swatch(Color.primary, currentTitle)
+                if !minimum.isEmpty { swatch(Color.blue, "минимум") }
+                if !maximum.isEmpty { swatch(Color.orange, "максимум") }
+                if threshold != nil { swatch(Color.red, thresholdTitle) }
                 Spacer()
                 Text(yTitle)
             }
@@ -56,21 +80,14 @@ struct TraceChart: View {
             yMin = min(yMin, threshold)
             yMax = max(yMax, threshold)
         }
+        let verticalScale = TraceChartVerticalScale(minimum: yMin, maximum: yMax)
         if xMax <= xMin {
             xMin -= 1
             xMax += 1
         }
-        if yMax <= yMin {
-            yMin -= 1
-            yMax += 1
-        }
-        let yPad = (yMax - yMin) * 0.08
-        yMin -= yPad
-        yMax += yPad
-
         func map(_ point: PlotPoint) -> CGPoint {
             let xRatio = (point.x - xMin) / (xMax - xMin)
-            let yRatio = (point.y - yMin) / (yMax - yMin)
+            let yRatio = verticalScale.fraction(point.y)
             return CGPoint(
                 x: plot.minX + xRatio * plot.width,
                 y: plot.maxY - yRatio * plot.height

@@ -557,7 +557,14 @@
     return context;
   }
 
+  function updateComparison() {
+    window.OpenRadioSweepComparison?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
+  }
+
   function renderSpectrum() {
+    updateComparison();
     const latest = state.sweeps.at(-1);
     dom.spectrumCanvas.hidden = !latest;
     dom.spectrumEmpty.hidden = Boolean(latest);
@@ -753,6 +760,7 @@
       state.sweeps = [];
       state.spectrumStreamId = selected?.streams.find((stream) => stream.role === "spectrum_analyzer")?.id || null;
       state.revision = (state.revision || 0) + 1;
+      updateComparison();
       storeSession(nextSessionId);
       closeHandoff();
     } else {
@@ -771,6 +779,8 @@
     const analyzers = selected.streams.filter((stream) => stream.role === "spectrum_analyzer");
     if (!analyzers.some((stream) => stream.id === state.spectrumStreamId)) {
       state.spectrumStreamId = analyzers[0]?.id || null;
+      state.sweeps = [];
+      updateComparison();
     }
     const revision = state.revision || 0;
     const sessionId = selected.id;
@@ -1061,6 +1071,8 @@
   function changeSession() {
     state.sessionId = dom.sessionSelect.value || null;
     state.session = null;
+    state.sweeps = [];
+    updateComparison();
     state.automaticHandoff = null;
     state.automaticDetection = null;
     state.automaticFormDirty = false;
@@ -1074,6 +1086,7 @@
   function changeSpectrumStream() {
     state.spectrumStreamId = dom.spectrumStream.value || null;
     state.sweeps = [];
+    updateComparison();
     state.revision = (state.revision || 0) + 1;
     refresh();
   }

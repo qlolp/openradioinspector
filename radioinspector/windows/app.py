@@ -316,6 +316,8 @@ class WindowsApp:
             "<Configure>", lambda _event: self._render_spectrum()
         )
         notebook.add(spectrum_tab, text="Спектр и водопад")
+        from .sweep_comparison import ComparisonPanel
+        self.comparison_panel = ComparisonPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -342,6 +344,8 @@ class WindowsApp:
             self.connection_var.set(str(exc))
             return
         self.session_id = None
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
         self._revision += 1
         self._show_archive_capacity(None)
         self.connection_var.set("Запрашиваются health, capabilities и сеансы…")
@@ -515,6 +519,8 @@ class WindowsApp:
         self.waterfall_info_var.set("Водопад: ожидание данных")
 
     def _render_spectrum(self) -> None:
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
         stream = self._selected_stream()
         if self._spectrum_stream_id() is None:
             self._clear_spectrum(
@@ -671,6 +677,8 @@ class WindowsApp:
         if selected == self.session_id:
             return
         self.session_id = selected
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
         self._revision += 1
         self.refresh()
 
@@ -715,6 +723,8 @@ class WindowsApp:
         stream_id = str(stream.get("id")) if stream else None
         changed = stream_id != getattr(self, "_last_selected_stream_id", None)
         self._last_selected_stream_id = stream_id
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.update()
         if not stream:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
@@ -1373,6 +1383,8 @@ class WindowsApp:
         if self._closed:
             return
         self._closed = True
+        if hasattr(self, "comparison_panel"):
+            self.comparison_panel.close()
         self._action_callbacks.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

@@ -8,6 +8,7 @@
   <title>OpenRadioInspector — узел наблюдения</title>
   <link rel="stylesheet" href="/static/platform.css">
   <script src="/static/archive-capacity.js" defer></script>
+  <script src="/static/sweep-comparison.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -189,6 +190,21 @@
           <span id="waterfall-scale">ожидание данных</span>
         </div>
         <canvas id="waterfall-canvas" width="960" height="190" role="img" aria-label="Водопад последних спектральных свипов">Ваш браузер не поддерживает canvas.</canvas>
+        <section class="comparison-panel" aria-labelledby="comparison-heading">
+          <h3 id="comparison-heading">Сравнение архивных свипов · Δ dB</h3>
+          <p>Исходные трассы и водопад выше: dBm. Ниже: разность, рассчитанная ядром без изменения архива.</p>
+          <label for="comparison-reference-select">Опорный из последних 40 свипов выбранного потока</label>
+          <select id="comparison-reference-select" disabled><option>Нет архивных dBm свипов</option></select>
+          <div class="form-actions">
+            <button id="comparison-pin" class="button" type="button" disabled>Закрепить опорный</button>
+            <button id="comparison-run" class="button" type="button" disabled>Сравнить с последним</button>
+            <button id="comparison-clear" class="button" type="button" disabled>Снять опорный</button>
+          </div>
+          <p id="comparison-reference">Опорный свип не закреплён.</p>
+          <p id="comparison-status" role="status" aria-live="polite"></p>
+          <p id="comparison-summary"></p>
+          <canvas id="comparison-canvas" width="960" height="260" role="img" aria-label="Разность архивных свипов, dB" hidden></canvas>
+        </section>
       </section>
 
       <section class="panel events-panel" aria-labelledby="events-heading">

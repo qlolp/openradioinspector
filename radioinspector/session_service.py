@@ -33,12 +33,19 @@ from .contracts import (
     utc_now,
 )
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
+from .sweep_comparison import compare_sweeps
 
 
 class SessionNotFoundError(KeyError):
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         super().__init__(f"Сеанс не найден: {session_id}")
+
+
+class SweepNotFoundError(KeyError):
+    def __init__(self, sweep_id: str) -> None:
+        self.sweep_id = sweep_id
+        super().__init__(f"Свип не найден: {sweep_id}")
 
 
 class CandidateNotFoundError(KeyError):
@@ -160,6 +167,7 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "sweep_comparison": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -494,6 +502,30 @@ class SessionService:
                 session_id, stream_id=stream_id, limit=None
             )
             return sweeps, observations
+
+    def compare_sweeps(
+        self, session_id: str, *, reference_id: str, target_id: str
+    ) -> dict[str, Any]:
+        """Compare exact archived IDs, independent of recent-list/event limits."""
+        for name, value in (("reference_id", reference_id), ("target_id", target_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} должен быть непустым ID свипа")
+        with self._lock:
+            self._get_locked(session_id)
+
+            def get(sweep_id: str) -> Sweep:
+                if self._store is not None:
+                    sweep = self._store.get_sweep(sweep_id, session_id=session_id)
+                else:
+                    sweep = next((item for item in self._sweeps
+                                  if item.id == sweep_id and item.session_id == session_id), None)
+                if sweep is None:
+                    raise SweepNotFoundError(sweep_id)
+                return sweep
+
+            reference = get(reference_id)
+            target = reference if target_id == reference_id else get(target_id)
+            return compare_sweeps(session_id, reference, target)
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
