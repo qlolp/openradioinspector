@@ -623,6 +623,7 @@ class DeviceWorkerManager:
         self._lifecycles: dict[tuple[str, str], _WorkerLifecycle] = {}
         self._stopping_sessions: dict[str, int] = {}
         self._starting_ports: dict[str, tuple[str, str]] = {}
+        self._pending_starts: set[tuple[str, str]] = set()
         self._closed = False
         self._lock = threading.RLock()
 
@@ -641,6 +642,23 @@ class DeviceWorkerManager:
         with self._lock:
             workers = list(self._workers.values())
         return sum(worker.alive for worker in workers)
+
+    @property
+    def pending_start_count(self) -> int:
+        with self._lock:
+            return len(self._pending_starts)
+
+    @contextmanager
+    def _starting(self, key):
+        with self._lock:
+            if self._closed:
+                raise WorkerError("Реестр исполнителей закрыт")
+            self._pending_starts.add(key)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._pending_starts.discard(key)
 
     def _lifecycle(self, key: tuple[str, str]) -> _WorkerLifecycle:
         with self._lock:
@@ -731,7 +749,7 @@ class DeviceWorkerManager:
         session_id, stream_id = key
         # Сериализация действует только на один session+stream. В частности,
         # connect и join не удерживают общий lock и не мешают другому прибору.
-        with lifecycle.lock, self._serial_port_guard(key):
+        with lifecycle.lock, self._starting(key), self._serial_port_guard(key):
             with self._lock:
                 self._check_start_allowed(key, lifecycle, generation)
                 existing = self._workers.get(key)
@@ -743,7 +761,10 @@ class DeviceWorkerManager:
                 raise WorkerError(f"Исполнитель уже запущен: {stream_id}")
             from .serial_instruments import create_device_adapter
 
-            adapter = create_device_adapter(stream, clock=self._clock)
+            try:
+                adapter = create_device_adapter(stream, clock=self._clock)
+            except (ValueError, TypeError, OSError) as exc:
+                raise WorkerError(str(exc)) from exc
             worker: Optional[DeviceWorker] = None
             try:
                 worker = DeviceWorker(self.sessions, adapter, clock=self._clock)

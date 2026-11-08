@@ -423,6 +423,43 @@ final class PlatformAPITests: XCTestCase {
         await fulfillment(of: [completed], timeout: 1)
     }
 
+    func testIPv6LoopbackKeepsHTTPExceptionNarrow() throws {
+        XCTAssertNoThrow(try PlatformBaseURL("http://[::1]:8770"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://[2001:db8::1]:8770"))
+        XCTAssertThrowsError(try PlatformBaseURL("http://[::ffff:192.0.2.1]:8770"))
+    }
+
+    func testResponseDelegateCompletesCancellationAcrossExecutorsOnce() {
+        final class Counter: @unchecked Sendable {
+            let lock = NSLock()
+            var value = 0
+            func increment() { lock.lock(); value += 1; lock.unlock() }
+        }
+        let session = URLSession(configuration: .ephemeral)
+        sessions.append(session)
+        let task = session.dataTask(with: URL(string: "https://example.test")!)
+        for _ in 0..<1000 {
+            let delegate = PlatformResponseDelegate(maximumBytes: 16)
+            let counter = Counter()
+            delegate.completion = { _ in counter.increment() }
+            DispatchQueue.concurrentPerform(iterations: 16) { index in
+                if index % 2 == 0 { delegate.cancel() }
+                else { delegate.urlSession(session, task: task, didCompleteWithError: CancellationError()) }
+            }
+            XCTAssertEqual(counter.value, 1)
+        }
+    }
+
+    func testResponseDelegateRetainsCancellationUntilCallbackInstallation() {
+        let delegate = PlatformResponseDelegate(maximumBytes: 16)
+        delegate.cancel()
+        var calls = 0
+        delegate.completion = { _ in calls += 1 }
+        XCTAssertEqual(calls, 1)
+        delegate.cancel()
+        XCTAssertEqual(calls, 1)
+    }
+
     func testResponseDelegateFinishesCancellationOnlyOnce() {
         let delegate = PlatformResponseDelegate(maximumBytes: 16)
         var completions = 0

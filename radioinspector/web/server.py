@@ -524,6 +524,14 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path
         parts = route.strip("/").split("/")
+        # All mutating routes, including loopback v1, reject browser simple/CSRF
+        # requests before reading or applying the body. Native clients omit Origin.
+        if self.headers.get_content_type() != "application/json":
+            raise RequestError("Требуется application/json", 415)
+        origin = self.headers.get("Origin")
+        host = self.headers.get("Host", "")
+        if origin and origin not in ("http://" + host, "https://" + host):
+            raise RequestError("Чужой Origin запрещён", 403)
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
@@ -557,12 +565,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_api_error(400, "invalid_request", str(exc))
                 return
         elif not route.startswith("/api/v1/"):
-            if self.headers.get_content_type() != "application/json":
-                raise RequestError("Требуется application/json", 415)
-            origin = self.headers.get("Origin")
-            host = self.headers.get("Host", "")
-            if origin and origin not in ("http://" + host, "https://" + host):
-                raise RequestError("Чужой Origin запрещён", 403)
             self.connection.settimeout(10)
             try:
                 payload = self._read_bounded_analysis_request(65536)
@@ -704,6 +706,10 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     result = self.sessions.list_investigations(parts[3], state=state)
                 self._send_json(api_payload(result))
+                return
+            if (len(parts) == 7 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4:6] == ["investigations", "by-id"]):
+                self._send_json(api_payload(self.sessions.get_investigation(parts[3], parts[6])))
                 return
             if (
                 len(parts) == 6
@@ -1362,7 +1368,7 @@ def create_server(
                 automatic_scheduler.close()
             if workers is None:
                 worker_manager.close()
-            if worker_manager.active_count:
+            if worker_manager.active_count or worker_manager.pending_start_count:
                 raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
             resources.close()
         httpd.resource_cleanup = resources

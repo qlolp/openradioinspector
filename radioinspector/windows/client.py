@@ -388,6 +388,11 @@ class PlatformClient:
             "GET", f"/sessions/{_segment(session_id, 'session_id')}/investigations"
         )
 
+    def get_investigation(self, session_id: str, investigation_id: str) -> dict[str, Any]:
+        session = _segment(session_id, "session_id")
+        investigation = _segment(investigation_id, "investigation_id")
+        return self._request("GET", f"/sessions/{session}/investigations/by-id/{investigation}")
+
     def next_investigation(self, session_id: str) -> Optional[dict[str, Any]]:
         session = _segment(session_id, "session_id")
         return self._request("GET", f"/sessions/{session}/investigations/next")

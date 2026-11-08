@@ -99,7 +99,7 @@ class LocalCore:
                              server.automatic_handoff, server.control_scheduler):
                 resource.close()
             server.worker_manager.close()
-            if server.worker_manager.active_count:
+            if server.worker_manager.active_count or server.worker_manager.pending_start_count:
                 raise RuntimeError('Приборный I/O ещё выполняется; архив и блокировка сохранены')
             state = server.RequestHandlerClass.state
             state.close()

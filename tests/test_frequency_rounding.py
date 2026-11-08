@@ -478,7 +478,7 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
 
     def raw_headers(self, headers, body=b"", *, shutdown=False):
         with socket.create_connection(self.server.server_address, timeout=5) as connection:
-            connection.sendall((f"POST {self.root} HTTP/1.1\r\nHost: localhost\r\n" + headers + "\r\n").encode() + body)
+            connection.sendall((f"POST {self.root} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n" + headers + "\r\n").encode() + body)
             if shutdown:
                 connection.shutdown(socket.SHUT_WR)
             response = http.client.HTTPResponse(connection)

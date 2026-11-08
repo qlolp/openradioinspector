@@ -401,7 +401,7 @@ class MaskHTTPTests(unittest.TestCase):
 
     def raw_headers(self, headers, body=b""):
         with socket.create_connection(self.server.server_address, timeout=5) as connection:
-            connection.sendall((f"POST {self.root} HTTP/1.1\r\nHost: localhost\r\n" + headers + "\r\n").encode() + body)
+            connection.sendall((f"POST {self.root} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n" + headers + "\r\n").encode() + body)
             response = http.client.HTTPResponse(connection)
             response.begin()
             result = response.status, json.loads(response.read())

@@ -49,7 +49,7 @@ class TaskSchedulerCancelApiTests(unittest.TestCase):
             method,
             path,
             body=body,
-            headers={} if body is None else {"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json"} if method == "POST" or body is not None else {},
         )
         response = connection.getresponse()
         raw = response.read()

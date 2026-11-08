@@ -42,8 +42,11 @@ jobs:
       - name: Run Windows release checks with hidden Tk
         if: runner.os == 'Windows'
         run: python -m tests.run_release_checks
+      - name: Run macOS Python release checks
+        if: runner.os == 'macOS' && matrix.python != '3.12'
+        run: python -m tests.run_release_checks
       - name: Run macOS release checks, both Swift suites and unsigned Xcode build
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.python == '3.12'
         run: python -m tests.run_release_checks --swift
       # Only owned synthetic servers/archives, mocked COM and own PTYs are used.
       # Real receiver/analyzer acceptance remains separate and is not implied.
