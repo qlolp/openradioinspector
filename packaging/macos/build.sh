@@ -14,10 +14,14 @@ cp -R build/macos/core/openradioinspector-core "$app/Contents/Helpers/"
 cp packaging/macos/launch-app.sh "$app/Contents/MacOS/OpenRadioInspector"
 chmod 755 "$app/Contents/MacOS/OpenRadioInspector"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable OpenRadioInspector' "$app/Contents/Info.plist"
+mkdir -p "$app/Contents/Resources/Notices"
 version=$(python3 -c 'from importlib.metadata import version; print(version("openradioinspector"))')
 /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.4.0' "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :ORIReleaseVersion string $version" "$app/Contents/Info.plist"
-# Preserve nested PyInstaller ad-hoc signatures. No identity/notarization is claimed.
-codesign --force --deep --sign - "$app"
+# PyInstaller already ad-hoc signs its Mach-O runtime. Sign only our moved
+# executable; --deep misidentifies Python metadata directories as code bundles.
+# The enclosing application remains explicitly unsigned (no identity/notarization).
+codesign --force --sign - "$app/Contents/Helpers/DvoynoyObzorUI"
+python3 tools/release/package_evidence.py "$app/Contents/Resources/Notices" --notices-only --inventory-dir "$app"
 mkdir -p build/macos/packages
 hdiutil create -volname OpenRadioInspector -srcfolder "$app" -ov -format UDZO "build/macos/packages/OpenRadioInspector-$version-macos-$(uname -m)-unsigned.dmg"

@@ -6,6 +6,9 @@ lease prevents concurrent writers using this launcher; remote mode owns no core.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
+import logging
+from logging.handlers import RotatingFileHandler
 import json
 from http.client import HTTPConnection, HTTPException
 import os
@@ -32,6 +35,52 @@ def default_data_directory(platform=None, environment=None, home=None) -> Path:
         return home/'Library/Application Support/OpenRadioInspector'
     xdg = environment.get('XDG_DATA_HOME', '')
     return (Path(xdg) if Path(xdg).is_absolute() else home/'.local/share')/'openradioinspector'
+
+
+class _DiagnosticStream:
+    def __init__(self, logger, level, original):
+        self.logger, self.level, self.original = logger, level, original
+
+    def write(self, text):
+        if text.strip():
+            self.logger.log(self.level, text[:65536].rstrip())
+        if self.original is not None:
+            self.original.write(text)
+        return len(text)
+
+    def flush(self):
+        if self.original is not None:
+            self.original.flush()
+
+
+class _DiagnosticHandler(RotatingFileHandler):
+    def handleError(self, record):
+        # Disk errors must not recurse through redirected stderr or stop I/O.
+        if sys.__stderr__ is not None:
+            sys.__stderr__.write("OpenRadioInspector: diagnostic log is unavailable\n")
+
+
+@contextmanager
+def _diagnostics(directory, name):
+    logs = Path(directory).expanduser().resolve()/'logs'
+    logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    handler = _DiagnosticHandler(logs/(name+'.log'), maxBytes=1024*1024,
+                                 backupCount=3, encoding='utf-8')
+    formatter = logging.Formatter('%(asctime)sZ %(levelname)s %(message)s')
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    logger = logging.Logger('openradioinspector-'+name, level=logging.INFO)
+    logger.addHandler(handler)
+    try:
+        with redirect_stdout(_DiagnosticStream(logger, logging.INFO, sys.stdout)), \
+             redirect_stderr(_DiagnosticStream(logger, logging.ERROR, sys.stderr)):
+            try:
+                yield
+            except Exception:
+                logger.exception("Application failed")
+                raise
+    finally:
+        handler.close()
 
 
 def _core_ready(host, port, timeout=5):
@@ -130,15 +179,37 @@ class LocalCore:
         self.close()
 
 
-def main(argv=None) -> int:
+def _desktop_parser():
     parser = argparse.ArgumentParser(description='OpenRadioInspector desktop')
     parser.add_argument('--server', help='Удалённое ядро; локальное не запускается')
     parser.add_argument('--data-dir', type=Path, default=default_data_directory())
     parser.add_argument('--self-check', action='store_true', help='Проверить локальное ядро без GUI и приборов')
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    return _desktop_run(_desktop_parser().parse_args(argv))
+
+
+def installed_main(argv=None) -> int:
+    args = _desktop_parser().parse_args(argv)
+    try:
+        with _diagnostics(args.data_dir, 'desktop'):
+            return _desktop_run(args)
+    except Exception as error:
+        try:
+            from tkinter.messagebox import showerror
+            if not args.self_check:
+                showerror('OpenRadioInspector', f'Не удалось запустить приложение: {error}\nЖурнал: {args.data_dir}/logs/desktop.log')
+        except Exception:
+            pass  # The private log is still available when a display is absent.
+        return 1
+
+
+def _desktop_run(args):
     if args.self_check:
         if args.server:
-            parser.error('--self-check требует локальное ядро')
+            _desktop_parser().error('--self-check требует локальное ядро')
         with LocalCore(args.data_dir):
             return 0
     from .windows.scheduler_app import main as gui
@@ -171,6 +242,11 @@ def core_main(argv=None) -> int:
                 pass
             time.sleep(.1)
         return 1
+    with _diagnostics(args.data_dir, 'core'):
+        return _serve_core(args)
+
+
+def _serve_core(args):
     stop = threading.Event()
     handlers = {}
     ready_owned = False

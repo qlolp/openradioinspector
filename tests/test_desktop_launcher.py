@@ -111,3 +111,34 @@ class OwnedReadinessTests(unittest.TestCase):
             with patch('urllib.request.OpenerDirector.open', side_effect=AssertionError('global opener used')):
                 with LocalCore(Path(directory)) as core:
                     self.assertTrue(core.url.startswith('http://127.0.0.1:'))
+
+class NumericBindTests(unittest.TestCase):
+    def test_startup_does_not_require_reverse_dns(self):
+        from radioinspector.launcher import LocalCore
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('socket.getfqdn', side_effect=AssertionError('reverse DNS during bind')):
+                with LocalCore(Path(directory)) as core:
+                    self.assertTrue(core.url.startswith('http://127.0.0.1:'))
+
+class InstalledDiagnosticsTests(unittest.TestCase):
+    def test_startup_failure_is_visible_and_recorded_in_private_log(self):
+        from radioinspector import launcher
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('radioinspector.windows.scheduler_app.main',side_effect=RuntimeError('synthetic startup failure')):
+                with patch('tkinter.messagebox.showerror') as show:
+                    status=launcher.installed_main(['--server','http://localhost:9999','--data-dir',directory])
+            self.assertEqual(status,1)
+            show.assert_called_once()
+            logs=list((Path(directory)/'logs').glob('desktop.log*'))
+            self.assertTrue(logs)
+            self.assertIn('synthetic startup failure',logs[0].read_text())
+            self.assertFalse((Path(directory)/'sessions.sqlite3').exists())
+
+class NonInteractiveSmokeTests(unittest.TestCase):
+    def test_failed_self_check_exits_without_a_modal_dialog(self):
+        from radioinspector.launcher import installed_main
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('radioinspector.launcher.LocalCore.start',side_effect=RuntimeError('synthetic core error')):
+                with patch('tkinter.messagebox.showerror') as show:
+                    self.assertEqual(installed_main(['--self-check','--data-dir',directory]),1)
+            show.assert_not_called()

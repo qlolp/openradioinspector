@@ -28,7 +28,8 @@ import threading
 import time
 from contextlib import ExitStack
 from functools import wraps
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
+from socketserver import TCPServer
 from pathlib import Path
 from typing import Optional
 
@@ -80,6 +81,14 @@ def state_locked(method):
         with self._lock:
             return method(self, *args, **kwargs)
     return locked
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    """Core startup must not depend on reverse DNS for a bound interface."""
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
 
 
 class ApplicationState:

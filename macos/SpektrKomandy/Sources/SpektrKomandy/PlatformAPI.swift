@@ -23,7 +23,7 @@ extension PlatformError: LocalizedError {
         case .http(_, _, let message):
             return message
         case .responseTooLarge:
-            return "Ответ сервера превышает 2 МБ"
+            return "Ответ сервера превышает допустимый размер"
         }
     }
 }
@@ -982,6 +982,8 @@ public final class PlatformClient {
         method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
         timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
+        let responseLimit = method == "GET" && path.hasSuffix("/sweeps")
+            ? 16 * 1024 * 1024 : maximumResponseBytes
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
@@ -998,7 +1000,7 @@ public final class PlatformClient {
             if usesInjectedSession {
                 (data, response) = try await session.data(for: request)
             } else {
-                (data, response) = try await receiveWithDelegate(request)
+                (data, response) = try await receiveWithDelegate(request, maximumBytes: responseLimit)
             }
             if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
                !platformSameOrigin(original, final) {
@@ -1014,7 +1016,7 @@ public final class PlatformClient {
             throw PlatformError.connection(error.localizedDescription)
         }
         try Task.checkCancellation()
-        guard data.count <= maximumResponseBytes else { throw PlatformError.responseTooLarge }
+        guard data.count <= responseLimit else { throw PlatformError.responseTooLarge }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -1039,9 +1041,9 @@ public final class PlatformClient {
         }
     }
 
-    private func receiveWithDelegate(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private func receiveWithDelegate(_ request: URLRequest, maximumBytes: Int) async throws -> (Data, URLResponse) {
         if Task.isCancelled { throw CancellationError() }
-        let delegate = PlatformResponseDelegate(maximumBytes: maximumResponseBytes)
+        let delegate = PlatformResponseDelegate(maximumBytes: maximumBytes)
         let session = URLSession(
             configuration: .ephemeral, delegate: delegate, delegateQueue: nil
         )

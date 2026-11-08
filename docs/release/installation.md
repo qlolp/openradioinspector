@@ -18,7 +18,7 @@
 Данные Windows: `%LOCALAPPDATA%\OpenRadioInspector`; macOS:
 `~/Library/Application Support/OpenRadioInspector`; Linux:
 `$XDG_DATA_HOME/openradioinspector` или `~/.local/share/openradioinspector`.
-Архив — `sessions.sqlite3`, задания — `tasks.json`. Сохранять весь каталог,
+Архив — `sessions.sqlite3`, задания — `tasks.json`. Журналы установленного desktop и отдельного ядра — `logs/desktop.log`, `logs/core.log` в каталоге данных, UTC, ротация 1 МиБ и три предыдущих файла. Ошибка запуска desktop показывается в диалоге. Сохранять весь каталог,
 включая SQLite WAL/SHM, только после корректной остановки записи и ядра.
 Каталог заданий на POSIX должен принадлежать пользователю и запрещать чужую запись.
 

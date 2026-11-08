@@ -53,7 +53,7 @@ all = [
 
 [project.scripts]
 radioinspector = "radioinspector.cli:main"
-radioinspector-desktop = "radioinspector.launcher:main"
+radioinspector-desktop = "radioinspector.launcher:installed_main"
 radioinspector-core = "radioinspector.launcher:core_main"
 radioinspector-windows = "radioinspector.windows.scheduler_app:main"
 radioinspector-archive-import = "radioinspector.archive_ingest:main"

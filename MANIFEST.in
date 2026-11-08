@@ -10,3 +10,4 @@ recursive-include macos *.swift *.pbxproj *.xcscheme *.xcworkspacedata *.plist *
 prune macos/.build
 prune macos/SpektrKomandy/.build
 global-exclude .DS_Store
+recursive-include third_party *

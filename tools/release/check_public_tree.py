@@ -75,7 +75,7 @@ def main():
         print(f'Forbidden asset: {oid} {path}')
     if bad:
         return 1
-    print('No known proprietary assets found in ' + (str(args.artifact) if args.artifact else ('reachable history' if args.history else args.revision)))
+    print('No known proprietary assets found in ' + (str(args.directory or args.artifact) if args.directory or args.artifact else ('reachable history' if args.history else args.revision)))
     return 0
 
 
