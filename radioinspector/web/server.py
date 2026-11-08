@@ -51,6 +51,7 @@ from ..session_service import (
 from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
 from ..sweep_comparison import ComparisonIncompatibleError
+from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflictError
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..jsonio import dumps as json_dumps
@@ -341,14 +342,25 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def _read_json(self) -> dict:
+    def _read_json(self, *, strict: bool = False) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             return {}
         raw = self.rfile.read(length)
+
+        def unique_fields(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Поля JSON не должны повторяться")
+                result[key] = value
+            return result
+
         try:
-            return json.loads(raw.decode("utf-8"))
+            return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_fields if strict else None)
         except json.JSONDecodeError:
+            if strict:
+                raise ValueError("Некорректный JSON") from None
             return {}
 
     # -- маршруты ----------------------------------------------------------
@@ -415,7 +427,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - имя задано базовым классом
         parsed = urlparse(self.path)
         route = parsed.path
-        payload = self._read_json()
+        if route.startswith("/api/v1/sessions/") and route.rstrip("/").endswith("/sweep-references"):
+            try:
+                payload = self._read_json(strict=True)
+            except (ValueError, UnicodeError) as exc:
+                self._send_api_error(400, "invalid_request", str(exc))
+                return
+        else:
+            payload = self._read_json()
 
         if route.startswith("/api/v1/"):
             self._api_v1_post(route, payload)
@@ -630,6 +649,26 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-references"
+            ):
+                raw_query = urlparse(self.path).query
+                if re.search(r"%(?![0-9a-fA-F]{2})", raw_query):
+                    raise ValueError("Некорректное percent-кодирование параметров")
+                reference_query = parse_qs(
+                    raw_query, keep_blank_values=True, strict_parsing=True, errors="strict",
+                )
+                if set(reference_query) - {"stream_id"} or any(
+                    len(values) != 1 or not values[0].strip()
+                    for values in reference_query.values()
+                ):
+                    raise ValueError("Разрешён только один непустой stream_id")
+                self._send_json(api_payload(self.sessions.list_sweep_references(
+                    parts[3], stream_id=reference_query.get("stream_id", [None])[0],
+                )))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-comparison"
             ):
                 # Reparse only this new route strictly; preserve legacy query
@@ -727,6 +766,16 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in ("candidates", "investigations")
             ):
                 parts[5] = unquote(parts[5])
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-references"
+            ):
+                if urlparse(self.path).query:
+                    raise ValueError("POST эталона не принимает параметры запроса")
+                reference, created = self.sessions.create_sweep_reference(parts[3], payload)
+                self._send_json(api_payload(reference), 201 if created else 200)
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -893,6 +942,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(session))
                 return
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except SweepNotFoundError as exc:
+            self._send_api_error(404, "sweep_not_found", str(exc.args[0]))
+        except ComparisonIncompatibleError as exc:
+            self._send_api_error(409, "comparison_incompatible", str(exc))
+        except ReferenceNameConflictError as exc:
+            self._send_api_error(409, "reference_name_conflict", str(exc))
+        except ReferenceLimitReachedError as exc:
+            self._send_api_error(409, "reference_limit_reached", str(exc))
         except ArchiveCapacityExceededError as exc:
             self._send_api_error(507, "archive_capacity_exceeded", str(exc))
         except SessionNotFoundError as exc:

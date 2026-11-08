@@ -933,19 +933,19 @@ public final class PlatformClient {
     }
 
     func get<Value: Decodable>(
-        _ path: String, query: [URLQueryItem] = []
+        _ path: String, query: [URLQueryItem] = [], expectedStatuses: [Int]? = nil
     ) async throws -> Value {
-        try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?)
+        try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?, expectedStatuses: expectedStatuses)
     }
 
     func post<Value: Decodable, Body: Encodable>(
-        _ path: String, body: Body
+        _ path: String, body: Body, expectedStatuses: [Int]? = nil
     ) async throws -> Value {
-        try await request(method: "POST", path: path, query: [], body: body)
+        try await request(method: "POST", path: path, query: [], body: body, expectedStatuses: expectedStatuses)
     }
 
     private func request<Value: Decodable, Body: Encodable>(
-        method: String, path: String, query: [URLQueryItem], body: Body?
+        method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?
     ) async throws -> Value {
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
@@ -990,6 +990,9 @@ public final class PlatformClient {
                 )
             }
             throw PlatformError.http(status: status, code: "http_error", message: "HTTP \(status)")
+        }
+        if let expectedStatuses, !expectedStatuses.contains(status) {
+            throw PlatformError.invalidResponse("Неожиданный статус API: HTTP \(status)")
         }
         do {
             return try decoder.decode(PlatformEnvelope<Value>.self, from: data).data

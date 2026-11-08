@@ -201,6 +201,22 @@
             <button id="comparison-clear" class="button" type="button" disabled>Снять опорный</button>
           </div>
           <p id="comparison-reference">Опорный свип не закреплён.</p>
+          <fieldset class="reference-catalog">
+            <legend>Именованные опорные свипы · до 100 на сеанс</legend>
+            <label for="comparison-name">Имя (1–80 символов, регистр учитывается)</label>
+            <input id="comparison-name" type="text" autocomplete="off" placeholder="Например, фон перед измерением">
+            <button id="comparison-save" class="button" type="button" disabled>Сохранить закреплённый опорный</button>
+            <label for="comparison-catalog">Сохранённые опорные выбранного потока</label>
+            <select id="comparison-catalog" disabled><option value="">Каталог не загружен</option></select>
+            <div class="form-actions">
+              <button id="comparison-refresh" class="button" type="button" disabled>Обновить каталог</button>
+              <button id="comparison-use" class="button" type="button" disabled>Использовать выбранный сохранённый</button>
+            </div>
+            <p id="comparison-storage">Хранилище каталога: ещё не проверено.</p>
+            <p id="comparison-catalog-status" role="status" aria-live="polite"></p>
+            <p id="comparison-catalog-notice" role="status" aria-live="polite"></p>
+            <p>Сохранение только по кнопке. Прерывание ожидания или смена сеанса не отменяет запись на сервере; при неопределённом результате обновите каталог. Переименование, замена и удаление не выполняются.</p>
+          </fieldset>
           <p id="comparison-status" role="status" aria-live="polite"></p>
           <p id="comparison-summary"></p>
           <canvas id="comparison-canvas" width="960" height="260" role="img" aria-label="Разность архивных свипов, dB" hidden></canvas>

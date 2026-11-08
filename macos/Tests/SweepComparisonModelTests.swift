@@ -15,7 +15,7 @@ final class SweepComparisonModelTests: XCTestCase {
         override func stopLoading() { lock.withLock { stopped = true } }
         func respond(_ object: Any, status: Int = 200) {
             guard !isStopped else { return }
-            let payload: [String: Any] = status == 200
+            let payload: [String: Any] = (200...299).contains(status)
                 ? ["contract": "openradioinspector-platform", "contract_version": 1, "data": object]
                 : ["error": ["code": status == 409 ? "comparison_incompatible" : "sweep_not_found", "message": "Test failure"]]
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,

@@ -90,6 +90,23 @@ import Foundation
 import SpektrKomandy
 import SwiftUI
 
+struct PinnedSweepReference {
+    let id: String
+    let sessionId: String
+    let streamId: String
+    let interval: PlatformInterval
+    let name: String?
+
+    init(_ sweep: PlatformSweep) {
+        id = sweep.id; sessionId = sweep.sessionId; streamId = sweep.streamId
+        interval = sweep.interval; name = nil
+    }
+    init(_ record: PlatformSweepReference) {
+        id = record.sweepId; sessionId = record.sessionId; streamId = record.streamId
+        interval = record.interval; name = record.name
+    }
+}
+
 @MainActor
 final class RemoteDualModel: ObservableObject {
     @Published var serverURL = "http://127.0.0.1:8770" {
@@ -148,10 +165,19 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskCancelPending = false
     @Published private(set) var comparisonSweeps: [PlatformSweep] = []
     @Published var comparisonSelectionID = ""
-    @Published private(set) var comparisonReference: PlatformSweep?
+    @Published private(set) var comparisonReference: PinnedSweepReference?
     @Published private(set) var sweepComparison: PlatformSweepComparison?
     @Published private(set) var sweepComparisonError: String?
     @Published private(set) var sweepComparisonPending = false
+    @Published var referenceName = ""
+    @Published var savedReferenceSelectionID = ""
+    @Published private(set) var referenceCatalog: PlatformSweepReferenceCatalog?
+    @Published private(set) var savedSweepReferences: [PlatformSweepReference] = []
+    @Published private(set) var referenceCatalogError: String?
+    @Published private(set) var referenceSaveStatus: String?
+    @Published private(set) var referenceWriteNotice: String?
+    @Published private(set) var referenceCatalogPending = false
+    @Published private(set) var referenceSavePending = false
     @Published var archiveCapacity: PlatformArchiveCapacity?
     @Published var archiveCapacityError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
@@ -184,6 +210,19 @@ final class RemoteDualModel: ObservableObject {
     private var comparisonTask: Task<Void, Never>?
     private var comparisonTimeoutTask: Task<Void, Never>?
     private var comparisonRevision = 0
+    private struct ReferenceScope: Hashable {
+        let server: String
+        let session: String
+        let stream: String
+    }
+    private var connectedServerURL: String?
+    private var loadedReferenceScope: ReferenceScope?
+    private var referenceRequestScope: ReferenceScope?
+    private var uncertainReferenceScopes: Set<ReferenceScope> = []
+    private var referenceNoticeScope: ReferenceScope?
+    private var referenceRequestRevision = 0
+    private var referenceTask: Task<Void, Never>?
+    private var referenceTimeoutTask: Task<Void, Never>?
     private var connectionGeneration = 0
     private var capacityRequestRevision = 0
     private var client: PlatformClient?
@@ -222,6 +261,7 @@ final class RemoteDualModel: ObservableObject {
         do {
             client = try makeClient(serverURL)
             resetComparisonScope()
+            connectedServerURL = serverURL
             connectionGeneration += 1
             archiveCapacity = nil
             archiveCapacityError = nil
@@ -575,20 +615,179 @@ final class RemoteDualModel: ObservableObject {
         configureTaskScheduler(enabled: false)
     }
 
+    private var currentReferenceScope: ReferenceScope? {
+        guard connected, connectedServerURL == serverURL, !selectedSessionID.isEmpty,
+              session?.id == selectedSessionID, let stream = analyzer?.id else { return nil }
+        return ReferenceScope(server: serverURL, session: selectedSessionID, stream: stream)
+    }
+
+    var referenceStorageDescription: String {
+        guard let catalog = referenceCatalog else { return "Хранение каталога неизвестно" }
+        if catalog.persistent { return "SQLite: постоянный каталог" }
+        let mode = catalog.storageMode == "sqlite" ? "SQLite (:memory:)" : "Memory"
+        return "\(mode): временный каталог, исчезнет при перезапуске ядра"
+    }
+
+    var referenceRequestPending: Bool { referenceCatalogPending || referenceSavePending }
+    var canRefreshSweepReferences: Bool { currentReferenceScope != nil && !referenceRequestPending }
+    var canSaveSweepReference: Bool {
+        guard let scope = currentReferenceScope, let reference = comparisonReference else { return false }
+        return !referenceRequestPending && !uncertainReferenceScopes.contains(scope)
+            && reference.sessionId == scope.session && reference.streamId == scope.stream
+            && (try? normalizedSweepReferenceName(referenceName)) != nil
+    }
+    var canUseSavedReference: Bool {
+        guard let scope = currentReferenceScope else { return false }
+        return savedSweepReferences.contains {
+            $0.id == savedReferenceSelectionID && $0.sessionId == scope.session && $0.streamId == scope.stream
+        }
+    }
+
+    func useSavedSweepReference() {
+        guard canUseSavedReference, let record = savedSweepReferences.first(where: { $0.id == savedReferenceSelectionID }) else { return }
+        cancelSweepComparison()
+        comparisonReference = PinnedSweepReference(record)
+    }
+
+    func refreshSweepReferences() {
+        guard canRefreshSweepReferences, let scope = currentReferenceScope, let client else { return }
+        loadedReferenceScope = scope
+        beginReferenceRequest(scope: scope, saving: false)
+        let revision = referenceRequestRevision
+        referenceTask = Task { [weak self] in
+            do {
+                let catalog = try await client.sweepReferences(sessionID: scope.session, streamID: scope.stream)
+                guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
+                self.referenceCatalog = catalog
+                self.savedSweepReferences = catalog.items
+                if !catalog.items.contains(where: { $0.id == self.savedReferenceSelectionID }) {
+                    self.savedReferenceSelectionID = catalog.items.first?.id ?? ""
+                }
+                self.referenceCatalogError = nil
+                self.uncertainReferenceScopes.remove(scope)
+                if self.referenceNoticeScope == scope {
+                    self.referenceWriteNotice = nil
+                    self.referenceNoticeScope = nil
+                    self.referenceSaveStatus = "Каталог обновлён. Проверьте имя; повтор с тем же именем и свипом безопасен."
+                }
+                self.finishReferenceRequest()
+            } catch {
+                guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
+                self.referenceCatalog = nil
+                self.savedSweepReferences = []
+                self.savedReferenceSelectionID = ""
+                self.referenceCatalogError = self.describeReferenceError(error)
+                self.finishReferenceRequest()
+            }
+        }
+    }
+
+    func savePinnedSweepReference() {
+        guard canSaveSweepReference, let scope = currentReferenceScope, let client,
+              let reference = comparisonReference, let name = try? normalizedSweepReferenceName(referenceName) else { return }
+        beginReferenceRequest(scope: scope, saving: true)
+        referenceSaveStatus = nil
+        let revision = referenceRequestRevision
+        referenceTask = Task { [weak self] in
+            do {
+                let record = try await client.saveSweepReference(sessionID: scope.session, sweepID: reference.id, name: name)
+                guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
+                guard record.streamId == scope.stream else {
+                    throw PlatformError.invalidResponse("Сервер вернул опорный свип другого потока")
+                }
+                self.savedSweepReferences.removeAll { $0.id == record.id }
+                self.savedSweepReferences.append(record)
+                self.savedSweepReferences.sort { $0.createdAt < $1.createdAt }
+                self.savedReferenceSelectionID = record.id
+                self.referenceSaveStatus = "Сохранено: \(record.name). Каталог ограничен 100 записями на сеанс."
+                self.finishReferenceRequest()
+            } catch {
+                guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
+                if case PlatformError.http(let status, _, _) = error, [400, 404, 409].contains(status) {
+                    self.referenceSaveStatus = self.describeReferenceError(error)
+                } else {
+                    self.markReferenceWriteUncertain(scope)
+                }
+                self.finishReferenceRequest()
+            }
+        }
+    }
+
+    private func describeReferenceError(_ error: Error) -> String {
+        switch error {
+        case PlatformError.http(status: 404, code: _, message: _):
+            return "Каталог или свип не найден; старый сервер может не поддерживать именованные опорные свипы (404). Локальное закрепление доступно."
+        case PlatformError.http(status: 409, code: "reference_name_conflict", message: _):
+            return "Имя уже занято другим свипом. Выберите новое имя; перезапись не выполняется."
+        case PlatformError.http(status: 409, code: "reference_limit_reached", message: _):
+            return "Достигнут предел: 100 опорных свипов на сеанс."
+        case PlatformError.http(status: 409, code: _, message: let message):
+            return "Свип несовместим (409): \(message)"
+        default: return describeSession(error)
+        }
+    }
+
+    private func referenceRequestMatches(_ scope: ReferenceScope, _ revision: Int, _ client: PlatformClient) -> Bool {
+        referenceRequestRevision == revision && currentReferenceScope == scope && self.client === client
+    }
+
+    private func beginReferenceRequest(scope: ReferenceScope, saving: Bool) {
+        referenceRequestRevision += 1
+        referenceRequestScope = scope
+        referenceSavePending = saving
+        referenceCatalogPending = !saving
+        referenceCatalogError = nil
+        let revision = referenceRequestRevision
+        referenceTimeoutTask = Task { [weak self, comparisonTimeoutNanoseconds] in
+            do { try await Task.sleep(nanoseconds: comparisonTimeoutNanoseconds) } catch { return }
+            guard let self, self.referenceRequestRevision == revision, self.referenceRequestPending else { return }
+            self.cancelReferenceRequest()
+            if !saving {
+                self.referenceCatalog = nil
+                self.savedSweepReferences = []
+                self.savedReferenceSelectionID = ""
+                self.referenceCatalogError = "Время ожидания каталога истекло. Нажмите Обновить каталог."
+            }
+        }
+    }
+
+    private func markReferenceWriteUncertain(_ scope: ReferenceScope) {
+        uncertainReferenceScopes.insert(scope)
+        referenceNoticeScope = scope
+        referenceWriteNotice = "Результат сохранения неизвестен: \(scope.server), сеанс \(scope.session). Запись могла сохраниться на сервере. Вернитесь к этому сеансу и нажмите Обновить каталог перед повтором."
+    }
+
+    /// Stops waiting locally, never promises that the server write was canceled.
+    func cancelReferenceRequest() {
+        if referenceSavePending, let scope = referenceRequestScope { markReferenceWriteUncertain(scope) }
+        referenceRequestRevision += 1
+        referenceTask?.cancel()
+        finishReferenceRequest()
+    }
+
+    private func finishReferenceRequest() {
+        referenceTimeoutTask?.cancel()
+        referenceTimeoutTask = nil
+        referenceTask = nil
+        referenceRequestScope = nil
+        referenceSavePending = false
+        referenceCatalogPending = false
+    }
+
     var canPinComparisonReference: Bool {
-        connected && comparisonSweeps.contains(where: { $0.id == comparisonSelectionID })
+        currentReferenceScope != nil && comparisonSweeps.contains(where: { $0.id == comparisonSelectionID })
     }
 
     var canCompareSweep: Bool {
-        connected && comparisonReference != nil && comparisonSweeps.last != nil
+        currentReferenceScope != nil && comparisonReference != nil && comparisonSweeps.last != nil
     }
 
     func pinComparisonReference() {
-        guard connected, let selected = comparisonSweeps.first(where: { $0.id == comparisonSelectionID }),
+        guard currentReferenceScope != nil, let selected = comparisonSweeps.first(where: { $0.id == comparisonSelectionID }),
               selected.sessionId == selectedSessionID, selected.streamId == analyzer?.id,
               selected.levelUnit == "dBm" else { return }
         cancelSweepComparison()
-        comparisonReference = selected
+        comparisonReference = PinnedSweepReference(selected)
     }
 
     func clearSweepComparison() {
@@ -608,6 +807,14 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetComparisonScope() {
+        cancelReferenceRequest()
+        loadedReferenceScope = nil
+        referenceCatalog = nil
+        savedSweepReferences = []
+        savedReferenceSelectionID = ""
+        referenceName = ""
+        referenceCatalogError = nil
+        referenceSaveStatus = nil
         clearSweepComparison()
         comparisonSweeps = []
         comparisonSelectionID = ""
@@ -615,7 +822,7 @@ final class RemoteDualModel: ObservableObject {
 
     /// Explicit only: polling never moves the pinned reference or refreshes its comparison.
     func compareLatestSweep() {
-        guard connected, let client, let reference = comparisonReference,
+        guard currentReferenceScope != nil, let client, let reference = comparisonReference,
               let target = comparisonSweeps.last, reference.sessionId == selectedSessionID,
               target.sessionId == selectedSessionID, reference.streamId == analyzer?.id,
               target.streamId == reference.streamId else { return }
@@ -1048,6 +1255,9 @@ final class RemoteDualModel: ObservableObject {
             $0.sessionId == selectedSessionID && $0.streamId == analyzer?.id && $0.levelUnit == "dBm"
         }
         comparisonSweeps = selectedSweeps
+        if let scope = currentReferenceScope, scope != loadedReferenceScope {
+            refreshSweepReferences()
+        }
         if !selectedSweeps.contains(where: { $0.id == comparisonSelectionID }) {
             comparisonSelectionID = selectedSweeps.last?.id ?? ""
         }
@@ -1265,7 +1475,9 @@ struct RemoteSweepComparisonPane: View {
                 }
                 Button("Закрепить опорный свип") { model.pinComparisonReference() }
                     .disabled(!model.canPinComparisonReference)
+                savedReferences
                 if let reference = model.comparisonReference {
+                    if let name = reference.name { Text("Сохранённое имя: \(name)") }
                     Text("Опорный: \(reference.id)")
                     Text("UTC: \(reference.interval.startedAt) — \(reference.interval.endedAt)")
                         .font(.caption)
@@ -1306,6 +1518,39 @@ struct RemoteSweepComparisonPane: View {
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var savedReferences: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Имя опорного свипа (1–80 символов Unicode)", text: $model.referenceName)
+            Button("Сохранить закреплённый опорный свип") { model.savePinnedSweepReference() }
+                .disabled(!model.canSaveSweepReference)
+            HStack {
+                Button("Обновить каталог") { model.refreshSweepReferences() }
+                    .disabled(!model.canRefreshSweepReferences)
+                if model.referenceRequestPending {
+                    ProgressView().controlSize(.small)
+                    Button("Прекратить ожидание") { model.cancelReferenceRequest() }
+                }
+            }
+            if let catalog = model.referenceCatalog {
+                Text(model.referenceStorageDescription)
+                    .font(.caption)
+                Text("\(model.savedSweepReferences.count) в потоке · максимум \(catalog.limit) на сеанс")
+                    .font(.caption)
+            }
+            Picker("Сохранённый опорный свип", selection: $model.savedReferenceSelectionID) {
+                if model.savedSweepReferences.isEmpty { Text("Нет записей").tag("") }
+                ForEach(model.savedSweepReferences) { record in
+                    Text("\(record.name) · \(record.sweepId)").tag(record.id)
+                }
+            }
+            Button("Использовать сохранённый опорный свип") { model.useSavedSweepReference() }
+                .disabled(!model.canUseSavedReference)
+            if let status = model.referenceSaveStatus { Text(status).font(.caption) }
+            ErrorLine(text: model.referenceCatalogError)
+            ErrorLine(text: model.referenceWriteNotice)
         }
     }
 

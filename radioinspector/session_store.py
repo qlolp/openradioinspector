@@ -26,8 +26,9 @@ from .contracts import (
     parse_time,
     to_primitive,
 )
+from .sweep_references import check_reference_creation
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 ARCHIVE_WARNING_THRESHOLD = 0.9
 
 
@@ -82,10 +83,15 @@ class SQLiteSessionStore:
         self._connection.row_factory = sqlite3.Row
         try:
             with self._lock, self._connection:
+                version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+                if version > SCHEMA_VERSION:
+                    raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
                 self._connection.execute("PRAGMA journal_mode = WAL")
                 self._connection.execute("PRAGMA synchronous = NORMAL")
+                # DDL and version advance are one rollback-safe migration.
+                self._connection.execute("BEGIN IMMEDIATE")
                 version = self._connection.execute("PRAGMA user_version").fetchone()[0]
                 if version > SCHEMA_VERSION:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
@@ -94,6 +100,11 @@ class SQLiteSessionStore:
         except BaseException:
             self._connection.close()
             raise
+
+    @property
+    def persistent(self) -> bool:
+        """Whether the SQLite archive survives closing this connection."""
+        return self.path != ":memory:"
 
     def _database_bytes_locked(self) -> int:
         # Logical main-database pages, including schema, indexes and free pages.
@@ -145,8 +156,7 @@ class SQLiteSessionStore:
             self._check_capacity_locked(before_write=False)
 
     def _create_schema(self) -> None:
-        self._connection.executescript(
-            """
+        schema = """
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 contract_version INTEGER NOT NULL,
@@ -263,7 +273,90 @@ class SQLiteSessionStore:
             CREATE INDEX IF NOT EXISTS investigations_session_queue
                 ON investigations(session_id, state, priority DESC, created_at, id);
             """
-        )
+        # executescript implicitly commits an open transaction. Execute these
+        # fixed DDL statements individually so every migration remains atomic.
+        for statement in schema.split(";"):
+            if statement.strip():
+                self._connection.execute(statement)
+        self._create_reference_schema()
+
+    def _create_reference_schema(self) -> None:
+        self._connection.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS sweeps_reference_owner
+                ON sweeps(id, session_id, stream_id)
+        """)
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS sweep_references (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                stream_id TEXT NOT NULL,
+                sweep_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT NOT NULL,
+                level_unit TEXT NOT NULL CHECK (level_unit = 'dBm'),
+                points INTEGER NOT NULL CHECK (points BETWEEN 1 AND 16384),
+                UNIQUE (session_id, name),
+                FOREIGN KEY (sweep_id, session_id, stream_id)
+                    REFERENCES sweeps(id, session_id, stream_id)
+            )
+        """)
+        self._connection.execute("""
+            CREATE INDEX IF NOT EXISTS sweep_references_session_time
+                ON sweep_references(session_id, created_at, id)
+        """)
+
+    @staticmethod
+    def _sweep_reference(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"], "session_id": row["session_id"],
+            "stream_id": row["stream_id"], "sweep_id": row["sweep_id"],
+            "name": row["name"], "created_at": row["created_at"],
+            "interval": {"started_at": row["started_at"], "ended_at": row["ended_at"]},
+            "level_unit": row["level_unit"], "points": row["points"],
+        }
+
+    def list_sweep_references(
+        self, session_id: str, *, stream_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        clause, parameters = self._filters(session_id, stream_id)
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT * FROM sweep_references WHERE {clause} ORDER BY created_at, id",
+                parameters,
+            ).fetchall()
+            return sorted(
+                (self._sweep_reference(row) for row in rows),
+                key=lambda item: (parse_time(item["created_at"]), item["id"]),
+            )
+
+    def save_sweep_reference(
+        self, reference: dict[str, Any], *, event: SessionEvent,
+    ) -> tuple[dict[str, Any], bool]:
+        # Catalog and event metadata are not measurement writes. They remain
+        # available at the measurement limit, and may grow the database.
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            existing = check_reference_creation(
+                self.list_sweep_references(reference["session_id"]),
+                reference["name"], reference["sweep_id"],
+            )
+            if existing is not None:
+                return existing, False
+            self._connection.execute("""
+                INSERT INTO sweep_references (
+                    id, session_id, stream_id, sweep_id, name, created_at,
+                    started_at, ended_at, level_unit, points
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                reference["id"], reference["session_id"], reference["stream_id"],
+                reference["sweep_id"], reference["name"], reference["created_at"],
+                reference["interval"]["started_at"], reference["interval"]["ended_at"],
+                reference["level_unit"], reference["points"],
+            ))
+            self._insert_event(event)
+        return reference, True
 
     def save_session(
         self, session: MonitoringSession, *, event: Optional[SessionEvent] = None

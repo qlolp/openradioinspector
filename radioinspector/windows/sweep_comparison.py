@@ -102,6 +102,8 @@ class ComparisonPanel:
         ttk.Button(frame, text='Очистить', command=self.clear).pack()
         self.pin_label = tk.StringVar(value='Опорный sweep не закреплён.')
         ttk.Label(frame, textvariable=self.pin_label, wraplength=1050).pack(fill='x')
+        from .sweep_references import NamedReferenceCatalog
+        self.catalog = NamedReferenceCatalog(self, frame)
         self.reference_interval = None
         self.info = tk.StringVar(value='Выберите архивный sweep и закрепите его.')
         ttk.Label(frame, textvariable=self.info, wraplength=1050).pack(fill='x')
@@ -115,6 +117,8 @@ class ComparisonPanel:
         if scope != self.scope:
             self.scope = scope
             self.clear()
+        if hasattr(self, "catalog"):
+            self.catalog.update()
         sweeps = eligible_sweeps(self.app)
         self.ids = [s['id'] for s in sweeps]
         if hasattr(self, 'pin_label') and self.reference:
@@ -143,6 +147,8 @@ class ComparisonPanel:
         self.data = None
         self.canvas.delete('all')
         self.info.set('Опорный sweep не закреплён. Исходные dBm; разность dB.')
+        if hasattr(self, 'catalog'):
+            self.catalog.controls()
 
     def pin(self):
         self.update()
@@ -232,6 +238,8 @@ class ComparisonPanel:
 
     def close(self):
         self.closed = True
+        if hasattr(self, "catalog"):
+            self.catalog.close()
         self.abandon()
         self.generation += 1
         self.executor.shutdown(wait=False, cancel_futures=True)

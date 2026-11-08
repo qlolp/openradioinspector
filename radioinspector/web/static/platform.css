@@ -320,3 +320,7 @@ form.editor { border-style: solid; }
 .comparison-panel h3 { font-size: 13px; color: var(--amber); }
 .comparison-panel select { width: 100%; max-width: 100%; }
 #comparison-summary { white-space: pre-line; line-height: 1.7; }
+
+.reference-catalog { border: 1px solid var(--line); margin: 14px 0; padding: 12px; display: grid; gap: 8px; min-width: 0; }
+.reference-catalog input { box-sizing: border-box; width: 100%; min-width: 0; }
+#comparison-catalog-notice { color: var(--amber); }

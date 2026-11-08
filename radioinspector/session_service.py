@@ -29,11 +29,15 @@ from .contracts import (
     SessionState,
     Sweep,
     new_id,
+    parse_time,
     to_primitive,
     utc_now,
 )
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .sweep_comparison import compare_sweeps
+from .sweep_references import (
+    MAX_SWEEP_REFERENCES, check_reference_creation, normalize_reference_name,
+)
 
 
 class SessionNotFoundError(KeyError):
@@ -92,6 +96,7 @@ class SessionService:
         self._sessions: dict[str, MonitoringSession] = {}
         self._events: deque[SessionEvent] = deque(maxlen=history_limit)
         self._sweeps: list[Sweep] = []
+        self._sweep_references: list[dict[str, Any]] = []
         self._observations: list[ReceiverObservation] = []
         self._candidates: dict[str, Candidate] = {}
         self._investigations: dict[str, Investigation] = {}
@@ -150,12 +155,12 @@ class SessionService:
 
     def capabilities(self) -> dict[str, Any]:
         """Фактические возможности текущего экземпляра без обещаний будущих функций."""
-        persistent = self._store is not None
+        persistent = self._store is not None and self._store.persistent
         return {
             "api_version": API_VERSION,
             "contract_version": CONTRACT_VERSION,
             "hardware_ownership": "core",
-            "session_storage": "sqlite" if persistent else "memory",
+            "session_storage": "sqlite" if self._store is not None else "memory",
             "persistent_archive": persistent,
             "clients": ["raspberry-pi-webui", "windows-gui", "macos-swiftui"],
             "features": {
@@ -168,6 +173,7 @@ class SessionService:
                 "measurement_ingest": True,
                 "measurement_archive": True,
                 "sweep_comparison": True,
+                "named_sweep_references": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -513,19 +519,78 @@ class SessionService:
         with self._lock:
             self._get_locked(session_id)
 
-            def get(sweep_id: str) -> Sweep:
-                if self._store is not None:
-                    sweep = self._store.get_sweep(sweep_id, session_id=session_id)
-                else:
-                    sweep = next((item for item in self._sweeps
-                                  if item.id == sweep_id and item.session_id == session_id), None)
-                if sweep is None:
-                    raise SweepNotFoundError(sweep_id)
-                return sweep
-
-            reference = get(reference_id)
-            target = reference if target_id == reference_id else get(target_id)
+            reference = self._get_sweep_locked(session_id, reference_id)
+            target = reference if target_id == reference_id else self._get_sweep_locked(session_id, target_id)
             return compare_sweeps(session_id, reference, target)
+
+    def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
+        if self._store is not None:
+            sweep = self._store.get_sweep(sweep_id, session_id=session_id)
+        else:
+            sweep = next((item for item in self._sweeps
+                          if item.id == sweep_id and item.session_id == session_id), None)
+        if sweep is None:
+            raise SweepNotFoundError(sweep_id)
+        return sweep
+
+    def list_sweep_references(
+        self, session_id: str, *, stream_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                items = self._store.list_sweep_references(session_id, stream_id=stream_id)
+            else:
+                items = [item for item in self._sweep_references
+                         if item["session_id"] == session_id
+                         and (stream_id is None or item["stream_id"] == stream_id)]
+                items.sort(key=lambda item: (parse_time(item["created_at"]), item["id"]))
+            return copy.deepcopy({
+                "session_id": session_id, "stream_id": stream_id,
+                "storage_mode": "sqlite" if self._store is not None else "memory",
+                "persistent": self._store is not None and self._store.persistent,
+                "limit": MAX_SWEEP_REFERENCES, "items": items,
+            })
+
+    def create_sweep_reference(
+        self, session_id: str, payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """Capture immutable archive provenance; replay returns (existing, False)."""
+        if not isinstance(payload, dict) or set(payload) != {"name", "sweep_id"}:
+            raise ValueError("Нужны только поля name и sweep_id")
+        name = normalize_reference_name(payload["name"])
+        sweep_id = payload["sweep_id"]
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            # Reuse the scientific compatibility gate unchanged. No separate
+            # client/catalog implementation of settings or point-limit rules.
+            compare_sweeps(session_id, sweep, sweep)
+            existing = check_reference_creation(
+                self.list_sweep_references(session_id)["items"], name, sweep_id,
+            )
+            if existing is not None:
+                return existing, False
+            reference = {
+                "id": new_id(), "session_id": session_id, "stream_id": sweep.stream_id,
+                "sweep_id": sweep.id, "name": name, "created_at": to_primitive(self._clock()),
+                "interval": to_primitive(sweep.interval), "level_unit": sweep.level_unit,
+                "points": len(sweep.frequencies_hz),
+            }
+            event = self._make_event_locked(
+                "sweep_reference.created", session_id=session_id,
+                payload={"reference": reference},
+            )
+            if self._store is not None:
+                reference, created = self._store.save_sweep_reference(reference, event=event)
+                if not created:
+                    return copy.deepcopy(reference), False
+            else:
+                self._sweep_references.append(copy.deepcopy(reference))
+            self._publish_event_locked(event)
+            return copy.deepcopy(reference), True
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100

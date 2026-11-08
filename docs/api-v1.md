@@ -40,6 +40,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/sweeps/batch` | Атомарный приём пакета свипов |
 | `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
 | `GET` | `/api/v1/sessions/{id}/sweep-comparison?reference_id=&target_id=` | Read-only разность двух совместимых архивных dBm свипов в dB |
+| `GET`, `POST` | `/api/v1/sessions/{id}/sweep-references` | Список именованных эталонов и идемпотентное создание ссылки на свип |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -616,3 +617,12 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 частотной сетки и записанных настроек (кроме `sequence`), только из `dBm` в `dB`.
 Срез ограничен 16 384 точками, не интерполирует данные и не запускает detector.
 Контракт, коды ошибок и сценарии трёх клиентов: [sweep-comparison.md](sweep-comparison.md).
+
+## Именованные эталоны
+
+`features.named_sweep_references` включает каталог ссылок на архивные sweeps.
+Он сохраняется в файловом SQLite schema v3, в memory-режиме и SQLite `:memory:`
+временный (`persistent: false`). POST создаёт
+запись и событие `sweep_reference.created`; точный повтор возвращает прежнюю
+запись без нового события. Нет удаления/перезаписи. Контракт и миграция:
+[named-sweep-references.md](named-sweep-references.md).

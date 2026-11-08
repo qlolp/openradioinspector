@@ -92,7 +92,8 @@ class PlatformClient:
         self._opener = opener or urllib.request.build_opener()
 
     def _request(
-        self, method: str, path: str, payload: Optional[dict[str, Any]] = None
+        self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
+        *, expected_statuses: Optional[tuple[int, ...]] = None
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
@@ -119,6 +120,11 @@ class PlatformClient:
             raise PlatformClientError(
                 f"Сервер недоступен: {reason}", code="connection_error"
             ) from exc
+        if expected_statuses is not None and status not in expected_statuses:
+            raise PlatformClientError(
+                f"Неожиданный HTTP {status}; результат запроса не подтверждён",
+                status=status, code="unexpected_status",
+            )
         if len(raw) > MAX_RESPONSE_BYTES:
             raise PlatformClientError(
                 "Ответ сервера превышает 2 МБ", status=status, code="response_too_large"
@@ -198,6 +204,19 @@ class PlatformClient:
     def compare_sweeps(self, session_id: str, reference_id: str, target_id: str) -> dict[str, Any]:
         query = urlencode({"reference_id": reference_id, "target_id": target_id})
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-comparison?{query}")
+
+    def list_sweep_references(self, session_id: str, stream_id: Optional[str] = None) -> dict[str, Any]:
+        path = f"/sessions/{_segment(session_id, 'session_id')}/sweep-references"
+        if stream_id is not None:
+            _segment(stream_id, "stream_id")
+            path += "?" + urlencode({"stream_id": stream_id})
+        return self._request("GET", path, expected_statuses=(200,))
+
+    def save_sweep_reference(self, session_id: str, name: str, sweep_id: str) -> dict[str, Any]:
+        from .sweep_references import normalize_name
+        _segment(sweep_id, "sweep_id")
+        return self._request("POST", f"/sessions/{_segment(session_id, 'session_id')}/sweep-references",
+                             {"name": normalize_name(name), "sweep_id": sweep_id}, expected_statuses=(200, 201))
 
     def list_sweeps(
         self, session_id: str, stream_id: str, *, limit: int = 40
