@@ -11,7 +11,7 @@ from radioinspector.session_service import SessionService
 from radioinspector.task_scheduler import TaskScheduler
 from radioinspector.tasks import TaskBook
 from radioinspector.web.server import create_server
-from radioinspector.windows.client import PlatformClient
+from radioinspector.windows.client import PlatformClient, PlatformClientError
 from radioinspector.windows.scheduler_app import SchedulerWindowsApp, task_create_payload
 
 
@@ -32,12 +32,22 @@ class WindowsTaskCreateTests(unittest.TestCase):
         for changes in (
             {"duration_s": 0},
             {"duration_s": True},
+            *({"duration_s": value} for value in (
+                "", " ", "abc", "true", "0", "-1", "nan", "inf", "1e309",
+                float("nan"), float("inf"), -float("inf"), [], {}, None, 10**400,
+            )),
             {"start_at": "not-a-date"},
             {"name": " "},
         ):
             with self.subTest(changes=changes):
                 with self.assertRaises(ValueError):
                     task_create_payload({**payload, **changes})
+
+        for value, expected in (("60", 60.0), (" 0.25 ", 0.25), ("1e2", 100.0)):
+            with self.subTest(value=value):
+                normalized = task_create_payload({**payload, "duration_s": value})
+                self.assertEqual(normalized["duration_s"], expected)
+                self.assertIs(type(normalized["duration_s"]), float)
 
     def test_real_http_create_and_ui_action(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -61,17 +71,24 @@ class WindowsTaskCreateTests(unittest.TestCase):
                 self.assertEqual(created["name"], "windows-http")
                 self.assertNotIn("task_file", created)
                 self.assertEqual(client.task_scheduler_tasks()[0]["name"], "windows-http")
+                # Text conversion belongs to the form; the API remains strict.
+                with self.assertRaises(PlatformClientError):
+                    client.create_task({**payload, "duration_s": "60"})
 
                 app = SchedulerWindowsApp.__new__(SchedulerWindowsApp)
                 app.client = client
+                app._action_running = app._closed = False
+                app._revision = 0
+                window = app._active_form = object()
+                app._task_create_context = (window, client, app._revision)
                 app.task_create_var = type("Value", (), {"value": "", "set": lambda self, value: setattr(self, "value", value)})()
                 app._destroy_form = lambda _window: None
                 app._submit_action = lambda _description, operation, callback: callback(operation())
-                app._create_task(object(), {
+                app._create_task(window, {
                     "name": type("Value", (), {"get": lambda self: "windows-ui"})(),
                     "task_file": type("Value", (), {"get": lambda self: "/tmp/ui.json"})(),
                     "start_at": type("Value", (), {"get": lambda self: "2026-11-07T12:00:00Z"})(),
-                    "duration_s": type("Value", (), {"get": lambda self: 20.0})(),
+                    "duration_s": type("Value", (), {"get": lambda self: "20.0"})(),
                     "equipment": type("Value", (), {"get": lambda self: "AR-DV1"})(),
                 })
                 self.assertIn("windows-ui", app.task_create_var.value)

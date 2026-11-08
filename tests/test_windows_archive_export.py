@@ -5,6 +5,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import Mock, patch
 
 from radioinspector.windows.analytics_app import AnalyticsWindowsApp
 from radioinspector.windows.client import PlatformClient
@@ -47,10 +49,6 @@ class WindowsArchiveExportTests(unittest.TestCase):
             def set(self, value):
                 self.value = value
 
-        class Dialog:
-            def asksaveasfilename(self, **_kwargs):
-                return "/tmp/operator-export.ndjson"
-
         class Client:
             def __init__(self, error=False):
                 self.calls = []
@@ -71,13 +69,23 @@ class WindowsArchiveExportTests(unittest.TestCase):
                 app.session_id = "session/current"
                 app._action_running = False
                 app._closed = False
+                app._archive_export_dialog_open = False
+                app._revision = 0
+                app.root = object()
+                app._render_controls = lambda: None
                 app.archive_export_var = Value()
-                app.tk = type("Tk", (), {"filedialog": Dialog()})()
                 actions = []
                 app._submit_action = lambda _description, operation, callback: actions.append(
                     (operation, callback)
                 )
-                app.export_archive()
+                # Keep this HTTP/unit test usable without an installed Tk library.
+                # Real import/entrypoint coverage lives in test_windows_release_flows.
+                tkinter_module = ModuleType("tkinter")
+                tkinter_module.TclError = RuntimeError
+                tkinter_module.filedialog = Mock()
+                tkinter_module.filedialog.asksaveasfilename.return_value = "/tmp/operator-export.ndjson"
+                with patch.dict("sys.modules", {"tkinter": tkinter_module}):
+                    app.export_archive()
                 self.assertEqual(len(actions), 1)
                 operation, callback = actions[0]
                 callback(operation())

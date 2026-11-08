@@ -49,15 +49,19 @@ def task_scheduler_tasks_text(
 
 
 def task_create_payload(values: dict[str, Any]) -> dict[str, Any]:
-    """Проверяет поля формы и нормализует start_at к UTC Z."""
+    """Преобразует текст Tk-формы в строгий JSON payload, время — в UTC Z."""
     name = str(values.get("name", "")).strip()
     task_file = str(values.get("task_file", "")).strip()
     start_text = str(values.get("start_at", "")).strip()
     duration = values.get("duration_s")
     if not name or not task_file or not start_text:
         raise ValueError("Заполните name, task_file и start_at")
-    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+    if isinstance(duration, bool) or not isinstance(duration, (str, int, float)):
         raise ValueError("duration_s обязано быть числом")
+    try:
+        duration = float(duration)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("duration_s обязано быть числом") from exc
     if not math.isfinite(duration) or duration <= 0:
         raise ValueError("duration_s обязано быть положительным")
     try:
@@ -204,7 +208,10 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
         ).pack(side="left", padx=(8, 0))
 
     def _open_task_create(self) -> None:
+        if self.client is None or self._action_running or self._closed:
+            return
         window, frame, _error_var = self._new_form("Новая ControlTask")
+        self._task_create_context = (window, self.client, self._revision)
         values = {
             "name": self.tk.StringVar(),
             "task_file": self.tk.StringVar(),
@@ -237,7 +244,13 @@ class SchedulerWindowsApp(AnalyticsWindowsApp):
 
     def _create_task(self, window: Any, values: dict[str, Any]) -> None:
         client = self.client
-        if client is None:
+        if client is None or self._action_running or self._closed:
+            return
+        if getattr(self, "_active_form", None) is not window:
+            return
+        form_window, form_client, revision = self._task_create_context
+        if form_window is not window or form_client is not client or revision != self._revision:
+            self.task_create_var.set("Подключение или сеанс изменились; откройте новую форму")
             return
         try:
             payload = task_create_payload({

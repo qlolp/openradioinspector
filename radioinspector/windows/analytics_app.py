@@ -41,6 +41,7 @@ class AnalyticsWindowsApp(CompletionWindowsApp):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._analytics_session_id: Optional[str] = None
+        self._archive_export_dialog_open = False
         self.analytics_var = self.tk.StringVar(value=analytics_text(None))
         self.analytics_label = self.tk.Label(
             self.root,
@@ -94,6 +95,7 @@ class AnalyticsWindowsApp(CompletionWindowsApp):
                 if self.client is not None
                 and self.session_id is not None
                 and not self._action_running
+                and not self._archive_export_dialog_open
                 else "disabled"
             )
 
@@ -130,19 +132,41 @@ class AnalyticsWindowsApp(CompletionWindowsApp):
             or self.session_id is None
             or self._action_running
             or self._closed
+            or self._archive_export_dialog_open
         ):
             return
-        safe_name = self.session_id.replace("/", "_").replace("\\", "_")
-        destination = self.tk.filedialog.asksaveasfilename(
-            title="Сохранить NDJSON snapshot",
-            initialfile=f"archive-{safe_name}.ndjson",
-            defaultextension=".ndjson",
-            filetypes=[("NDJSON", "*.ndjson"), ("Все файлы", "*")],
-        )
-        if not destination:
-            return
+        from tkinter import TclError, filedialog
+
+        # A native dialog can run a nested Tk event loop: capture the target
+        # before opening it and reject navigation/closing while it was open.
         client = self.client
         session_id = self.session_id
+        revision = self._revision
+        safe_name = session_id.replace("/", "_").replace("\\", "_")
+        self._archive_export_dialog_open = True
+        self._render_controls()
+        try:
+            destination = filedialog.asksaveasfilename(
+                parent=self.root,
+                title="Сохранить NDJSON snapshot",
+                initialfile=f"archive-{safe_name}.ndjson",
+                defaultextension=".ndjson",
+                filetypes=[("NDJSON", "*.ndjson"), ("Все файлы", "*")],
+            )
+        except TclError as exc:
+            if not self._closed:
+                self._apply_archive_export_result({"error": str(exc)})
+            return
+        finally:
+            self._archive_export_dialog_open = False
+            if not self._closed:
+                self._render_controls()
+        if self._closed or not destination:
+            return
+        if (client is not self.client or session_id != self.session_id
+                or revision != self._revision or self._action_running):
+            self.archive_export_var.set("Сеанс или подключение изменились; повторите экспорт")
+            return
         self.archive_export_var.set("Сервер формирует NDJSON snapshot…")
 
         def export() -> dict[str, Any]:

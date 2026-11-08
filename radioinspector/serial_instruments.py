@@ -47,35 +47,63 @@ class PosixSerialTransport:
             raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
         self.path = path
         self._stash = bytearray()
+        self._fd = -1
+        self._original_settings: Optional[list[Any]] = None
         try:
             self._fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-            try:
-                settings = termios.tcgetattr(self._fd)
-                termios.cfmakeraw(settings)
-                settings[2] &= ~(termios.CSTOPB | termios.PARENB | termios.CRTSCTS)
-                settings[2] |= termios.CS8 | termios.CLOCAL | termios.CREAD
-                if termios.cfsetispeed(settings, speeds[baud]) != 0:
-                    raise OSError("cfsetispeed")
-                if termios.cfsetospeed(settings, speeds[baud]) != 0:
-                    raise OSError("cfsetospeed")
-                termios.tcsetattr(self._fd, termios.TCSANOW, settings)
-                termios.tcflush(self._fd, termios.TCIOFLUSH)
-            except Exception:
-                os.close(self._fd)
-                raise
+            self._original_settings = termios.tcgetattr(self._fd)
+            settings = list(self._original_settings)
+            settings[6] = list(self._original_settings[6])
+            # Python 3.10+ exposes speeds as tcgetattr/tcsetattr fields, not
+            # the C cfset*speed/cfmakeraw functions. Keep the saved cc list intact.
+            settings[0] &= ~(
+                termios.IGNBRK | termios.BRKINT | termios.PARMRK | termios.ISTRIP
+                | termios.INLCR | termios.IGNCR | termios.ICRNL
+                | termios.IXON | termios.IXOFF | termios.IXANY
+            )
+            settings[1] &= ~termios.OPOST
+            settings[2] &= ~(
+                termios.CSIZE | termios.CSTOPB | termios.PARENB
+                | getattr(termios, "CRTSCTS", 0)
+            )
+            settings[2] |= termios.CS8 | termios.CLOCAL | termios.CREAD
+            settings[3] &= ~(
+                termios.ECHO | termios.ECHONL | termios.ICANON
+                | termios.ISIG | termios.IEXTEN
+            )
+            settings[4] = settings[5] = speeds[baud]
+            settings[6][termios.VMIN] = 1
+            settings[6][termios.VTIME] = 0
+            termios.tcsetattr(self._fd, termios.TCSANOW, settings)
+            termios.tcflush(self._fd, termios.TCIOFLUSH)
         except Exception as exc:
+            try:
+                self.close()
+            except Exception:
+                pass  # Preserve the opening error; close still releases the fd.
             raise WorkerError(f"Не удалось открыть порт {path}: {exc}") from exc
 
     def send(self, data: bytes) -> None:
         view = memoryview(data)
         sent = 0
+        deadline = time.monotonic() + 1.0
         while sent < len(view):
             try:
-                select.select([], [self._fd], [], 1.0)
-                count = os.write(self._fd, view[sent:])
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise WorkerError(f"Таймаут записи в {self.path}")
+                _, ready, _ = select.select([], [self._fd], [], remaining)
+                if not ready:
+                    raise WorkerError(f"Таймаут записи в {self.path}")
+                try:
+                    count = os.write(self._fd, view[sent:])
+                except BlockingIOError:
+                    continue
                 if count <= 0:
                     raise OSError("запись вернула ноль")
                 sent += count
+            except WorkerError:
+                raise
             except Exception as exc:
                 raise WorkerError(f"Ошибка записи в {self.path}: {exc}") from exc
 
@@ -95,12 +123,7 @@ class PosixSerialTransport:
         last_byte = time.monotonic()
         received = False
         while time.monotonic() < deadline:
-            try:
-                chunk = self._read_once(min(quiet, max(0.01, deadline - time.monotonic())), label)
-            except WorkerError as exc:
-                if received:
-                    break
-                raise exc
+            chunk = self._read_once(min(quiet, max(0.01, deadline - time.monotonic())), label)
             if chunk:
                 received = True
                 last_byte = time.monotonic()
@@ -134,7 +157,19 @@ class PosixSerialTransport:
         fd = getattr(self, "_fd", -1)
         self._fd = -1
         if fd >= 0:
-            os.close(fd)
+            try:
+                try:
+                    if self._original_settings is not None:
+                        import termios
+
+                        termios.tcsetattr(fd, termios.TCSANOW, self._original_settings)
+                finally:
+                    os.close(fd)
+            except Exception as exc:
+                raise WorkerError(f"Ошибка закрытия порта {self.path}: {exc}") from exc
+            finally:
+                self._original_settings = None
+                self._stash.clear()
 
 
 def _command(text: str) -> bytes:
@@ -193,6 +228,8 @@ def parse_tinysa_scan(text: str, command: str, points: int) -> tuple[tuple[int, 
 
 def _ardv1_body(raw: str) -> str:
     text = raw.strip()
+    if not text.isascii():
+        raise WorkerError(f"Некорректный ответ AR-DV1: {raw!r}")
     if len(text) >= 2 and text[0].isdigit() and text[1] in "01":
         kind = int(text[0])
         rest = text[2:]
@@ -200,6 +237,8 @@ def _ardv1_body(raw: str) -> str:
         if 1 <= kind <= 6 and plausible:
             if kind >= 3:
                 raise WorkerError(f"AR-DV1 отклонил команду: {text}")
+            if text[1] == "1":
+                raise WorkerError(f"Продолженный ответ AR-DV1 не поддерживается: {text}")
             return rest.strip()
     if text == "?":
         raise WorkerError("AR-DV1 отклонил команду: ?")
@@ -211,6 +250,8 @@ def _ardv1_level(raw: str) -> tuple[int, int]:
     if not body.startswith("LM") or len(body) <= 3:
         raise WorkerError(f"Некорректный ответ LM: {raw!r}")
     payload = body[2:]
+    if not payload.isascii() or not payload.isdigit():
+        raise WorkerError(f"Некорректный ответ LM: {raw!r}")
     try:
         squelch = int(payload[-1])
         level = int(payload[:-1])
@@ -222,6 +263,8 @@ def _ardv1_level(raw: str) -> tuple[int, int]:
 
 
 def _rf_command(frequency_hz: int) -> str:
+    if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int):
+        raise WorkerError("frequency_hz должно быть целым числом")
     if not 100_000 <= frequency_hz <= 1_300_000_000:
         raise WorkerError("Частота AR-DV1 вне диапазона 0,1–1300 МГц")
     units = frequency_hz // 10
@@ -351,10 +394,10 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         if stream.level_unit != "s_meter_count":
             raise ValueError("ardv1-serial выдаёт только исходную единицу s_meter_count")
         self._clock = clock
-        self.frequency_hz = self.settings.get("frequency_hz", 145_500_000)
-        _rf_command(self.frequency_hz)
-        self.mode = str(self.settings.get("mode") or "FM").strip().upper()
-        if self.mode not in ("FM", "AM"):
+        self._requested_frequency_hz = self.settings.get("frequency_hz", 145_500_000)
+        _rf_command(self._requested_frequency_hz)
+        self._requested_mode = str(self.settings.get("mode") or "FM").strip().upper()
+        if self._requested_mode not in ("FM", "AM"):
             raise ValueError("ardv1-serial поддерживает только FM и AM в этом срезе")
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
@@ -365,43 +408,98 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._closed = False
         self._sequence = 0
         self._tune_sequence = 0
+        self.frequency_hz: Optional[int] = None
+        self.mode: Optional[str] = None
+        self._frequency_source = "unconfirmed"
+        self._restart_required = False
+
+    def _ensure_usable(self) -> None:
+        if self._restart_required or self._closed:
+            raise WorkerError("AR-DV1: требуется перезапуск потока (stop/start) с новым соединением")
+
+    def _taint_connection(self, error: Exception) -> WorkerError:
+        # Replies have no command IDs. After an uncertain exchange, a delayed
+        # ACK/LM can be mistaken for the next reply. Never flush and retry on
+        # this connection, including an explicit tune or EX during close.
+        self._restart_required = True
+        self.frequency_hz = None
+        self.mode = None
+        self._frequency_source = "unknown"
+        return WorkerError(
+            f"{error}; AR-DV1: требуется перезапуск потока (stop/start) с новым соединением"
+        )
 
     def _transact(self, text: str) -> str:
         self.transport.send(_command(text))
         return _ardv1_body(self.transport.read_line(timeout=1.5, label=text))
 
+    def _acknowledge(self, text: str) -> None:
+        self.transport.send(_command(text))
+        raw = self.transport.read_line(timeout=1.5, label=text).strip()
+        _ardv1_body(raw)  # Retain the specific rejection diagnostic.
+        # Only terminal, body-free success codes qualify. Echoes, data for a
+        # different command and continuation frames cannot confirm a mutation.
+        # This result-code framing remains unverified on physical hardware.
+        if raw not in ("10", "20"):
+            raise WorkerError(f"AR-DV1 не подтвердил команду {text}: {raw!r}")
+
     def _prepare(self) -> None:
         if self._ready:
             return
-        self._transact("RE1")
+        self._acknowledge("RE1")
         firmware = self._transact("VR")
+        if not firmware.startswith("VR") or len(firmware) <= 2:
+            raise WorkerError("AR-DV1 не подтвердил VR")
         serial = self._transact("RN")
-        if not firmware.startswith("VR") or not serial.startswith("RN"):
-            raise WorkerError("AR-DV1 не подтвердил VR/RN")
+        if not serial.startswith("RN") or len(serial) <= 2:
+            raise WorkerError("AR-DV1 не подтвердил RN")
         self._ready = True
 
+    def _tune(self, frequency_hz: int, mode: str) -> None:
+        self._ensure_usable()
+        rf = _rf_command(frequency_hz)  # Validate before any device mutation.
+        self._requested_frequency_hz = frequency_hz
+        self._requested_mode = mode
+        # A failed write/ACK may still have changed VFO, mode or frequency.
+        # Never retain the previous frequency as if it described later LM data.
+        self.frequency_hz = None
+        self.mode = None
+        self._frequency_source = "unknown"
+        try:
+            self._prepare()
+            self._acknowledge("VFA")
+            self._acknowledge("MD0F0" if mode == "FM" else "MD0F1")
+            self._acknowledge(rf)
+        except Exception as exc:
+            raise self._taint_connection(exc) from exc
+        self.frequency_hz = frequency_hz
+        self.mode = mode
+        self._frequency_source = "command_acknowledged"
+        self._tune_sequence += 1
+
     def execute(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self._ensure_usable()
         if command != "tune":
             return super().execute(command, payload)
         frequency_hz = payload.get("frequency_hz")
-        if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int):
-            raise WorkerError("frequency_hz должно быть целым числом")
-        mode = str(payload.get("mode") or self.mode).strip().upper()
+        _rf_command(frequency_hz)
+        mode = str(payload.get("mode") or self._requested_mode).strip().upper()
         if mode not in ("FM", "AM"):
             raise WorkerError("ardv1-serial поддерживает только FM и AM; цифровой режим не отправлен")
-        self._prepare()
-        self._transact("VFA")
-        self._transact("MD0F0" if mode == "FM" else "MD0F1")
-        self._transact(_rf_command(frequency_hz))
-        self.frequency_hz = frequency_hz
-        self.mode = mode
-        self._tune_sequence += 1
+        self._tune(frequency_hz, mode)
         return self.details()
 
     def poll(self) -> ReceiverObservation:
-        self._prepare()
+        self._ensure_usable()
+        if self._frequency_source == "unconfirmed":
+            self._tune(self._requested_frequency_hz, self._requested_mode)
+        if self.frequency_hz is None or self.mode is None:
+            raise WorkerError("AR-DV1: частота неизвестна; требуется успешная перестройка")
         started_at = self._clock()
-        level, squelch = _ardv1_level(self._transact("LM"))
+        try:
+            level, squelch = _ardv1_level(self._transact("LM"))
+        except Exception as exc:
+            raise self._taint_connection(exc) from exc
         ended_at = self._clock()
         self._sequence += 1
         return ReceiverObservation(
@@ -418,6 +516,9 @@ class ARDV1SerialAdapter(SimulatedAdapter):
                 "adapter": self.adapter_name,
                 "sequence": self._sequence,
                 "tune_sequence": self._tune_sequence,
+                "frequency_source": self._frequency_source,
+                "mode_source": self._frequency_source,
+                "frequency_readback": False,
                 "simulated": False,
                 "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
             },
@@ -427,6 +528,12 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         return {
             "frequency_hz": self.frequency_hz,
             "mode": self.mode,
+            "requested_frequency_hz": self._requested_frequency_hz,
+            "requested_mode": self._requested_mode,
+            "frequency_source": self._frequency_source,
+            "mode_source": self._frequency_source,
+            "frequency_readback": False,
+            "restart_required": self._restart_required,
             "tune_sequence": self._tune_sequence,
             "simulated": False,
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
@@ -437,7 +544,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             return
         self._closed = True
         try:
-            if self._ready:
+            if self._ready and not self._restart_required:
                 try:
                     self.transport.send(_command("EX"))
                     self.transport.read_line(timeout=0.4, label="EX")

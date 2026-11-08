@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import unittest
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -76,10 +77,56 @@ class ARDV1Transport(ScriptedTransport):
             "RN": ["20RN0952zz"],
             "VFA": ["20"],
             "MD0F0": ["20"],
+            "RF0145.50000": ["20"],
             "RF0433.07500": ["20"],
             "LM": ["20LM0551", "20LM1043"],
             "EX": ["20"],
         })
+
+
+class FIFOARDV1Transport(ScriptedTransport):
+    """Wire-order responses. read_line never matches a reply by its label."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.pending: deque[str | Exception] = deque()
+        self.actual_frequency_hz: int | None = None
+        self.delayed_rf_timeout = False
+        self.reject_recovery_rf = False
+        self.next_lm_reply: tuple[str | Exception, ...] | None = None
+
+    def send(self, data: bytes) -> None:
+        super().send(data)
+        command = data.decode("ascii").rstrip("\r")
+        if command == "VR":
+            self.pending.append("20VR1805A")
+        elif command == "RN":
+            self.pending.append("20RNsynthetic")
+        elif command.startswith("RF"):
+            whole, fraction = command[2:].split(".")
+            frequency_hz = int(whole) * 1_000_000 + int(fraction) * 10
+            if frequency_hz == 434_000_000 and self.reject_recovery_rf:
+                self.pending.append("50")
+                return
+            self.actual_frequency_hz = frequency_hz
+            if frequency_hz == 433_075_000 and self.delayed_rf_timeout:
+                # The device changed frequency; its ACK arrives only after the
+                # first read timed out. It must not acknowledge a future VFA.
+                self.pending.append(WorkerError("synthetic delayed RF timeout"))
+            self.pending.append("20")
+        elif command == "LM":
+            self.pending.extend(self.next_lm_reply or ("20LM0551",))
+            self.next_lm_reply = None
+        else:
+            self.pending.append("20")
+
+    def read_line(self, timeout: float, label: str) -> str:
+        if not self.pending:
+            raise WorkerError("synthetic FIFO timeout")
+        response = self.pending.popleft()
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def serial_session(*, max_errors: int = 3) -> dict[str, Any]:
@@ -164,6 +211,8 @@ class SerialAdapterTests(unittest.TestCase):
         self.assertFalse(observation.metadata["simulated"])
         adapter.close()
         self.assertIn(b"RF0433.07500\r", transport.sent)
+        self.assertNotIn(b"RF0145.50000\r", transport.sent)
+        self.assertEqual(transport.sent.count(b"RF0433.07500\r"), 1)
         self.assertEqual(transport.sent[-1], b"EX\r")
         self.assertTrue(transport.closed)
 
@@ -179,6 +228,256 @@ class SerialAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkerError, "отклонил"):
             adapter.poll()
         adapter.close()
+
+    def test_ardv1_initial_poll_tunes_before_lm_and_labels_frequency_source(self) -> None:
+        session = SessionService().create_session(serial_session())
+        transport = ARDV1Transport.valid()
+        adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+        self.addCleanup(adapter.close)
+        self.assertIsNone(adapter.details()["frequency_hz"])
+        self.assertIsNone(adapter.details()["mode"])
+        self.assertEqual(adapter.details()["requested_frequency_hz"], 145_500_000)
+        self.assertEqual(adapter.details()["frequency_source"], "unconfirmed")
+        observation = adapter.poll()
+        self.assertEqual(transport.sent, [
+            b"RE1\r", b"VR\r", b"RN\r", b"VFA\r", b"MD0F0\r",
+            b"RF0145.50000\r", b"LM\r",
+        ])
+        self.assertEqual(observation.frequency_hz, 145_500_000)
+        self.assertEqual(observation.mode, "FM")
+        self.assertEqual(observation.metadata["frequency_source"], "command_acknowledged")
+        self.assertEqual(observation.metadata["mode_source"], "command_acknowledged")
+        self.assertFalse(observation.metadata["frequency_readback"])
+        self.assertEqual(observation.metadata["hardware_validation"], "not_run")
+        self.assertEqual(observation.metadata["tune_sequence"], 1)
+        adapter.poll()
+        self.assertEqual(transport.sent.count(b"RF0145.50000\r"), 1)
+
+    def test_ardv1_am_initialization_uses_configured_mode(self) -> None:
+        payload = serial_session()
+        payload["streams"][1]["settings"]["mode"] = "AM"
+        session = SessionService().create_session(payload)
+        transport = ARDV1Transport.valid()
+        transport.responses["MD0F1"] = ["20"]
+        adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+        self.addCleanup(adapter.close)
+        self.assertEqual(adapter.poll().mode, "AM")
+        self.assertIn(b"MD0F1\r", transport.sent)
+        self.assertNotIn(b"MD0F0\r", transport.sent)
+
+    def test_ardv1_initial_tune_failure_never_emits_lm(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for step in ("VFA", "MD0F0", "RF0145.50000"):
+            with self.subTest(step=step):
+                transport = ARDV1Transport.valid()
+                transport.responses[step] = ["50"]
+                adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                self.addCleanup(adapter.close)
+                with self.assertRaisesRegex(WorkerError, "отклонил"):
+                    adapter.poll()
+                with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                    adapter.poll()
+                self.assertNotIn(b"LM\r", transport.sent)
+                self.assertIsNone(adapter.details()["frequency_hz"])
+                self.assertIsNone(adapter.details()["mode"])
+                self.assertEqual(adapter.details()["frequency_source"], "unknown")
+
+    def test_ardv1_requires_terminal_ack_not_echo_or_unrelated_response(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for step in ("RE1", "VFA", "MD0F0", "RF0433.07500"):
+            for reply in ("", "OK", step, "20" + step, "20LM0551", "21", "11", "30", "?"):
+                with self.subTest(step=step, reply=reply):
+                    transport = ARDV1Transport.valid()
+                    transport.responses[step] = [reply]
+                    adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                    self.addCleanup(adapter.close)
+                    with self.assertRaises(WorkerError):
+                        adapter.execute("tune", {"frequency_hz": 433_075_000})
+                    self.assertIsNone(adapter.details()["frequency_hz"])
+                    self.assertEqual(adapter.details()["tune_sequence"], 0)
+                    self.assertNotIn(b"LM\r", transport.sent)
+
+    def test_ardv1_identity_failure_stops_exchange_and_requires_restart(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for step in ("VR", "RN"):
+            for responses in (["20" + step], ["20LM0551"], ["21" + step + "synthetic"], []):
+                with self.subTest(step=step, responses=responses):
+                    transport = ARDV1Transport.valid()
+                    transport.responses[step] = responses.copy()
+                    adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                    self.addCleanup(adapter.close)
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.poll()
+                    self.assertEqual(transport.sent[-1], (step + "\r").encode("ascii"))
+                    before = list(transport.sent)
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.execute("tune", {"frequency_hz": 433_075_000})
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.poll()
+                    adapter.close()
+                    self.assertEqual(transport.sent, before)
+                    self.assertTrue(transport.closed)
+                    self.assertIsNone(adapter.details()["frequency_hz"])
+                    self.assertTrue(adapter.details()["restart_required"])
+
+    def test_ardv1_accepts_only_terminal_success_codes_for_tune(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for reply in ("10", "20"):
+            with self.subTest(reply=reply):
+                transport = ARDV1Transport.valid()
+                for step in ("RE1", "VFA", "MD0F0", "RF0433.07500"):
+                    transport.responses[step] = [reply]
+                adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                self.addCleanup(adapter.close)
+                result = adapter.execute("tune", {"frequency_hz": 433_075_000})
+                self.assertEqual(result["frequency_source"], "command_acknowledged")
+                self.assertEqual(result["frequency_hz"], 433_075_000)
+
+    def test_ardv1_failed_retune_requires_new_transport(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for step in ("VFA", "MD0F1", "RF0433.07500"):
+            for responses in (["50"], []):
+                with self.subTest(step=step, responses=responses):
+                    transport = ARDV1Transport.valid()
+                    adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                    self.addCleanup(adapter.close)
+                    adapter.poll()
+                    transport.responses.update({
+                        "VFA": ["20"], "MD0F1": ["20"], "RF0433.07500": ["20"],
+                    })
+                    transport.responses[step] = responses.copy()
+                    with self.assertRaises(WorkerError):
+                        adapter.execute("tune", {"frequency_hz": 433_075_000, "mode": "AM"})
+                    self.assertIsNone(adapter.details()["frequency_hz"])
+                    self.assertIsNone(adapter.details()["mode"])
+                    self.assertEqual(adapter.details()["tune_sequence"], 1)
+                    self.assertEqual(adapter.details()["requested_frequency_hz"], 433_075_000)
+                    self.assertEqual(adapter.details()["requested_mode"], "AM")
+                    before = len(transport.sent)
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.poll()
+                    self.assertEqual(len(transport.sent), before)
+                    transport.responses.update({
+                        "VFA": ["20"], "MD0F1": ["20"], "RF0433.07500": ["20"],
+                    })
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.execute("tune", {"frequency_hz": 433_075_000, "mode": "AM"})
+                    self.assertEqual(len(transport.sent), before)
+                    self.assertTrue(adapter.details()["restart_required"])
+                    adapter.close()
+                    self.assertEqual(len(transport.sent), before)
+                    self.assertTrue(transport.closed)
+                    replacement_transport = ARDV1Transport.valid()
+                    replacement_transport.responses["MD0F1"] = ["20"]
+                    replacement = ARDV1SerialAdapter(session.streams[1], transport=replacement_transport)
+                    self.addCleanup(replacement.close)
+                    replacement.execute("tune", {"frequency_hz": 433_075_000, "mode": "AM"})
+                    observation = replacement.poll()
+                    self.assertEqual(observation.frequency_hz, 433_075_000)
+                    self.assertEqual(observation.mode, "AM")
+                    self.assertEqual(observation.metadata["tune_sequence"], 1)
+                    self.assertFalse(replacement.details()["restart_required"])
+
+    def test_ardv1_delayed_rf_ack_cannot_shift_fifo_during_retry(self) -> None:
+        session = SessionService().create_session(serial_session())
+        transport = FIFOARDV1Transport()
+        adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+        self.addCleanup(adapter.close)
+        adapter.poll()
+        transport.delayed_rf_timeout = True
+        transport.reject_recovery_rf = True
+        with self.assertRaisesRegex(WorkerError, "delayed RF timeout"):
+            adapter.execute("tune", {"frequency_hz": 433_075_000})
+        self.assertEqual(transport.actual_frequency_hz, 433_075_000)
+        self.assertEqual(list(transport.pending), ["20"])
+        before = list(transport.sent)
+        with self.assertRaisesRegex(WorkerError, "перезапуск"):
+            adapter.execute("tune", {"frequency_hz": 434_000_000})
+        for _ in range(2):
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                adapter.poll()
+        self.assertEqual(transport.sent, before)
+        self.assertEqual(list(transport.pending), ["20"])
+        self.assertIsNone(adapter.details()["frequency_hz"])
+        self.assertIsNone(adapter.details()["mode"])
+        self.assertEqual(adapter.details()["requested_frequency_hz"], 433_075_000)
+        self.assertTrue(adapter.details()["restart_required"])
+        adapter.close()
+        self.assertEqual(transport.sent, before)
+        self.assertTrue(transport.closed)
+
+    def test_ardv1_lm_failure_taints_fifo_and_never_retimestamps_late_level(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for bad_reply in (
+            WorkerError("synthetic LM timeout"), OSError("synthetic LM read failure"),
+            "20", "nonsense", "50", "21LM0551", "20LM+551", "20LM-551", "20LM５５1", "٢0LM0551",
+        ):
+            with self.subTest(reply=bad_reply):
+                transport = FIFOARDV1Transport()
+                adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                self.addCleanup(adapter.close)
+                first = adapter.poll()
+                transport.next_lm_reply = (bad_reply, "20LM0991")
+                with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                    adapter.poll()
+                before = list(transport.sent)
+                for _ in range(2):
+                    with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                        adapter.poll()
+                with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                    adapter.execute("tune", {"frequency_hz": 434_000_000})
+                self.assertEqual(transport.sent, before)
+                self.assertEqual(list(transport.pending), ["20LM0991"])
+                self.assertEqual(adapter._sequence, first.metadata["sequence"])
+                self.assertIsNone(adapter.details()["frequency_hz"])
+                self.assertIsNone(adapter.details()["mode"])
+                self.assertTrue(adapter.details()["restart_required"])
+
+    def test_ardv1_partial_write_taints_connection_and_closed_adapter_rejects_io(self) -> None:
+        session = SessionService().create_session(serial_session())
+        transport = FIFOARDV1Transport()
+        adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+        self.addCleanup(adapter.close)
+        adapter.poll()
+        original_send = transport.send
+        def fail_after_send(data: bytes) -> None:
+            original_send(data)
+            raise OSError("synthetic uncertain write")
+        transport.send = fail_after_send
+        with self.assertRaisesRegex(WorkerError, "uncertain write.*перезапуск"):
+            adapter.execute("tune", {"frequency_hz": 433_075_000})
+        before = list(transport.sent)
+        adapter.close()
+        for operation in (adapter.poll, lambda: adapter.execute("tune", {"frequency_hz": 434_000_000})):
+            with self.assertRaisesRegex(WorkerError, "перезапуск"):
+                operation()
+        self.assertEqual(transport.sent, before)
+
+    def test_ardv1_invalid_frequency_is_rejected_before_io_or_state_change(self) -> None:
+        session = SessionService().create_session(serial_session())
+        for frequency in (True, "145500000", 145_500_000.0, None, 99_990, 1_300_000_010, 145_500_001):
+            with self.subTest(frequency=frequency):
+                transport = ARDV1Transport.valid()
+                adapter = ARDV1SerialAdapter(session.streams[1], transport=transport)
+                self.addCleanup(adapter.close)
+                adapter.poll()
+                before = list(transport.sent)
+                with self.assertRaises(WorkerError):
+                    adapter.execute("tune", {"frequency_hz": frequency, "mode": "AM"})
+                self.assertEqual(transport.sent, before)
+                self.assertEqual(adapter.details()["frequency_hz"], 145_500_000)
+                self.assertEqual(adapter.details()["mode"], "FM")
+
+    def test_ardv1_invalid_initial_frequency_does_not_open_transport(self) -> None:
+        for frequency in (True, "145500000", 145_500_000.0, None, 145_500_001):
+            with self.subTest(frequency=frequency):
+                payload = serial_session()
+                payload["streams"][1]["settings"]["frequency_hz"] = frequency
+                session = SessionService().create_session(payload)
+                def forbidden_factory(*args):
+                    self.fail("Invalid configuration must not open a port")
+                with self.assertRaises(WorkerError):
+                    ARDV1SerialAdapter(session.streams[1], transport_factory=forbidden_factory)
 
     def test_explicit_adapter_selection_and_close(self) -> None:
         service = SessionService()

@@ -1050,8 +1050,11 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[4] == "start":
                     session = self.sessions.start_session(parts[3])
                 else:
-                    self.workers.stop_session(parts[3])
-                    session = self.sessions.stop_session(parts[3])
+                    # Keep start admission closed until the session state is saved.
+                    # Stopping workers alone leaves a concurrent-start gap here.
+                    with self.workers.stopping_session(parts[3]):
+                        self.workers.stop_session(parts[3])
+                        session = self.sessions.stop_session(parts[3])
                 self._send_json(api_payload(session))
                 return
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
