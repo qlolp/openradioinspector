@@ -108,6 +108,70 @@ public struct PlatformSweepAverageComparison: Decodable, Equatable {
     }
 }
 
+public struct PlatformSweepChangeRegion: Decodable, Equatable {
+    public let startIndex: Int
+    public let endIndex: Int
+    public let startFrequencyHz: Int64
+    public let endFrequencyHz: Int64
+    public let peakIndex: Int
+    public let peakFrequencyHz: Int64
+    public let peakIncreaseDb: Double
+    public let binCount: Int
+}
+
+public struct PlatformSweepChangeDetection: Decodable, Equatable {
+    public let minimumIncreaseDb: Double
+    public let minimumBins: Int
+    public let regions: [PlatformSweepChangeRegion]
+    public let count: Int
+}
+
+public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
+    public let comparison: PlatformSweepAverageComparison
+    public let detection: PlatformSweepChangeDetection
+
+    public func validate(
+        sources: [PlatformSweep], target: PlatformSweep,
+        minimumIncreaseDb: Double, minimumBins: Int,
+    ) throws {
+        try comparison.validate(sources: sources, target: target)
+        guard minimumIncreaseDb.isFinite, (0...120).contains(minimumIncreaseDb),
+              (1...16_384).contains(minimumBins),
+              detection.minimumIncreaseDb == minimumIncreaseDb,
+              detection.minimumBins == minimumBins,
+              detection.count == detection.regions.count else {
+            throw PlatformError.invalidResponse("Параметры или сводка обнаружения не совпадают с запросом")
+        }
+        let frequencies = comparison.frequenciesHz, deltas = comparison.deltaLevels
+        var expected: [PlatformSweepChangeRegion] = []
+        var start: Int?
+        func append(_ end: Int) {
+            guard let start, end - start + 1 >= minimumBins else { return }
+            var peak = start
+            if start < end {
+                for index in (start + 1)...end where deltas[index] > deltas[peak] { peak = index }
+            }
+            expected.append(PlatformSweepChangeRegion(
+                startIndex: start, endIndex: end,
+                startFrequencyHz: frequencies[start], endFrequencyHz: frequencies[end],
+                peakIndex: peak, peakFrequencyHz: frequencies[peak],
+                peakIncreaseDb: deltas[peak], binCount: end - start + 1,
+            ))
+        }
+        for index in deltas.indices {
+            if deltas[index] >= minimumIncreaseDb {
+                if start == nil { start = index }
+            } else if start != nil {
+                append(index - 1); start = nil
+            }
+        }
+        if let start { append(deltas.count - 1) }
+        guard detection.regions == expected else {
+            throw PlatformError.invalidResponse("Области обнаружения не согласованы с разностью свипов")
+        }
+    }
+}
+
 private func averageScopeID(_ id: String) -> Bool {
     !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 }
@@ -168,6 +232,45 @@ extension PlatformClient {
         try Task.checkCancellation()
         guard result.sessionId == sessionID, result.reference.sourceIds == referenceIDs,
               result.target.id == targetID else { throw PlatformError.invalidResponse("Сервер вернул другие источники усреднённого эталона") }
+        return result
+    }
+
+    public func sweepAverageChangeDetection(
+        sessionID: String, referenceIDs: [String], targetID: String,
+        minimumIncreaseDb: Double, minimumBins: Int,
+    ) async throws -> PlatformSweepAverageChangeDetection {
+        struct Body: Encodable {
+            let referenceIds: [String]
+            let targetId: String
+            let minimumIncreaseDb: Double
+            let minimumBins: Int
+        }
+        guard averageScopeID(sessionID), averageID(targetID),
+              (2...16).contains(referenceIDs.count), referenceIDs.allSatisfy(averageID),
+              Set(referenceIDs).count == referenceIDs.count, !referenceIDs.contains(targetID),
+              minimumIncreaseDb.isFinite, (0...120).contains(minimumIncreaseDb),
+              (1...16_384).contains(minimumBins) else {
+            throw PlatformError.invalidCommand("Некорректные ID свипов или параметры обнаружения")
+        }
+        let body = Body(
+            referenceIds: referenceIDs, targetId: targetID,
+            minimumIncreaseDb: minimumIncreaseDb, minimumBins: minimumBins,
+        )
+        let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
+        guard try encoder.encode(body).count <= 8192 else {
+            throw PlatformError.invalidCommand("Запрос превышает 8192 байта")
+        }
+        try Task.checkCancellation()
+        let result: PlatformSweepAverageChangeDetection = try await post(
+            "/sessions/\(Self.segment(sessionID))/sweep-average-change-detection",
+            body: body, expectedStatuses: [200],
+        )
+        try Task.checkCancellation()
+        guard result.comparison.sessionId == sessionID,
+              result.comparison.reference.sourceIds == referenceIDs,
+              result.comparison.target.id == targetID else {
+            throw PlatformError.invalidResponse("Сервер вернул другие свипы")
+        }
         return result
     }
 }

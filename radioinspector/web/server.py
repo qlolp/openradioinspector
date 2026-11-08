@@ -450,11 +450,16 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         parts = route.strip("/").split("/")
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison")):
+                and parts[4] in (
+                    "sweep-mask-analysis", "sweep-average-comparison",
+                    "sweep-average-change-detection",
+                )):
             try:
                 if "?" in self.path:
                     raise ValueError("Анализ не принимает параметры запроса")
-                maximum = (MAX_AVERAGE_REQUEST_BYTES if parts[4] == "sweep-average-comparison"
+                maximum = (MAX_AVERAGE_REQUEST_BYTES if parts[4] in (
+                    "sweep-average-comparison", "sweep-average-change-detection",
+                )
                            else MAX_MASK_REQUEST_BYTES)
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -839,6 +844,15 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "sweep-average-comparison"
             ):
                 self._send_json(api_payload(self.sessions.sweep_average_comparison(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-average-change-detection"
+            ):
+                self._send_json(api_payload(
+                    self.sessions.sweep_average_change_detection(parts[3], payload)
+                ))
                 return
             if (
                 len(parts) == 5

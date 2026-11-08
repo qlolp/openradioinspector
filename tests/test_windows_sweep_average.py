@@ -8,7 +8,10 @@ from math import isfinite
 from time import monotonic
 from unittest.mock import Mock
 from tests.test_windows_sweep_threshold import panel as base_panel
-from radioinspector.windows.sweep_average import AveragePanel, validate_average, validate_ids, source_text
+from radioinspector.windows.sweep_average import (
+    AveragePanel, validate_average, validate_change_detection, validate_change_parameters,
+    validate_ids, source_text,
+)
 from radioinspector.windows.client import PlatformClient, PlatformClientError, MAX_RESPONSE_BYTES
 from radioinspector.contracts import api_payload
 
@@ -24,9 +27,18 @@ def response():
         target={k:target[k] for k in ('id','interval','settings','levels','level_unit')},delta_levels=[0,0,0],delta_unit='dB',max_increase={'frequency_hz':100,'delta_db':0},min_change={'frequency_hz':100,'delta_db':0})
 
 
+def detection_response():
+    return {'comparison': response(), 'detection': {
+        'minimum_increase_db': 6.0, 'minimum_bins': 2, 'regions': [], 'count': 0,
+    }}
+
+
 def panel():
     base=base_panel(); p=AveragePanel.__new__(AveragePanel); p.__dict__.update(base.__dict__)
-    p.sources=None;p.count=Mock();p.count.get.return_value='3';p.app.snapshot.sweeps=sources()
+    p.sources=None;p.detection=None;p.count=Mock();p.count.get.return_value='3'
+    p.threshold=Mock();p.threshold.get.return_value='6'
+    p.minimum_bins=Mock();p.minimum_bins.get.return_value='2'
+    p.app.snapshot.sweeps=sources()
     return p
 
 
@@ -85,13 +97,26 @@ class AverageValidationTests(unittest.TestCase):
         r['target']={k:target[k] for k in ('id','interval','settings','levels','level_unit')}
         validate_average(r,('session','s'),ss,target)
 
+    def test_change_detection_response_and_parameters(self):
+        result = detection_response()
+        self.assertEqual(validate_change_detection(
+            result, ('session','s'), sources()[:3], sources()[-1], 6, 2,
+        ), (response(), result['detection']))
+        for threshold, bins in ((-1,2),(121,2),(float('nan'),2),(True,2),(6,0),(6,16385),(6,2.0)):
+            with self.assertRaises(ValueError):validate_change_parameters(threshold,bins)
+        bad = deepcopy(result); bad['detection']['count'] = 1
+        with self.assertRaises(ValueError):
+            validate_change_detection(bad,('session','s'),sources()[:3],sources()[-1],6,2)
+
 
 class AverageLifecycleTests(unittest.TestCase):
     def test_pin_explicit_freeze_no_auto_and_single_flight(self):
         p=panel();p.update();p.pin();p.executor.submit.assert_not_called()
-        p.compare();p.compare();p.executor.submit.assert_called_once_with(p.app.client.compare_average_sweeps,'session',['0','1','2'],'3')
+        p.compare();p.compare();p.executor.submit.assert_called_once_with(
+            p.app.client.detect_average_sweep_changes,'session',['0','1','2'],'3',6.0,2,
+        )
         p.app.snapshot.sweeps[0]['settings']['sequence']['number']=999
-        p.app.snapshot.sweeps=[];p.future.set_result(response());p.finish(p.generation)
+        p.app.snapshot.sweeps=[];p.future.set_result(detection_response());p.finish(p.generation)
         self.assertEqual(p.data,response());self.assertEqual(p.sources[0]['settings']['sequence']['number'],0)
         self.assertEqual(p.canvas.create_line.call_count,3)
         for call in p.canvas.create_line.call_args_list:self.assertEqual(len(call.args),6)
@@ -117,8 +142,8 @@ class AverageLifecycleTests(unittest.TestCase):
     def test_repin_running_request_never_queues(self):
         p=panel();p.pin();p.compare();old=p.future;old.set_running_or_notify_cancel();p.pin();p.compare()
         self.assertEqual(p.executor.submit.call_count,1)
-        old.set_result(response());p.compare();self.assertEqual(p.executor.submit.call_count,2)
-        p.future.set_result(response());p.finish(p.generation);self.assertIsNotNone(p.data)
+        old.set_result(detection_response());p.compare();self.assertEqual(p.executor.submit.call_count,2)
+        p.future.set_result(detection_response());p.finish(p.generation);self.assertIsNotNone(p.data)
     def test_error_isolated_and_retry(self):
         for status in (400,404,409,413):
             p=panel();p.pin();p.compare();p.future.set_exception(PlatformClientError('bad',status=status));p.finish(p.generation)
@@ -134,6 +159,18 @@ class AverageLifecycleTests(unittest.TestCase):
                 calls=p.canvas.create_line.call_args_list;self.assertEqual(len(calls),3)
                 for call in calls:self.assertEqual(len(call.args),n*2)
             for call in calls:self.assertTrue(all(isfinite(v) for v in call.args))
+
+    def test_change_regions_are_highlighted_on_delta_chart(self):
+        p=panel();p.data=response()
+        p.detection={'regions':[{
+            'start_index':1,'end_index':2,'start_frequency_hz':200,'end_frequency_hz':300,
+            'peak_index':2,'peak_frequency_hz':300,'peak_increase_db':8,'bin_count':2,
+        }]}
+        p.draw()
+        highlights=[call for call in p.canvas.create_rectangle.call_args_list
+                    if call.kwargs.get('fill')=='#285538']
+        self.assertEqual(len(highlights),1)
+        self.assertEqual(highlights[0].kwargs['stipple'],'gray50')
 
     def test_actual_refresh_error_invalidates_running_and_completed_state(self):
         import queue
@@ -151,7 +188,7 @@ class AverageLifecycleTests(unittest.TestCase):
             app._messages.put(('snapshot',failed,7,''));app._drain_messages()
             self.assertIsNone(p.sources);self.assertIsNone(p.data)
             if running:
-                old.set_result(response());p.finish(generation);self.assertIsNone(p.data)
+                old.set_result(detection_response());p.finish(generation);self.assertIsNone(p.data)
 
     def test_duplicate_equal_bins_have_distinct_visible_markers(self):
         p=panel();p.data=response();p.data['frequencies_hz']=[100]*3
@@ -168,6 +205,17 @@ class AverageHTTPTests(unittest.TestCase):
         c=PlatformClient('http://localhost');c._request=Mock();c.compare_average_sweeps('s/a',['a','b'],'c')
         c._request.assert_called_once_with('POST','/sessions/s%2Fa/sweep-average-comparison',{'reference_ids':['a','b'],'target_id':'c'},expected_statuses=(200,))
         with self.assertRaises(ValueError):c.compare_average_sweeps('s',['a','b'],'a')
+    def test_exact_change_detection_post_and_parameters(self):
+        c=PlatformClient('http://localhost');c._request=Mock()
+        c.detect_average_sweep_changes('s/a',['a','b'],'c',6,2)
+        c._request.assert_called_once_with(
+            'POST','/sessions/s%2Fa/sweep-average-change-detection',
+            {'reference_ids':['a','b'],'target_id':'c','minimum_increase_db':6.0,'minimum_bins':2},
+            expected_statuses=(200,),
+        )
+        for threshold, bins in ((-1,2),(121,2),(float('nan'),2),(True,2),(6,0),(6,16385),(6,2.0)):
+            with self.assertRaises(ValueError):
+                c.detect_average_sweep_changes('s',['a','b'],'c',threshold,bins)
     def test_unicode_codepoints_and_utf8_body_bound(self):
         c=PlatformClient('http://localhost'); c._request=Mock()
         c.compare_average_sweeps('s',['😀'*128,'b'],'c')

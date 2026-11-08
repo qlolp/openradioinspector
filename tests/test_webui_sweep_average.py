@@ -23,7 +23,8 @@ class WebSweepAverageTests(unittest.TestCase):
         static = Path(__file__).resolve().parents[1] / "radioinspector/web/static"
         html = (static / "platform.html").read_text()
         self.assertLess(html.index('src="/static/sweep-average.js"'), html.index('src="/static/platform.js"'))
-        for name in ("average-count", "average-pin", "average-run", "average-clear", "average-reference",
+        for name in ("average-count", "average-detect-threshold", "average-detect-bins",
+                     "average-pin", "average-run", "average-clear", "average-reference",
                      "average-status", "average-summary", "average-overlay", "average-delta",
                      "spectrum-canvas", "waterfall-canvas", "comparison-canvas", "comparison-catalog",
                      "threshold-canvas", "mask-canvas"):

@@ -44,6 +44,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}/sweep-threshold?sweep_id=&window_points=&margin_db=` | Read-only адаптивный порог и области превышения одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/sweep-mask-analysis` | Read-only анализ архивного dBm свипа по переданному JSON артефакту маски |
 | `POST` | `/api/v1/sessions/{id}/sweep-average-comparison` | Read-only среднее мощности 2–16 архивных свипов и разность с отдельным target |
+| `POST` | `/api/v1/sessions/{id}/sweep-average-change-detection` | Read-only сравнение с усреднённым эталоном и области прироста по заданному порогу |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -654,3 +655,14 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 совместимых архивных свипов и возвращает производную панораму в dBm,
 разность в dB и происхождение всех источников. Каталог и архив не меняются.
 Контракт, численная устойчивость и пределы: [averaged-sweep-reference.md](averaged-sweep-reference.md).
+
+## Обнаружение изменений по усреднённому эталону
+
+`features.averaged_sweep_change_detection` сообщает поддержку явного read-only
+POST с `{reference_ids, target_id, minimum_increase_db, minimum_bins}`.
+Ответ содержит обычное сравнение и непрерывные области, где `target −
+mean_reference` не меньше `minimum_increase_db` на `minimum_bins` соседних
+bins. Query string запрещён, тело ограничено 8192 байтами. Запрос не
+создаёт кандидатов, событий или архивных записей и не меняет политику
+`automatic_candidate_detection`. Пределы и форма ответа:
+[sweep-change-detection.md](sweep-change-detection.md).

@@ -55,6 +55,10 @@ final class SweepAverageTests: XCTestCase {
                 "max_increase": ["frequency_hz": 100, "delta_db": delta.max()!],
                 "min_change": ["frequency_hz": 100, "delta_db": delta.min()!]]
     }
+    private func detectionFixture(points: Int = 3) -> [String: Any] {
+        ["comparison": fixture(points: points),
+         "detection": ["minimum_increase_db": 6.0, "minimum_bins": 2, "regions": [], "count": 0]]
+    }
     private func mutate(_ original: [String: Any], path: [String], value: Any) -> [String: Any] {
         var result = original
         if path.count == 1 { result[path[0]] = value }
@@ -77,6 +81,41 @@ final class SweepAverageTests: XCTestCase {
             let value = try await api.sweepAverageComparison(sessionID: "s", referenceIDs: ["w1", "w2"], targetID: "w3")
             XCTAssertEqual(value.points, count)
             try value.validate(sources: [try decode(raw(1, points: count)), try decode(raw(2, points: count))], target: try decode(raw(3, points: count)))
+        }
+    }
+    func testChangeDetectionPOSTAndParameterValidation() async throws {
+        let api = try client()
+        Stub.handler = { stub in
+            let request = try! bufferedTestRequest(stub.request)
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.absoluteString, "https://example.test/root/api/v1/sessions/s/sweep-average-change-detection")
+            XCTAssertNil(request.url?.query)
+            let body = try! JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            XCTAssertEqual(Set(body.keys), ["reference_ids", "target_id", "minimum_increase_db", "minimum_bins"])
+            XCTAssertEqual(body["reference_ids"] as? [String], ["w1", "w2"])
+            XCTAssertEqual(body["target_id"] as? String, "w3")
+            XCTAssertEqual(body["minimum_increase_db"] as? Double, 6)
+            XCTAssertEqual(body["minimum_bins"] as? Int, 2)
+            stub.respond(self.detectionFixture())
+        }
+        let value = try await api.sweepAverageChangeDetection(
+            sessionID: "s", referenceIDs: ["w1", "w2"], targetID: "w3",
+            minimumIncreaseDb: 6, minimumBins: 2,
+        )
+        try value.validate(
+            sources: [try decode(raw(1)), try decode(raw(2))], target: try decode(raw(3)),
+            minimumIncreaseDb: 6, minimumBins: 2,
+        )
+        XCTAssertEqual(value.detection.count, 0)
+        Stub.handler = { _ in XCTFail("Invalid detector parameters reached transport") }
+        for (threshold, bins) in [(-1.0, 2), (121.0, 2), (.nan, 2), (6.0, 0), (6.0, 16_385)] {
+            do {
+                _ = try await api.sweepAverageChangeDetection(
+                    sessionID: "s", referenceIDs: ["w1", "w2"], targetID: "w3",
+                    minimumIncreaseDb: threshold, minimumBins: bins,
+                )
+                XCTFail("Accepted invalid detector parameters")
+            } catch PlatformError.invalidCommand {}
         }
     }
     func testInvalidRequestsDoNotReachTransport() async throws {
@@ -210,5 +249,20 @@ final class SweepAverageTests: XCTestCase {
         XCTAssertEqual(result.maxIncrease.frequencyHz, 103_000_000); XCTAssertEqual(result.maxIncrease.deltaDb, 20, accuracy: 1e-11)
         XCTAssertEqual(result.minChange.frequencyHz, 107_000_000); XCTAssertEqual(result.minChange.deltaDb, -10, accuracy: 1e-11)
         XCTAssertEqual(result.reference.sources[2].settings["sequence"], .number(3))
+    }
+
+    func testActualHTTPChangeDetectionSmoke() async throws {
+        guard let base = ProcessInfo.processInfo.environment["ORI_AVERAGE_SMOKE_BASE_URL"] else {
+            throw XCTSkip("Set ORI_AVERAGE_SMOKE_BASE_URL to the synthetic average fixture")
+        }
+        let result = try await PlatformClient(baseURL: base).sweepAverageChangeDetection(
+            sessionID: "average-one", referenceIDs: ["one-sweep-1", "one-sweep-2", "one-sweep-3"],
+            targetID: "one-sweep-4", minimumIncreaseDb: 6, minimumBins: 1,
+        )
+        XCTAssertEqual(result.detection.count, 1)
+        XCTAssertEqual(result.detection.regions[0].startIndex, 30)
+        XCTAssertEqual(result.detection.regions[0].endIndex, 30)
+        XCTAssertEqual(result.detection.regions[0].startFrequencyHz, 103_000_000)
+        XCTAssertEqual(result.detection.regions[0].peakIncreaseDb, 20, accuracy: 1e-11)
     }
 }

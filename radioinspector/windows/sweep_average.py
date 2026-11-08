@@ -9,6 +9,7 @@ from .spectral_mask import same_json
 from .sweep_threshold import ThresholdPanel
 
 MAX_HZ = 9_007_199_254_740_991
+MAX_CHANGE_THRESHOLD_DB = 120.0
 
 
 def require(ok):
@@ -28,6 +29,12 @@ def identity(value):
 def validate_ids(ids, target):
     require(isinstance(ids, list) and 2 <= len(ids) <= 16 and all(identity(v) for v in ids))
     require(len(set(ids)) == len(ids) and identity(target) and target not in ids)
+
+
+def validate_change_parameters(minimum_increase_db, minimum_bins):
+    require(number(minimum_increase_db) and 0 <= minimum_increase_db <= MAX_CHANGE_THRESHOLD_DB)
+    require(type(minimum_bins) is int and 1 <= minimum_bins <= 16384)
+    return float(minimum_increase_db), minimum_bins
 
 
 def utc_interval(interval):
@@ -107,6 +114,38 @@ def validate_average(data, expected, sources, target):
     return data
 
 
+def validate_change_detection(result, expected, sources, target, threshold, minimum_bins):
+    comparison = result.get('comparison') if isinstance(result, dict) else None
+    detection = result.get('detection') if isinstance(result, dict) else None
+    validate_average(comparison, expected, sources, target)
+    require(isinstance(detection, dict) and set(detection) == {
+        'minimum_increase_db', 'minimum_bins', 'regions', 'count',
+    })
+    require(detection['minimum_increase_db'] == threshold and detection['minimum_bins'] == minimum_bins)
+    deltas, frequencies = comparison['delta_levels'], comparison['frequencies_hz']
+    regions = []; start = None
+
+    def append(end):
+        if start is None or end - start + 1 < minimum_bins: return
+        peak = max(range(start, end + 1), key=deltas.__getitem__)
+        regions.append({
+            'start_index': start, 'end_index': end,
+            'start_frequency_hz': frequencies[start], 'end_frequency_hz': frequencies[end],
+            'peak_index': peak, 'peak_frequency_hz': frequencies[peak],
+            'peak_increase_db': deltas[peak], 'bin_count': end - start + 1,
+        })
+
+    for index, value in enumerate(deltas):
+        if value >= threshold:
+            if start is None: start = index
+        elif start is not None:
+            append(index - 1); start = None
+    if start is not None: append(len(deltas) - 1)
+    require(type(detection['count']) is int and detection['count'] == len(regions))
+    require(detection['regions'] == regions)
+    return comparison, detection
+
+
 def source_text(sources):
     times = [utc_interval(s['interval']) for s in sources]
     lines = [f"mean_power · N={len(sources)} · UTC {min(t[0] for t in times).isoformat()} … {max(t[1] for t in times).isoformat()}"]
@@ -117,16 +156,20 @@ def source_text(sources):
 class AveragePanel(ThresholdPanel):
     def __init__(self, app, notebook):
         self.app = app; self.scope = None; self.generation = 0
-        self.future = self.retired = self.data = self.sources = None; self.closed = False
+        self.future = self.retired = self.data = self.detection = self.sources = None; self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-average')
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8); notebook.add(frame, text='Усреднённый опорный')
-        ttk.Label(frame, text='Исходные dBm; только чтение. Арифметическое среднее линейной мощности с равными весами. Локальное закрепление, без сохранения именованного эталона, калибровки и автоматического детектора.', wraplength=1050).pack(fill='x')
+        ttk.Label(frame, text='Исходные dBm; только чтение. Средняя линейная мощность и явный поиск областей прироста разности; кандидаты не создаются.', wraplength=1050).pack(fill='x')
         row = ttk.Frame(frame); row.pack(fill='x')
         self.count = tk.StringVar(value='3')
         ttk.Label(row, text='N (2…16)').pack(side='left'); ttk.Entry(row, textvariable=self.count, width=5).pack(side='left')
+        self.threshold = tk.StringVar(value='6')
+        ttk.Label(row, text='Минимальный прирост dB (0…120)').pack(side='left'); ttk.Entry(row, textvariable=self.threshold, width=8).pack(side='left')
+        self.minimum_bins = tk.StringVar(value='2')
+        ttk.Label(row, text='Минимум точек (1…16384)').pack(side='left'); ttk.Entry(row, textvariable=self.minimum_bins, width=8).pack(side='left')
         ttk.Button(row, text='Закрепить N перед последним dBm sweep', command=self.pin).pack(side='left')
-        self.button = ttk.Button(row, text='Сравнить с последним dBm sweep', command=self.compare); self.button.pack(side='left')
+        self.button = ttk.Button(row, text='Сравнить и найти изменения', command=self.compare); self.button.pack(side='left')
         ttk.Button(row, text='Очистить', command=self.clear).pack(side='left')
         self.info = tk.StringVar(value='Закрепите N источников; сравнение только по кнопке.')
         ttk.Label(frame, textvariable=self.info, wraplength=1050).pack(fill='x')
@@ -135,9 +178,16 @@ class AveragePanel(ThresholdPanel):
         self.details = tk.Text(frame, height=8, state='disabled', wrap='none'); self.details.pack(fill='both', expand=True)
         scroll = ttk.Scrollbar(frame, orient='vertical', command=self.details.yview); scroll.pack(side='right', fill='y'); self.details.configure(yscrollcommand=scroll.set)
         self.count.trace_add('write', lambda *args: self.clear())
+        for variable in (self.threshold, self.minimum_bins):
+            variable.trace_add('write', lambda *args: self.parameters_changed())
+
+    def parameters_changed(self):
+        self.abandon(); self.data = self.detection = None
+        self.canvas.delete('all'); self.show_details('')
+        self.info.set('Параметры обнаружения изменены. Повторите анализ по кнопке; закреплённые источники сохранены.')
 
     def clear(self):
-        self.abandon(); self.sources = self.data = None
+        self.abandon(); self.sources = self.data = self.detection = None
         self.canvas.delete('all'); self.show_details('')
         self.info.set('Опорные источники не закреплены. N предыдущих + последний dBm sweep должны быть в полученном окне.')
 
@@ -170,6 +220,11 @@ class AveragePanel(ThresholdPanel):
             self.info.set('Предыдущий запрос завершается; повторите позже.'); return
         self.retired = None
         try:
+            raw_bins = self.minimum_bins.get()
+            require(isinstance(raw_bins, str) and raw_bins.isascii() and raw_bins.isdigit())
+            self.minimum_increase_db, self.minimum_bins_value = validate_change_parameters(
+                float(self.threshold.get()), int(raw_bins),
+            )
             sweeps = self.selected(); require(bool(sweeps))
             target = deepcopy(sweeps[-1]); validate_source(target, self.app.selected_stream_id())
             validate_ids([s['id'] for s in self.sources], target['id'])
@@ -180,7 +235,11 @@ class AveragePanel(ThresholdPanel):
         self.expected = (self.app.session_id, self.app.selected_stream_id())
         self.info.set(f"Сравнение с {target['id']}…"); self.button.configure(state='disabled')
         self.deadline = monotonic() + 8.0; generation = self.generation
-        self.future = self.executor.submit(self.app.client.compare_average_sweeps, self.app.session_id, [s['id'] for s in self.sources], target['id'])
+        self.future = self.executor.submit(
+            self.app.client.detect_average_sweep_changes, self.app.session_id,
+            [s['id'] for s in self.sources], target['id'],
+            self.minimum_increase_db, self.minimum_bins_value,
+        )
         self.app.root.after(50, lambda: self.finish(generation))
 
     def finish(self, generation):
@@ -192,10 +251,22 @@ class AveragePanel(ThresholdPanel):
         if not self.future.done(): self.app.root.after(50, lambda: self.finish(generation)); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
-            self.data = deepcopy(validate_average(future.result(), self.expected, self.sources, self.target))
+            self.data, self.detection = validate_change_detection(
+                future.result(), self.expected, self.sources, self.target,
+                self.minimum_increase_db, self.minimum_bins_value,
+            )
+            self.data = deepcopy(self.data); self.detection = deepcopy(self.detection)
             target = self.data['target']; interval = target['interval']
-            self.show_details(source_text(self.sources) + f"\nTarget {target['id']} · UTC {interval['started_at']} … {interval['ended_at']}\n" + '\n'.join(f"{key}: {self.data[key]['delta_db']:+g} dB @ {self.data[key]['frequency_hz']} Hz" for key in ('max_increase', 'min_change')))
-            self.info.set('Результат зафиксирован. Голубой: target dBm; оранжевый: mean-power dBm. Нижний график: signed Δ dB, все точки.'); self.draw()
+            regions = self.detection['regions']
+            region_text = '\n'.join(
+                f"Изменение {item['start_frequency_hz']}–{item['end_frequency_hz']} Hz · "
+                f"пик +{item['peak_increase_db']:g} dB @ {item['peak_frequency_hz']} Hz · {item['bin_count']} точек"
+                for item in regions
+            )
+            self.show_details(source_text(self.sources) + f"\nTarget {target['id']} · UTC {interval['started_at']} … {interval['ended_at']}\n"
+                f"Областей: {self.detection['count']} · порог {self.minimum_increase_db:g} dB · минимум {self.minimum_bins_value} точек\n"
+                + region_text)
+            self.info.set('Результат read-only анализа ядра; кандидаты, события и архив не изменяются.'); self.draw()
         except Exception as exc:
             self.data = None; self.info.set(f'Усреднённое сравнение недоступно: {exc}')
 
@@ -210,6 +281,15 @@ class AveragePanel(ThresholdPanel):
             lower, upper = low / scale, high / scale
             top, bottom = section * h / 2 + 30, (section + 1) * h / 2 - 10
             self.canvas.create_text(10, section*h/2+5, anchor='nw', fill='white', text=f'{unit} · {low:+g} … {high:+g} · {frequencies[0]} … {frequencies[-1]} Hz')
+            if section and self.detection:
+                for region in self.detection['regions']:
+                    start = (frequencies[region['start_index']] - frequencies[0]) / (frequencies[-1] - frequencies[0]) if frequencies[-1] != frequencies[0] else 0.5
+                    end = (frequencies[region['end_index']] - frequencies[0]) / (frequencies[-1] - frequencies[0]) if frequencies[-1] != frequencies[0] else 0.5
+                    x1, x2 = 10 + start * (w - 20), 10 + end * (w - 20)
+                    self.canvas.create_rectangle(
+                        min(x1, x2) - 2, top, max(x1, x2) + 2, bottom,
+                        fill='#285538', stipple='gray50', outline='',
+                    )
             for trace, color in traces:
                 points = []
                 for i, value in enumerate(trace):

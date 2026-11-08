@@ -27,6 +27,24 @@ function summarize(d) {
     d[key] = { frequency_hz: d.frequencies_hz[d.delta_levels.indexOf(value)], delta_db: value };
   }
 }
+function detection(d, minimumIncreaseDb = 6, minimumBins = 2) {
+  const regions = []; let start = null;
+  function append(end) {
+    if (start === null || end - start + 1 < minimumBins) return;
+    let peak = start;
+    for (let i = start + 1; i <= end; i++) if (d.delta_levels[i] > d.delta_levels[peak]) peak = i;
+    regions.push({ start_index: start, end_index: end, start_frequency_hz: d.frequencies_hz[start],
+      end_frequency_hz: d.frequencies_hz[end], peak_index: peak, peak_frequency_hz: d.frequencies_hz[peak],
+      peak_increase_db: d.delta_levels[peak], bin_count: end - start + 1 });
+  }
+  for (let i = 0; i < d.points; i++) {
+    if (d.delta_levels[i] >= minimumIncreaseDb) { if (start === null) start = i; }
+    else if (start !== null) { append(i - 1); start = null; }
+  }
+  if (start !== null) append(d.points - 1);
+  return { comparison: d, detection: { minimum_increase_db: minimumIncreaseDb, minimum_bins: minimumBins,
+    regions, count: regions.length } };
+}
 function setup() {
   const dom = {}, events = {}, requests = [], timers = new Map(), drawing = []; let timerId = 0;
   const context2d = new Proxy({}, { get(target, key) { return target[key] || ((...args) => drawing.push([key, ...args])); },
@@ -37,17 +55,22 @@ function setup() {
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['count', 'pin', 'run', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
-  dom.count.value = '3';
+  for (const name of ['count', 'threshold', 'minimumBins', 'pin', 'run', 'clear', 'source', 'reference', 'status', 'summary', 'overlay', 'delta']) dom[name] = element();
+  dom.count.value = '3'; dom.threshold.value = '6'; dom.minimumBins.value = '2';
   const window = { location: { origin: 'http://server-a' }, addEventListener(event, fn) { events[event] = fn; },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); } };
-  const context = vm.createContext({ window, document: { getElementById(id) { return dom[id.replace('average-', '')]; } },
+  const context = vm.createContext({ window, document: { getElementById(id) {
+    if (id === 'average-detect-threshold') return dom.threshold;
+    if (id === 'average-detect-bins') return dom.minimumBins;
+    return dom[id.replace('average-', '')];
+  } },
     URLSearchParams, AbortController, TextDecoder, TextEncoder, fetch(url, options) { return new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })); } });
   vm.runInContext(code, context);
   function update(sweeps, sessionId = 'session/1', streamId = 'tiny/1') { window.OpenRadioSweepAverage.update({ sweeps, sessionId, streamId }); }
   function click(name) { return dom[name].listeners.click(); }
   function respond(index, data, status = 200, envelope = {}) {
-    const json = JSON.stringify({ contract: 'openradioinspector-platform', contract_version: 1, data, ...envelope },
+    const result = data?.comparison ? data : detection(data);
+    const json = JSON.stringify({ contract: 'openradioinspector-platform', contract_version: 1, data: result, ...envelope },
       (_key, value) => typeof value === 'number' && !Number.isFinite(value) ? `__NONFINITE_${value}__` : value)
       .replace(/"__NONFINITE_Infinity__"/g, '1e999').replace(/"__NONFINITE_-Infinity__"/g, '-1e999')
       .replace(/"__NONFINITE_NaN__"/g, 'NaN');
@@ -77,15 +100,15 @@ async function happyAndFrozen() {
   const promise = app.click('run'); app.click('run'); assert.equal(app.requests.length, 1, 'single flight');
   assert.equal(app.dom.run.disabled, true); assert.equal(app.dom.pin.disabled, true);
   const url = new URL(app.requests[0].url, app.window.location.origin);
-  assert.equal(url.pathname, '/api/v1/sessions/session%2F1/sweep-average-comparison'); assert.equal(url.search, '');
-  assert.deepEqual(JSON.parse(app.requests[0].options.body), { reference_ids: sources.map(s => s.id), target_id: target.id });
+  assert.equal(url.pathname, '/api/v1/sessions/session%2F1/sweep-average-change-detection'); assert.equal(url.search, '');
+  assert.deepEqual(JSON.parse(app.requests[0].options.body), { reference_ids: sources.map(s => s.id), target_id: target.id, minimum_increase_db: 6, minimum_bins: 2 });
   assert.equal(app.requests[0].options.method, 'POST'); assert.equal(app.requests[0].options.headers['Content-Type'], 'application/json');
   assert.equal(app.requests[0].options.cache, 'no-store');
   all.at(-1).settings.nested.array[0] = 999; all.at(-1).levels[0] = -500;
   app.respond(0, payload(sources, target)); await promise;
   assert.equal(app.dom.overlay.hidden, false, app.dom.status.textContent); assert.equal(app.dom.delta.hidden, false);
   assert.match(app.dom.summary.textContent, /\+5 dB @ 200/); assert.match(app.dom.summary.textContent, /-2 dB @ 500/);
-  assert.match(app.dom.summary.textContent, /Все 7 точек/); assert.match(app.dom.status.textContent, /равные веса/);
+  assert.match(app.dom.summary.textContent, /Все 7 точек/); assert.match(app.dom.status.textContent, /read-only/);
   assert.equal(app.dom.reference.textContent, pinnedText); assert.equal(app.timers.size, 0);
   assert.equal(app.drawing.filter(row => ['moveTo', 'lineTo'].includes(row[0])).length, 23, 'all three traces plus zero line');
   const frozen = app.dom.summary.textContent;
@@ -132,7 +155,7 @@ async function pinBoundaries() {
   big.pin(many, 16); await big.click('run'); assert.equal(big.requests.length, 0); assert.match(big.dom.status.textContent, /8192 байт/);
   const exact = setup(), boundary = group(1, 16);
   boundary.forEach((s, i) => { s.id = `${i}`; s.interval = copy(group()[i % 4].interval); });
-  const bodyBytes = () => Buffer.byteLength(JSON.stringify({ reference_ids: boundary.slice(0, -1).map(s => s.id), target_id: boundary.at(-1).id }));
+  const bodyBytes = () => Buffer.byteLength(JSON.stringify({ reference_ids: boundary.slice(0, -1).map(s => s.id), target_id: boundary.at(-1).id, minimum_increase_db: 6, minimum_bins: 2 }));
   for (const s of boundary) while (s.id.length < 128 && bodyBytes() + 6 <= 8192) s.id += '\u0001';
   for (const s of boundary) while (s.id.length < 128 && bodyBytes() < 8192) s.id += 'x';
   assert.equal(bodyBytes(), 8192); exact.pin(boundary, 16); p = exact.click('run');
@@ -176,6 +199,14 @@ async function corruptResponses() {
     assert.equal(app.dom.overlay.hidden, true, String(change)); assert.equal(app.dom.delta.hidden, true, String(change));
     assert.match(app.dom.status.textContent, /Сравнение недоступно/, String(change));
   }
+  const appBadDetection = setup(); appBadDetection.pin(); const pending = appBadDetection.click('run');
+  const wrongDetection = detection(payload()); wrongDetection.detection.regions.push({
+    start_index: 0, end_index: 1, start_frequency_hz: 100, end_frequency_hz: 200,
+    peak_index: 0, peak_frequency_hz: 100, peak_increase_db: 0, bin_count: 2,
+  });
+  wrongDetection.detection.count++;
+  appBadDetection.respond(0, wrongDetection); await pending;
+  assert.equal(appBadDetection.dom.overlay.hidden, true); assert.match(appBadDetection.dom.status.textContent, /Области обнаружения/);
   // Known setting values are type-aware, but dictionary order and sequence differences between sources are allowed.
   const app = setup(), all = group(); all[0].settings.sequence = null; all[1].settings.sequence = { unknown: [null] };
   app.pin(all); const p = app.click('run'), d = payload(all.slice(0, -1), all.at(-1));
@@ -226,7 +257,7 @@ async function bodiesAndStatuses() {
     assert.equal(response.state.reads, length === '2000001' ? 0 : 2); assert.equal(response.state.released, 1);
   }
   const app = setup(); app.pin(); let p = app.click('run');
-  const json = Buffer.from(JSON.stringify({ contract: 'openradioinspector-platform', contract_version: 1, data: payload() }));
+  const json = Buffer.from(JSON.stringify({ contract: 'openradioinspector-platform', contract_version: 1, data: detection(payload()) }));
   app.requests[0].resolve(streamResponse([Buffer.alloc(2000000 - json.length, ' '), json], '2000000')); await p;
   assert.equal(app.dom.overlay.hidden, false, app.dom.status.textContent);
   for (const value of ['{', '\ufeff{}', Buffer.from([0xff])]) {

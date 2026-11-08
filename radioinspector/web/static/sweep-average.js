@@ -2,8 +2,10 @@
   "use strict";
 
   // Presentation/consistency only. Equal-weight linear-power averaging lives in the core.
-  const dom = Object.fromEntries(["count", "pin", "run", "clear", "source", "reference", "status", "summary", "overlay", "delta"]
+  const dom = Object.fromEntries(["count", "threshold", "minimumBins", "pin", "run", "clear", "source", "reference", "status", "summary", "overlay", "delta"]
     .map(name => [name, document.getElementById(`average-${name}`)]));
+  dom.threshold = document.getElementById("average-detect-threshold");
+  dom.minimumBins = document.getElementById("average-detect-bins");
   if (!dom.status) return;
   const MAX_RESPONSE_BYTES = 2000000;
   let scope = "", snapshot = {}, sweeps = [], reference = null, pending = null, generation = 0;
@@ -110,6 +112,36 @@
     }
     return data;
   }
+  function validateDetection(result, comparison, request) {
+    const detection = result?.detection, keys = ["minimum_increase_db", "minimum_bins", "regions", "count"];
+    if (!object(detection) || !equal(Object.keys(detection).sort(), keys.sort()) ||
+        detection.minimum_increase_db !== request.minimumIncreaseDb ||
+        detection.minimum_bins !== request.minimumBins || !Array.isArray(detection.regions) ||
+        !Number.isSafeInteger(detection.count) || detection.count !== detection.regions.length) {
+      throw new Error("Параметры или сводка обнаружения не совпадают с запросом");
+    }
+    const expected = []; let start = null;
+    function append(end) {
+      if (start === null || end - start + 1 < request.minimumBins) return;
+      let peak = start;
+      for (let i = start + 1; i <= end; i++) if (comparison.delta_levels[i] > comparison.delta_levels[peak]) peak = i;
+      expected.push({
+        start_index: start, end_index: end,
+        start_frequency_hz: comparison.frequencies_hz[start],
+        end_frequency_hz: comparison.frequencies_hz[end],
+        peak_index: peak, peak_frequency_hz: comparison.frequencies_hz[peak],
+        peak_increase_db: comparison.delta_levels[peak], bin_count: end - start + 1,
+      });
+    }
+    for (let i = 0; i < comparison.points; i++) {
+      if (comparison.delta_levels[i] >= request.minimumIncreaseDb) {
+        if (start === null) start = i;
+      } else if (start !== null) { append(i - 1); start = null; }
+    }
+    if (start !== null) append(comparison.points - 1);
+    if (!equal(detection.regions, expected)) throw new Error("Области обнаружения не согласованы с разностью свипов");
+    return detection;
+  }
   function cancelReader(reader) {
     try { Promise.resolve(reader.cancel()).catch(() => {}); } catch (_) { /* Already closed. */ }
   }
@@ -140,7 +172,7 @@
       }
       // Every status has the same streaming bound, and only HTTP 200 can become a result.
       if (response.status !== 200) {
-        const detail = response.status === 404 ? "сервер не поддерживает сравнение либо сеанс/свип не найден" :
+        const detail = response.status === 404 ? "сервер не поддерживает обнаружение изменений либо сеанс/свип не найден" :
           response.status === 409 ? "свипы несовместимы для усреднённого опорного" :
           response.status === 400 ? "сервер отклонил параметры" : response.status === 413 ? "превышен размер запроса" : `HTTP ${response.status}`;
         throw new Error(detail);
@@ -205,7 +237,7 @@
     if (!connected) { clear(); dom.status.textContent = "Нет соединения с ядром. После подключения заново закрепите опорный."; }
     controls();
   }
-  function draw(canvas, data, traces, unit, label, includeZero = false) {
+  function draw(canvas, data, traces, unit, label, includeZero = false, regions = []) {
     const ctx = canvas.getContext("2d"), width = canvas.width, height = canvas.height;
     ctx.fillStyle = "#07131c"; ctx.fillRect(0, 0, width, height);
     const left = 82, right = width - 24, top = 40, bottom = height - 40;
@@ -215,6 +247,13 @@
     const first = data.frequencies_hz[0], last = data.frequencies_hz.at(-1);
     const x = frequency => left + (last === first ? 0.5 : (frequency - first) / (last - first)) * (right - left);
     const y = level => bottom - (level / scale - minimum) / (maximum - minimum) * (bottom - top);
+    if (includeZero) {
+      ctx.fillStyle = "rgba(140, 233, 154, 0.13)";
+      for (const region of regions) {
+        const x1 = x(data.frequencies_hz[region.start_index]), x2 = x(data.frequencies_hz[region.end_index]);
+        ctx.fillRect(Math.min(x1, x2) - 2, top, Math.max(4, Math.abs(x2 - x1) + 4), bottom - top);
+      }
+    }
     ctx.font = "12px monospace"; ctx.fillStyle = "#a3bac8";
     ctx.fillText(`${high} ${unit}`, 4, top); ctx.fillText(`${low} ${unit}`, 4, bottom);
     ctx.fillText(`${first} Гц`, left, height - 12); ctx.textAlign = "right"; ctx.fillText(`${last} Гц`, right, height - 12); ctx.textAlign = "left";
@@ -239,18 +278,21 @@
     ctx.setLineDash([]); canvas.hidden = false; canvas.setAttribute("aria-label", label);
   }
   const signed = value => `${value > 0 ? "+" : ""}${value}`;
-  function render(data) {
+  function render(result) {
+    const data = result.comparison, detection = result.detection;
     const r = data.reference;
     dom.summary.textContent = `Сеанс: ${data.session_id} · поток: ${data.stream_id}\nОпорный: mean_power · N=${r.count} · равные веса\nUTC охват: ${interval(r.interval)}\n` +
       r.sources.map(source => `${source.id} · UTC: ${interval(source.interval)}`).join("\n") +
       `\nЦель: ${data.target.id} · UTC: ${interval(data.target.interval)}\nВсе ${data.points} точек: средняя мощность и цель в dBm; Δ = цель − опорный в dB.\n` +
-      `Максимальное изменение: ${signed(data.max_increase.delta_db)} dB @ ${data.max_increase.frequency_hz} Гц; минимальное: ${signed(data.min_change.delta_db)} dB @ ${data.min_change.frequency_hz} Гц.`;
+      `Максимальное изменение: ${signed(data.max_increase.delta_db)} dB @ ${data.max_increase.frequency_hz} Гц; минимальное: ${signed(data.min_change.delta_db)} dB @ ${data.min_change.frequency_hz} Гц.\n` +
+      `Обнаружение: прирост ≥ ${detection.minimum_increase_db} dB, ширина ≥ ${detection.minimum_bins} точек; областей: ${detection.count}.\n` +
+      detection.regions.map(region => `${region.start_frequency_hz}–${region.end_frequency_hz} Гц · пик +${region.peak_increase_db} dB @ ${region.peak_frequency_hz} Гц · ${region.bin_count} точек`).join("\n");
     draw(dom.overlay, data, [
       { levels: r.levels, color: "#ffd36e", dash: [7, 4], label: "Средняя мощность · dBm" },
       { levels: data.target.levels, color: "#60e4ef", dash: [], label: "Цель · dBm" },
     ], "dBm", `Средняя мощность N=${r.count} и цель ${data.target.id}, dBm; все ${data.points} точек`);
     draw(dom.delta, data, [{ levels: data.delta_levels, color: "#f59a7a", dash: [], label: "Δ = цель − опорный · dB" }],
-      "dB", `Разность цели ${data.target.id} и среднего опорного, dB; все ${data.points} точек`, true);
+      "dB", `Разность цели ${data.target.id} и среднего опорного, dB; области обнаружения выделены; все ${data.points} точек`, true, detection.regions);
   }
   async function compare() {
     if (suspended || !connected || pending || !reference || !latest() || !snapshot.sessionId || !snapshot.streamId) return;
@@ -258,11 +300,17 @@
     let request, body;
     try {
       const target = latest();
+      const minimumIncreaseDb = Number(dom.threshold.value), minimumBins = Number(dom.minimumBins.value);
+      if (!dom.threshold.value.trim() || !finite(minimumIncreaseDb) || minimumIncreaseDb < 0 || minimumIncreaseDb > 120)
+        throw new Error("Минимальный прирост должен быть конечным числом от 0 до 120 dB");
+      if (!dom.minimumBins.value.trim() || !Number.isSafeInteger(minimumBins) || minimumBins < 1 || minimumBins > 16384)
+        throw new Error("Минимальная ширина должна быть целым числом от 1 до 16384 точек");
       sourceValid(target, target.frequencies_hz, target.levels?.length);
       if (reference.sources.some(source => source.id === target.id)) throw new Error("Цель входит в закреплённые исходные свипы; выберите новый последний свип");
       compatible([...reference.sources, target]);
-      request = { ...snapshot, sources: clone(reference.sources), target: clone(target) };
-      body = JSON.stringify({ reference_ids: request.sources.map(source => source.id), target_id: request.target.id });
+      request = { ...snapshot, sources: clone(reference.sources), target: clone(target), minimumIncreaseDb, minimumBins };
+      body = JSON.stringify({ reference_ids: request.sources.map(source => source.id), target_id: request.target.id,
+        minimum_increase_db: minimumIncreaseDb, minimum_bins: minimumBins });
       if (new TextEncoder().encode(body).length > 8192) throw new Error("Запрос превышает предел 8192 байт UTF-8");
     } catch (error) { dom.status.textContent = error.message; controls(); return; }
     const current = generation, controller = new AbortController();
@@ -272,7 +320,7 @@
     }, 8000);
     pending = { controller, timer }; controls(); dom.status.textContent = `Сравнение с целью ${request.target.id}…`;
     try {
-      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(request.sessionId)}/sweep-average-comparison`, {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(request.sessionId)}/sweep-average-change-detection`, {
         method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal,
         body,
       });
@@ -280,8 +328,10 @@
       const payload = await readPayload(response, controller, current);
       if (current !== generation) return;
       if (payload?.contract !== "openradioinspector-platform" || payload.contract_version !== 1) throw new Error("Неподдерживаемый контракт API");
-      render(validate(payload.data, request));
-      dom.status.textContent = "Результат ядра зафиксирован. Среднее арифметическое линейных мощностей, равные веса. Без записи исходных измерений, калибровки и автоматического обнаружения.";
+      const comparison = validate(payload.data?.comparison, request);
+      const detection = validateDetection(payload.data, comparison, request);
+      render({ comparison, detection });
+      dom.status.textContent = "Результат ядра зафиксирован. Области — read-only анализ по заданным параметрам; кандидаты и архив не изменяются.";
     } catch (error) {
       if (current === generation) { discard(); dom.status.textContent = `Сравнение недоступно: ${error.message}. Остальные панели продолжают работать.`; }
     } finally {
@@ -290,6 +340,9 @@
   }
   dom.pin.addEventListener("click", pin); dom.run.addEventListener("click", compare); dom.clear.addEventListener("click", clear);
   dom.count.addEventListener("input", () => { clear(); dom.status.textContent = "N изменено. Заново закрепите ровно N исходных свипов."; });
+  for (const input of [dom.threshold, dom.minimumBins]) input.addEventListener("input", () => {
+    cancel(); discard(); dom.status.textContent = "Параметры обнаружения изменены. Повторите анализ по кнопке."; controls();
+  });
   window.addEventListener("offline", () => setConnected(false));
   window.addEventListener("pagehide", () => { suspended = true; clear(); });
   window.addEventListener("pageshow", () => { suspended = false; controls(); });
