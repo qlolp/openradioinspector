@@ -205,6 +205,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var receiverPort = "/dev/ttyUSB0"
     @Published var showSerialForm = false
 
+    let sweepThreshold: SweepThresholdModel
+
     private let makeClient: (String) throws -> PlatformClient
     private let comparisonTimeoutNanoseconds: UInt64
     private var comparisonTask: Task<Void, Never>?
@@ -236,9 +238,11 @@ final class RemoteDualModel: ObservableObject {
 
     init(
         makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) },
-        comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000
+        comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
+        thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000
     ) {
         self.makeClient = makeClient
+        self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
     }
 
@@ -807,6 +811,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetComparisonScope() {
+        sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
         referenceCatalog = nil
@@ -1255,6 +1260,11 @@ final class RemoteDualModel: ObservableObject {
             $0.sessionId == selectedSessionID && $0.streamId == analyzer?.id && $0.levelUnit == "dBm"
         }
         comparisonSweeps = selectedSweeps
+        if let client, connectedServerURL == serverURL, let stream = analyzer?.id {
+            sweepThreshold.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                source: selectedSweeps.last)
+        } else { sweepThreshold.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1401,6 +1411,7 @@ struct RemoteUltraPane: View {
                 )
                 WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
                 RemoteSweepComparisonPane(model: model)
+                RemoteSweepThresholdPane(model: model.sweepThreshold)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

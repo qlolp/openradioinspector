@@ -35,6 +35,7 @@ from .contracts import (
 )
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .sweep_comparison import compare_sweeps
+from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
 from .sweep_references import (
     MAX_SWEEP_REFERENCES, check_reference_creation, normalize_reference_name,
 )
@@ -173,6 +174,7 @@ class SessionService:
                 "measurement_ingest": True,
                 "measurement_archive": True,
                 "sweep_comparison": True,
+                "adaptive_sweep_threshold": True,
                 "named_sweep_references": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
@@ -522,6 +524,20 @@ class SessionService:
             reference = self._get_sweep_locked(session_id, reference_id)
             target = reference if target_id == reference_id else self._get_sweep_locked(session_id, target_id)
             return compare_sweeps(session_id, reference, target)
+
+    def sweep_threshold(
+        self, session_id: str, *, sweep_id: str, window_points: int, margin_db: float,
+    ) -> dict[str, Any]:
+        """Analyze one exact archived ID without writes, scans or device work."""
+        if not isinstance(sweep_id, str) or not sweep_id.strip():
+            raise ValueError("sweep_id должен быть непустым ID свипа")
+        window_points, margin_db = validate_threshold_parameters(window_points, margin_db)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, sweep_id)
+            return calculate_sweep_threshold(
+                session_id, sweep, window_points=window_points, margin_db=margin_db,
+            )
 
     def _get_sweep_locked(self, session_id: str, sweep_id: str) -> Sweep:
         if self._store is not None:

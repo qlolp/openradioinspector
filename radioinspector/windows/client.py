@@ -205,6 +205,13 @@ class PlatformClient:
         query = urlencode({"reference_id": reference_id, "target_id": target_id})
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-comparison?{query}")
 
+    def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:
+        from .sweep_threshold import validate_parameters
+        validate_parameters(window_points, margin_db)
+        _segment(sweep_id, "sweep_id")
+        query = urlencode({"sweep_id": sweep_id, "window_points": window_points, "margin_db": margin_db})
+        return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-threshold?{query}", expected_statuses=(200,))
+
     def list_sweep_references(self, session_id: str, stream_id: Optional[str] = None) -> dict[str, Any]:
         path = f"/sessions/{_segment(session_id, 'session_id')}/sweep-references"
         if stream_id is not None:

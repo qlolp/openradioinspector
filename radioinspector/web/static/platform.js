@@ -561,6 +561,9 @@
     window.OpenRadioSweepComparison?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
+    window.OpenRadioSweepThreshold?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
   }
 
   function renderSpectrum() {
@@ -825,7 +828,9 @@
     try {
       state.refreshQueued = false;
       await performRefresh();
+      window.OpenRadioSweepThreshold?.setConnected(true);
     } catch (error) {
+      window.OpenRadioSweepThreshold?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {

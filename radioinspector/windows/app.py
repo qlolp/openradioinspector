@@ -318,6 +318,8 @@ class WindowsApp:
         notebook.add(spectrum_tab, text="Спектр и водопад")
         from .sweep_comparison import ComparisonPanel
         self.comparison_panel = ComparisonPanel(self, notebook)
+        from .sweep_threshold import ThresholdPanel
+        self.threshold_panel = ThresholdPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -346,6 +348,8 @@ class WindowsApp:
         self.session_id = None
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
         self._revision += 1
         self._show_archive_capacity(None)
         self.connection_var.set("Запрашиваются health, capabilities и сеансы…")
@@ -521,6 +525,8 @@ class WindowsApp:
     def _render_spectrum(self) -> None:
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
         stream = self._selected_stream()
         if self._spectrum_stream_id() is None:
             self._clear_spectrum(
@@ -679,6 +685,8 @@ class WindowsApp:
         self.session_id = selected
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
         self._revision += 1
         self.refresh()
 
@@ -725,6 +733,8 @@ class WindowsApp:
         self._last_selected_stream_id = stream_id
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.update()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.update()
         if not stream:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
@@ -1385,6 +1395,8 @@ class WindowsApp:
         self._closed = True
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.close()
+        if hasattr(self, "threshold_panel"):
+            self.threshold_panel.close()
         self._action_callbacks.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

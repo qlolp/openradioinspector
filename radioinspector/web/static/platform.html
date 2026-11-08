@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/platform.css">
   <script src="/static/archive-capacity.js" defer></script>
   <script src="/static/sweep-comparison.js" defer></script>
+  <script src="/static/sweep-threshold.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -220,6 +221,24 @@
           <p id="comparison-status" role="status" aria-live="polite"></p>
           <p id="comparison-summary"></p>
           <canvas id="comparison-canvas" width="960" height="260" role="img" aria-label="Разность архивных свипов, dB" hidden></canvas>
+        </section>
+        <section class="threshold-panel" aria-labelledby="threshold-heading">
+          <h3 id="threshold-heading">Адаптивный порог архивного свипа · dBm</h3>
+          <p>Ядро берёт локальную медиану центрированного окна, включая текущую точку; у краёв окно обрезается. Порог = медиана + запас dB. Это не калиброванный шум и не достоверность обнаружения.</p>
+          <div class="form-grid">
+            <label>Нечётное окно, точек (3–101)<input id="threshold-window" type="number" min="3" max="101" step="2" value="21" required></label>
+            <label>Запас, dB (0–120)<input id="threshold-margin" type="number" min="0" max="120" step="any" value="6" required></label>
+          </div>
+          <p id="threshold-source">Нет архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="threshold-run" class="button" type="button" disabled>Анализировать последний dBm свип</button>
+            <button id="threshold-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p>Только чтение по кнопке: без записи, кандидатов и команд прибору. Новые свипы не меняют результат. Равенство порогу не считается превышением; области непрерывны по индексам, а не по расстоянию частот.</p>
+          <p id="threshold-status" role="status" aria-live="polite"></p>
+          <p id="threshold-summary"></p>
+          <canvas id="threshold-canvas" width="960" height="280" role="img" aria-label="Исходный свип и адаптивный порог, dBm" hidden></canvas>
+          <ol id="threshold-regions" aria-label="Области превышения порога"></ol>
         </section>
       </section>
 

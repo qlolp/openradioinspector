@@ -51,6 +51,7 @@ from ..session_service import (
 from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
 from ..sweep_comparison import ComparisonIncompatibleError
+from ..sweep_threshold import ThresholdIncompatibleError
 from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflictError
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
@@ -669,6 +670,33 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-threshold"
+            ):
+                raw_query = urlparse(self.path).query
+                if re.search(r"%(?![0-9a-fA-F]{2})", raw_query):
+                    raise ValueError("Некорректное percent-кодирование параметров")
+                threshold_query = parse_qs(
+                    raw_query, keep_blank_values=True, strict_parsing=True, errors="strict",
+                )
+                if set(threshold_query) != {"sweep_id", "window_points", "margin_db"} or any(
+                    len(values) != 1 or not values[0].strip()
+                    for values in threshold_query.values()
+                ):
+                    raise ValueError("Нужны ровно по одному sweep_id, window_points и margin_db")
+                window = threshold_query["window_points"][0]
+                margin = threshold_query["margin_db"][0]
+                if not re.fullmatch(r"[0-9]+", window):
+                    raise ValueError("window_points должен быть нечётным целым от 3 до 101")
+                if not re.fullmatch(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?", margin):
+                    raise ValueError("margin_db должен быть конечным числом от 0 до 120 dB")
+                self._send_json(api_payload(self.sessions.sweep_threshold(
+                    parts[3], sweep_id=threshold_query["sweep_id"][0],
+                    window_points=int(window), margin_db=float(margin),
+                )))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-comparison"
             ):
                 # Reparse only this new route strictly; preserve legacy query
@@ -715,6 +743,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
         except SweepNotFoundError as exc:
             self._send_api_error(404, "sweep_not_found", str(exc.args[0]))
+        except ThresholdIncompatibleError as exc:
+            self._send_api_error(409, "threshold_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:
             self._send_api_error(409, "comparison_incompatible", str(exc))
         except TaskNotFoundError as exc:

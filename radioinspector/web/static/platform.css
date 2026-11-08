@@ -324,3 +324,9 @@ form.editor { border-style: solid; }
 .reference-catalog { border: 1px solid var(--line); margin: 14px 0; padding: 12px; display: grid; gap: 8px; min-width: 0; }
 .reference-catalog input { box-sizing: border-box; width: 100%; min-width: 0; }
 #comparison-catalog-notice { color: var(--amber); }
+
+/* The threshold panel never changes the live trace, waterfall or saved references. */
+.threshold-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.threshold-panel h3 { color: var(--cyan); font-size: 13px; }
+#threshold-summary { white-space: pre-line; line-height: 1.7; }
+#threshold-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }

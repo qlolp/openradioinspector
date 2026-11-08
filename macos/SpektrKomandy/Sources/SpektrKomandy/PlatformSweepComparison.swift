@@ -31,7 +31,7 @@ public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable {
     public let levelUnit: String
     public let settings: [String: PlatformComparisonSetting]
 
-    fileprivate var isValid: Bool {
+    var isValid: Bool {
         let recorded = settings.filter { $0.key != "sequence" }
         return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && levelUnit == "dBm" && !levels.isEmpty && levels.allSatisfy(\.isFinite)
