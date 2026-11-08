@@ -228,7 +228,7 @@ final class SweepComparisonModelTests: XCTestCase {
 
     @MainActor func testTimeoutFinishesPendingDespiteSnapshotRefreshAndAllowsRetry() async throws {
         let responses = Responses()
-        let model = try await model(responses, timeout: 50_000_000)
+        let model = try await model(responses, timeout: 500_000_000)
         defer { model.disconnect() }
         pin(model)
         responses.configure(hold: true)

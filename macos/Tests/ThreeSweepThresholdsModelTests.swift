@@ -176,7 +176,7 @@ final class ThreeSweepThresholdsModelTests: XCTestCase {
     @MainActor func testActualTransportCancelledByClearAndTimeoutAndErrorsRetry() async throws {
         let client = try api()
         for timed in [false, true] {
-            let model = ThreeSweepThresholdsModel(timeoutNanoseconds: timed ? 40_000_000 : 6_000_000_000)
+            let model = ThreeSweepThresholdsModel(timeoutNanoseconds: timed ? 500_000_000 : 6_000_000_000)
             model.configure(client: client, scope: scope, source: try decode(raw()))
             let started = expectation(description: "started"), stopped = expectation(description: "stopped")
             Stub.handler = { _ in started.fulfill() }; Stub.onStop = { stopped.fulfill() }

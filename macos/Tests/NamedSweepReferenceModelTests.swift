@@ -219,7 +219,7 @@ final class NamedSweepReferenceModelTests: XCTestCase {
 
     @MainActor func testReadTimeoutAndCancellationClearPendingAndAllowExplicitRefresh() async throws {
         let responses = Responses(); responses.configure(holdGet: true)
-        let model = try await model(responses, timeout: 70_000_000, waitCatalog: false)
+        let model = try await model(responses, timeout: 500_000_000, waitCatalog: false)
         defer { model.disconnect() }
         try await waitFor { !model.referenceCatalogPending && responses.stoppedCount == 1 }
         XCTAssertNotNil(model.referenceCatalogError)

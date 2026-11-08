@@ -33,7 +33,7 @@
 
 ## macOS
 
-На Mac с Xcode: `bash packaging/macos/build.sh`.
+На macOS 14 или новее, с Xcode: `bash packaging/macos/build.sh`.
 Результат: `build/macos/packages/*-unsigned.dmg`, архитектура сборочной машины.
 SwiftUI `.app` включает отдельное локальное ядро. EOF родительского канала
 останавливает только собственный процесс; чужие процессы по имени не завершаются.

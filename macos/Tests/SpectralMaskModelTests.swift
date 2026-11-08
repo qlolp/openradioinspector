@@ -107,7 +107,7 @@ final class SpectralMaskModelTests: XCTestCase {
         }
     }
     @MainActor func testTimeoutNoAutomaticRetryLateReplyAndManualRetry() async throws {
-        let d = Deferred(), m = try model(d, timeout: 25_000_000)
+        let d = Deferred(), m = try model(d, timeout: 500_000_000)
         m.analyze(); try await waitFor { d.pending.count == 1 }
         try await waitFor { !m.pending }; XCTAssertNotNil(m.errorText)
         d.release(try result()); try await Task.sleep(nanoseconds: 25_000_000)

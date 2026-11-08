@@ -192,7 +192,7 @@ final class SweepThresholdModelTests: XCTestCase {
     }
 
     @MainActor func testTimeoutCancelsTransportAndAllowsRetry() async throws {
-        let responses = Responses(); let model = try model(responses, timeout: 30_000_000)
+        let responses = Responses(); let model = try model(responses, timeout: 500_000_000)
         defer { model.reset() }
         responses.configure(hold: true); model.analyze()
         try await waitFor { responses.requestCount == 1 }
@@ -245,7 +245,7 @@ final class SweepThresholdModelTests: XCTestCase {
 
     @MainActor func testLateResponseAfterTimeoutIsIgnored() async throws {
         let deferred = DeferredResults()
-        let model = SweepThresholdModel(timeoutNanoseconds: 20_000_000, fetch: { _, _, _, _, _ in try await deferred.fetch() })
+        let model = SweepThresholdModel(timeoutNanoseconds: 500_000_000, fetch: { _, _, _, _, _ in try await deferred.fetch() })
         model.configure(client: try client(), scope: .init(server: "local", session: "s", stream: "tiny"),
             source: try decode(Responses.sweep(), as: PlatformSweep.self))
         model.analyze(); try await waitFor { !model.pending }
@@ -259,7 +259,7 @@ final class SweepThresholdModelTests: XCTestCase {
     @MainActor func testSnapshotUpdateDoesNotRestartPendingDeadlineOrReplaceFrozenSource() async throws {
         let responses = Responses()
         Stub.handler = { responses.handle($0) }
-        let model = SweepThresholdModel(timeoutNanoseconds: 80_000_000)
+        let model = SweepThresholdModel(timeoutNanoseconds: 500_000_000)
         let api = try client()
         let scope = SweepThresholdModel.Scope(server: "local", session: "s", stream: "tiny")
         model.configure(client: api, scope: scope, source: try decode(Responses.sweep(), as: PlatformSweep.self))

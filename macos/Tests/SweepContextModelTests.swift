@@ -128,7 +128,7 @@ final class SweepContextModelTests: XCTestCase {
         deferred.release(try decode(body())); await Task.yield(); XCTAssertTrue(model.pending); XCTAssertNil(model.result)
         deferred.release(try decode(body(before: 1, after: 0))); try await waitFor { model.result != nil }
         XCTAssertEqual(model.result?.requested.before, 1); XCTAssertEqual(model.result?.requested.after, 0)
-        let timed = SweepContextModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, id, b, a in try await deferred.fetch(id, b, a) })
+        let timed = SweepContextModel(timeoutNanoseconds: 500_000_000, fetch: { _, _, id, b, a in try await deferred.fetch(id, b, a) })
         timed.configure(client: client, scope: scope, sweeps: [try decode(raw())]); timed.load()
         try await waitFor { deferred.requests.count == 3 }; timed.configure(client: client, scope: scope, sweeps: [try decode(raw(7))])
         try await waitFor { !timed.pending }; XCTAssertTrue(timed.errorText?.contains("истекло") == true)
@@ -177,7 +177,7 @@ final class SweepContextModelTests: XCTestCase {
     @MainActor func testRealTransportCancellationAndHTTPFailureRetry() async throws {
         let client = try api()
         for reason in ["clear", "before", "after", "close", "disconnect", "scope", "timeout"] {
-            let model = SweepContextModel(timeoutNanoseconds: reason == "timeout" ? 40_000_000 : 6_000_000_000)
+            let model = SweepContextModel(timeoutNanoseconds: reason == "timeout" ? 500_000_000 : 6_000_000_000)
             model.configure(client: client, scope: scope, sweeps: [try decode(raw())])
             let started = expectation(description: "started"), stopped = expectation(description: "stopped")
             Stub.handler = { _ in started.fulfill() }; Stub.onStop = { stopped.fulfill() }
