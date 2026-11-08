@@ -68,7 +68,10 @@ final class SignalListModelTests: XCTestCase {
     @MainActor private func model(_ deferred: Deferred) throws -> SignalListModel {
         let model = SignalListModel(
             timeoutNanoseconds: 60_000_000_000,
-            export: { _, session, name in try await deferred.exportList(session, name) },
+            export: { _, session, stream, name in
+                XCTAssertEqual(stream, "tiny")
+                return try await deferred.exportList(session, name)
+            },
             importList: { _, session, stream, json in try await deferred.importList(session, stream, json) })
         model.configure(client: try api(), scope: scope)
         return model

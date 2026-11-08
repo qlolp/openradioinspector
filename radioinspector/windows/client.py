@@ -466,11 +466,15 @@ class PlatformClient:
             )
         return connection
 
-    def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
+    def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
         from ..signal_list import parse_signal_list
         # The name is validated by the core through the artifact builder; here
         # only the request size is bounded before it leaves the client.
-        query = urlencode({"name": name or "Список сигналов"})
+        params = {"name": name or "Список сигналов"}
+        if stream_id is not None:
+            _segment(stream_id, 'stream_id')
+            params['stream_id'] = stream_id
+        query = urlencode(params)
         return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/export?{query}",
                              expected_statuses=(200,))
 

@@ -797,13 +797,15 @@ class SessionService:
             result = build_measurement_map(request["name"], request["points"])
             return {"session_id": session_id, **result}
 
-    def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
+    def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
         """Export archived candidates as a portable signal list; read-only."""
         with self._lock:
-            self._get_locked(session_id)
+            session = self._get_locked(session_id)
+            if stream_id is not None and not any(stream.id == stream_id for stream in session.streams):
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
             candidates = [
                 item for item in self._candidates.values()
-                if item.session_id == session_id
+                if item.session_id == session_id and (stream_id is None or item.source_stream_id == stream_id)
             ]
             candidates.sort(key=lambda item: (item.interval.started_at, item.id))
             artifact = build_signal_list(candidates, name)

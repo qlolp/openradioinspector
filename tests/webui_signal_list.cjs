@@ -77,6 +77,7 @@ async function happyPath() {
   const exportPromise = app.click('export');
   await new Promise(resolve => setImmediate(resolve));
   assert.match(app.requests[0].url, /\/signal-list\/export\?name=/);
+  assert.equal(new URL(app.requests[0].url, 'http://server-a').searchParams.get('stream_id'), 'tiny/1');
   app.respond(0, { session_id: 'session/1', exported: 1, list: artifact() });
   await exportPromise;
   assert.equal(JSON.parse(app.dom.editor.value).format, 'openradioinspector-signal-list');
@@ -134,6 +135,15 @@ async function guards() {
     assert.equal(app.dom.items.children.length, 0);
     assert.equal(app.dom.status.textContent.includes('Ошибка'), true);
   }
+  const changed = setup(); changed.update();
+  const oldExport = changed.click('export');
+  await new Promise(resolve => setImmediate(resolve));
+  changed.dom.stream.value = 'receiver';
+  changed.dom.stream.listeners.change?.();
+  changed.dom.editor.value = 'current receiver draft';
+  changed.respond(0, { session_id: 'session/1', exported: 1, list: artifact() });
+  await oldExport;
+  assert.equal(changed.dom.editor.value, 'current receiver draft');
   const lost = setup();
   lost.update();
   lost.window.OpenRadioSignalList.setConnected(false);

@@ -35,7 +35,7 @@ def panel():
     p.app = SimpleNamespace(client=Mock(), session_id="session",
                             selected_stream_id=lambda: "tiny", root=Mock(),
                             snapshot=SimpleNamespace(session={"id": "session"}))
-    p.scope = (id(p.app.client), "session")
+    p.scope = (id(p.app.client), "session", "tiny")
     p.generation = 0
     p.future = None
     p.closed = False
@@ -79,6 +79,7 @@ class SignalListPanelTests(unittest.TestCase):
         self.assertEqual(p.executor.submit.call_count, 1)
         args = p.executor.submit.call_args[0]
         self.assertEqual(args[0], p.app.client.signal_list_export)
+        self.assertEqual(args[1:], ('session', 'Список сигналов', 'tiny'))
         future.set_result(export_response())
         p.deadline = p.deadline + 100
         p.finish(p.generation, "export", "session", None, None)
@@ -138,7 +139,18 @@ class SignalListPanelTests(unittest.TestCase):
         p.show_details = Mock()
         p.app.session_id = "other"
         p.update()
-        self.assertEqual(p.scope, (id(p.app.client), "other"))
+        self.assertEqual(p.scope, (id(p.app.client), "other", "tiny"))
+
+    def test_stream_change_discards_pending_export(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.export(); current = p.generation
+        p.app.selected_stream_id = lambda: 'receiver'; p.update()
+        p.editor.reset_mock()
+        future.set_result(export_response())
+        p.finish(current, 'export', 'session', 'tiny', None)
+        p.editor.insert.assert_not_called()
+        self.assertGreater(p.generation, current)
 
 
 if __name__ == "__main__":
