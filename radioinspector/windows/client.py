@@ -113,6 +113,8 @@ class PlatformClient:
         except urllib.error.HTTPError as exc:
             raw = exc.read(MAX_RESPONSE_BYTES + 1)
             status = exc.code
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise PlatformClientError("Ответ сервера превышает 2 МБ", status=status, code="response_too_large") from exc
             error = self._decode_error(raw, status)
             raise error from exc
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
@@ -204,6 +206,14 @@ class PlatformClient:
     def compare_sweeps(self, session_id: str, reference_id: str, target_id: str) -> dict[str, Any]:
         query = urlencode({"reference_id": reference_id, "target_id": target_id})
         return self._request("GET", f"/sessions/{_segment(session_id, 'session_id')}/sweep-comparison?{query}")
+
+    def compare_average_sweeps(self, session_id: str, reference_ids: list[str], target_id: str) -> dict[str, Any]:
+        from .sweep_average import validate_ids
+        validate_ids(reference_ids, target_id)
+        payload = {'reference_ids': reference_ids, 'target_id': target_id}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 8192:
+            raise ValueError('Запрос превышает 8192 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-comparison", payload, expected_statuses=(200,))
 
     def sweep_mask_analysis(self, session_id: str, sweep_id: str, mask_json: str) -> dict[str, Any]:
         from .spectral_mask import check_draft

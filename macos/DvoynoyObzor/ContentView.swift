@@ -205,6 +205,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var receiverPort = "/dev/ttyUSB0"
     @Published var showSerialForm = false
 
+    let sweepAverage = SweepAverageModel()
     let spectralMask = SpectralMaskModel()
     let sweepThreshold: SweepThresholdModel
 
@@ -436,6 +437,7 @@ final class RemoteDualModel: ObservableObject {
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
             guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+            sweepAverage.reset()
             errorText = describeSession(error)
         }
     }
@@ -812,6 +814,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetComparisonScope() {
+        sweepAverage.reset()
         spectralMask.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
@@ -1263,13 +1266,16 @@ final class RemoteDualModel: ObservableObject {
         }
         comparisonSweeps = selectedSweeps
         if let client, connectedServerURL == serverURL, let stream = analyzer?.id {
+            sweepAverage.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                sweeps: selectedSweeps)
             spectralMask.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
             sweepThreshold.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
-        } else { sweepThreshold.reset(); spectralMask.reset() }
+        } else { sweepAverage.reset(); sweepThreshold.reset(); spectralMask.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1416,6 +1422,7 @@ struct RemoteUltraPane: View {
                 )
                 WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм")
                 RemoteSweepComparisonPane(model: model)
+                RemoteSweepAveragePane(model: model.sweepAverage)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
                 RemoteSpectralMaskPane(model: model.spectralMask)
                 GroupBox("Превышения порога") {

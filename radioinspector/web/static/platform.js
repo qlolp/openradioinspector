@@ -567,6 +567,9 @@
     window.OpenRadioSweepMask?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
+    window.OpenRadioSweepAverage?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
   }
 
   function renderSpectrum() {
@@ -833,9 +836,11 @@
       await performRefresh();
       window.OpenRadioSweepThreshold?.setConnected(true);
       window.OpenRadioSweepMask?.setConnected(true);
+      window.OpenRadioSweepAverage?.setConnected(true);
     } catch (error) {
       window.OpenRadioSweepThreshold?.setConnected(false);
       window.OpenRadioSweepMask?.setConnected(false);
+      window.OpenRadioSweepAverage?.setConnected(false);
       if (!silent) reportError(error);
       else dom.health.textContent = `ошибка обновления: ${error.message}`;
     } finally {
@@ -872,7 +877,10 @@
     const source = new EventSource(`${API_ROOT}/events?after=${encode(state.lastEventId)}`);
     state.eventSource = source;
     source.addEventListener("open", () => setSseStatus("SSE подключено", "live"));
-    source.addEventListener("error", () => setSseStatus("SSE переподключение · polling", "warning"));
+    source.addEventListener("error", () => {
+      setSseStatus("SSE переподключение · polling", "warning");
+      window.OpenRadioSweepAverage?.setConnected(false);
+    });
     const receive = (message) => {
       try {
         const event = JSON.parse(message.data);

@@ -11,6 +11,7 @@
   <script src="/static/sweep-comparison.js" defer></script>
   <script src="/static/sweep-threshold.js" defer></script>
   <script src="/static/sweep-mask.js" defer></script>
+  <script src="/static/sweep-average.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -222,6 +223,24 @@
           <p id="comparison-status" role="status" aria-live="polite"></p>
           <p id="comparison-summary"></p>
           <canvas id="comparison-canvas" width="960" height="260" role="img" aria-label="Разность архивных свипов, dB" hidden></canvas>
+        </section>
+        <section class="average-panel" aria-labelledby="average-heading">
+          <h3 id="average-heading">Усреднённый опорный · средняя мощность</h3>
+          <p>Ядро рассчитывает среднее арифметическое в линейной мощности с равными весами и возвращает dBm. Это не среднее чисел dBm, не калибровка и не автоматический детектор. Исходные измерения доступны только для чтения.</p>
+          <label for="average-count">N исходных dBm свипов (2–16)</label>
+          <input id="average-count" type="number" min="2" max="16" step="1" value="3" required>
+          <p id="average-source">Нет dBm свипов выбранного потока.</p>
+          <div class="form-actions">
+            <button id="average-pin" class="button" type="button" disabled>Закрепить N свипов перед последним</button>
+            <button id="average-run" class="button" type="button" disabled>Сравнить с последним dBm свипом</button>
+            <button id="average-clear" class="button" type="button">Снять опорный и результат</button>
+          </div>
+          <p>Закрепление локальное: ровно N свипов перед последним dBm свипом в полученном окне выбранного потока. Нужно N+1 свипов, без автоматического уменьшения N. Это не постоянный именованный опорный. Новые свипы не меняют опорный или результат; изменение N и смена области или соединения очищают их. Сравнение только по кнопке, без записи и команд приборам.</p>
+          <p id="average-reference"></p>
+          <p id="average-status" role="status" aria-live="polite"></p>
+          <p id="average-summary"></p>
+          <canvas id="average-overlay" width="960" height="280" role="img" aria-label="Средняя мощность и целевой свип, dBm" hidden></canvas>
+          <canvas id="average-delta" width="960" height="260" role="img" aria-label="Разность цели и усреднённого опорного, dB" hidden></canvas>
         </section>
         <section class="threshold-panel" aria-labelledby="threshold-heading">
           <h3 id="threshold-heading">Адаптивный порог архивного свипа · dBm</h3>

@@ -53,13 +53,8 @@ def _settings_key(settings: dict[str, Any]) -> Any:
     return _setting_value(recorded)
 
 
-def compare_sweeps(session_id: str, reference: Sweep, target: Sweep) -> dict[str, Any]:
-    """Return target minus reference in dB, preserving every original bin.
-
-    The maximum/minimum are signed extrema, even when all deltas are negative
-    or positive. Ties choose the first bin in archived order. No interpolation,
-    unit conversion, archive writes, device commands or events occur here.
-    """
+def validate_sweep_compatibility(session_id: str, reference: Sweep, target: Sweep) -> None:
+    """Shared acquisition gate, without deriving a potentially overflowing delta."""
     if reference.session_id != session_id or target.session_id != session_id:
         raise ComparisonIncompatibleError("Оба свипа должны принадлежать выбранному сеансу")
     if reference.stream_id != target.stream_id:
@@ -69,12 +64,26 @@ def compare_sweeps(session_id: str, reference: Sweep, target: Sweep) -> dict[str
     if reference.frequencies_hz != target.frequencies_hz:
         raise ComparisonIncompatibleError("Частотные сетки свипов должны совпадать без интерполяции")
     points = len(reference.frequencies_hz)
-    if points > MAX_COMPARISON_POINTS:
+    if not 1 <= points <= MAX_COMPARISON_POINTS:
         raise ComparisonIncompatibleError(
             f"Сравнение поддерживает не более {MAX_COMPARISON_POINTS} точек без усечения"
         )
     if _settings_key(reference.settings) != _settings_key(target.settings):
         raise ComparisonIncompatibleError("Записанные настройки измерения свипов различаются")
+    for sweep in (reference, target):
+        if len(sweep.levels) != points or any(not math.isfinite(value) for value in sweep.levels):
+            raise ComparisonIncompatibleError("Уровни должны быть конечными и соответствовать частотной сетке")
+
+
+def compare_sweeps(session_id: str, reference: Sweep, target: Sweep) -> dict[str, Any]:
+    """Return target minus reference in dB, preserving every original bin.
+
+    The maximum/minimum are signed extrema, even when all deltas are negative
+    or positive. Ties choose the first bin in archived order. No interpolation,
+    unit conversion, archive writes, device commands or events occur here.
+    """
+    validate_sweep_compatibility(session_id, reference, target)
+    points = len(reference.frequencies_hz)
     deltas = [measured - baseline for baseline, measured in zip(reference.levels, target.levels)]
     if any(not math.isfinite(value) for value in deltas):
         raise ComparisonIncompatibleError("Разность уровней выходит за конечный числовой диапазон")

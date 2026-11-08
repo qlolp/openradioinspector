@@ -322,6 +322,8 @@ class WindowsApp:
         self.threshold_panel = ThresholdPanel(self, notebook)
         from .spectral_mask import SpectralMaskPanel
         self.mask_panel = SpectralMaskPanel(self, notebook)
+        from .sweep_average import AveragePanel
+        self.average_panel = AveragePanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))
@@ -354,6 +356,8 @@ class WindowsApp:
             self.threshold_panel.update()
         if hasattr(self, "mask_panel"):
             self.mask_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         self._revision += 1
         self._show_archive_capacity(None)
         self.connection_var.set("Запрашиваются health, capabilities и сеансы…")
@@ -421,6 +425,8 @@ class WindowsApp:
                     if kind == "snapshot":
                         self._refresh_running = False
                         self.connection_var.set(f"Ошибка обновления: {exc}")
+                        if hasattr(self, "average_panel"):
+                            self.average_panel.clear()
                         self._show_archive_capacity(None, str(exc))
                     else:
                         self._action_running = False
@@ -533,6 +539,8 @@ class WindowsApp:
             self.threshold_panel.update()
         if hasattr(self, "mask_panel"):
             self.mask_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         stream = self._selected_stream()
         if self._spectrum_stream_id() is None:
             self._clear_spectrum(
@@ -695,6 +703,8 @@ class WindowsApp:
             self.threshold_panel.update()
         if hasattr(self, "mask_panel"):
             self.mask_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         self._revision += 1
         self.refresh()
 
@@ -745,6 +755,8 @@ class WindowsApp:
             self.threshold_panel.update()
         if hasattr(self, "mask_panel"):
             self.mask_panel.update()
+        if hasattr(self, "average_panel"):
+            self.average_panel.update()
         if not stream:
             return
         worker = next((item for item in self.snapshot.workers if item.get("stream_id") == stream.get("id")), {})
@@ -1409,6 +1421,8 @@ class WindowsApp:
             self.threshold_panel.close()
         if hasattr(self, "mask_panel"):
             self.mask_panel.close()
+        if hasattr(self, "average_panel"):
+            self.average_panel.close()
         self._action_callbacks.clear()
         self._executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

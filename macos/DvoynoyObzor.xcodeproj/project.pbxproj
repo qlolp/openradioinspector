@@ -92,6 +92,7 @@
 				<string>A10000000000000000000029</string>
 				<string>A1000000000000000000002A</string>
 				<string>A1000000000000000000002B</string>
+				<string>A70000000000000000000001</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -331,6 +332,7 @@
 				<string>A10000000000000000000069</string>
 				<string>A1000000000000000000006A</string>
 				<string>A1000000000000000000006B</string>
+				<string>A70000000000000000000002</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -649,6 +651,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>A1000000000000000000002B</string>
+		</dict>
+		<key>A70000000000000000000001</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>SweepAveragePane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A70000000000000000000002</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A70000000000000000000001</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

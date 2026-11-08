@@ -50,6 +50,7 @@ from ..session_service import (
 )
 from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
+from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
 from ..sweep_threshold import ThresholdIncompatibleError
@@ -365,8 +366,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Некорректный JSON") from None
             return {}
 
-    def _read_mask_request(self) -> dict:
-        """Bound only this new analysis route before reading any request bytes."""
+    def _read_bounded_analysis_request(self, max_bytes: int) -> dict:
+        """Bound opt-in analysis routes before reading any request bytes."""
         lengths = self.headers.get_all("Content-Length", [])
         if (self.headers.get_all("Transfer-Encoding") or len(lengths) != 1
                 or not re.fullmatch(r"[0-9]+", lengths[0])):
@@ -374,9 +375,9 @@ class Handler(BaseHTTPRequestHandler):
         # Compare decimal strings first, so even enormous header integers are
         # rejected without int conversion limits or allocation of a body.
         digits = lengths[0].lstrip("0") or "0"
-        maximum = str(MAX_MASK_REQUEST_BYTES)
+        maximum = str(max_bytes)
         if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
-            raise OverflowError("Тело запроса превышает 524288 байт")
+            raise OverflowError(f"Тело запроса превышает {max_bytes} байт")
         length = int(digits)
         raw = self.rfile.read(length)
         if len(raw) != length:
@@ -449,11 +450,13 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         parts = route.strip("/").split("/")
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] == "sweep-mask-analysis"):
+                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison")):
             try:
                 if "?" in self.path:
-                    raise ValueError("Анализ маски не принимает параметры запроса")
-                payload = self._read_mask_request()
+                    raise ValueError("Анализ не принимает параметры запроса")
+                maximum = (MAX_AVERAGE_REQUEST_BYTES if parts[4] == "sweep-average-comparison"
+                           else MAX_MASK_REQUEST_BYTES)
+                payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
                 self.close_connection = True
                 self._send_api_error(413, "request_too_large", str(exc))
@@ -833,6 +836,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-average-comparison"
+            ):
+                self._send_json(api_payload(self.sessions.sweep_average_comparison(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
             ):
                 self._send_json(api_payload(self.sessions.sweep_mask_analysis(parts[3], payload)))
@@ -1015,6 +1025,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
         except SweepNotFoundError as exc:
             self._send_api_error(404, "sweep_not_found", str(exc.args[0]))
+        except AverageReferenceIncompatibleError as exc:
+            self._send_api_error(409, "average_reference_incompatible", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:
