@@ -92,13 +92,18 @@ class PhonogramRecorderTests(unittest.TestCase):
             recorder.push(np.zeros(MAX_PUSH_SAMPLES + 1))
 
     def test_duration_cap_and_wav_roundtrip(self):
+        from unittest.mock import patch
         recorder = PhonogramRecorder(8_000, clock=clock)
-        recorder.push(np.zeros(8_000))
+        recorder.push(np.zeros(8))
         recorder.start()
-        # The cap refuses before the phonogram grows past MAX_PHONOGRAM_SECONDS.
-        with self.assertRaises(PhonogramError):
-            while True:
-                recorder.push(np.zeros(4800))
+        with patch('radioinspector.phonogram.MAX_PHONOGRAM_SECONDS', 0.002):
+            self.assertEqual(recorder.push(np.ones(12)), 12)
+        self.assertFalse(recorder.recording)
+        self.assertEqual(recorder.completed().samples.size, 16)
+        self.assertEqual(recorder.completed().recorded_samples, 8)
+        self.assertEqual(recorder.push([0.25]), 1)
+        self.assertAlmostEqual(recorder.buffered_seconds, 21 / 8_000)
+        np.testing.assert_equal(recorder.completed().samples[8:], np.ones(8))
         recorder2 = PhonogramRecorder(8_000, clock=clock)
         recorder2.start()
         recorder2.push(np.full(8_000, 0.5))

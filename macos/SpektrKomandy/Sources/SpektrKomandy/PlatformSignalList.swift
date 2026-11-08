@@ -122,9 +122,11 @@ public struct PlatformSignalListImport: Decodable, Equatable {
 }
 
 extension PlatformClient {
-    public func signalListExport(sessionID: String, name: String) async throws -> PlatformSignalListExport {
+    public func signalListExport(sessionID: String, name: String, streamID: String? = nil) async throws -> PlatformSignalListExport {
+        var query = [URLQueryItem(name: "name", value: name)]
+        if let streamID { query.append(.init(name: "stream_id", value: streamID)) }
         return try await get("/sessions/\(Self.segment(sessionID))/signal-list/export",
-                             query: [.init(name: "name", value: name)], expectedStatuses: [200])
+                             query: query, expectedStatuses: [200])
     }
     /// Import creates new candidates through the normal lifecycle; units are never converted.
     public func signalListImport(sessionID: String, streamID: String, listJSON: String) async throws -> PlatformSignalListImport {
