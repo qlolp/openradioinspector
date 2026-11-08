@@ -118,6 +118,60 @@ class ReleaseGateTests(unittest.TestCase):
                 release.positive_seconds(value)
 
 
+class ReleaseDiagnosticTests(unittest.TestCase):
+    def test_nested_plain_suite_never_changes_process_global_watchdog(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel, redirect_stderr(io.StringIO()):
+            release.run_python_suite(Path(directory) / "nested.json")
+        arm.assert_not_called()
+        cancel.assert_not_called()
+
+    def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
+        for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
+            with self.subTest(outcome=outcome), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                if isinstance(outcome, BaseException):
+                    suite.side_effect = outcome
+                    with self.assertRaises(type(outcome)):
+                        release._run_diagnostic_python_suite(Path("unused.json"), 0.1)
+                else:
+                    suite.return_value = outcome
+                    self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
+                arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
+                cancel.assert_called_once_with()
+                suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+
+    def test_test_boundaries_include_utc_exact_id_elapsed_and_duration(self):
+        output = io.StringIO()
+        runner = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=release.DiagnosticTestResult)
+        case = unittest.FunctionTestCase(lambda: None)
+        with patch.object(release.time, "monotonic", side_effect=[10.0, 12.0, 15.0]):
+            result = runner._makeResult()
+            result.startTest(case)
+            result.addSuccess(case)
+            result.stopTest(case)
+        text = output.getvalue()
+        self.assertIn("[release-test-start]", text)
+        self.assertIn("elapsed=2.000s", text)
+        self.assertIn("elapsed=5.000s duration=3.000s", text)
+        self.assertIn("id=" + case.id(), text)
+        self.assertRegex(text, r"utc=\d{4}-\d\d-\d\dT[^ ]+\+00:00")
+
+    def test_preflight_reports_versions_from_existing_owned_root_only(self):
+        calls = []
+        def call(*args):
+            calls.append(args)
+            return {("package", "provide", "Tk"): "8.6.13", ("info", "patchlevel"): "8.6.13",
+                    ("tk", "windowingsystem"): "aqua"}[args]
+        root = SimpleNamespace(tk=SimpleNamespace(call=call), withdraw=Mock(), update_idletasks=Mock(), destroy=Mock())
+        module = SimpleNamespace(Tk=Mock(return_value=root), TclError=RuntimeError)
+        with patch.object(release.shutil, "which", return_value="node"), patch.object(release.importlib, "import_module"), patch.dict(sys.modules, {"tkinter": module}), redirect_stdout(io.StringIO()) as output:
+            release.check_dependencies()
+        self.assertIn("Python=" + sys.version.split()[0], output.getvalue())
+        self.assertEqual(output.getvalue().count("Tcl=8.6.13 Tk=8.6.13 windowing=aqua"), 1)
+        module.Tk.assert_called_once_with()
+        root.destroy.assert_called_once_with()
+        self.assertTrue(all(command in (("package", "provide", "Tk"), ("info", "patchlevel"), ("tk", "windowingsystem")) for command in calls))
+
+
 class OwnedProcessTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="ori-runner-unit-")
@@ -204,6 +258,27 @@ class OwnedProcessTests(unittest.TestCase):
             release.run_command([sys.executable, "-c", "import time; time.sleep(30)"],
                                 name="timeout", environment=self.environment, directory=self.directory,
                                 timeout=0.15, shutdown_timeout=2)
+
+    def test_real_watchdog_dumps_owned_python_stack_then_cancels(self):
+        body = """
+from pathlib import Path
+import time
+from tests import run_release_checks as release
+def synthetic_blocked_test(*args, **kwargs):
+    time.sleep(0.12)
+    return 0
+release.run_python_suite = synthetic_blocked_test
+assert release._run_diagnostic_python_suite(Path('unused.json'), 0.03) == 0
+print('WATCHDOG_CANCELLED', flush=True)
+time.sleep(0.1)
+"""
+        with redirect_stdout(io.StringIO()):
+            output = release.run_command([sys.executable, "-c", body], name="watchdog-regression",
+                                         environment=self.environment, directory=self.directory, timeout=5)
+        before, after = output.split("WATCHDOG_CANCELLED", 1)
+        self.assertIn("Timeout", before)
+        self.assertIn("synthetic_blocked_test", before)
+        self.assertNotIn("Timeout", after)
 
     def test_interrupted_command_is_reaped(self):
         process = Mock()
