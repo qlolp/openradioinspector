@@ -67,4 +67,3 @@ class TestRealHelpFiles(unittest.TestCase):
             self.assertEqual(parsed.errors, [], f"{path.name}: {parsed.errors}")
             total += parsed.topic_count
         self.assertGreater(total, 300)
-
