@@ -95,8 +95,6 @@ class AudioStreamConnection:
         self._response = response
         self._socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
         if self._socket is not None:
-            # Winsock shutdown does not wake the select used by a timeout-mode
-            # socket. A blocking recv is interruptible by shutdown on both OSes.
             # After headers, an idle stream waits for PCM, EOF or explicit cancel;
             # the ordinary request timeout must not discard an accepted stream.
             self._socket.settimeout(None)
@@ -113,11 +111,21 @@ class AudioStreamConnection:
 
     def cancel_read(self) -> None:
         """Interrupt socket IO without acquiring the buffered reader's lock."""
-        if self._socket is not None:
+        connection, self._socket = self._socket, None
+        if connection is not None:
             try:
-                self._socket.shutdown(socket.SHUT_RDWR)
+                connection.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass  # EOF/another cancellation already closed this socket.
+            # Winsock can leave an outstanding recv blocked after shutdown.
+            # Detach transfers handle ownership before close, so the worker's
+            # later BufferedReader.close cannot close a reused descriptor.
+            try:
+                descriptor = connection.detach()
+                if descriptor >= 0:
+                    socket.close(descriptor)
+            except OSError:
+                pass
 
     def close(self) -> None:
         try:
