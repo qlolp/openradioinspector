@@ -365,6 +365,8 @@ class WindowsApp(TkTimerOwner):
         self.phonogram_panel = PhonogramPanel(self, notebook)
         from .signal_list import SignalListPanel
         self.signal_list_panel = SignalListPanel(self, notebook)
+        from .measurement_map import MeasurementMapPanel
+        self.map_panel = MeasurementMapPanel(self, notebook)
         from .sweep_average import AveragePanel
         self.average_panel = AveragePanel(self, notebook)
         from .sweep_three_thresholds import ThreeThresholdsPanel
@@ -420,6 +422,8 @@ class WindowsApp(TkTimerOwner):
             self.phonogram_panel.update()
         if hasattr(self, "signal_list_panel"):
             self.signal_list_panel.update()
+        if hasattr(self, "map_panel"):
+            self.map_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -679,6 +683,8 @@ class WindowsApp(TkTimerOwner):
             self.phonogram_panel.update()
         if hasattr(self, "signal_list_panel"):
             self.signal_list_panel.update()
+        if hasattr(self, "map_panel"):
+            self.map_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -860,6 +866,8 @@ class WindowsApp(TkTimerOwner):
             self.phonogram_panel.update()
         if hasattr(self, "signal_list_panel"):
             self.signal_list_panel.update()
+        if hasattr(self, "map_panel"):
+            self.map_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -931,6 +939,8 @@ class WindowsApp(TkTimerOwner):
             self.phonogram_panel.update()
         if hasattr(self, "signal_list_panel"):
             self.signal_list_panel.update()
+        if hasattr(self, "map_panel"):
+            self.map_panel.update()
         if hasattr(self, "three_thresholds_panel"):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
@@ -1672,6 +1682,8 @@ class WindowsApp(TkTimerOwner):
             self.phonogram_panel.close()
         if hasattr(self, "signal_list_panel"):
             self.signal_list_panel.close()
+        if hasattr(self, "map_panel"):
+            self.map_panel.close()
         if hasattr(self, "average_panel"):
             self.average_panel.close()
         if hasattr(self, "three_thresholds_panel"):

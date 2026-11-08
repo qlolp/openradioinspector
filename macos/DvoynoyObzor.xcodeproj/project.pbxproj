@@ -88,6 +88,7 @@
 				<string>72AAABA224392084148002C5</string>
 				<string>5B94049E09713E85BE99084F</string>
 				<string>F67E4EC747F7BB885BD8002E</string>
+				<string>F5CF0852071033BE093AF06A</string>
 				<string>8FBE9B53D004585B7BC7CB07</string>
 				<string>0E1C559C9B0E6BC5FB381D38</string>
 				<string>63B99351FA1E3A291D966A64</string>
@@ -157,6 +158,7 @@
 				<string>79DF22BEC6FC875B217D53B0</string>
 				<string>AE0808A1B5BE798786AF269D</string>
 				<string>943BE87A6AC73CC136585BA4</string>
+				<string>BD1C28F8BFAF24816FF892F5</string>
 				<string>B898953D199ED3E77AADCFB4</string>
 				<string>F1E7DD015164A3E7F7B342D3</string>
 				<string>C4FFD0902F739BD706AE937F</string>
@@ -597,6 +599,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>F67E4EC747F7BB885BD8002E</string>
+		</dict>
+		<key>F5CF0852071033BE093AF06A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>MeasurementMapPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>BD1C28F8BFAF24816FF892F5</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>F5CF0852071033BE093AF06A</string>
 		</dict>
 		<key>8FBE9B53D004585B7BC7CB07</key>
 		<dict>

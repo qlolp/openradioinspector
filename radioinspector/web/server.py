@@ -50,6 +50,7 @@ from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BY
 from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..phonogram import PhonogramError
 from ..signal_list import SignalListError, MAX_IMPORT_REQUEST_BYTES
+from ..measurement_map import MAX_MAP_REQUEST_BYTES, MeasurementMapError
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -550,7 +551,7 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection",
-                    "sweep-context", "candidate-frequency-rounding", "frequency-rounding", "frequency-counter", "dvb-evaluation",
+                    "sweep-context", "candidate-frequency-rounding", "frequency-rounding", "frequency-counter", "dvb-evaluation", "measurement-map",
                 )):
             try:
                 if "?" in self.path:
@@ -566,6 +567,7 @@ class Handler(BaseHTTPRequestHandler):
                     "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
                     "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
                     "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
+                    "measurement-map": MAX_MAP_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -1078,6 +1080,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.dvb_evaluation(parts[3], payload)))
                 return
             if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "measurement-map"
+            ):
+                self._send_json(api_payload(self.sessions.measurement_map(parts[3], payload)))
+                return
+            if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "phonogram"
@@ -1313,6 +1322,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "phonogram_error", str(exc))
         except SignalListError as exc:
             self._send_api_error(409, "signal_list_error", str(exc))
+        except MeasurementMapError as exc:
+            self._send_api_error(409, "measurement_map_error", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

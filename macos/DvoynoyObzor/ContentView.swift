@@ -225,6 +225,7 @@ final class RemoteDualModel: ObservableObject {
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()
+    let measurementMap = MeasurementMapModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -889,6 +890,7 @@ final class RemoteDualModel: ObservableObject {
         dvbEvaluation.reset()
         phonogram.reset()
         signalList.reset()
+        measurementMap.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1300,8 +1302,10 @@ final class RemoteDualModel: ObservableObject {
            PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
             dvbEvaluation.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID))
+            measurementMap.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID))
             configureAuxiliaryStreams(client: client, session: snapshot.session)
-        } else { dvbEvaluation.reset(); configureAuxiliaryStreams(client: nil, session: nil) }
+        } else { dvbEvaluation.reset(); measurementMap.reset(); configureAuxiliaryStreams(client: nil, session: nil) }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1567,6 +1571,7 @@ struct RemoteUltraPane: View {
                 }.disabled(model.session?.streams.isEmpty ?? true)
                 RemotePhonogramPane(model: model.phonogram)
                 RemoteSignalListPane(model: model.signalList)
+                RemoteMeasurementMapPane(model: model.measurementMap)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

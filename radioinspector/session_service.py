@@ -51,6 +51,7 @@ from .phonogram import PhonogramError, PhonogramRecorder
 from .signal_list import (
     SignalListError, build_signal_list, import_candidates, parse_signal_list,
 )
+from .measurement_map import build_measurement_map, validate_map_request
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -222,6 +223,7 @@ class SessionService:
                 "dvb_t_evaluation": True,
                 "phonogram_pre_history": True,
                 "signal_list_exchange": True,
+                "measurement_map": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -766,6 +768,14 @@ class SessionService:
             recorder = self._phonogram_recorder(session_id, stream_id)
             phonogram = recorder.completed()
         return phonogram.wav_bytes()
+
+    def measurement_map(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Build a measurement map from supplied coordinates; read-only."""
+        request = validate_map_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            result = build_measurement_map(request["name"], request["points"])
+            return {"session_id": session_id, **result}
 
     def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
         """Export archived candidates as a portable signal list; read-only."""
