@@ -221,7 +221,9 @@
       const bytes = await file.slice(0, MAX_RASTER_BYTES + 1).arrayBuffer();
       if (current !== fileGeneration || suspended) return;
       if (bytes.byteLength !== file.size || bytes.byteLength > MAX_RASTER_BYTES) throw new Error("Файл прочитан не полностью или превышает 65 536 байт");
-      dom.editor.value = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+      const draft = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+      clear();
+      dom.editor.value = draft; controls();
       dom.status.textContent = "Локальный файл загружен как непроверенный черновик. Округление только по кнопке.";
     } catch (error) {
       if (current === fileGeneration) dom.status.textContent = `Не удалось загрузить таблицу: ${error.message}. Прежний черновик сохранён.`;
