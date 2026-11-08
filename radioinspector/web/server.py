@@ -47,6 +47,7 @@ from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..phonogram import PhonogramError
 from ..signal_list import SignalListError
 from ..measurement_map import MAX_MAP_REQUEST_BYTES, MeasurementMapError
+from ..audio_stream import AudioStreamError, MAX_BLOCK_SAMPLES
 from ..session_service import (
     CandidateNotFoundError,
     InvestigationNotFoundError,
@@ -394,6 +395,43 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- маршруты ----------------------------------------------------------
 
+    def _send_audio_stream(self, session_id: str, stream_id: str) -> None:
+        """Chunked PCM delivery: blocks appear as the recorder accepts frames.
+
+        The response has no Content-Length: the client reads until the
+        server closes. A slow client only loses its own queue tail; the
+        recorder and other subscribers are never blocked.
+        """
+        import queue as queue_module
+
+        try:
+            subscription = self.sessions.audio_stream_subscribe(session_id, stream_id)
+        except (AudioStreamError, ValueError, KeyError) as exc:
+            self._send_api_error(404 if isinstance(exc, KeyError) else 409, "audio_stream_unavailable", str(exc))
+            return
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/pcm")
+            self.send_header("X-Sample-Rate", "48000")
+            self.send_header("X-Sample-Format", "pcm16le")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            idle = 0.0
+            while idle < 120.0:
+                try:
+                    block = subscription.blocks.get(timeout=5.0)
+                except queue_module.Empty:
+                    idle += 5.0
+                    continue
+                idle = 0.0
+                self.wfile.write(block)
+                self.wfile.flush()
+                subscription.delivered_bytes += len(block)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            self.sessions.audio_stream_unsubscribe(session_id, stream_id, subscription)
+
     def do_GET(self) -> None:  # noqa: N802 - имя задано базовым классом
         parsed = urlparse(self.path)
         route = parsed.path
@@ -651,6 +689,24 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(wav)
                     return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "audio"
+                and parts[5] == "status"
+            ):
+                stream_id = query.get("stream_id", [None])[0]
+                result = self.sessions.audio_stream_status(parts[3], stream_id)
+                self._send_json(api_payload(result))
+                return
+            if (
+                len(parts) == 6
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "audio"
+                and parts[5] == "stream"
+            ):
+                self._send_audio_stream(parts[3], query.get("stream_id", [None])[0])
+                return
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1175,6 +1231,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "signal_list_error", str(exc))
         except MeasurementMapError as exc:
             self._send_api_error(409, "measurement_map_error", str(exc))
+        except AudioStreamError as exc:
+            self._send_api_error(503, "audio_stream_unavailable", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:

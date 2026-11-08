@@ -21,6 +21,7 @@
   <script src="/static/phonogram.js" defer></script>
   <script src="/static/signal-list.js" defer></script>
   <script src="/static/measurement-map.js" defer></script>
+  <script src="/static/audio-stream.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -482,6 +483,22 @@
           <p id="map-summary"></p>
           <ol id="map-items" aria-label="Сводка карты"></ol>
           <canvas id="map-canvas" width="960" height="320" role="img" aria-label="Карта точек измерений и секторов" hidden></canvas>
+        </section>
+        <section class="audio-panel" aria-labelledby="audio-heading">
+          <h3 id="audio-heading">Аудио по сети · трансляция демодулированного сигнала</h3>
+          <p>Сетевой режим RemoteMD: блоки PCM16LE поступают клиенту по мере того, как рекордер принимает отсчёты. Подключение удерживается ответом сервера без Content-Length. Остановленный клиент теряет только собственную очередь (потери считаются); запись и другие клиенты не блокируются.</p>
+          <label for="audio-stream">Аудиопоток сеанса</label>
+          <select id="audio-stream" disabled aria-describedby="audio-source"></select>
+          <div class="form-actions">
+            <button id="audio-connect" class="button" type="button" disabled>Подключить трансляцию</button>
+            <button id="audio-disconnect" class="button" type="button" disabled>Отключить</button>
+            <button id="audio-refresh" class="button" type="button" disabled>Обновить статус</button>
+          </div>
+          <p id="audio-source">Нет потоков выбранного сеанса.</p>
+          <p>Панель не генерирует аудио и не пишет архив: поток — доставка, а не запись. Отсчёты поступают через <code>POST …/phonogram/frames</code> или из приборных потоков.</p>
+          <p id="audio-status" role="status" aria-live="polite"></p>
+          <p id="audio-summary"></p>
+          <ol id="audio-items" aria-label="Состояние сетевой трансляции"></ol>
         </section>
       </section>
 

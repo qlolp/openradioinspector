@@ -58,6 +58,28 @@ def _segment(value: str, name: str) -> str:
     return quote(value, safe="")
 
 
+class AudioStreamConnection:
+    """Открытый ответ audio/pcm без Content-Length; читается блоками до закрытия."""
+
+    def __init__(self, response: Any) -> None:
+        self._response = response
+        headers = getattr(response, "headers", {}) or {}
+        self.content_type = headers.get("Content-Type", "")
+        self.sample_rate = headers.get("X-Sample-Rate", "")
+        self.sample_format = headers.get("X-Sample-Format", "")
+
+    def read_block(self, max_bytes: int = 8192) -> bytes:
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 65536:
+            raise ValueError("Размер блока должен быть в диапазоне 1…65536 байт")
+        return self._response.read(max_bytes)
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        except OSError:
+            pass
+
+
 def validate_tune(frequency_hz: Any, mode: Any) -> tuple[int, str]:
     """Проверяет команду до отправки; значения не переводятся из МГц или S-метра."""
     if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int):
@@ -314,6 +336,44 @@ class PlatformClient:
         _segment(stream_id, 'stream_id')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/stop",
                              {"stream_id": stream_id}, expected_statuses=(200,))
+
+    def audio_stream_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/audio/status?{query}",
+                             expected_statuses=(200,))
+
+    def audio_stream_open(self, session_id: str, stream_id: str) -> AudioStreamConnection:
+        """Открыть трансляцию PCM; ответ без Content-Length живёт до закрытия."""
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        request = urllib.request.Request(
+            f"{self.base_url}/api/v1/sessions/{_segment(session_id, 'session_id')}/audio/stream?{query}",
+            headers={"Accept": "audio/pcm"},
+            method="GET",
+        )
+        try:
+            response = self._opener.open(request, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read(MAX_RESPONSE_BYTES + 1)
+            raise self._decode_error(raw, exc.code) from exc
+        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            raise PlatformClientError(
+                f"Сервер недоступен: {reason}", code="connection_error"
+            ) from exc
+        connection = AudioStreamConnection(response)
+        if "audio/pcm" not in connection.content_type:
+            connection.close()
+            raise PlatformClientError(
+                "Сервер не отдаёт audio/pcm", status=200, code="invalid_stream"
+            )
+        if connection.sample_format not in ("", "pcm16le"):
+            connection.close()
+            raise PlatformClientError(
+                "Формат отсчётов не pcm16le", status=200, code="invalid_stream"
+            )
+        return connection
 
     def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
         from ..signal_list import parse_signal_list

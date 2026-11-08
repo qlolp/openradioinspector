@@ -216,6 +216,7 @@ final class RemoteDualModel: ObservableObject {
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()
     let measurementMap = MeasurementMapModel()
+    let audioStream = AudioStreamModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -836,6 +837,7 @@ final class RemoteDualModel: ObservableObject {
         phonogram.reset()
         signalList.reset()
         measurementMap.reset()
+        audioStream.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1247,8 +1249,10 @@ final class RemoteDualModel: ObservableObject {
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
                 signalList.configure(client: client,
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
-            } else { phonogram.reset(); signalList.reset() }
-        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset(); signalList.reset(); measurementMap.reset() }
+                audioStream.configure(client: client,
+                    scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
+            } else { phonogram.reset(); signalList.reset(); audioStream.reset() }
+        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset(); signalList.reset(); measurementMap.reset(); audioStream.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1482,6 +1486,7 @@ struct RemoteUltraPane: View {
                 RemotePhonogramPane(model: model.phonogram)
                 RemoteSignalListPane(model: model.signalList)
                 RemoteMeasurementMapPane(model: model.measurementMap)
+                RemoteAudioStreamPane(model: model.audioStream)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

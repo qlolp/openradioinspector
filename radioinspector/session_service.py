@@ -45,6 +45,7 @@ from .signal_list import (
     SignalListError, build_signal_list, import_candidates, parse_signal_list,
 )
 from .measurement_map import build_measurement_map, validate_map_request
+from .audio_stream import AudioStreamError, AudioStreamHub
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -125,6 +126,7 @@ class SessionService:
         self._investigation_sessions: dict[str, str] = {}
         self._measurement_results: list[dict[str, Any]] = []
         self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
+        self._audio_hub = AudioStreamHub()
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
         self._sequence = 0
         self._subscriber_sequence = 0
@@ -212,6 +214,7 @@ class SessionService:
                 "phonogram_pre_history": True,
                 "signal_list_exchange": True,
                 "measurement_map": True,
+                "remote_audio_stream": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -673,7 +676,7 @@ class SessionService:
         return self._phonograms[key][0]
 
     def phonogram_push(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Подать отсчёты аудиопотока в буфер предыстории."""
+        """Подать отсчёты аудиопотока: в буфер предыстории и сетевым клиентам."""
         if not isinstance(payload, dict) or set(payload) != {"stream_id", "samples"}:
             raise ValueError("Разрешены только поля stream_id и samples")
         samples = payload["samples"]
@@ -682,7 +685,24 @@ class SessionService:
         with self._lock:
             recorder = self._phonogram_recorder(session_id, payload["stream_id"])
             recorder.push(samples)
+            # Delivery to network clients happens after the recorder accepts
+            # the block; a slow client only ever loses its own queue tail.
+            self._audio_hub.publish(session_id, payload["stream_id"], samples)
             return recorder.status()
+
+    def audio_stream_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._phonogram_recorder(session_id, stream_id)
+            return self._audio_hub.status(session_id, stream_id)
+
+    def audio_stream_subscribe(self, session_id: str, stream_id: str):
+        """Подписка на сетевую трансляцию; HTTP-слой пишет блоки клиенту."""
+        with self._lock:
+            self._phonogram_recorder(session_id, stream_id)
+            return self._audio_hub.subscribe(session_id, stream_id)
+
+    def audio_stream_unsubscribe(self, session_id: str, stream_id: str, subscription) -> None:
+        self._audio_hub.unsubscribe(session_id, stream_id, subscription)
 
     def phonogram_start(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Начать запись фонограммы; окно буфера становится предысторией."""
