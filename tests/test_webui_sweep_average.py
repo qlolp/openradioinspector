@@ -13,8 +13,9 @@ class WebSweepAverageTests(unittest.TestCase):
         static = root / "radioinspector/web/static"
         command = [shutil.which("node"), str(root / "tests/webui_sweep_average.cjs"),
                    str(static / "sweep-average.js"), str(static / "platform.js")]
-        if base := os.environ.get("ORI_AVERAGE_SMOKE_BASE_URL"):
-            command.append(base)
+        base = os.environ.get("ORI_AVERAGE_SMOKE_BASE_URL", "")
+        detection_base = os.environ.get("ORI_AVERAGE_DETECTION_SMOKE_BASE_URL", "")
+        if base or detection_base: command.extend([base, detection_base])
         result = subprocess.run(command, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("average behavior checks completed", result.stdout)
@@ -23,7 +24,8 @@ class WebSweepAverageTests(unittest.TestCase):
         static = Path(__file__).resolve().parents[1] / "radioinspector/web/static"
         html = (static / "platform.html").read_text()
         self.assertLess(html.index('src="/static/sweep-average.js"'), html.index('src="/static/platform.js"'))
-        for name in ("average-count", "average-pin", "average-run", "average-clear", "average-reference",
+        for name in ("average-count", "average-detect-threshold", "average-detect-bins",
+                     "average-pin", "average-run", "average-clear", "average-reference",
                      "average-status", "average-summary", "average-overlay", "average-delta",
                      "spectrum-canvas", "waterfall-canvas", "comparison-canvas", "comparison-catalog",
                      "threshold-canvas", "mask-canvas"):

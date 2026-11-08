@@ -226,6 +226,26 @@ class PlatformClient:
             raise ValueError('Запрос превышает 8192 байт')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-comparison", payload, expected_statuses=(200,))
 
+    def detect_average_sweep_changes(
+        self, session_id: str, reference_ids: list[str], target_id: str,
+        minimum_increase_db: float, minimum_bins: int,
+    ) -> dict[str, Any]:
+        from .sweep_average import validate_change_parameters, validate_ids
+        from .sweep_context import scope_identity
+        if not scope_identity(session_id): raise ValueError('Некорректный session_id')
+        validate_ids(reference_ids, target_id)
+        minimum_increase_db, minimum_bins = validate_change_parameters(minimum_increase_db, minimum_bins)
+        payload = {
+            'reference_ids': reference_ids, 'target_id': target_id,
+            'minimum_increase_db': minimum_increase_db, 'minimum_bins': minimum_bins,
+        }
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 8192:
+            raise ValueError('Запрос превышает 8192 байт')
+        return self._request(
+            'POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-change-detection",
+            payload, expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True,
+        )
+
     def sweep_context(self, session_id: str, sweep_id: str, before: int = 2, after: int = 2) -> dict[str, Any]:
         from .sweep_average import identity
         from .sweep_context import scope_identity, validate_counts

@@ -10,13 +10,18 @@ import copy
 import math
 from typing import Any, Sequence
 
-from .contracts import Sweep, to_primitive
-from .sweep_comparison import ComparisonIncompatibleError, validate_sweep_compatibility
+from .contracts import Sweep, api_payload, to_primitive
+from .jsonio import dumps as json_dumps
+from .sweep_comparison import (
+    MAX_COMPARISON_POINTS, ComparisonIncompatibleError, validate_sweep_compatibility,
+)
 
 MAX_AVERAGE_REFERENCE_SWEEPS = 16
 MAX_AVERAGE_REQUEST_BYTES = 8192
 MAX_AVERAGE_ID_LENGTH = 128
 MAX_FREQUENCY_HZ = 9_007_199_254_740_991
+MAX_CHANGE_THRESHOLD_DB = 120.0
+MAX_CHANGE_DETECTION_RESPONSE_BYTES = 2_000_000
 
 
 class AverageReferenceIncompatibleError(ValueError):
@@ -42,6 +47,31 @@ def validate_average_request(payload: Any) -> tuple[list[str], str]:
         raise ValueError("target_id не должен входить в reference_ids")
     # Exact identity: whitespace and punctuation are never silently normalized.
     return list(references), target
+
+
+def validate_change_detection_request(payload: Any) -> tuple[list[str], str, float, int]:
+    if not isinstance(payload, dict) or set(payload) != {
+        "reference_ids", "target_id", "minimum_increase_db", "minimum_bins",
+    }:
+        raise ValueError(
+            "Разрешены только reference_ids, target_id, minimum_increase_db и minimum_bins"
+        )
+    reference_ids, target_id = validate_average_request({
+        "reference_ids": payload["reference_ids"], "target_id": payload["target_id"],
+    })
+    threshold = payload["minimum_increase_db"]
+    if (
+        isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+        or not 0 <= threshold <= MAX_CHANGE_THRESHOLD_DB or not math.isfinite(threshold)
+    ):
+        raise ValueError("minimum_increase_db должен быть конечным числом от 0 до 120 dB")
+    minimum_bins = payload["minimum_bins"]
+    if (
+        isinstance(minimum_bins, bool) or not isinstance(minimum_bins, int)
+        or not 1 <= minimum_bins <= MAX_COMPARISON_POINTS
+    ):
+        raise ValueError("minimum_bins должен быть целым числом от 1 до 16384")
+    return reference_ids, target_id, float(threshold), minimum_bins
 
 
 def _mean_power_dbm(values: Sequence[float]) -> float:
@@ -105,3 +135,85 @@ def calculate_sweep_average_comparison(
         "min_change": {"frequency_hz": frequencies[minimum], "delta_db": deltas[minimum]},
         "points": len(frequencies),
     }
+
+
+def detect_change_regions(
+    frequencies_hz: Sequence[int], delta_levels: Sequence[float], *,
+    minimum_increase_db: float, minimum_bins: int,
+) -> list[dict[str, Any]]:
+    """Find maximal consecutive-bin regions at or above a nonnegative threshold."""
+    regions: list[dict[str, Any]] = []
+    start: int | None = None
+
+    def append(end: int) -> None:
+        if start is None or end - start + 1 < minimum_bins:
+            return
+        peak = max(range(start, end + 1), key=delta_levels.__getitem__)
+        regions.append({
+            "start_index": start,
+            "end_index": end,
+            "start_frequency_hz": frequencies_hz[start],
+            "end_frequency_hz": frequencies_hz[end],
+            "peak_index": peak,
+            "peak_frequency_hz": frequencies_hz[peak],
+            "peak_increase_db": delta_levels[peak],
+            "bin_count": end - start + 1,
+        })
+
+    for index, value in enumerate(delta_levels):
+        if value >= minimum_increase_db:
+            if start is None:
+                start = index
+        elif start is not None:
+            append(index - 1)
+            start = None
+    if start is not None:
+        append(len(delta_levels) - 1)
+    return regions
+
+
+def calculate_sweep_average_change_detection(
+    session_id: str, references: Sequence[Sweep], target: Sweep, *,
+    minimum_increase_db: float, minimum_bins: int,
+) -> dict[str, Any]:
+    """Return a read-only average comparison and thresholded delta regions."""
+    if (
+        isinstance(minimum_increase_db, bool)
+        or not isinstance(minimum_increase_db, (int, float))
+        or not 0 <= minimum_increase_db <= MAX_CHANGE_THRESHOLD_DB
+        or not math.isfinite(minimum_increase_db)
+    ):
+        raise ValueError("minimum_increase_db должен быть конечным числом от 0 до 120 dB")
+    if (
+        isinstance(minimum_bins, bool) or not isinstance(minimum_bins, int)
+        or not 1 <= minimum_bins <= MAX_COMPARISON_POINTS
+    ):
+        raise ValueError("minimum_bins должен быть целым числом от 1 до 16384")
+    comparison = calculate_sweep_average_comparison(session_id, references, target)
+    regions = detect_change_regions(
+        comparison["frequencies_hz"], comparison["delta_levels"],
+        minimum_increase_db=float(minimum_increase_db), minimum_bins=minimum_bins,
+    )
+    result = {
+        "comparison": comparison,
+        "detection": {
+            "minimum_increase_db": float(minimum_increase_db),
+            "minimum_bins": minimum_bins,
+            "regions": regions,
+            "count": len(regions),
+        },
+    }
+    # All three clients bound an entire API envelope at 2 MB. A legal bin
+    # count can still exceed that budget with many regions or large settings.
+    # Measure the actual HTTP serializer, including its envelope and UTF-8
+    # encoding; never silently truncate either comparison bins or regions.
+    try:
+        response_bytes = len(json_dumps(api_payload(result)).encode("utf-8", errors="strict"))
+    except UnicodeError as exc:
+        raise AverageReferenceIncompatibleError("Производный ответ содержит некорректный UTF-8") from exc
+    if response_bytes > MAX_CHANGE_DETECTION_RESPONSE_BYTES:
+        raise AverageReferenceIncompatibleError(
+            f"Производный ответ превышает {MAX_CHANGE_DETECTION_RESPONSE_BYTES} байт UTF-8; "
+            "данные не усечены. Выберите меньше источников или увеличьте minimum_bins"
+        )
+    return result

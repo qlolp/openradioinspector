@@ -44,6 +44,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}/sweep-threshold?sweep_id=&window_points=&margin_db=` | Read-only адаптивный порог и области превышения одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/sweep-mask-analysis` | Read-only анализ архивного dBm свипа по переданному JSON артефакту маски |
 | `POST` | `/api/v1/sessions/{id}/sweep-average-comparison` | Read-only среднее мощности 2–16 архивных свипов и разность с отдельным target |
+| `POST` | `/api/v1/sessions/{id}/sweep-average-change-detection` | Read-only сравнение с усреднённым эталоном и области прироста по заданному порогу |
 | `POST` | `/api/v1/sessions/{id}/sweep-three-thresholds` | Read-only три горизонтальных порога одного архивного dBm свипа |
 | `POST` | `/api/v1/sessions/{id}/sweep-context` | Read-only ближайшие N1/N2 свипы вокруг точного архивного ID |
 | `POST` | `/api/v1/sessions/{id}/candidate-frequency-rounding` | Read-only округление частоты кандидата по переносимой таблице |
@@ -679,3 +680,14 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 `{candidate_id, profile_json}`. Ядро возвращает отдельную производную частоту,
 исходное значение не меняется. Целочисленный метод, допуски, переносимый профиль,
 статусы и пределы: [frequency-rounding.md](frequency-rounding.md).
+
+## Обнаружение изменений по усреднённому эталону
+
+`features.averaged_sweep_change_detection` сообщает поддержку явного read-only
+POST с `{reference_ids, target_id, minimum_increase_db, minimum_bins}`.
+Ответ содержит обычное сравнение и непрерывные области, где `target −
+mean_reference` не меньше `minimum_increase_db` на `minimum_bins` соседних
+bins. Query string, включая пустой `?`, запрещён, тело ограничено 8192 байтами.
+Запрос не создаёт кандидатов, событий или архивных записей и не меняет политику
+`automatic_candidate_detection`. Пределы и форма ответа:
+[sweep-change-detection.md](sweep-change-detection.md).

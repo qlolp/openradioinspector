@@ -5,11 +5,20 @@ import SpektrKomandy
 /// Value-type snapshots are local only. Polling changes the next target, never a pin or completed result.
 @MainActor
 final class SweepAverageModel: ObservableObject {
-    struct Scope: Equatable { let server: String; let session: String; let stream: String }
+    struct Scope: Equatable {
+        let server: String; let session: String; let stream: String
+        static func == (left: Self, right: Self) -> Bool {
+            PlatformThreeSweepThresholds.sameID(left.server, right.server)
+                && PlatformThreeSweepThresholds.sameID(left.session, right.session)
+                && PlatformThreeSweepThresholds.sameID(left.stream, right.stream)
+        }
+    }
     @Published var countText = "3" { didSet { if countText != oldValue { clear() } } }
+    @Published var minimumIncreaseText = "6" { didSet { if minimumIncreaseText != oldValue { cancelRequest() } } }
+    @Published var minimumBinsText = "2" { didSet { if minimumBinsText != oldValue { cancelRequest() } } }
     @Published private(set) var sources: [PlatformSweep] = []
     @Published private(set) var target: PlatformSweep?
-    @Published private(set) var result: PlatformSweepAverageComparison?
+    @Published private(set) var result: PlatformSweepAverageChangeDetection?
     @Published private(set) var pending = false
     @Published private(set) var errorText: String?
     private var window: [PlatformSweep] = []
@@ -19,11 +28,14 @@ final class SweepAverageModel: ObservableObject {
     private var timeout: Task<Void, Never>?
     private var revision = 0
     private let timeoutNanoseconds: UInt64
-    private let fetch: (PlatformClient, String, [String], String) async throws -> PlatformSweepAverageComparison
+    private let fetch: (PlatformClient, String, [String], String, Double, Int) async throws -> PlatformSweepAverageChangeDetection
 
     init(timeoutNanoseconds: UInt64 = 6_000_000_000,
-         fetch: @escaping (PlatformClient, String, [String], String) async throws -> PlatformSweepAverageComparison = {
-             try await $0.sweepAverageComparison(sessionID: $1, referenceIDs: $2, targetID: $3)
+         fetch: @escaping (PlatformClient, String, [String], String, Double, Int) async throws -> PlatformSweepAverageChangeDetection = {
+             try await $0.sweepAverageChangeDetection(
+                sessionID: $1, referenceIDs: $2, targetID: $3,
+                minimumIncreaseDb: $4, minimumBins: $5,
+             )
          }) { self.timeoutNanoseconds = timeoutNanoseconds; self.fetch = fetch }
 
     var count: Int? {
@@ -41,7 +53,10 @@ final class SweepAverageModel: ObservableObject {
     func configure(client: PlatformClient?, scope: Scope?, sweeps: [PlatformSweep]) {
         if self.scope != scope || self.client !== client { clear() }
         self.client = client; self.scope = scope
-        window = sweeps.filter { $0.sessionId == scope?.session && $0.streamId == scope?.stream && $0.levelUnit == "dBm" }
+        window = sweeps.filter {
+            PlatformThreeSweepThresholds.sameID($0.sessionId, scope?.session)
+                && PlatformThreeSweepThresholds.sameID($0.streamId, scope?.stream) && $0.levelUnit == "dBm"
+        }
         target = window.last
     }
     func reset() { configure(client: nil, scope: nil, sweeps: []) }
@@ -67,6 +82,13 @@ final class SweepAverageModel: ObservableObject {
     func compare() {
         guard !pending, let client, let scope, let target, !sources.isEmpty else { return }
         cancelRequest()
+        guard let minimumIncreaseDb = Double(minimumIncreaseText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              minimumIncreaseDb.isFinite, (0...120).contains(minimumIncreaseDb),
+              let minimumBins = Int(minimumBinsText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...16_384).contains(minimumBins) else {
+            errorText = "Минимальный прирост должен быть 0–120 dB, ширина — целым числом 1–16384 точек."
+            return
+        }
         let frozen = sources
         guard PlatformSweepAverageComparison.validSources(frozen, target: target) else {
             errorText = "Последний свип несовместим с эталоном или уже входит в него. Закрепите новый набор."
@@ -75,15 +97,21 @@ final class SweepAverageModel: ObservableObject {
         let token = revision; pending = true
         request = Task { [weak self, fetch] in
             do {
-                let value = try await fetch(client, scope.session, frozen.map(\.id), target.id)
+                let value = try await fetch(
+                    client, scope.session, frozen.map(\.id), target.id,
+                    minimumIncreaseDb, minimumBins,
+                )
                 guard let self, !Task.isCancelled, self.matches(scope, client, token) else { return }
-                try value.validate(sources: frozen, target: target)
+                try value.validate(
+                    sources: frozen, target: target,
+                    minimumIncreaseDb: minimumIncreaseDb, minimumBins: minimumBins,
+                )
                 self.result = value; self.finish()
             } catch {
                 guard let self, !Task.isCancelled, self.matches(scope, client, token) else { return }
                 switch error {
                 case PlatformError.http(status: 404, code: _, message: _):
-                    self.errorText = "Свипы не найдены или сервер не поддерживает усреднённый эталон (404)."
+                    self.errorText = "Свипы не найдены или сервер не поддерживает обнаружение изменений (404)."
                 case PlatformError.http(status: 409, code: _, message: let message):
                     self.errorText = "Несовместимые источники усреднённого эталона (409): \(message)"
                 default: self.errorText = describeSession(error)
@@ -109,9 +137,11 @@ struct RemoteSweepAveragePane: View {
         GroupBox("Локальный усреднённый эталон · mean_power") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    TextField("N: 2–16", text: $model.countText).textFieldStyle(.roundedBorder).frame(width: 100)
+                    TextField("N: 2–16", text: $model.countText).textFieldStyle(.roundedBorder).frame(width: 75)
+                    TextField("Прирост dB: 0–120", text: $model.minimumIncreaseText).textFieldStyle(.roundedBorder).frame(width: 130)
+                    TextField("Точек: 1–16384", text: $model.minimumBinsText).textFieldStyle(.roundedBorder).frame(width: 120)
                     Button("PIN · закрепить N предыдущих") { model.pin() }.disabled(model.pending)
-                    Button("Сравнить с последним") { model.compare() }.disabled(!model.canCompare || model.pending)
+                    Button("Сравнить и найти изменения") { model.compare() }.disabled(!model.canCompare || model.pending)
                     Button(model.pending ? "Отмена и очистка" : "Очистить эталон") { model.clear() }
                     if model.pending { ProgressView().controlSize(.small) }
                 }
@@ -128,21 +158,31 @@ struct RemoteSweepAveragePane: View {
                 }
                 if let result = model.result { resultView(result) }
                 ErrorLine(text: model.errorText)
-                Text("Равновесное среднее линейной мощности (equal-weight average linear power), отображаемое в dBm. Только чтение и расчёт ядром по кнопке. PIN локален, без записи эталона в архив. Не калибровка и не автоматический детектор. Новые polling/SSE данные не меняют эталон или показанный результат.")
+                Text("Равновесное среднее линейной мощности отображается в dBm; ядро находит непрерывные области, где target превышает опорный на заданную величину в dB. Только чтение и расчёт по кнопке: кандидаты, события и архив не меняются. Новые polling/SSE данные не меняют закреплённые источники или результат.")
                     .foregroundStyle(.secondary)
             }.font(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-    private func resultView(_ result: PlatformSweepAverageComparison) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("Результат ядра · сеанс \(result.sessionId) · поток \(result.streamId) · \(result.points) точек")
-            Text("mean_power · N=\(result.reference.count) · источники: \(result.reference.sourceIds.joined(separator: ", "))")
-            Text("UTC эталона: \(result.reference.interval.startedAt) — \(result.reference.interval.endedAt)")
-            Text("Цель: \(result.target.id) · UTC \(result.target.interval.startedAt) — \(result.target.interval.endedAt)")
-            DisclosureGroup("Настройки цели") { Text(averageSettingsText(result.target.settings)) }
-            SweepAverageChart(frequencies: result.frequenciesHz, traces: [result.reference.levels, result.target.levels], unit: "dBm", labels: "Оранжевый □: среднее мощности · синий ●: исходная цель")
-            SweepAverageChart(frequencies: result.frequenciesHz, traces: [result.deltaLevels], unit: "dB", labels: "Разность со знаком: цель − среднее мощности")
-            Text("Макс. изменение: \(String(format: "%+.3f", result.maxIncrease.deltaDb)) dB @ \(result.maxIncrease.frequencyHz) Гц · мин.: \(String(format: "%+.3f", result.minChange.deltaDb)) dB @ \(result.minChange.frequencyHz) Гц")
+    private func resultView(_ result: PlatformSweepAverageChangeDetection) -> some View {
+        let comparison = result.comparison
+        return VStack(alignment: .leading, spacing: 5) {
+            Text("Результат ядра · сеанс \(comparison.sessionId) · поток \(comparison.streamId) · \(comparison.points) точек")
+            Text("mean_power · N=\(comparison.reference.count) · источники: \(comparison.reference.sourceIds.joined(separator: ", "))")
+            Text("UTC эталона: \(comparison.reference.interval.startedAt) — \(comparison.reference.interval.endedAt)")
+            Text("Цель: \(comparison.target.id) · UTC \(comparison.target.interval.startedAt) — \(comparison.target.interval.endedAt)")
+            DisclosureGroup("Настройки цели") { Text(averageSettingsText(comparison.target.settings)) }
+            SweepAverageChart(frequencies: comparison.frequenciesHz, traces: [comparison.reference.levels, comparison.target.levels], unit: "dBm", labels: "Оранжевый □: среднее мощности · синий ●: исходная цель")
+            SweepAverageChart(
+                frequencies: comparison.frequenciesHz, traces: [comparison.deltaLevels],
+                unit: "dB", labels: "Разность со знаком: цель − среднее мощности",
+                regions: result.detection.regions,
+            )
+            Text("Макс. изменение: \(String(format: "%+.3f", comparison.maxIncrease.deltaDb)) dB @ \(comparison.maxIncrease.frequencyHz) Гц · мин.: \(String(format: "%+.3f", comparison.minChange.deltaDb)) dB @ \(comparison.minChange.frequencyHz) Гц")
+            Text("Порог ≥ \(result.detection.minimumIncreaseDb) dB · ширина ≥ \(result.detection.minimumBins) точек · областей: \(result.detection.count)")
+            ForEach(Array(result.detection.regions.enumerated()), id: \.offset) { item in
+                let region = item.element
+                Text("\(region.startFrequencyHz)…\(region.endFrequencyHz) Гц · пик +\(String(format: "%.3f", region.peakIncreaseDb)) dB @ \(region.peakFrequencyHz) Гц · \(region.binCount) точек")
+            }
         }
     }
 }
@@ -167,6 +207,7 @@ struct SweepAverageChart: View {
     let traces: [[Double]]
     let unit: String
     let labels: String
+    var regions: [PlatformSweepChangeRegion] = []
     var body: some View {
         let levels = traces.flatMap { $0 }
         VStack(alignment: .leading, spacing: 4) {
@@ -177,6 +218,12 @@ struct SweepAverageChart: View {
                 func point(_ index: Int, _ value: Double) -> CGPoint {
                     CGPoint(x: first == last ? size.width / 2 : 8 + (Double(frequencies[index]) - first) / (last - first) * max(size.width - 16, 1),
                             y: 8 + (1 - scale.fraction(value)) * max(size.height - 16, 1))
+                }
+                for region in regions {
+                    let start = point(region.startIndex, traces[0][region.startIndex]).x
+                    let end = point(region.endIndex, traces[0][region.endIndex]).x
+                    let rect = CGRect(x: min(start, end) - 2, y: 4, width: max(4, abs(end - start) + 4), height: max(size.height - 8, 1))
+                    context.fill(Path(rect), with: .color(.green.opacity(0.13)))
                 }
                 for (index, trace) in traces.enumerated() {
                     let color = index == 0 ? Color.orange : Color.blue

@@ -6,12 +6,14 @@ import SpektrKomandy
 final class SweepAverageModelTests: XCTestCase {
     @MainActor final class Deferred {
         var requests: [([String], String)] = []
-        var continuations: [CheckedContinuation<PlatformSweepAverageComparison, Error>] = []
-        func fetch(_ refs: [String], _ target: String) async throws -> PlatformSweepAverageComparison {
+        var parameters: [(Double, Int)] = []
+        var continuations: [CheckedContinuation<PlatformSweepAverageChangeDetection, Error>] = []
+        func fetch(_ refs: [String], _ target: String, _ threshold: Double, _ bins: Int) async throws -> PlatformSweepAverageChangeDetection {
             requests.append((refs, target))
+            parameters.append((threshold, bins))
             return try await withCheckedThrowingContinuation { continuations.append($0) }
         }
-        func release(_ result: PlatformSweepAverageComparison) { continuations.removeFirst().resume(returning: result) }
+        func release(_ result: PlatformSweepAverageChangeDetection) { continuations.removeFirst().resume(returning: result) }
     }
     final class Stub: URLProtocol {
         static var handler: ((Stub) -> Void)?
@@ -48,8 +50,13 @@ final class SweepAverageModelTests: XCTestCase {
                        "sources": (1...3).map { raw($0).filter { ["id", "interval", "settings"].contains($0.key) } },
                        "interval": ["started_at": "2026-11-08T01:00:01Z", "ended_at": "2026-11-08T01:00:03.000001Z"],
                        "levels": [-90, -90, -90], "level_unit": "dBm"],
-         "target": raw(target), "delta_levels": [10, -10, 10], "delta_unit": "dB", "points": 3,
+         "target": raw(target).filter { ["id", "interval", "settings", "levels", "level_unit"].contains($0.key) },
+         "delta_levels": [10, -10, 10], "delta_unit": "dB", "points": 3,
          "max_increase": ["frequency_hz": 100, "delta_db": 10], "min_change": ["frequency_hz": 100, "delta_db": -10]]
+    }
+    private func detectionBody(_ comparison: [String: Any]? = nil) -> [String: Any] {
+        ["comparison": comparison ?? body(),
+         "detection": ["minimum_increase_db": 6.0, "minimum_bins": 2, "regions": [], "count": 0]]
     }
     @MainActor private func waitFor(_ predicate: () -> Bool) async throws {
         for _ in 0..<200 { if predicate() { return }; try await Task.sleep(nanoseconds: 5_000_000) }
@@ -84,70 +91,182 @@ final class SweepAverageModelTests: XCTestCase {
     }
     @MainActor func testPollingNeverChangesPinPendingOrFrozenResultAndRepeatedCompareIsSingleFlight() async throws {
         let deferred = Deferred(), client = try api()
-        let model = SweepAverageModel(fetch: { _, _, refs, target in try await deferred.fetch(refs, target) })
+        let model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin()
         model.compare(); model.compare(); try await waitFor { deferred.requests.count == 1 }
         model.configure(client: client, scope: scope, sweeps: try sweeps(2...5))
         XCTAssertTrue(model.pending); XCTAssertEqual(model.sources.map(\.id), ["w1", "w2", "w3"])
         XCTAssertEqual(deferred.requests[0].1, "w4")
-        deferred.release(try decode(body())); try await waitFor { model.result != nil }
-        XCTAssertEqual(model.result?.target.id, "w4"); XCTAssertEqual(model.target?.id, "w5")
+        deferred.release(try decode(detectionBody())); try await waitFor { model.result != nil }
+        XCTAssertEqual(model.result?.comparison.target.id, "w4"); XCTAssertEqual(model.target?.id, "w5")
         model.configure(client: client, scope: scope, sweeps: try sweeps(3...6))
-        XCTAssertEqual(model.result?.target.id, "w4"); XCTAssertEqual(deferred.requests.count, 1)
+        XCTAssertEqual(model.result?.comparison.target.id, "w4"); XCTAssertEqual(deferred.requests.count, 1)
         model.compare(); try await waitFor { deferred.requests.count == 2 }
         XCTAssertEqual(deferred.requests[1].0, ["w1", "w2", "w3"]); XCTAssertEqual(deferred.requests[1].1, "w6")
-        deferred.release(try decode(body(target: 6))); try await waitFor { model.result?.target.id == "w6" }
+        deferred.release(try decode(detectionBody(body(target: 6)))); try await waitFor { model.result?.comparison.target.id == "w6" }
     }
     @MainActor func testEveryResetInvalidatesNoncooperativeLateResponse() async throws {
-        for reason in ["count", "clear", "pin", "server", "session", "stream", "client", "disconnect"] {
+        for reason in ["count", "clear", "pin", "threshold", "bins", "server", "session", "stream", "client", "disconnect"] {
             let deferred = Deferred(), client = try api()
-            let model = SweepAverageModel(fetch: { _, _, refs, target in try await deferred.fetch(refs, target) })
+            let model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+                try await deferred.fetch(refs, target, threshold, bins)
+            })
             model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
             try await waitFor { deferred.requests.count == 1 }
             switch reason {
             case "count": model.countText = "2"
             case "clear": model.clear()
             case "pin": model.pin()
+            case "threshold": model.minimumIncreaseText = "7"
+            case "bins": model.minimumBinsText = "3"
             case "disconnect": model.reset()
             default:
                 model.configure(client: reason == "client" ? try api() : client,
                     scope: .init(server: reason == "server" ? "other" : "local", session: reason == "session" ? "other" : "s", stream: reason == "stream" ? "other" : "tiny"), sweeps: try sweeps())
             }
-            deferred.release(try decode(body())); await Task.yield()
+            deferred.release(try decode(detectionBody())); await Task.yield()
             XCTAssertNil(model.result, reason); XCTAssertFalse(model.pending, reason)
-            if reason != "pin" { XCTAssertTrue(model.sources.isEmpty, reason) }
+            if ["pin", "threshold", "bins"].contains(reason) { XCTAssertEqual(model.sources.count, 3, reason) }
+            else { XCTAssertTrue(model.sources.isEmpty, reason) }
+        }
+    }
+
+    @MainActor func testInvalidDetectorFieldsNeverRequestAndKeepPins() throws {
+        Stub.handler = { _ in XCTFail("Invalid parameters must not request") }
+        let model = SweepAverageModel(); model.configure(client: try api(), scope: scope, sweeps: try sweeps()); model.pin()
+        for (threshold, bins) in [("-1", "2"), ("121", "2"), ("nan", "2"), ("inf", "2"), ("", "2"),
+                                  ("6", "0"), ("6", "16385"), ("6", "2.5"), ("6", "nan"), ("6", "")] {
+            model.minimumIncreaseText = threshold; model.minimumBinsText = bins; model.compare()
+            XCTAssertFalse(model.pending); XCTAssertNotNil(model.errorText); XCTAssertNil(model.result)
+            XCTAssertEqual(model.sources.map(\.id), ["w1", "w2", "w3"])
+        }
+    }
+
+    @MainActor func testParameterEditInvalidatesOldResponseAndNewResultWithoutClearingPin() async throws {
+        let deferred = Deferred(), model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
+        model.configure(client: try api(), scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
+        try await waitFor { deferred.requests.count == 1 }
+        model.minimumIncreaseText = "7"; model.minimumBinsText = "3"; model.compare()
+        try await waitFor { deferred.requests.count == 2 }
+        XCTAssertEqual(deferred.parameters[0].0, 6); XCTAssertEqual(deferred.parameters[0].1, 2)
+        XCTAssertEqual(deferred.parameters[1].0, 7); XCTAssertEqual(deferred.parameters[1].1, 3)
+        deferred.release(try decode(detectionBody())); await Task.yield()
+        XCTAssertTrue(model.pending); XCTAssertNil(model.result)
+        var current = detectionBody(); current["detection"] = ["minimum_increase_db": 7, "minimum_bins": 3, "regions": [], "count": 0]
+        deferred.release(try decode(current)); try await waitFor { model.result != nil }
+        model.minimumIncreaseText = "8"
+        XCTAssertNil(model.result); XCTAssertNil(model.errorText); XCTAssertEqual(model.sources.count, 3)
+    }
+
+    @MainActor func testDetectorRejectsResponseWithDifferentValidParameters() async throws {
+        let deferred = Deferred(), model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
+        model.configure(client: try api(), scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
+        try await waitFor { deferred.requests.count == 1 }
+        var current = detectionBody(); current["detection"] = ["minimum_increase_db": 7, "minimum_bins": 2, "regions": [], "count": 0]
+        deferred.release(try decode(current)); try await waitFor { !model.pending }
+        XCTAssertNil(model.result); XCTAssertNotNil(model.errorText); XCTAssertEqual(model.sources.count, 3)
+    }
+
+    @MainActor func testCanonicallyEquivalentScopeNamesStillInvalidatePin() throws {
+        let composed = "é", decomposed = "e\u{301}", client = try api(), model = SweepAverageModel()
+        let window: [PlatformSweep] = try (1...4).map { var value = raw($0); value["session_id"] = composed; return try decode(value) }
+        model.configure(client: client, scope: .init(server: "local", session: composed, stream: "tiny"), sweeps: window); model.pin()
+        XCTAssertEqual(model.sources.count, 3)
+        model.configure(client: client, scope: .init(server: "local", session: decomposed, stream: "tiny"), sweeps: window)
+        XCTAssertTrue(model.sources.isEmpty); XCTAssertNil(model.target); XCTAssertEqual(model.receivedCount, 0)
+    }
+
+    @MainActor func testZeroWidthIDsPinAndDetectWithoutNormalization() async throws {
+        for exact in ["\u{200B}", "\u{FEFF}"] {
+            for targetIsExact in [false, true] {
+                let ids = targetIsExact ? ["w1", "w2", "w3", exact] : [exact, "w2", "w3", "w4"]
+                let window: [PlatformSweep] = try (1...4).map { n in
+                    var value = raw(n); value["id"] = ids[n - 1]
+                    value["session_id"] = exact; value["stream_id"] = exact
+                    return try decode(value)
+                }
+                var comparison = body(), reference = body()["reference"] as! [String: Any], target = body()["target"] as! [String: Any]
+                var sources = reference["sources"] as! [[String: Any]]
+                for index in sources.indices { sources[index]["id"] = ids[index] }
+                reference["sources"] = sources; reference["source_ids"] = Array(ids.prefix(3))
+                target["id"] = ids[3]; comparison["target"] = target; comparison["reference"] = reference
+                comparison["session_id"] = exact; comparison["stream_id"] = exact
+                Stub.handler = { $0.respond(self.detectionBody(comparison)) }
+                let model = SweepAverageModel()
+                model.configure(client: try api(), scope: .init(server: "local", session: exact, stream: exact), sweeps: window)
+                model.pin(); XCTAssertNil(model.errorText); XCTAssertEqual(model.sources.count, 3)
+                XCTAssertEqual(model.sources.map { Array($0.id.utf8) }, ids.prefix(3).map { Array($0.utf8) })
+                model.compare(); try await waitFor { !model.pending }
+                XCTAssertNil(model.errorText); XCTAssertNotNil(model.result)
+                XCTAssertEqual(model.result.map { Array($0.comparison.target.id.utf8) }, Array(ids[3].utf8))
+                XCTAssertEqual(model.result.map { Array($0.comparison.sessionId.utf8) }, Array(exact.utf8))
+            }
+        }
+    }
+
+    @MainActor func testEveryPythonWhitespaceOnlySourceAndScopeRejectsPin() throws {
+        let scalars = Array(0x0009...0x000D) + Array(0x001C...0x0020) + [0x0085, 0x00A0, 0x1680]
+            + Array(0x2000...0x200A) + [0x2028, 0x2029, 0x202F, 0x205F, 0x3000]
+        XCTAssertEqual(scalars.count, 29)
+        Stub.handler = { _ in XCTFail("Whitespace-only IDs must not request") }
+        for blank in [""] + scalars.map({ String(UnicodeScalar($0)!) }) {
+            for field in ["session", "stream", "source", "target"] {
+                let session = field == "session" ? blank : "s", stream = field == "stream" ? blank : "tiny"
+                let window: [PlatformSweep] = try (1...4).map { n in
+                    var value = raw(n); value["session_id"] = session; value["stream_id"] = stream
+                    if (field == "source" && n == 1) || (field == "target" && n == 4) { value["id"] = blank }
+                    return try decode(value)
+                }
+                let model = SweepAverageModel()
+                model.configure(client: try api(), scope: .init(server: "local", session: session, stream: stream), sweeps: window)
+                model.pin(); model.compare()
+                XCTAssertNotNil(model.errorText, "\(field): \(Array(blank.utf8))")
+                XCTAssertTrue(model.sources.isEmpty); XCTAssertNil(model.result); XCTAssertFalse(model.pending)
+            }
         }
     }
     @MainActor func testLateResponseCannotOverwriteNewRequest() async throws {
         let deferred = Deferred(), client = try api()
-        let model = SweepAverageModel(fetch: { _, _, refs, target in try await deferred.fetch(refs, target) })
+        let model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
         try await waitFor { deferred.requests.count == 1 }; model.clear()
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin()
         model.configure(client: client, scope: scope, sweeps: try sweeps(2...5)); model.compare()
         try await waitFor { deferred.requests.count == 2 }
-        deferred.release(try decode(body())); await Task.yield()
+        deferred.release(try decode(detectionBody())); await Task.yield()
         XCTAssertTrue(model.pending); XCTAssertNil(model.result)
-        deferred.release(try decode(body(target: 5))); try await waitFor { !model.pending }
-        XCTAssertEqual(model.result?.target.id, "w5")
+        deferred.release(try decode(detectionBody(body(target: 5)))); try await waitFor { !model.pending }
+        XCTAssertEqual(model.result?.comparison.target.id, "w5")
     }
     @MainActor func testTimeoutRemainsBoundedAcrossPollingAndIgnoresLateResponse() async throws {
         let deferred = Deferred(), client = try api()
-        let model = SweepAverageModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, refs, target in try await deferred.fetch(refs, target) })
+        let model = SweepAverageModel(timeoutNanoseconds: 40_000_000, fetch: { _, _, refs, target, threshold, bins in
+            try await deferred.fetch(refs, target, threshold, bins)
+        })
         model.configure(client: client, scope: scope, sweeps: try sweeps()); model.pin(); model.compare()
         try await waitFor { deferred.requests.count == 1 }
         model.configure(client: client, scope: scope, sweeps: try sweeps(2...5))
         try await waitFor { !model.pending }; XCTAssertTrue(model.errorText?.contains("истекло") == true)
-        deferred.release(try decode(body())); await Task.yield(); XCTAssertNil(model.result)
+        deferred.release(try decode(detectionBody())); await Task.yield(); XCTAssertNil(model.result)
         XCTAssertEqual(model.sources.count, 3)
         model.compare(); try await waitFor { deferred.requests.count == 2 }
-        deferred.release(try decode(body(target: 5))); try await waitFor { model.result != nil }
+        deferred.release(try decode(detectionBody(body(target: 5)))); try await waitFor { model.result != nil }
         XCTAssertNil(model.errorText)
     }
     @MainActor func testFullFrozenSourceSequenceAndTargetContentValidation() async throws {
         for reason in ["sequence", "sourceTime", "targetTime", "stream", "targetLevels", "sourceBounds"] {
             let deferred = Deferred(), client = try api()
-            let model = SweepAverageModel(fetch: { _, _, refs, target in try await deferred.fetch(refs, target) })
+            let model = SweepAverageModel(fetch: { _, _, refs, target, threshold, bins in
+                try await deferred.fetch(refs, target, threshold, bins)
+            })
             var window = try sweeps()
             if reason == "sourceBounds" {
                 window = try (1...4).map { n in var item = raw(n); if n < 4 { item["levels"] = [-100, -100, -100] }; return try decode(item) }
@@ -167,7 +286,7 @@ final class SweepAverageModelTests: XCTestCase {
                 var target = raw(4); target["levels"] = [-81, -100, -80]; response["target"] = target
                 response["delta_levels"] = [9, -10, 10]; response["max_increase"] = ["frequency_hz": 200, "delta_db": 10]
             }
-            deferred.release(try decode(response)); try await waitFor { !model.pending }
+            deferred.release(try decode(detectionBody(response))); try await waitFor { !model.pending }
             XCTAssertNil(model.result, reason); XCTAssertNotNil(model.errorText, reason)
         }
     }
@@ -191,7 +310,7 @@ final class SweepAverageModelTests: XCTestCase {
             model.compare(); try await waitFor { !model.pending }
             XCTAssertNotNil(model.errorText); XCTAssertNil(model.result); XCTAssertEqual(model.sources.count, 3)
         }
-        Stub.handler = { $0.respond(self.body()) }; model.compare(); try await waitFor { model.result != nil }
+        Stub.handler = { $0.respond(self.detectionBody()) }; model.compare(); try await waitFor { model.result != nil }
     }
     @MainActor func testNativeRemoteIntegrationAndDisconnectIsolation() async throws {
         var generation = 4
@@ -206,7 +325,7 @@ final class SweepAverageModelTests: XCTestCase {
             else if path == "/api/v1/sessions/s" { stub.respond(session) }
             else if path.hasSuffix("/sweeps") { stub.respond((1...generation).map(self.raw)) }
             else if path.hasSuffix("/workers") { stub.respond([]) }
-            else if path.hasSuffix("/sweep-average-comparison") { stub.respond(self.body()) }
+            else if path.hasSuffix("/sweep-average-change-detection") { stub.respond(self.detectionBody()) }
             else { stub.respond([:], status: 404) }
         }
         let remote = RemoteDualModel(makeClient: { _ in try self.api() })
@@ -219,7 +338,7 @@ final class SweepAverageModelTests: XCTestCase {
         XCTAssertEqual(remote.current, rawTrace); XCTAssertEqual(remote.waterfallRevision, revision)
         XCTAssertEqual(remote.errorText, error); XCTAssertEqual(remote.comparisonReference?.id, "w1")
         generation = 5; await remote.refresh()
-        XCTAssertEqual(model.target?.id, "w5"); XCTAssertEqual(model.result?.target.id, "w4")
+        XCTAssertEqual(model.target?.id, "w5"); XCTAssertEqual(model.result?.comparison.target.id, "w4")
         failed = true; await remote.refresh()
         XCTAssertTrue(model.sources.isEmpty); XCTAssertNil(model.result); XCTAssertNil(model.target)
         failed = false; await remote.refresh()
@@ -243,7 +362,35 @@ final class SweepAverageModelTests: XCTestCase {
         let model = remote.sweepAverage; model.pin()
         XCTAssertEqual(model.sources.map(\.id), ["one-sweep-1", "one-sweep-2", "one-sweep-3"])
         model.compare(); try await waitFor { !model.pending }
-        XCTAssertNil(model.errorText); XCTAssertEqual(model.result?.points, 101)
-        XCTAssertEqual(model.result?.maxIncrease.frequencyHz, 103_000_000)
+        XCTAssertNil(model.errorText); XCTAssertEqual(model.result?.comparison.points, 101)
+        XCTAssertEqual(model.result?.comparison.maxIncrease.frequencyHz, 103_000_000)
+        XCTAssertEqual(model.result?.detection.count, 0)
+    }
+
+    @MainActor func testActualHTTPNativeChangeDetectionAndParameterInvalidation() async throws {
+        guard let base = ProcessInfo.processInfo.environment["ORI_AVERAGE_DETECTION_SMOKE_BASE_URL"] else {
+            throw XCTSkip("Set ORI_AVERAGE_DETECTION_SMOKE_BASE_URL to synthetic detector fixture")
+        }
+        let remote = RemoteDualModel(); remote.serverURL = base; remote.connect(startPolling: false)
+        defer { remote.disconnect() }
+        try await waitFor { remote.sweepAverage.receivedCount >= 4 }
+        let model = remote.sweepAverage; model.pin()
+        XCTAssertEqual(model.sources.map(\.id), ["one-sweep-1", "one-sweep-2", "one-sweep-3"])
+        let rawTrace = remote.current, revision = remote.waterfallRevision
+        model.compare(); try await waitFor { !model.pending }
+        XCTAssertNil(model.errorText); XCTAssertEqual(model.result?.detection.regions.map(\.startIndex), [30, 69])
+        XCTAssertEqual(model.result?.detection.regions.map(\.endIndex), [33, 70])
+        XCTAssertEqual(model.result?.detection.regions.map(\.peakIndex), [31, 70])
+        XCTAssertEqual(model.result?.detection.regions.map(\.peakIncreaseDb), [12, 9])
+        await remote.refresh()
+        XCTAssertEqual(model.result?.detection.count, 2); XCTAssertEqual(model.sources.count, 3)
+        model.minimumIncreaseText = "12"
+        XCTAssertNil(model.result); XCTAssertEqual(model.sources.count, 3)
+        model.compare(); try await waitFor { !model.pending }
+        XCTAssertNil(model.errorText); XCTAssertEqual(model.result?.detection.regions.map(\.startIndex), [31])
+        XCTAssertEqual(model.result?.detection.regions.map(\.endIndex), [32])
+        XCTAssertEqual(model.result?.detection.regions.map(\.peakIndex), [31])
+        XCTAssertEqual(remote.current, rawTrace); XCTAssertEqual(remote.waterfallRevision, revision)
+        remote.disconnect(); XCTAssertNil(model.result); XCTAssertTrue(model.sources.isEmpty); XCTAssertNil(model.target)
     }
 }

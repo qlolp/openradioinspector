@@ -455,6 +455,7 @@ class Handler(BaseHTTPRequestHandler):
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
+                    "sweep-average-change-detection",
                     "sweep-context", "candidate-frequency-rounding",
                 )):
             try:
@@ -462,6 +463,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Анализ не принимает параметры запроса")
                 maximum = {
                     "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
+                    "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
                     "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
                     "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
                     "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
@@ -857,6 +859,15 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "sweep-average-comparison"
             ):
                 self._send_json(api_payload(self.sessions.sweep_average_comparison(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-average-change-detection"
+            ):
+                self._send_json(api_payload(
+                    self.sessions.sweep_average_change_detection(parts[3], payload)
+                ))
                 return
             if (
                 len(parts) == 5

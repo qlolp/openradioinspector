@@ -43,7 +43,12 @@ from .sweep_comparison import compare_sweeps
 from .sweep_context import (
     calculate_sweep_context, select_context_neighbours, validate_context_request,
 )
-from .sweep_average import calculate_sweep_average_comparison, validate_average_request
+from .sweep_average import (
+    calculate_sweep_average_change_detection,
+    calculate_sweep_average_comparison,
+    validate_average_request,
+    validate_change_detection_request,
+)
 from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
 from .sweep_three_thresholds import calculate_sweep_three_thresholds, validate_three_thresholds_request
 from .sweep_references import (
@@ -189,6 +194,7 @@ class SessionService:
                 "sweep_context": True,
                 "spectral_mask_analysis": True,
                 "averaged_sweep_reference": True,
+                "averaged_sweep_change_detection": True,
                 "named_sweep_references": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
@@ -548,6 +554,22 @@ class SessionService:
             references = [self._get_sweep_locked(session_id, sweep_id) for sweep_id in reference_ids]
             target = self._get_sweep_locked(session_id, target_id)
             return calculate_sweep_average_comparison(session_id, references, target)
+
+    def sweep_average_change_detection(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read exact sources under one lock and detect regions without writes."""
+        reference_ids, target_id, minimum_increase_db, minimum_bins = (
+            validate_change_detection_request(payload)
+        )
+        with self._lock:
+            self._get_locked(session_id)
+            references = [
+                self._get_sweep_locked(session_id, sweep_id) for sweep_id in reference_ids
+            ]
+            target = self._get_sweep_locked(session_id, target_id)
+            return calculate_sweep_average_change_detection(
+                session_id, references, target,
+                minimum_increase_db=minimum_increase_db, minimum_bins=minimum_bins,
+            )
 
     def sweep_threshold(
         self, session_id: str, *, sweep_id: str, window_points: int, margin_db: float,

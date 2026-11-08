@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import unittest
 import urllib.error
 from concurrent.futures import Future
@@ -8,7 +9,10 @@ from math import isfinite
 from time import monotonic
 from unittest.mock import Mock
 from tests.test_windows_sweep_threshold import panel as base_panel
-from radioinspector.windows.sweep_average import AveragePanel, validate_average, validate_ids, source_text
+from radioinspector.windows.sweep_average import (
+    AveragePanel, validate_average, validate_change_detection, validate_change_parameters,
+    validate_ids, source_text,
+)
 from radioinspector.windows.client import PlatformClient, PlatformClientError, MAX_RESPONSE_BYTES
 from radioinspector.contracts import api_payload
 
@@ -24,9 +28,39 @@ def response():
         target={k:target[k] for k in ('id','interval','settings','levels','level_unit')},delta_levels=[0,0,0],delta_unit='dB',max_increase={'frequency_hz':100,'delta_db':0},min_change={'frequency_hz':100,'delta_db':0})
 
 
+def detection_response():
+    return {'comparison': response(), 'detection': {
+        'minimum_increase_db': 6.0, 'minimum_bins': 2, 'regions': [], 'count': 0,
+    }}
+
+
+def region_fixture():
+    sweeps = sources()
+    deltas = [0, 6, 9, 9, 1, 7, 8, 0, 6]
+    grid = [100, 200, 200, 300, 400, 500, 600, 700, 800]
+    for source in sweeps: source.update(frequencies_hz=grid[:], levels=[-100] * len(grid))
+    sweeps[-1]['levels'] = [-100 + delta for delta in deltas]
+    result = detection_response(); comparison = result['comparison']
+    comparison.update(points=len(grid), frequencies_hz=grid, delta_levels=deltas,
+                      max_increase={'frequency_hz':200,'delta_db':9},
+                      min_change={'frequency_hz':100,'delta_db':0})
+    comparison['reference']['levels'] = [-100] * len(grid)
+    comparison['target']['levels'] = sweeps[-1]['levels'][:]
+    result['detection'].update(count=2, regions=[
+        dict(start_index=1,end_index=3,start_frequency_hz=200,end_frequency_hz=300,
+             peak_index=2,peak_frequency_hz=200,peak_increase_db=9,bin_count=3),
+        dict(start_index=5,end_index=6,start_frequency_hz=500,end_frequency_hz=600,
+             peak_index=6,peak_frequency_hz=600,peak_increase_db=8,bin_count=2),
+    ])
+    return result, sweeps
+
+
 def panel():
     base=base_panel(); p=AveragePanel.__new__(AveragePanel); p.__dict__.update(base.__dict__)
-    p.sources=None;p.count=Mock();p.count.get.return_value='3';p.app.snapshot.sweeps=sources()
+    p.sources=None;p.detection=None;p.count=Mock();p.count.get.return_value='3'
+    p.threshold=Mock();p.threshold.get.return_value='6'
+    p.minimum_bins=Mock();p.minimum_bins.get.return_value='2'
+    p.app.snapshot.sweeps=sources()
     return p
 
 
@@ -85,18 +119,90 @@ class AverageValidationTests(unittest.TestCase):
         r['target']={k:target[k] for k in ('id','interval','settings','levels','level_unit')}
         validate_average(r,('session','s'),ss,target)
 
+    def test_change_detection_response_and_parameters(self):
+        result = detection_response()
+        self.assertEqual(validate_change_detection(
+            result, ('session','s'), sources()[:3], sources()[-1], 6, 2,
+        ), (response(), result['detection']))
+        for threshold, bins in ((-1,2),(121,2),(float('nan'),2),(True,2),(6,0),(6,16385),(6,2.0)):
+            with self.assertRaises(ValueError):validate_change_parameters(threshold,bins)
+        bad = deepcopy(result); bad['detection']['count'] = 1
+        with self.assertRaises(ValueError):
+            validate_change_detection(bad,('session','s'),sources()[:3],sources()[-1],6,2)
+
+    def test_regions_cover_entire_delta_and_preserve_first_peak_tie(self):
+        result, sweeps = region_fixture()
+        validate_change_detection(result,('session','s'),sweeps[:3],sweeps[-1],6,2)
+        mutations = [
+            lambda r:r['detection'].update(regions=r['detection']['regions'][1:],count=1),
+            lambda r:r['detection'].update(regions=[],count=0),
+            lambda r:r['detection']['regions'].reverse(),
+            lambda r:r['detection']['regions'][0].update(start_index=2,bin_count=2),
+            lambda r:r['detection']['regions'][0].update(peak_index=3,peak_frequency_hz=300),
+            lambda r:r['detection']['regions'][0].update(start_index=True),
+            lambda r:r['detection']['regions'][0].update(end_index=3.0),
+            lambda r:r['detection']['regions'][0].update(start_frequency_hz=200.0),
+            lambda r:r['detection']['regions'][0].update(bin_count=3.0),
+            lambda r:r['detection']['regions'][0].update(peak_increase_db=float('nan')),
+            lambda r:r['detection'].update(minimum_bins=2.0),
+            lambda r:r['detection'].update(count=2.0),
+            lambda r:r['detection'].update(extra=True),
+            lambda r:r.update(extra=True),
+        ]
+        for mutate in mutations:
+            bad = deepcopy(result); mutate(bad)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                validate_change_detection(bad,('session','s'),sweeps[:3],sweeps[-1],6,2)
+
+    def test_detection_boolean_aliases_are_never_numeric_values(self):
+        result=detection_response()
+        result['detection'].update(minimum_increase_db=0,minimum_bins=1,count=1,regions=[
+            dict(start_index=0,end_index=2,start_frequency_hz=100,end_frequency_hz=300,
+                 peak_index=0,peak_frequency_hz=100,peak_increase_db=0,bin_count=3),
+        ])
+        validate_change_detection(result,('session','s'),sources()[:3],sources()[-1],0,1)
+        for key, value in (('minimum_increase_db',False),('minimum_bins',True),('count',True)):
+            bad=deepcopy(result);bad['detection'][key]=value
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                validate_change_detection(bad,('session','s'),sources()[:3],sources()[-1],0,1)
+        for key in ('start_index','peak_index','peak_increase_db'):
+            bad=deepcopy(result);bad['detection']['regions'][0][key]=False
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                validate_change_detection(bad,('session','s'),sources()[:3],sources()[-1],0,1)
+
+    def test_detection_point_limit_and_duplicate_frequency_range(self):
+        for n in (1,16384,16385):
+            result=detection_response();comparison=result['comparison'];sweeps=sources()
+            grid=[9_007_199_254_740_991]*n;levels=[-1e308]*n
+            for source in sweeps:source.update(frequencies_hz=grid[:],levels=levels[:])
+            comparison.update(points=n,frequencies_hz=grid,delta_levels=[0]*n,
+                              max_increase={'frequency_hz':grid[0],'delta_db':0},
+                              min_change={'frequency_hz':grid[0],'delta_db':0})
+            comparison['reference']['levels']=levels[:];comparison['target']['levels']=levels[:]
+            result['detection'].update(minimum_increase_db=0,minimum_bins=1,count=1,regions=[
+                dict(start_index=0,end_index=n-1,start_frequency_hz=grid[0],end_frequency_hz=grid[-1],
+                     peak_index=0,peak_frequency_hz=grid[0],peak_increase_db=0,bin_count=n),
+            ])
+            if n<=16384:validate_change_detection(result,('session','s'),sweeps[:3],sweeps[-1],0,1)
+            else:
+                with self.assertRaises(ValueError):validate_change_detection(result,('session','s'),sweeps[:3],sweeps[-1],0,1)
+
 
 class AverageLifecycleTests(unittest.TestCase):
     def test_pin_explicit_freeze_no_auto_and_single_flight(self):
         p=panel();p.update();p.pin();p.executor.submit.assert_not_called()
-        p.compare();p.compare();p.executor.submit.assert_called_once_with(p.app.client.compare_average_sweeps,'session',['0','1','2'],'3')
+        p.compare();p.compare();p.executor.submit.assert_called_once_with(
+            p.app.client.detect_average_sweep_changes,'session',['0','1','2'],'3',6.0,2,
+        )
         p.app.snapshot.sweeps[0]['settings']['sequence']['number']=999
-        p.app.snapshot.sweeps=[];p.future.set_result(response());p.finish(p.generation)
+        p.app.snapshot.sweeps=[];p.future.set_result(detection_response());p.finish(p.generation)
         self.assertEqual(p.data,response());self.assertEqual(p.sources[0]['settings']['sequence']['number'],0)
         self.assertEqual(p.canvas.create_line.call_count,3)
         for call in p.canvas.create_line.call_args_list:self.assertEqual(len(call.args),6)
         p.update();self.assertEqual(p.executor.submit.call_count,1)
         self.assertIn('Target 3',p.details.insert.call_args.args[1])
+        self.assertIn('max_increase: +0 dB @ 100 Hz',p.details.insert.call_args.args[1])
+        self.assertIn('min_change: +0 dB @ 100 Hz',p.details.insert.call_args.args[1])
     def test_exact_count_and_exclusion(self):
         for count in ('2','3'):
             p=panel();p.count.get.return_value=count;p.pin();self.assertEqual([s['id'] for s in p.sources],['1','2'] if count=='2' else ['0','1','2'])
@@ -117,12 +223,37 @@ class AverageLifecycleTests(unittest.TestCase):
     def test_repin_running_request_never_queues(self):
         p=panel();p.pin();p.compare();old=p.future;old.set_running_or_notify_cancel();p.pin();p.compare()
         self.assertEqual(p.executor.submit.call_count,1)
-        old.set_result(response());p.compare();self.assertEqual(p.executor.submit.call_count,2)
-        p.future.set_result(response());p.finish(p.generation);self.assertIsNotNone(p.data)
+        old.set_result(detection_response());p.compare();self.assertEqual(p.executor.submit.call_count,2)
+        p.future.set_result(detection_response());p.finish(p.generation);self.assertIsNotNone(p.data)
     def test_error_isolated_and_retry(self):
         for status in (400,404,409,413):
             p=panel();p.pin();p.compare();p.future.set_exception(PlatformClientError('bad',status=status));p.finish(p.generation)
             self.assertIsNone(p.data);self.assertIsNotNone(p.sources);p.compare();self.assertEqual(p.executor.submit.call_count,2)
+
+    def test_parameter_edits_keep_frozen_sources_and_retire_running_result(self):
+        for outcome in ('success','error'):
+            p=panel();p.pin();p.compare();old=p.future;old.set_running_or_notify_cancel()
+            generation=p.generation;frozen=deepcopy(p.sources)
+            p.threshold.get.return_value='9';p.minimum_bins.get.return_value='1';p.parameters_changed()
+            self.assertEqual(p.sources,frozen);self.assertIsNone(p.data);self.assertIsNone(p.detection)
+            self.assertIn('N=3',p.details.insert.call_args.args[1]);message=p.info.set.call_args
+            p.compare();self.assertEqual(p.executor.submit.call_count,1)
+            if outcome=='success':old.set_result(detection_response())
+            else:old.set_exception(RuntimeError('stale failure'))
+            message=p.info.set.call_args;p.finish(generation);self.assertEqual(p.info.set.call_args,message)
+            p.compare();self.assertEqual(p.executor.submit.call_count,2)
+            p.executor.submit.assert_called_with(p.app.client.detect_average_sweep_changes,'session',['0','1','2'],'3',9.0,1)
+            result=detection_response();result['detection'].update(minimum_increase_db=9.0,minimum_bins=1)
+            p.future.set_result(result);p.finish(p.generation);self.assertIsNotNone(p.data)
+            p.parameters_changed();self.assertEqual(p.sources,frozen)
+            self.assertIsNone(p.data);self.assertIsNone(p.detection)
+
+    def test_failed_rerun_removes_old_detection(self):
+        p=panel();p.pin();p.compare();p.future.set_result(detection_response());p.finish(p.generation)
+        self.assertIsNotNone(p.detection)
+        p.compare();self.assertIsNone(p.detection)
+        p.future.set_exception(PlatformClientError('offline'));p.finish(p.generation)
+        self.assertIsNone(p.data);self.assertIsNone(p.detection)
     def test_full_grid_draw_and_finite_markers(self):
         for n in (1,3,16384):
             p=panel();p.data=response();p.data.update(points=n,frequencies_hz=[100]*n,delta_levels=[0]*n)
@@ -134,6 +265,18 @@ class AverageLifecycleTests(unittest.TestCase):
                 calls=p.canvas.create_line.call_args_list;self.assertEqual(len(calls),3)
                 for call in calls:self.assertEqual(len(call.args),n*2)
             for call in calls:self.assertTrue(all(isfinite(v) for v in call.args))
+
+    def test_change_regions_are_highlighted_on_delta_chart(self):
+        p=panel();p.data=response()
+        p.detection={'regions':[{
+            'start_index':1,'end_index':2,'start_frequency_hz':200,'end_frequency_hz':300,
+            'peak_index':2,'peak_frequency_hz':300,'peak_increase_db':8,'bin_count':2,
+        }]}
+        p.draw()
+        highlights=[call for call in p.canvas.create_rectangle.call_args_list
+                    if call.kwargs.get('fill')=='#285538']
+        self.assertEqual(len(highlights),1)
+        self.assertEqual(highlights[0].kwargs['stipple'],'gray50')
 
     def test_actual_refresh_error_invalidates_running_and_completed_state(self):
         import queue
@@ -151,7 +294,7 @@ class AverageLifecycleTests(unittest.TestCase):
             app._messages.put(('snapshot',failed,7,''));app._drain_messages()
             self.assertIsNone(p.sources);self.assertIsNone(p.data)
             if running:
-                old.set_result(response());p.finish(generation);self.assertIsNone(p.data)
+                old.set_result(detection_response());p.finish(generation);self.assertIsNone(p.data)
 
     def test_duplicate_equal_bins_have_distinct_visible_markers(self):
         p=panel();p.data=response();p.data['frequencies_hz']=[100]*3
@@ -168,6 +311,17 @@ class AverageHTTPTests(unittest.TestCase):
         c=PlatformClient('http://localhost');c._request=Mock();c.compare_average_sweeps('s/a',['a','b'],'c')
         c._request.assert_called_once_with('POST','/sessions/s%2Fa/sweep-average-comparison',{'reference_ids':['a','b'],'target_id':'c'},expected_statuses=(200,))
         with self.assertRaises(ValueError):c.compare_average_sweeps('s',['a','b'],'a')
+    def test_exact_change_detection_post_and_parameters(self):
+        c=PlatformClient('http://localhost');c._request=Mock()
+        c.detect_average_sweep_changes('s/a',['a','b'],'c',6,2)
+        c._request.assert_called_once_with(
+            'POST','/sessions/s%2Fa/sweep-average-change-detection',
+            {'reference_ids':['a','b'],'target_id':'c','minimum_increase_db':6.0,'minimum_bins':2},
+            expected_statuses=(200,),strict_json=True,timeout=8.0,exact_envelope=True,
+        )
+        for threshold, bins in ((-1,2),(121,2),(float('nan'),2),(True,2),(6,0),(6,16385),(6,2.0)):
+            with self.assertRaises(ValueError):
+                c.detect_average_sweep_changes('s',['a','b'],'c',threshold,bins)
     def test_unicode_codepoints_and_utf8_body_bound(self):
         c=PlatformClient('http://localhost'); c._request=Mock()
         c.compare_average_sweeps('s',['😀'*128,'b'],'c')
@@ -187,3 +341,143 @@ class AverageHTTPTests(unittest.TestCase):
                 else:
                     with self.assertRaises(PlatformClientError):c.compare_average_sweeps('session',['0','1','2'],'3')
                 if status<400:reply.read.assert_called_once_with(MAX_RESPONSE_BYTES+1)
+
+    def test_change_transport_200_only_bounded_before_decode_and_strict_envelope(self):
+        def client(raw,status=200,timeout=120):
+            opener=Mock();reply=Mock();reply.__enter__=Mock(return_value=reply)
+            reply.__exit__=Mock(return_value=False);reply.status=status;reply.read.return_value=raw
+            if status>=400:opener.open.side_effect=urllib.error.HTTPError('http://localhost',status,'error',{},io.BytesIO(raw))
+            else:opener.open.return_value=reply
+            return PlatformClient('http://localhost',timeout=timeout,opener=opener),opener,reply
+        def request(c):return c.detect_average_sweep_changes('session',['0','1','2'],'3',6,2)
+        for status in (200,201,202,204,206,400,404,409,413,500):
+            for large in (False,True):
+                # Invalid UTF-8 makes any attempt to decode an oversized body observable.
+                raw=b'\xff'*(MAX_RESPONSE_BYTES+1) if large else json.dumps(api_payload(detection_response())).encode()
+                c,opener,reply=client(raw,status)
+                if status==200 and not large:self.assertEqual(request(c),detection_response())
+                else:
+                    with self.assertRaises(PlatformClientError) as error:request(c)
+                    if large:self.assertEqual(error.exception.code,'response_too_large')
+                    elif status<400:self.assertEqual(error.exception.code,'unexpected_status')
+                if status<400:reply.read.assert_called_once_with(MAX_RESPONSE_BYTES+1)
+                self.assertEqual(opener.open.call_args.kwargs['timeout'],8.0)
+        for envelope in (dict(api_payload({}),extra=True),dict(api_payload({}),error={}),
+                         dict(api_payload({}),contract_version=True),{'contract':'openradioinspector-platform','contract_version':1}):
+            with self.subTest(envelope=envelope),self.assertRaises(PlatformClientError):
+                request(client(json.dumps(envelope).encode())[0])
+        for raw in (b'{"data":{},"data":{}}',b'{"data":{"nested":NaN}}',b'\xff'):
+            with self.subTest(raw=raw),self.assertRaises(PlatformClientError) as error:request(client(raw)[0])
+            self.assertEqual(error.exception.code,'invalid_json')
+        c,opener,_=client(json.dumps(api_payload(detection_response())).encode(),timeout=.5);request(c)
+        self.assertEqual(opener.open.call_args.kwargs['timeout'],.5)
+
+    def test_detection_unicode_ids_and_request_byte_bound(self):
+        c=PlatformClient('http://localhost');c._request=Mock()
+        c.detect_average_sweep_changes('s/😀',['😀'*128,' b '],' c ',0,1)
+        for ids in (['😀'*129,'b'],['a','\ud800'],[('😀'*127)+str(i) for i in range(16)]):
+            with self.subTest(ids=ids),self.assertRaises(ValueError):c.detect_average_sweep_changes('s',ids,'c',6,2)
+        for session in ('',' ','\ud800',True):
+            with self.subTest(session=session),self.assertRaises(ValueError):c.detect_average_sweep_changes(session,['a','b'],'c',6,2)
+        self.assertEqual(c._request.call_count,1)
+
+    def test_detection_exact_utf8_request_byte_boundary(self):
+        ids=[str(i) for i in range(17)]
+        def body_size():
+            return len(json.dumps({'reference_ids':ids[:-1],'target_id':ids[-1],
+                'minimum_increase_db':6.0,'minimum_bins':2},ensure_ascii=False).encode('utf-8'))
+        for i in range(17):
+            while len(ids[i])<128 and body_size()+6<=8192:ids[i]+='\u0001'
+        for i in range(17):
+            while len(ids[i])<128 and body_size()<8192:ids[i]+='x'
+        self.assertEqual(body_size(),8192)
+        c=PlatformClient('http://localhost');c._request=Mock()
+        c.detect_average_sweep_changes('s',ids[:-1],ids[-1],6,2)
+        for i in range(17):
+            if len(ids[i])<128:ids[i]+='x';break
+        self.assertEqual(body_size(),8193)
+        with self.assertRaises(ValueError):c.detect_average_sweep_changes('s',ids[:-1],ids[-1],6,2)
+        self.assertEqual(c._request.call_count,1)
+
+
+class AverageActualTkHTTPTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('ORI_AVERAGE_SMOKE_BASE_URL'), 'Explicit synthetic fixture and Tk desktop required')
+    def test_hidden_panel_detection_parameters_and_original_comparison(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from time import sleep
+        from types import SimpleNamespace
+        root=tk.Tk();root.withdraw()
+        client=PlatformClient(os.environ['ORI_AVERAGE_SMOKE_BASE_URL'])
+        sweeps=client.list_sweeps('average-one','spectrum-one')
+        app=SimpleNamespace(tk=tk,ttk=ttk,root=root,client=client,session_id='average-one',
+            selected_stream_id=lambda:'spectrum-one',snapshot=SimpleNamespace(
+                session={'id':'average-one'},spectrum_stream_id='spectrum-one',sweeps=sweeps))
+        notebook=ttk.Notebook(root);notebook.pack();p=AveragePanel(app,notebook)
+        def finish():
+            until=monotonic()+10
+            while p.future is not None and monotonic()<until:root.update();sleep(.02)
+            self.assertIsNotNone(p.data,p.info.get())
+        try:
+            p.pin();frozen=deepcopy(p.sources);self.assertIsNone(p.future)
+            p.compare();finish();self.assertEqual(p.detection['count'],0)
+            original=client.compare_average_sweeps('average-one',[s['id'] for s in frozen],sweeps[-1]['id'])
+            self.assertEqual(p.data,original)
+            p.minimum_bins.set('1');self.assertEqual(p.sources,frozen)
+            self.assertIsNone(p.data);self.assertIsNone(p.detection);self.assertIsNone(p.future)
+            p.compare();finish();self.assertEqual(p.detection['count'],1)
+            region=p.detection['regions'][0]
+            self.assertEqual((region['start_index'],region['end_index'],region['peak_index']),(30,30,30))
+            self.assertEqual(region['peak_frequency_hz'],103_000_000)
+            self.assertAlmostEqual(region['peak_increase_db'],20)
+            lines=[i for i in p.canvas.find_all() if p.canvas.type(i)=='line']
+            self.assertEqual(len(lines),3)
+            for line in lines:self.assertEqual(len(p.canvas.coords(line)),202)
+            highlights=[i for i in p.canvas.find_all() if p.canvas.type(i)=='rectangle' and p.canvas.itemcget(i,'fill')=='#285538']
+            self.assertEqual(len(highlights),1)
+            p.threshold.set('21');p.compare();finish();self.assertEqual(p.detection['count'],0)
+            self.assertEqual(p.sources,frozen)
+            app.session_id='average-two';p.update();self.assertIsNone(p.sources);self.assertIsNone(p.data)
+        finally:p.close();root.destroy()
+
+    @unittest.skipUnless(os.environ.get('ORI_AVERAGE_DETECTION_SMOKE_BASE_URL'), 'Explicit synthetic detection fixture and Tk desktop required')
+    def test_hidden_live_detection_regions_and_parameter_traces(self):
+        import tkinter as tk
+        from tkinter import ttk
+        from time import sleep
+        from types import SimpleNamespace
+        root=tk.Tk();root.withdraw()
+        client=PlatformClient(os.environ['ORI_AVERAGE_DETECTION_SMOKE_BASE_URL'])
+        sweeps=client.list_sweeps('changes-one','spectrum-one')
+        app=SimpleNamespace(tk=tk,ttk=ttk,root=root,client=client,session_id='changes-one',
+            selected_stream_id=lambda:'spectrum-one',snapshot=SimpleNamespace(
+                session={'id':'changes-one'},spectrum_stream_id='spectrum-one',sweeps=sweeps))
+        notebook=ttk.Notebook(root);notebook.pack();p=AveragePanel(app,notebook)
+        def finish():
+            until=monotonic()+10
+            while p.future is not None and monotonic()<until:root.update();sleep(.02)
+            self.assertIsNotNone(p.data,p.info.get())
+        try:
+            p.pin();frozen=deepcopy(p.sources);self.assertIsNone(p.future)
+            p.compare();finish()
+            self.assertEqual(p.data,client.compare_average_sweeps('changes-one',[s['id'] for s in frozen],sweeps[-1]['id']))
+            self.assertEqual([(r['start_index'],r['end_index'],r['peak_index']) for r in p.detection['regions']],[(30,33,31),(69,70,70)])
+            self.assertEqual([r['peak_increase_db'] for r in p.detection['regions']],[12,9])
+            lines=[i for i in p.canvas.find_all() if p.canvas.type(i)=='line'];self.assertEqual(len(lines),3)
+            for line in lines:self.assertEqual(len(p.canvas.coords(line)),202)
+            highlights=[i for i in p.canvas.find_all() if p.canvas.type(i)=='rectangle' and p.canvas.itemcget(i,'fill')=='#285538']
+            self.assertEqual(len(highlights),2)
+            p.threshold.set('12');self.assertEqual(p.sources,frozen);self.assertIsNone(p.data);self.assertIsNone(p.detection)
+            p.compare();finish()
+            self.assertEqual([(r['start_index'],r['end_index'],r['peak_index']) for r in p.detection['regions']],[(31,32,31)])
+            p.minimum_bins.set('1');self.assertEqual(p.sources,frozen);self.assertIsNone(p.data)
+            p.compare();finish();self.assertEqual(p.detection['count'],2)
+            self.assertEqual(p.detection['regions'][1]['start_index'],90)
+            # The Tk variable trace invalidates even a completed-but-not-yet-delivered future.
+            p.compare();old=p.future;generation=p.generation;p.threshold.set('120')
+            until=monotonic()+10
+            while not old.done() and monotonic()<until:root.update();sleep(.02)
+            p.finish(generation);self.assertIsNone(p.data);self.assertIsNone(p.detection);self.assertEqual(p.sources,frozen)
+            p.compare();finish();self.assertEqual(p.detection['count'],0)
+            app.session_id='changes-two';p.update();self.assertIsNone(p.sources);self.assertIsNone(p.data)
+        finally:p.close();root.destroy()
