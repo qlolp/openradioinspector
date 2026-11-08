@@ -78,7 +78,10 @@ async function happyPath() {
   app.update();
   assert.equal(app.dom.start.disabled, false);
   // Start: POST to phonogram/start with the selected stream.
+  assert.equal(app.dom.stream.disabled, false);
   const startPromise = app.click('start');
+  app.click('stop'); app.update();
+  assert.equal(app.requests.length, 1, 'start and stop mutations cannot overlap');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.requests.length, 1);
   assert.match(app.requests[0].url, /\/phonogram\/start$/);

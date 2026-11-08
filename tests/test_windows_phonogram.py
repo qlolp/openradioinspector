@@ -60,6 +60,15 @@ class PhonogramValidationTests(unittest.TestCase):
 
 
 class PhonogramPanelTests(unittest.TestCase):
+    def test_scope_change_rejects_late_state(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.refresh(); current = p.generation
+        p.app.session_id = 'new-session'; p.update()
+        future.set_result(state(True)); p.finish(current, 'session', 'tiny')
+        self.assertIsNone(p.state)
+        self.assertGreater(p.generation, current)
+
     def test_start_stop_roundtrip_and_forged_state(self):
         p = panel()
         future = Future()
@@ -105,7 +114,7 @@ class PhonogramPanelTests(unittest.TestCase):
         p.app.session_id = "other"
         p.update()
         self.assertIsNone(p.state)
-        self.assertEqual(p.scope, (id(p.app.client), "other"))
+        self.assertEqual(p.scope, (id(p.app.client), "other", "tiny"))
 
 
 if __name__ == "__main__":

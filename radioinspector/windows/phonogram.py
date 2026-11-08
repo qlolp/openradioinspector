@@ -41,7 +41,10 @@ def status_text(data):
     return '\n'.join(lines)
 
 
-class PhonogramPanel:
+from .tk_timers import TkTimerOwner
+
+
+class PhonogramPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -50,6 +53,7 @@ class PhonogramPanel:
         self.closed = False
         self.state = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='phonogram')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Фонограмма')
@@ -72,6 +76,10 @@ class PhonogramPanel:
         self.details.insert('1.0', value); self.details.configure(state='disabled')
 
     def clear(self):
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
+        self.button.configure(state="normal"); self.stop_button.configure(state="normal")
         self.state = None
         self.show_details('')
         self.info.set('Состояние запрашивается по кнопке; архив не изменяется.')
@@ -104,7 +112,7 @@ class PhonogramPanel:
             self.future = self.executor.submit(client.phonogram_start, session, stream)
         else:
             self.future = self.executor.submit(client.phonogram_stop, session, stream)
-        self.app.root.after(50, lambda: self.finish(generation, session, stream))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation, session, stream)
 
     def start(self):
         self.call('start')
@@ -125,7 +133,7 @@ class PhonogramPanel:
             self.button.configure(state='normal'); self.stop_button.configure(state='normal')
             return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation, session, stream)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation, session, stream); return
         future, self.future = self.future, None
         self.button.configure(state='normal'); self.stop_button.configure(state='normal')
         try:
@@ -139,11 +147,16 @@ class PhonogramPanel:
 
     def update(self):
         if self.closed: return
-        scope = (id(self.app.client), self.app.session_id)
+        scope = (id(self.app.client), self.app.session_id, self.app.selected_stream_id())
         if scope != self.scope:
             self.scope = scope
             self.clear()
 
     def close(self):
+        if self.closed: return
         self.closed = True
+        self._close_timers()
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
         self.executor.shutdown(wait=False, cancel_futures=True)

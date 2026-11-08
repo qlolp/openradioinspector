@@ -141,6 +141,7 @@ class PhonogramRecorder:
             total = self._pre_samples + self._recorded_samples + block.size
             if total > int(MAX_PHONOGRAM_SECONDS * self.sample_rate_hz):
                 raise PhonogramError(f"Фонограмма не длиннее {MAX_PHONOGRAM_SECONDS} с")
+        block = block.copy()
         self._ring.append(block)
         self._ring_samples += block.size
         limit = self._ring_limit()

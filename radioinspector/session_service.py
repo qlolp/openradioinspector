@@ -740,8 +740,8 @@ class SessionService:
             raise ValueError("Разрешено только поле stream_id")
         with self._lock:
             recorder = self._phonogram_recorder(session_id, payload["stream_id"])
-            started = recorder.start()
-            return {"session_id": session_id, "stream_id": payload["stream_id"], **started}
+            recorder.start()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **recorder.status()}
 
     def phonogram_stop(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Завершить запись: предыстория и записанная часть в одном результате."""
@@ -749,8 +749,8 @@ class SessionService:
             raise ValueError("Разрешено только поле stream_id")
         with self._lock:
             recorder = self._phonogram_recorder(session_id, payload["stream_id"])
-            phonogram = recorder.stop()
-            return {"session_id": session_id, "stream_id": payload["stream_id"], **phonogram.as_dict()}
+            recorder.stop()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **recorder.status()}
 
     def phonogram_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
         with self._lock:

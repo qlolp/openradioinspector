@@ -31,6 +31,16 @@ def clock():
 
 
 class PhonogramRecorderTests(unittest.TestCase):
+    def test_producer_buffer_reuse_cannot_modify_captured_audio(self):
+        recorder = PhonogramRecorder(RATE, clock=clock)
+        buffer = np.ones(100, dtype=np.float64)
+        recorder.push(buffer); recorder.start()
+        buffer[:] = 0.5; recorder.push(buffer)
+        buffer[:] = 0
+        captured = recorder.stop().samples
+        np.testing.assert_array_equal(captured[:100], np.ones(100))
+        np.testing.assert_array_equal(captured[100:], np.full(100, 0.5))
+
     def test_pre_history_window_is_exactly_five_seconds(self):
         recorder = PhonogramRecorder(RATE, clock=clock)
         self.assertEqual(recorder.pre_history_seconds, PRE_HISTORY_SECONDS)
@@ -115,10 +125,13 @@ class PhonogramServiceMixin:
         self.assertAlmostEqual(status["buffered_seconds"], 100 / RATE, places=6)
         started = self.service.phonogram_start(self.session.id, {"stream_id": stream})
         self.assertTrue(started["recording"])
+        from radioinspector.windows.phonogram import validate_status
+        validate_status(started, self.session.id, stream)
         self.service.phonogram_push(self.session.id, {"stream_id": stream, "samples": [0.5] * 100})
         result = self.service.phonogram_stop(self.session.id, {"stream_id": stream})
-        self.assertEqual(result["pre_history_samples"], 100)
-        self.assertEqual(result["recorded_samples"], 100)
+        validate_status(result, self.session.id, stream)
+        self.assertEqual(result["last"]["pre_history_samples"], 100)
+        self.assertEqual(result["last"]["recorded_samples"], 100)
         wav = self.service.phonogram_wav(self.session.id, stream)
         self.assertEqual(wav[:4], b"RIFF")
 
@@ -196,8 +209,8 @@ class PhonogramHTTPTests(unittest.TestCase):
         self.request("POST", self.root + "/frames", {"stream_id": self.stream, "samples": [0.5] * 50})
         status, envelope = self.request("POST", self.root + "/stop", {"stream_id": self.stream})
         self.assertEqual(status, 200)
-        self.assertEqual(envelope["data"]["pre_history_samples"], 50)
-        self.assertEqual(envelope["data"]["recorded_samples"], 50)
+        self.assertEqual(envelope["data"]["last"]["pre_history_samples"], 50)
+        self.assertEqual(envelope["data"]["last"]["recorded_samples"], 50)
         status, wav = self.request("GET", self.root + f"/wav?stream_id={self.stream}", raw=True)
         self.assertEqual(status, 200)
         self.assertEqual(wav[:4], b"RIFF")

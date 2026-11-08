@@ -36,9 +36,10 @@
   }
   function controls() {
     const ready = Boolean(scope) && connected && !suspended && streams.length > 0;
-    dom.start.disabled = !ready;
-    dom.stop.disabled = !ready;
-    dom.refresh.disabled = !ready;
+    dom.stream.disabled = !ready || Boolean(pending);
+    dom.start.disabled = !ready || Boolean(pending);
+    dom.stop.disabled = !ready || Boolean(pending);
+    dom.refresh.disabled = !ready || Boolean(pending);
   }
   function render() {
     if (!state) return;
@@ -57,7 +58,9 @@
       + "Запись — runtime-состояние: в архив ничего не пишется.";
   }
   async function call(path, body) {
+    if (pending || !connected || suspended || !scope) return;
     const controller = new AbortController(); pending = controller; const current = ++generation;
+    controls();
     try {
       const response = await fetch(`/api/v1/sessions/${encodeURIComponent(scope)}/phonogram/${path}`, {
         method: body ? "POST" : "GET",
@@ -83,7 +86,7 @@
     }
   }
   async function refresh() {
-    if (dom.refresh.disabled && !state) return;
+    if (pending || dom.refresh.disabled) return;
     await call(`status?stream_id=${encodeURIComponent(selectedStream())}`, null);
   }
   async function start() {
@@ -104,9 +107,7 @@
     if (!sessionChanged && signature === snapshot) { controls(); return; }
     scope = sessionId; snapshot = signature;
     if (sessionChanged) {
-      state = null;
-      dom.items.replaceChildren();
-      dom.summary.textContent = "";
+      invalidate();
     }
     streams = incoming;
     const previous = dom.stream.value;
@@ -123,17 +124,21 @@
       : "Нет потоков выбранного сеанса.";
     controls();
   }
+  function invalidate() {
+    pending?.abort(); pending = null; generation += 1;
+    state = null; dom.items.replaceChildren(); dom.summary.textContent = ""; controls();
+  }
   function setConnected(value) {
     connected = Boolean(value);
-    if (!connected) { state = null; dom.items.replaceChildren(); dom.summary.textContent = ""; }
+    if (!connected) invalidate();
     controls();
   }
   dom.start.addEventListener("click", start);
   dom.stop.addEventListener("click", stop);
   dom.refresh.addEventListener("click", refresh);
-  dom.stream.addEventListener("change", () => { state = null; dom.items.replaceChildren(); controls(); });
+  dom.stream.addEventListener("change", invalidate);
   window.addEventListener("offline", () => setConnected(false));
-  window.addEventListener("pagehide", () => { suspended = true; });
+  window.addEventListener("pagehide", () => { suspended = true; invalidate(); });
   window.addEventListener("pageshow", () => { suspended = false; controls(); });
   window.OpenRadioPhonogram = { update, setConnected };
   controls();
