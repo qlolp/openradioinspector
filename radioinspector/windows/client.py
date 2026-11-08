@@ -94,6 +94,12 @@ class AudioStreamConnection:
     def __init__(self, response: Any) -> None:
         self._response = response
         self._socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if self._socket is not None:
+            # Winsock shutdown does not wake the select used by a timeout-mode
+            # socket. A blocking recv is interruptible by shutdown on both OSes.
+            # After headers, an idle stream waits for PCM, EOF or explicit cancel;
+            # the ordinary request timeout must not discard an accepted stream.
+            self._socket.settimeout(None)
         headers = getattr(response, "headers", {}) or {}
         self.content_type = headers.get("Content-Type", "")
         self.sample_rate = headers.get("X-Sample-Rate", "")
@@ -458,9 +464,6 @@ class PlatformClient:
             raise PlatformClientError(
                 "Формат отсчётов не pcm16le", status=200, code="invalid_stream"
             )
-        # Streaming idle policy is separate from the bounded header/request timeout.
-        if connection._socket is not None:
-            connection._socket.settimeout(120.0)
         return connection
 
     def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:
