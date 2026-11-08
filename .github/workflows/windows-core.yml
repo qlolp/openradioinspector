@@ -1,4 +1,4 @@
-name: Windows core and clients
+name: Cross-platform synthetic release checks
 
 on:
   pull_request:
@@ -8,9 +8,23 @@ permissions:
   contents: read
 
 jobs:
-  synthetic-windows:
-    runs-on: windows-latest
-    timeout-minutes: 20
+  synthetic-release:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: synthetic-linux
+          - os: windows-latest
+            name: synthetic-windows
+          - os: macos-latest
+            name: synthetic-macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,9 +38,18 @@ jobs:
           node-version: '24'
       - name: Install core with COM dependency
         run: python -m pip install '.[serial]'
-      - name: Run synthetic Python, WebUI and hidden Tk tests
-        env:
-          ORI_WINDOWS_RELEASE_TK: '1'
-        run: python -m unittest discover -s tests -t . -v
-      # These runners have no receiver or analyzer; native COM hardware validation
-      # remains a separate acceptance step. POSIX PTY tests skip on Windows.
+      - name: Install headless Tk display on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
+      - name: Run Linux release checks with hidden Tk
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m tests.run_release_checks
+      - name: Run Windows release checks with hidden Tk
+        if: runner.os == 'Windows'
+        run: python -m tests.run_release_checks
+      - name: Run macOS release checks, both Swift suites and unsigned Xcode build
+        if: runner.os == 'macOS'
+        run: python -m tests.run_release_checks --swift
+      # Only owned synthetic servers/archives, mocked COM and own PTYs are used.
+      # Real receiver/analyzer acceptance remains separate and is not implied.
+      # Windows permits only the existing POSIX PTY and permission-bit skips.

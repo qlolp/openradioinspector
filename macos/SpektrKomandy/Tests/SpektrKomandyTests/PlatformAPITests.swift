@@ -461,14 +461,13 @@ final class PlatformAPITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
     }
 
-    func testDefaultClientCancellationStopsRealHTTPRequest() async throws {
-        let logPath = "/tmp/ori-cancel-\(UUID().uuidString).log"
-        let script = """
-import http.server, time
-LOG = "\(logPath)"
+    private var cancellationHTTPFixtureScript: String {
+        """
+import http.server, os, sys, threading, time
+LOG = sys.argv[1]
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        with open(LOG, "a") as stream:
+        with open(LOG, "a", encoding="utf-8") as stream:
             stream.write("get\\n")
         time.sleep(2)
         body = b'{"contract":"openradioinspector-platform","contract_version":1,"data":[]}'
@@ -479,34 +478,119 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server.timeout = 0.1
+stopped = threading.Event()
+stdin_errors = []
+def stop_at_eof():
+    try:
+        while os.read(0, 4096):
+            pass
+    except OSError as error:
+        stdin_errors.append(error)
+    finally:
+        stopped.set()
+threading.Thread(target=stop_at_eof, daemon=True).start()
 print(server.server_address[1], flush=True)
-server.serve_forever()
+try:
+    while not stopped.is_set():
+        server.handle_request()
+finally:
+    server.server_close()
+if stdin_errors:
+    raise stdin_errors[0]
 """
+    }
+
+    func testCancellationHTTPFixtureStopsWhenOwnerClosesInput() throws {
+        let logPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-cancel-owner-\(UUID().uuidString).log").path
+        let process = Process()
+        let output = Pipe()
+        let lifetime = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-c", cancellationHTTPFixtureScript, logPath]
+        process.standardOutput = output
+        process.standardInput = lifetime
+        try process.run()
+        defer {
+            try? lifetime.fileHandleForWriting.close()
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+            try? output.fileHandleForReading.close()
+            try? FileManager.default.removeItem(atPath: logPath)
+        }
+        try lifetime.fileHandleForReading.close()
+        try output.fileHandleForWriting.close()
+        var readiness = pollfd(
+            fd: output.fileHandleForReading.fileDescriptor,
+            events: Int16(POLLIN), revents: 0
+        )
+        guard poll(&readiness, 1, 5000) == 1 else {
+            XCTFail("Owned HTTP fixture did not start")
+            return
+        }
+        let port = output.fileHandleForReading.availableData
+        XCTAssertNotNil(Int(String(decoding: port, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        try lifetime.fileHandleForWriting.close()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        XCTAssertFalse(process.isRunning, "HTTP fixture outlived its owner's input pipe")
+        if !process.isRunning {
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: logPath))
+    }
+
+    func testDefaultClientCancellationStopsRealHTTPRequest() async throws {
+        let logPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-cancel-\(UUID().uuidString).log").path
+        let script = cancellationHTTPFixtureScript
         // Darwin forbids fork() from Swift; preserve the Linux harness and spawn safely on macOS.
         #if canImport(Darwin)
         let process = Process()
         let output = Pipe()
+        let lifetime = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", "-c", script]
+        process.arguments = ["python3", "-c", script, logPath]
         process.standardOutput = output
+        process.standardInput = lifetime
         try process.run()
-        try output.fileHandleForWriting.close()
-        let descriptors = [output.fileHandleForReading.fileDescriptor]
         defer {
+            try? lifetime.fileHandleForWriting.close()
             if process.isRunning { process.terminate() }
             process.waitUntilExit()
             try? output.fileHandleForReading.close()
         }
+        try lifetime.fileHandleForReading.close()
+        try output.fileHandleForWriting.close()
+        let descriptors = [output.fileHandleForReading.fileDescriptor]
         #else
         var descriptors: [Int32] = [-1, -1]
-        XCTAssertEqual(pipe(&descriptors), 0)
-        let arguments = ["env", "python3", "-c", script].map {
+        var lifetime: [Int32] = [-1, -1]
+        guard pipe(&descriptors) == 0 else {
+            XCTFail("Unable to create owned output pipe")
+            return
+        }
+        guard pipe(&lifetime) == 0 else {
+            close(descriptors[0])
+            close(descriptors[1])
+            XCTFail("Unable to create owned lifetime pipe")
+            return
+        }
+        let arguments = ["env", "python3", "-c", script, logPath].map {
             $0.withCString { strdup($0) }
         }
         var argv = arguments + [nil]
         let pid = fork()
         if pid == 0 {
             close(descriptors[0])
+            close(lifetime[1])
+            if dup2(lifetime[0], STDIN_FILENO) < 0 { _exit(126) }
+            close(lifetime[0])
             if dup2(descriptors[1], STDOUT_FILENO) < 0 { _exit(126) }
             close(descriptors[1])
             argv.withUnsafeMutableBufferPointer { buffer in
@@ -518,11 +602,15 @@ server.serve_forever()
         guard pid > 0 else {
             close(descriptors[0])
             close(descriptors[1])
+            close(lifetime[0])
+            close(lifetime[1])
             XCTFail("Не удалось запустить HTTP-сервер")
             return
         }
         close(descriptors[1])
+        close(lifetime[0])
         defer {
+            close(lifetime[1])
             close(descriptors[0])
             kill(pid, SIGKILL)
             _ = waitpid(pid, nil, 0)
