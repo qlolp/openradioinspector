@@ -260,6 +260,20 @@ final class PlatformAPITests: XCTestCase {
         await fulfillment(of: [completed], timeout: 1)
     }
 
+    func testResponseDelegateFinishesCancellationOnlyOnce() {
+        let delegate = PlatformResponseDelegate(maximumBytes: 16)
+        var completions = 0
+        delegate.completion = { _ in completions += 1 }
+        let session = URLSession(configuration: .ephemeral)
+        sessions.append(session)
+        let task = session.dataTask(
+            with: URLRequest(url: URL(string: "https://example.test/api/v1/sessions")!)
+        )
+        delegate.cancel()
+        delegate.urlSession(session, task: task, didCompleteWithError: CancellationError())
+        XCTAssertEqual(completions, 1)
+    }
+
     func testDefaultClientCancellationStopsRealHTTPRequest() async throws {
         let logPath = "/tmp/ori-cancel-\(UUID().uuidString).log"
         let script = """

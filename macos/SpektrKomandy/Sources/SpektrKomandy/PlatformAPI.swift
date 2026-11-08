@@ -139,6 +139,10 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
         completion?(result)
     }
 
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
     func urlSession(
         _ session: URLSession,
         dataTask: URLSessionDataTask,
@@ -877,7 +881,7 @@ public final class PlatformClient {
                 }
                 if Task.isCancelled {
                     task.cancel()
-                    delegate.completion?(.failure(CancellationError()))
+                    delegate.cancel()
                 } else {
                     task.resume()
                 }
