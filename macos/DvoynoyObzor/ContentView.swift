@@ -207,6 +207,7 @@ final class RemoteDualModel: ObservableObject {
 
     let sweepAverage = SweepAverageModel()
     let threeSweepThresholds = ThreeSweepThresholdsModel()
+    let sweepContext = SweepContextModel()
     let spectralMask = SpectralMaskModel()
     let sweepThreshold: SweepThresholdModel
 
@@ -440,6 +441,7 @@ final class RemoteDualModel: ObservableObject {
             guard requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             sweepAverage.reset()
             threeSweepThresholds.reset()
+            sweepContext.reset()
             errorText = describeSession(error)
         }
     }
@@ -818,6 +820,7 @@ final class RemoteDualModel: ObservableObject {
     private func resetComparisonScope() {
         sweepAverage.reset()
         threeSweepThresholds.reset()
+        sweepContext.reset()
         spectralMask.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
@@ -1270,6 +1273,8 @@ final class RemoteDualModel: ObservableObject {
         }
         comparisonSweeps = selectedSweeps
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
+            sweepContext.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: selectedSweeps)
             threeSweepThresholds.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
@@ -1282,7 +1287,7 @@ final class RemoteDualModel: ObservableObject {
             sweepThreshold.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
-        } else { sweepAverage.reset(); threeSweepThresholds.reset(); sweepThreshold.reset(); spectralMask.reset() }
+        } else { sweepAverage.reset(); sweepContext.reset(); threeSweepThresholds.reset(); sweepThreshold.reset(); spectralMask.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1431,6 +1436,7 @@ struct RemoteUltraPane: View {
                 RemoteSweepComparisonPane(model: model)
                 RemoteSweepAveragePane(model: model.sweepAverage)
                 RemoteThreeSweepThresholdsPane(model: model.threeSweepThresholds)
+                RemoteSweepContextPane(model: model.sweepContext)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
                 RemoteSpectralMaskPane(model: model.spectralMask)
                 GroupBox("Превышения порога") {

@@ -930,14 +930,18 @@ public final class PlatformClient {
         guard let streamID else { return [] }
         return try await get(
             "/sessions/\(Self.segment(sessionID))/\(kind)",
-            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: String(limit))]
+            query: [URLQueryItem(name: "stream_id", value: streamID), URLQueryItem(name: "limit", value: String(limit))],
+            validateResponse: kind == "sweeps" ? { bytes in
+                var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
+            } : nil
         )
     }
 
     func get<Value: Decodable>(
-        _ path: String, query: [URLQueryItem] = [], expectedStatuses: [Int]? = nil
+        _ path: String, query: [URLQueryItem] = [], expectedStatuses: [Int]? = nil,
+        validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?, expectedStatuses: expectedStatuses)
+        try await request(method: "GET", path: path, query: query, body: nil as EmptyBody?, expectedStatuses: expectedStatuses, validateResponse: validateResponse)
     }
 
     func post<Value: Decodable, Body: Encodable>(

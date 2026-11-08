@@ -45,6 +45,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `POST` | `/api/v1/sessions/{id}/sweep-mask-analysis` | Read-only анализ архивного dBm свипа по переданному JSON артефакту маски |
 | `POST` | `/api/v1/sessions/{id}/sweep-average-comparison` | Read-only среднее мощности 2–16 архивных свипов и разность с отдельным target |
 | `POST` | `/api/v1/sessions/{id}/sweep-three-thresholds` | Read-only три горизонтальных порога одного архивного dBm свипа |
+| `POST` | `/api/v1/sessions/{id}/sweep-context` | Read-only ближайшие N1/N2 свипы вокруг точного архивного ID |
 | `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
 | `POST` | `/api/v1/sessions/{id}/observations/batch` | Атомарный приём пакета наблюдений |
 | `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
@@ -662,3 +663,11 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 Три уровня сохраняют порядок и идентичность даже при совпадении; каждое
 превышение и область вычисляются ядром отдельно. Общего OR-детектора нет.
 Контракт и пределы: [three-sweep-thresholds.md](three-sweep-thresholds.md).
+
+## Архивное окно N1/N2
+
+`features.sweep_context` включает read-only POST с `{sweep_id, before, after}`.
+Ядро выбирает ближайшие записи того же потока по UTC started_at и точному ID;
+ответ содержит полное окно, доступные и недостающие количества. Неподходящий
+сосед отклоняет всё окно и не заменяется более далёким. Формат, лимиты и
+синтетический пример: [sweep-context.md](sweep-context.md).

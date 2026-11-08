@@ -93,7 +93,8 @@ class PlatformClient:
 
     def _request(
         self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
-        *, expected_statuses: Optional[tuple[int, ...]] = None
+        *, expected_statuses: Optional[tuple[int, ...]] = None, strict_json: bool = False,
+        timeout: Optional[float] = None
     ) -> Any:
         body = None
         headers = {"Accept": "application/json"}
@@ -107,7 +108,7 @@ class PlatformClient:
             method=method,
         )
         try:
-            with self._opener.open(request, timeout=self.timeout) as response:
+            with self._opener.open(request, timeout=self.timeout if timeout is None else min(self.timeout, timeout)) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
                 status = getattr(response, "status", 200)
         except urllib.error.HTTPError as exc:
@@ -122,18 +123,24 @@ class PlatformClient:
             raise PlatformClientError(
                 f"Сервер недоступен: {reason}", code="connection_error"
             ) from exc
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise PlatformClientError("Ответ сервера превышает 2 МБ", status=status, code="response_too_large")
         if expected_statuses is not None and status not in expected_statuses:
             raise PlatformClientError(
                 f"Неожиданный HTTP {status}; результат запроса не подтверждён",
                 status=status, code="unexpected_status",
             )
-        if len(raw) > MAX_RESPONSE_BYTES:
-            raise PlatformClientError(
-                "Ответ сервера превышает 2 МБ", status=status, code="response_too_large"
-            )
+        def unique_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result: raise ValueError("Duplicate JSON key")
+                result[key] = value
+            return result
+        def invalid_constant(value):
+            raise ValueError("Non-finite JSON number")
         try:
-            envelope = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            envelope = json.loads(raw.decode("utf-8"), **({"object_pairs_hook": unique_object, "parse_constant": invalid_constant} if strict_json else {}))
+        except (UnicodeDecodeError, ValueError) as exc:
             raise PlatformClientError(
                 "Сервер вернул некорректный JSON", status=status, code="invalid_json"
             ) from exc
@@ -214,6 +221,16 @@ class PlatformClient:
         if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > 8192:
             raise ValueError('Запрос превышает 8192 байт')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-average-comparison", payload, expected_statuses=(200,))
+
+    def sweep_context(self, session_id: str, sweep_id: str, before: int = 2, after: int = 2) -> dict[str, Any]:
+        from .sweep_average import identity
+        from .sweep_context import scope_identity, validate_counts
+        if not scope_identity(session_id) or not identity(sweep_id): raise ValueError('Некорректный ID')
+        validate_counts(before, after)
+        payload = {'sweep_id': sweep_id, 'before': before, 'after': after}
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 8192:
+            raise ValueError('Запрос превышает 8192 байта')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-context", payload, expected_statuses=(200,), strict_json=True, timeout=8.0)
 
     def sweep_three_thresholds(self, session_id: str, sweep_id: str, levels_dbm: list[float]) -> dict[str, Any]:
         from .sweep_average import identity

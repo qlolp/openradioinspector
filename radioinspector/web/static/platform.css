@@ -352,3 +352,14 @@ form.editor { border-style: solid; }
 #three-thresholds-summary, .three-thresholds-line-summary { white-space: pre-line; line-height: 1.7; }
 .three-thresholds-regions { max-height: 240px; overflow-y: auto; padding-left: 24px; line-height: 1.7; }
 #three-thresholds-canvas { width: 100%; height: auto; margin-top: 10px; }
+
+/* Archived N1/N2 snapshots remain separate from live plots and detectors. */
+.context-panel { padding: 16px; border-top: 1px solid var(--line); font-size: 11px; overflow-wrap: anywhere; }
+.context-panel h3 { color: var(--cyan); font-size: 13px; }
+#context-anchor { width: 100%; max-width: 100%; margin: 8px 0; }
+#context-pinned, #context-summary, #context-selected, #context-items p { white-space: pre-line; line-height: 1.7; }
+#context-items { max-height: 360px; overflow-y: auto; padding-left: 24px; }
+#context-items li { margin-bottom: 12px; }
+#context-items button { white-space: normal; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
+#context-items button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+#context-canvas { width: 100%; height: auto; margin-top: 10px; }

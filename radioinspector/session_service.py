@@ -36,6 +36,9 @@ from .contracts import (
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
+from .sweep_context import (
+    calculate_sweep_context, select_context_neighbours, validate_context_request,
+)
 from .sweep_average import calculate_sweep_average_comparison, validate_average_request
 from .sweep_threshold import calculate_sweep_threshold, validate_threshold_parameters
 from .sweep_three_thresholds import calculate_sweep_three_thresholds, validate_three_thresholds_request
@@ -179,6 +182,7 @@ class SessionService:
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
                 "three_sweep_thresholds": True,
+                "sweep_context": True,
                 "spectral_mask_analysis": True,
                 "averaged_sweep_reference": True,
                 "named_sweep_references": True,
@@ -561,6 +565,27 @@ class SessionService:
             self._get_locked(session_id)
             sweep = self._get_sweep_locked(session_id, sweep_id)
             return calculate_sweep_three_thresholds(session_id, sweep, levels_dbm=levels_dbm)
+
+    def sweep_context(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read actual nearest neighbours without writes or recent-list limits."""
+        sweep_id, before, after = validate_context_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            if self._store is not None:
+                window = self._store.get_sweep_context(
+                    session_id, sweep_id, before=before, after=after,
+                )
+                if window is None:
+                    raise SweepNotFoundError(sweep_id)
+                anchor, preceding, following = window
+            else:
+                anchor = self._get_sweep_locked(session_id, sweep_id)
+                preceding, following = select_context_neighbours(
+                    anchor, self._sweeps, before=before, after=after,
+                )
+            return calculate_sweep_context(
+                session_id, anchor, preceding, following, before=before, after=after,
+            )
 
     def sweep_mask_analysis(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Evaluate an imported mask against one exact ID, without persistence."""

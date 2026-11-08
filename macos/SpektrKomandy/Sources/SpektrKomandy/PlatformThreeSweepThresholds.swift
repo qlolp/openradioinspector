@@ -105,7 +105,7 @@ public struct PlatformThreeSweepThresholds: Decodable, Equatable {
     public func validate(source: PlatformSweep, levelsDbm: [Double]) throws {
         guard Self.validSource(source), Self.validLevels(levelsDbm),
               Self.sameID(sessionId, source.sessionId), Self.sameID(streamId, source.streamId), Self.sameID(sweep.id, source.id),
-              sweep.interval == source.interval, source.settings.map({ threeExactSettings(sweep.settings, $0) }) == true,
+              sweep.interval == source.interval, source.settings.map({ exactRecordedSettings(sweep.settings, $0) }) == true,
               sweep.levelUnit == source.levelUnit, sweep.levels == source.levels,
               frequenciesHz == source.frequenciesHz, lines.map(\.levelDbm) == levelsDbm else {
             throw PlatformError.invalidResponse("Ответ не соответствует зафиксированному свипу или трём уровням")
@@ -116,7 +116,7 @@ public struct PlatformThreeSweepThresholds: Decodable, Equatable {
 private func threeScopeID(_ id: String) -> Bool { !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 private func threeSweepID(_ id: String) -> Bool { threeScopeID(id) && id.unicodeScalars.count <= 128 }
 
-private func threeExactSettings(_ left: [String: PlatformComparisonSetting], _ right: [String: PlatformComparisonSetting]) -> Bool {
+func exactRecordedSettings(_ left: [String: PlatformComparisonSetting], _ right: [String: PlatformComparisonSetting]) -> Bool {
     func exact(_ left: PlatformComparisonSetting, _ right: PlatformComparisonSetting) -> Bool {
         switch (left, right) {
         case (.string(let a), .string(let b)): return PlatformThreeSweepThresholds.sameID(a, b)
@@ -124,7 +124,7 @@ private func threeExactSettings(_ left: [String: PlatformComparisonSetting], _ r
         case (.boolean(let a), .boolean(let b)): return a == b
         case (.null, .null): return true
         case (.array(let a), .array(let b)): return a.count == b.count && zip(a, b).allSatisfy(exact)
-        case (.object(let a), .object(let b)): return threeExactSettings(a, b)
+        case (.object(let a), .object(let b)): return exactRecordedSettings(a, b)
         default: return false
         }
     }

@@ -13,6 +13,7 @@
   <script src="/static/sweep-mask.js" defer></script>
   <script src="/static/sweep-average.js" defer></script>
   <script src="/static/sweep-three-thresholds.js" defer></script>
+  <script src="/static/sweep-context.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
@@ -242,6 +243,28 @@
           <p id="average-summary"></p>
           <canvas id="average-overlay" width="960" height="280" role="img" aria-label="Средняя мощность и целевой свип, dBm" hidden></canvas>
           <canvas id="average-delta" width="960" height="260" role="img" aria-label="Разность цели и усреднённого опорного, dB" hidden></canvas>
+        </section>
+        <section class="context-panel" aria-labelledby="context-heading">
+          <h3 id="context-heading">Контекст архивного свипа · N1 / N2</h3>
+          <p>Снимок ближайших архивных свипов того же потока до и после выбранного якоря. Порядок: начало UTC, затем точный ID (UTF-8). Автоматический захват N1/N2 при обнаружении не реализован. Нет привязки к кандидатам, записи или команд прибору.</p>
+          <label for="context-anchor">Якорь из полученных dBm свипов выбранного потока</label>
+          <select id="context-anchor" disabled aria-describedby="context-source"></select>
+          <div class="form-grid">
+            <label>N1 · до якоря (0–16)<input id="context-before" type="number" min="0" max="16" step="1" value="2" required></label>
+            <label>N2 · после якоря (0–16)<input id="context-after" type="number" min="0" max="16" step="1" value="2" required></label>
+          </div>
+          <p id="context-source">Нет полученного архивного dBm свипа выбранного потока.</p>
+          <div class="form-actions">
+            <button id="context-run" class="button" type="button" disabled>Закрепить якорь и загрузить контекст</button>
+            <button id="context-clear" class="button" type="button">Снять якорь и окно</button>
+          </div>
+          <p>Начальные N1=2 и N2=2 — примеры. Новые свипы не меняют закреплённый якорь или результат; недостающие стороны показываются явно, без ожидания новых данных. Выбранный исходный свип сохраняется локально после ухода из полученного списка: повторная загрузка по кнопке проверит новое окно архива. Редактирование очищает результат; смена области и потеря соединения также сбрасывают сохранённый выбор. Выберите строку, чтобы увидеть все исходные точки её спектра в dBm на общей сетке частот, без интерполяции.</p>
+          <p id="context-pinned">Якорь не закреплён.</p>
+          <p id="context-status" role="status" aria-live="polite"></p>
+          <p id="context-summary"></p>
+          <ol id="context-items" aria-label="Все свипы контекста с offset, ID, UTC и записанными настройками"></ol>
+          <p id="context-selected"></p>
+          <canvas id="context-canvas" width="960" height="280" role="img" aria-label="Исходный спектр выбранного свипа контекста, dBm" hidden></canvas>
         </section>
         <section class="three-thresholds-panel" aria-labelledby="three-thresholds-heading">
           <h3 id="three-thresholds-heading">Три горизонтальных порога архивного свипа · dBm</h3>

@@ -27,6 +27,7 @@ from .contracts import (
     to_primitive,
 )
 from .sweep_references import check_reference_creation
+from .sweep_context import ContextIncompatibleError, validate_context_request
 
 SCHEMA_VERSION = 3
 ARCHIVE_WARNING_THRESHOLD = 0.9
@@ -81,6 +82,17 @@ class SQLiteSessionStore:
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
+        # A connection-local function, not an archive schema/index migration.
+        # Unlike julianday(), this preserves microseconds and normalizes offsets
+        # and legacy timestamps with omitted fractional seconds exactly.
+        self._connection.create_function(
+            "context_utc", 1, lambda value: _archive_time(parse_time(value)), deterministic=True,
+        )
+        # CAST(TEXT AS BLOB) follows the database encoding, which may be UTF-16
+        # in a pre-existing archive. The contract always orders exact UTF-8.
+        self._connection.create_function(
+            "context_utf8", 1, lambda value: value.encode("utf-8", errors="strict"), deterministic=True,
+        )
         try:
             with self._lock, self._connection:
                 version = self._connection.execute("PRAGMA user_version").fetchone()[0]
@@ -631,6 +643,60 @@ class SQLiteSessionStore:
                 f"SELECT * FROM sweeps WHERE {clause}", parameters
             ).fetchone()
             return None if row is None else self._sweep_from_row(row)
+
+    def get_sweep_context(
+        self, session_id: str, sweep_id: str, *, before: int, after: int,
+    ) -> Optional[tuple[Sweep, list[Sweep], list[Sweep]]]:
+        """Bound each side in SQL and read all three queries from one snapshot.
+
+        Existing indexes constrain the session/stream candidates. Canonical UTC
+        sorting can scan those candidates inside SQLite, but never transfers the
+        entire archive to Python. No compatibility filtering precedes LIMIT.
+        """
+        validate_context_request({"sweep_id": sweep_id, "before": before, "after": after})
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN")
+            row = self._connection.execute(
+                "SELECT * FROM sweeps WHERE id = ? AND session_id = ?", (sweep_id, session_id),
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                def decode(source: sqlite3.Row) -> Sweep:
+                    # Older generic readers coerce numeric-looking levels and
+                    # can synthesize an ID for an empty string. A context must
+                    # reject bad selected data rather than repair provenance.
+                    validate_context_request({"sweep_id": source["id"], "before": 0, "after": 0})
+                    levels = json.loads(source["levels_json"])
+                    if (not isinstance(levels, list)
+                            or any(type(value) not in (int, float) for value in levels)
+                            or source["level_unit"] != "dBm"):
+                        raise ContextIncompatibleError("Исходные уровни должны быть числами dBm")
+                    return self._sweep_from_row(source)
+
+                anchor = decode(row)
+                timestamp = _archive_time(anchor.interval.started_at)
+                binary_id = sweep_id.encode("utf-8", errors="strict")
+
+                def neighbours(count: int, *, preceding: bool) -> list[Sweep]:
+                    if count == 0:
+                        return []
+                    comparison, direction = ("<", "DESC") if preceding else (">", "ASC")
+                    rows = self._connection.execute(
+                        f"""SELECT * FROM sweeps
+                            WHERE session_id = ? AND stream_id = ?
+                              AND (context_utc(started_at), context_utf8(id)) {comparison} (?, ?)
+                            ORDER BY context_utc(started_at) {direction}, context_utf8(id) {direction}
+                            LIMIT ?""",
+                        (session_id, anchor.stream_id, timestamp, binary_id, count),
+                    ).fetchall()
+                    if preceding:
+                        rows.reverse()
+                    return [decode(item) for item in rows]
+
+                return anchor, neighbours(before, preceding=True), neighbours(after, preceding=False)
+            except (TypeError, ValueError, OverflowError, RecursionError, sqlite3.OperationalError) as exc:
+                raise ContextIncompatibleError("Некорректные исходные данные окна контекста") from exc
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100

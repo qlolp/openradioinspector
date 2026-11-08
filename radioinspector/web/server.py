@@ -53,6 +53,7 @@ from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
+from ..sweep_context import MAX_CONTEXT_REQUEST_BYTES, ContextIncompatibleError
 from ..sweep_threshold import ThresholdIncompatibleError
 from ..sweep_three_thresholds import MAX_THREE_THRESHOLDS_REQUEST_BYTES, ThreeThresholdsIncompatibleError
 from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflictError
@@ -451,7 +452,7 @@ class Handler(BaseHTTPRequestHandler):
         route = parsed.path
         parts = route.strip("/").split("/")
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
-                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds")):
+                and parts[4] in ("sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds", "sweep-context")):
             try:
                 if "?" in self.path:
                     raise ValueError("Анализ не принимает параметры запроса")
@@ -459,6 +460,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
                     "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
                     "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
+                    "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
                 }[parts[4]]
                 payload = self._read_bounded_analysis_request(maximum)
             except OverflowError as exc:
@@ -854,6 +856,13 @@ class Handler(BaseHTTPRequestHandler):
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "sweep-context"
+            ):
+                self._send_json(api_payload(self.sessions.sweep_context(parts[3], payload)))
+                return
+            if (
+                len(parts) == 5
+                and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "sweep-mask-analysis"
             ):
                 self._send_json(api_payload(self.sessions.sweep_mask_analysis(parts[3], payload)))
@@ -1040,6 +1049,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "average_reference_incompatible", str(exc))
         except ThreeThresholdsIncompatibleError as exc:
             self._send_api_error(409, "three_thresholds_incompatible", str(exc))
+        except ContextIncompatibleError as exc:
+            self._send_api_error(409, "context_incompatible", str(exc))
         except MaskIncompatibleError as exc:
             self._send_api_error(409, "mask_incompatible", str(exc))
         except ComparisonIncompatibleError as exc:
