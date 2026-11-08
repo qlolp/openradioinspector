@@ -24,6 +24,8 @@ import unittest
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+from tests.loopback_dns import local_loopback_names
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = (
@@ -105,8 +107,9 @@ def unexpected_skips(skipped: list[tuple[str, str]], *, platform: str = os.name)
 
 
 def run_python_suite(report_path: Path) -> int:
-    suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
-    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    with local_loopback_names():
+        suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
     report = {"tests_run": result.testsRun, "successful": result.wasSuccessful(),

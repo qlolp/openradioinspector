@@ -463,7 +463,7 @@ final class PlatformAPITests: XCTestCase {
 
     private var cancellationHTTPFixtureScript: String {
         """
-import http.server, os, sys, threading, time
+import http.server, os, socket, socketserver, sys, threading, time
 LOG = sys.argv[1]
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -477,7 +477,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
     def log_message(self, *args):
         pass
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+class LoopbackServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+if len(sys.argv) > 2 and sys.argv[2] == "reject-reverse-dns":
+    def reject_reverse_dns(*args):
+        raise AssertionError("Synthetic HTTP fixture must not request reverse DNS")
+    socket.getfqdn = reject_reverse_dns
+server = LoopbackServer(("127.0.0.1", 0), Handler)
 server.timeout = 0.1
 stopped = threading.Event()
 stdin_errors = []
@@ -508,7 +516,7 @@ if stdin_errors:
         let output = Pipe()
         let lifetime = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["python3", "-c", cancellationHTTPFixtureScript, logPath]
+        process.arguments = ["python3", "-c", cancellationHTTPFixtureScript, logPath, "reject-reverse-dns"]
         process.standardOutput = output
         process.standardInput = lifetime
         try process.run()

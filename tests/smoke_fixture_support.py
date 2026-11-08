@@ -21,6 +21,7 @@ from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
 from radioinspector.tasks import TaskBook
 from radioinspector.web.server import create_server
+from tests.loopback_dns import local_loopback_names
 
 
 def logical_digest(path: Path) -> str:
@@ -87,10 +88,11 @@ def run_fixture(
             with ExitStack() as cleanup:
                 store = cleanup.enter_context(SQLiteSessionStore(str(path)))
                 service = SessionService(store=store)
-                server = create_server(
-                    host='127.0.0.1', port=args.port, sessions=service,
-                    task_book=TaskBook(Path(directory) / 'tasks.json'),
-                )
+                with local_loopback_names():
+                    server = create_server(
+                        host='127.0.0.1', port=args.port, sessions=service,
+                        task_book=TaskBook(Path(directory) / 'tasks.json'),
+                    )
                 # ExitStack still runs all callbacks if one close fails.
                 for name in ('worker_manager', 'automatic_handoff',
                              'automatic_detection', 'automatic_completion', 'control_scheduler'):

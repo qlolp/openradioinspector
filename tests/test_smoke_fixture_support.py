@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -146,6 +147,16 @@ class FixtureLifecycleTests(unittest.TestCase):
     def test_keyboard_interrupt_preserves_successful_manual_shutdown(self):
         with patch.object(support, '_serve', side_effect=KeyboardInterrupt):
             self.run_fixture()
+        before, after = map(json.loads, self.output.getvalue().splitlines())
+        self.assertEqual(before['dump_sha256_before'], after['dump_sha256_after'])
+        self.assertTrue(after['unchanged'])
+        self.assert_clean()
+
+    def test_owned_fixture_bind_does_not_require_reverse_dns(self):
+        with patch.object(socket, 'getfqdn', side_effect=AssertionError('host reverse DNS used')) as resolver:
+            with patch.object(support, '_serve'):
+                self.run_fixture()
+            resolver.assert_not_called()
         before, after = map(json.loads, self.output.getvalue().splitlines())
         self.assertEqual(before['dump_sha256_before'], after['dump_sha256_after'])
         self.assertTrue(after['unchanged'])

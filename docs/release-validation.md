@@ -88,7 +88,7 @@ PR #87, `2afba069263785e7dbdc79f8d26c8b99a7532bc6`, уже прошёл
 ## Локальная проверка нового runner
 
 Единая команда `python -m tests.run_release_checks --swift` прошла на Mac:
-1026 Python/Node/Tk, 164 Swift SDK и 108 native тестов без пропусков;
+1031 Python/Node/Tk, 164 Swift SDK и 108 native тестов без пропусков;
 unsigned Xcode BUILD SUCCEEDED. Локальный Node — 22.22.3, CI использует 24.
 Семь полных логических SHA-256 совпали, все собственные серверы остановлены
 и корневой временный каталог удалён. Независимый review не оставил блокеров
@@ -100,3 +100,21 @@ unsigned Xcode BUILD SUCCEEDED. Локальный Node — 22.22.3, CI испо
 исправленными: владение таймерами WindowsApp — следующий отдельный дефект.
 Зелёные unittest assertions не означают отсутствие этих предупреждений
 или готовность всего продукта к релизу.
+
+
+## Hosted macOS: обратный DNS loopback
+
+Первый CI 42482443812 прошёл на Linux (1026/0 skips) и Windows
+(1026, 21 POSIX skips), но hosted macOS не дождался первого fixture.
+Стандартный HTTPServer вызывает getfqdn перед ready. Известная
+[проблема hosted macOS 15/26](https://github.com/actions/setup-python/issues/1223)
+может задерживать этот обратный lookup более чем на 30 секунд.
+
+Синтетические fixtures и отдельный процесс unittest теперь используют
+scoped helper только для точных numeric loopback `127.0.0.1` и `::1`.
+Остальные имена, включая `localhost`, передаются исходному resolver вместе
+с его ошибками. Вложенные контексты и исключения восстанавливают resolver.
+Собственный Swift HTTP fixture задаёт информационное имя после numeric bind
+без обратного DNS. Производственные DNS/bind, deadlines и assertions
+не изменены. Успех новой hosted macOS проверки должен подтверждаться CI,
+а не выводиться только из совпадения с внешним issue.

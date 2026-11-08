@@ -405,7 +405,7 @@ Python/Node, 163 Swift SDK, 108 native без пропусков и unsigned Xco
 Linux/Windows/macOS. Описание: [release-validation.md](release-validation.md).
 Служба Raspberry Pi в другой рабочей ветке не дублируется. Измерительные
 алгоритмы, контракты API и схема архива не меняются; реальные данные и приборы
-не используются. Единый локальный прогон завершён: 1026 Python/Node/Tk, 164 Swift SDK, 108
+не используются. Единый локальный прогон завершён: 1031 Python/Node/Tk, 164 Swift SDK, 108
 native без пропусков, unsigned Xcode PASS; семь архивов неизменны и
 собственные процессы/временный каталог очищены. CI трёх ОС проверяется
 отдельно после публикации. Известные 39 Tk teardown warnings остаются
