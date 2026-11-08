@@ -1253,13 +1253,16 @@ final class RemoteDualModel: ObservableObject {
             frequencyCounter.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: snapshot.sweeps)
+        } else { measurementResults.reset(); frequencyCounter.reset() }
+        if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL),
+           PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
             dvbEvaluation.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID))
             if let stream = analyzer?.id {
                 phonogram.configure(client: client,
                     scope: .init(server: serverURL, session: selectedSessionID, stream: stream))
             } else { phonogram.reset() }
-        } else { measurementResults.reset(); frequencyCounter.reset(); dvbEvaluation.reset(); phonogram.reset() }
+        } else { dvbEvaluation.reset(); phonogram.reset() }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff

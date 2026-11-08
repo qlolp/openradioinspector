@@ -120,6 +120,9 @@ final class FrequencyCounterModelTests: XCTestCase {
         // Polling a new sweep list on the same client never re-measures automatically.
         model.configure(client: client, scope: scope, sweeps: [try sweep(), try sweep(id: "sweep-1")])
         XCTAssertNotNil(model.result)
+        model.clear()
+        XCTAssertNil(model.infoText)
+        XCTAssertNil(model.result)
     }
 
     @MainActor func testForgedResultAndFailureNeverFreeze() async throws {
