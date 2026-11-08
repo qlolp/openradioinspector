@@ -55,9 +55,9 @@ class TinySATransport(ScriptedTransport):
             "ch> "
         )
         return cls({
-            "info": ["tinySA Ultra ZS405"],
-            "version": ["tinySA4_v1.4-235-gea71dfd"],
-            "deviceid": ["test-id"],
+            "info": ["tinySA Ultra ZS405\r\nch>"],
+            "version": ["tinySA4_v1.4-235-gea71dfd\r\nch>"],
+            "deviceid": ["test-id\r\nch>"],
             "output off": ["ch>"],
             "mode input": ["ch>"],
             "lna off": ["ch>"],
@@ -180,7 +180,7 @@ class SerialAdapterTests(unittest.TestCase):
         service = SessionService()
         session = service.create_session(serial_session())
         wrong = TinySATransport.valid()
-        wrong.responses["info"] = ["other-device"]
+        wrong.responses["info"] = ["other-device\r\nch>"]
         adapter = TinySASerialAdapter(session.streams[0], transport=wrong)
         with self.assertRaisesRegex(WorkerError, "tinySA Ultra"):
             adapter.poll()
@@ -188,7 +188,7 @@ class SerialAdapterTests(unittest.TestCase):
         adapter.close()
 
         short = TinySATransport.valid()
-        short.responses["scan 100M 101M 3 3"] = ["100000000 -90 0\r\n101000000 -80 0\r\n"]
+        short.responses["scan 100M 101M 3 3"] = ["100000000 -90 0\r\n101000000 -80 0\r\nch>"]
         adapter = TinySASerialAdapter(session.streams[0], transport=short)
         with self.assertRaisesRegex(WorkerError, "получено 2"):
             adapter.poll()

@@ -304,6 +304,8 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._ready = False
         self._closed = False
         self._sequence = 0
+        self._restart_required = False
+        self._generator_output_source = "unconfirmed"
 
     def _frequency_setting(self, name: str, default: int, *, maximum: int = 20_000_000_000) -> int:
         value = self.settings.get(name, default)
@@ -311,9 +313,51 @@ class TinySASerialAdapter(SimulatedAdapter):
             raise ValueError(f"{name} должно быть целым в диапазоне 1…{maximum}")
         return value
 
-    def _transact(self, text: str, maximum: float) -> str:
+    def _ensure_usable(self) -> None:
+        if self._restart_required or self._closed:
+            raise WorkerError("tinySA: требуется перезапуск потока (stop/start) с новым соединением")
+
+    def _taint_connection(self, error: Exception) -> WorkerError:
+        # Shell replies have no transaction IDs. An incomplete/late prompt
+        # must never acknowledge a later setup command or an automatic retry.
+        self._ready = False
+        self._restart_required = True
+        self._generator_output_source = "unknown"
+        return WorkerError(
+            f"{error}; tinySA: требуется перезапуск потока (stop/start) с новым соединением"
+        )
+
+    def _transact(self, text: str, maximum: float, *, allow_leading_prompt: bool = False) -> str:
         self.transport.send(_command(text))
-        return self.transport.read_until_quiet(quiet=0.25, maximum=maximum, label=text)
+        raw = self.transport.read_until_quiet(quiet=0.25, maximum=maximum, label=text)
+        # A quiet interval alone is not a completed command. Accept only the
+        # supported shell frame: optional exact echo, body, one terminal ch>.
+        # Apply framing to identity/scan too, so their partial responses cannot
+        # leave a prompt to be consumed as the next setup acknowledgement.
+        if not raw.isascii() or any(
+            (ord(char) < 32 and char not in "\r\n\t") or ord(char) == 127 for char in raw
+        ):
+            raise WorkerError(f"Некорректный ответ tinySA на {text}: {raw!r}")
+        lines = [line.strip(" \t") for line in raw.splitlines() if line.strip(" \t")]
+        # The legacy console scan sample includes an opening prompt. It is
+        # harmless only for data replies with a separately checked point count;
+        # never permit it to stand in for a setup acknowledgement.
+        if allow_leading_prompt and len(lines) > 1 and lines[0] == "ch>":
+            lines = lines[1:]
+        if not lines or lines[-1] != "ch>" or any("ch>" in line for line in lines[:-1]):
+            raise WorkerError(f"Незавершённый или неоднозначный ответ tinySA на {text}: {raw!r}")
+        body = lines[:-1]
+        if body and body[0] == text:
+            body = body[1:]
+        return "\n".join(body)
+
+    def _acknowledge(self, text: str) -> None:
+        body = self._transact(text, 3.0)
+        # The supported setup commands return no body on success. Reject all
+        # other content, including errors/help/unknown status, rather than
+        # trying to enumerate firmware-specific rejection strings.
+        if body:
+            raise WorkerError(f"tinySA не подтвердил команду {text}: {body!r}")
 
     def _prepare(self) -> None:
         if self._ready:
@@ -329,19 +373,24 @@ class TinySASerialAdapter(SimulatedAdapter):
             "output off", "mode input", "lna off", "attenuate auto",
             f"rbw {rbw_text}", "calc off",
         ):
-            self._transact(command, 3.0)
+            self._acknowledge(command)
         self._ready = True
+        self._generator_output_source = "command_acknowledged"
 
     def poll(self) -> Sweep:
-        self._prepare()
-        started_at = self._clock()
-        command = (
-            f"scan {_frequency_token(self.start_hz)} "
-            f"{_frequency_token(self.stop_hz)} {self.points} 3"
-        )
-        frequencies, levels = parse_tinysa_scan(
-            self._transact(command, 90.0), command, self.points
-        )
+        self._ensure_usable()
+        try:
+            self._prepare()
+            started_at = self._clock()
+            command = (
+                f"scan {_frequency_token(self.start_hz)} "
+                f"{_frequency_token(self.stop_hz)} {self.points} 3"
+            )
+            frequencies, levels = parse_tinysa_scan(
+                self._transact(command, 90.0, allow_leading_prompt=True), command, self.points
+            )
+        except Exception as exc:
+            raise self._taint_connection(exc) from exc
         ended_at = self._clock()
         self._sequence += 1
         return Sweep(
@@ -357,6 +406,8 @@ class TinySASerialAdapter(SimulatedAdapter):
                 "sequence": self._sequence,
                 "simulated": False,
                 "generator_output": "off",
+                "generator_output_source": self._generator_output_source,
+                "generator_output_readback": False,
                 "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
             },
         )
@@ -366,7 +417,10 @@ class TinySASerialAdapter(SimulatedAdapter):
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,
-            "generator_output": "off",
+            "generator_output": "off" if self._ready else "unknown",
+            "generator_output_source": self._generator_output_source,
+            "generator_output_readback": False,
+            "restart_required": self._restart_required,
             "simulated": False,
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
         }
@@ -374,6 +428,8 @@ class TinySASerialAdapter(SimulatedAdapter):
     def close(self) -> None:
         if not self._closed:
             self._closed = True
+            self._ready = False
+            self._generator_output_source = "unknown"
             self.transport.close()
 
 
