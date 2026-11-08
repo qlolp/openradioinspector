@@ -760,7 +760,8 @@ class SessionService:
         """WAV последней фонограммы; запись в архив не выполняется."""
         with self._lock:
             recorder = self._phonogram_recorder(session_id, stream_id)
-            return recorder.last_wav()
+            phonogram = recorder.completed()
+        return phonogram.wav_bytes()
 
     def save_measurement_result(
         self, session_id: str, payload: dict[str, Any],

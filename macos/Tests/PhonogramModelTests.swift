@@ -55,6 +55,21 @@ final class PhonogramModelTests: XCTestCase {
         XCTFail("Timed out waiting for phonogram state")
     }
 
+    @MainActor func testReceiverOnlySessionCanSelectItsRecorder() throws {
+        let receiver: [String: Any] = ["id": "rx", "device": "AR-DV1", "role": "receiver",
+                                       "level_unit": "s_meter_count", "state": "disconnected", "capabilities": []]
+        let session = try decode(["id": "s", "name": "Receiver", "state": "draft", "streams": [receiver]], as: PlatformSession.self)
+        let remote = RemoteDualModel()
+        remote.session = session; remote.selectedSessionID = "s"
+        remote.configureAuxiliaryStreams(client: try api(), session: session)
+        XCTAssertEqual(remote.auxiliaryStreamID, "rx")
+        XCTAssertTrue(remote.phonogram.canCall)
+        remote.auxiliaryStreamID = "unknown"
+        XCTAssertFalse(remote.phonogram.canCall)
+        remote.configureAuxiliaryStreams(client: nil, session: nil)
+        XCTAssertFalse(remote.phonogram.canCall)
+    }
+
     @MainActor func testStartEchoesScopeAndKeepsStatus() async throws {
         let deferred = Deferred()
         let client = try api()
