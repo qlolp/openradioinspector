@@ -849,7 +849,7 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[5] == "export"
             ):
                 name = query.get("name", ["Список сигналов"])[0]
-                result = self.sessions.signal_list_export(parts[3], name)
+                result = self.sessions.signal_list_export(parts[3], name, query.get("stream_id", [None])[0])
                 self._send_json(api_payload(result))
                 return
             if (

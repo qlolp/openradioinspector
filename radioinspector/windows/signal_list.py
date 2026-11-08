@@ -54,7 +54,7 @@ class SignalListPanel(TkTimerOwner):
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Список сигналов')
-        ttk.Label(frame, text='Экспорт сериализует архивных кандидатов сеанса; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.', wraplength=1050).pack(fill='x')
+        ttk.Label(frame, text='Экспорт сериализует архивных кандидатов выбранного потока; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.', wraplength=1050).pack(fill='x')
         row = ttk.Frame(frame); row.pack(fill='x')
         ttk.Label(row, text='Имя списка').pack(side='left')
         self.name = tk.StringVar(value='Список сигналов')
@@ -100,8 +100,8 @@ class SignalListPanel(TkTimerOwner):
         if client is None or not session:
             self.info.set('Нет активного сеанса.'); return
         try:
+            stream = self.selected_stream()
             if action == 'import':
-                stream = self.selected_stream()
                 raw = self.editor.get('1.0', 'end-1c')
                 if not raw.strip():
                     raise ValueError('Вставьте список сигналов в черновик')
@@ -111,9 +111,8 @@ class SignalListPanel(TkTimerOwner):
                 sent_count = len(artifact['entries'])
                 target = self.executor.submit(client.signal_list_import, session, stream, raw)
             else:
-                stream = None
                 sent_count = None
-                target = self.executor.submit(client.signal_list_export, session, self.name.get().strip() or 'Список сигналов')
+                target = self.executor.submit(client.signal_list_export, session, self.name.get().strip() or 'Список сигналов', stream)
         except (ValueError, TypeError) as exc:
             self.info.set(str(exc)); return
         self.info.set('Запрос выполняется ядром…')
@@ -157,7 +156,7 @@ class SignalListPanel(TkTimerOwner):
 
     def update(self):
         if self.closed: return
-        scope = (id(self.app.client), self.app.session_id)
+        scope = (id(self.app.client), self.app.session_id, self.app.selected_stream_id())
         if scope != self.scope:
             self.scope = scope
             self.clear()

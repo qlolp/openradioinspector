@@ -266,6 +266,28 @@ class SignalListHTTPTests(unittest.TestCase):
         self.assertEqual(envelope["data"]["imported"], 1)
         self.assertEqual(len(envelope["data"]["candidate_ids"]), 1)
 
+    def test_mixed_unit_session_roundtrips_each_selected_stream(self):
+        from tests.test_platform import session_payload
+        service = self.server.session_service
+        session = service.create_session(session_payload())
+        for index, stream in enumerate(session.streams):
+            payload = candidate_payload(stream.id, f'mixed-{index}')
+            payload['level_unit'] = stream.level_unit
+            payload['peak_level'] = -50 if index == 0 else 12
+            service.create_candidate(session.id, payload)
+        root = f'/api/v1/sessions/{session.id}/signal-list'
+        for stream in session.streams:
+            status, result = self.request('GET', root + '/export?stream_id=' + stream.id)
+            self.assertEqual(status, 200)
+            self.assertEqual(result['data']['exported'], 1)
+            self.assertEqual(result['data']['list']['entries'][0]['level_unit'], stream.level_unit)
+            status, imported = self.request('POST', root + '/import', {
+                'stream_id': stream.id, 'list_json': json.dumps(result['data']['list'])})
+            self.assertEqual(status, 201)
+            self.assertEqual(imported['data']['imported'], 1)
+        status, _ = self.request('GET', root + '/export?stream_id=foreign')
+        self.assertEqual(status, 400)
+
     def test_error_statuses(self):
         cases = [
             ("POST", self.root + "/import", {"stream_id": "foreign", "list_json": "{}"}, 400, "invalid_request"),

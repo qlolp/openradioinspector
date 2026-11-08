@@ -170,13 +170,26 @@ class AudioStreamHTTPTests(unittest.TestCase):
             self.assertIn(b"X-Sample-Rate: 48000", header)
             # Give the subscription a moment to register, then push frames.
             time.sleep(0.2)
-            connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
-            connection.request("POST", self.root.replace("/audio", "/phonogram") + "/frames",
-                               body=json.dumps({"stream_id": self.stream, "samples": [0.5] * 4}).encode(),
-                               headers={"Content-Type": "application/json"})
-            self.assertEqual(connection.getresponse().status, 200)
-            connection.close()
-            expected = pcm16_bytes([0.5] * 4)
+            from unittest.mock import patch
+            def post(action, payload):
+                connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+                try:
+                    connection.request("POST", self.root.replace("/audio", "/phonogram") + action,
+                                       body=json.dumps(payload).encode(),
+                                       headers={"Content-Type": "application/json"})
+                    response = connection.getresponse()
+                    body = json.loads(response.read())
+                    self.assertEqual(response.status, 200, body)
+                    return body['data']
+                finally:
+                    connection.close()
+            post('/start', {'stream_id': self.stream})
+            with patch('radioinspector.phonogram.MAX_PHONOGRAM_SECONDS', 4 / RATE):
+                for samples in ([0.5] * 4, [0.25] * 4):
+                    status = post('/frames', {'stream_id': self.stream, 'samples': samples})
+                    self.assertFalse(status['recording'])
+                    self.assertEqual(status['last']['recorded_samples'], 4)
+            expected = pcm16_bytes([0.5] * 4 + [0.25] * 4)
             received = b""
             while len(received) < len(expected):
                 block = sock.recv(len(expected) - len(received))
