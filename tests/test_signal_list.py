@@ -241,6 +241,18 @@ class SignalListHTTPTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_import_rejects_oversized_body_before_reading_it(self):
+        from radioinspector.signal_list import MAX_IMPORT_REQUEST_BYTES
+        connection = http.client.HTTPConnection(*self.server.server_address, timeout=2)
+        try:
+            connection.request('POST', self.root + '/import', headers={
+                'Content-Type': 'application/json', 'Content-Length': str(MAX_IMPORT_REQUEST_BYTES + 1)})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 413)
+            self.assertEqual(json.loads(response.read())['error']['code'], 'request_too_large')
+        finally:
+            connection.close()
+
     def test_export_and_import_over_http(self):
         status, envelope = self.request("GET", self.root + "/export?name=Test")
         self.assertEqual(status, 200)

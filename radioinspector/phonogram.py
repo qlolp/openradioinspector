@@ -210,6 +210,10 @@ class PhonogramRecorder:
 
     def last_wav(self) -> bytes:
         """WAV последней завершённой фонограммы."""
+        return self.completed().wav_bytes()
+
+    def completed(self) -> Phonogram:
+        """Stable completed recording, unaffected by later start/stop cycles."""
         if self._last is None:
             raise PhonogramError("Фонограмма ещё не записана")
-        return self._last.wav_bytes()
+        return self._last
