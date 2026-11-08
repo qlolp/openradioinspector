@@ -392,10 +392,6 @@ tools/analysis/    программы разбора коммерческого 
   инвентарь коммерческого приложения по первичным артефактам дистрибутива;
 * [`docs/measurement-methods.md`](docs/measurement-methods.md) — каталог методик
   измерения оригинала и их состояние в проекте;
-* [`docs/commercial-ui-map.md`](docs/commercial-ui-map.md) — карта интерфейса
-  оригинала по подписям элементов 133 форм;
-* [`docs/commercial-help.md`](docs/commercial-help.md) — разбор справки оригинала:
-  24 файла, 397 тем, алгоритмы измерений и работа с линией порога;
 * [`docs/commercial-observation.md`](docs/commercial-observation.md) — протокол
   наблюдения оригинала: условия запуска, перечень снимков экранов и порядок
   сверки со справкой;
