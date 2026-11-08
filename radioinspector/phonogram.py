@@ -137,10 +137,6 @@ class PhonogramRecorder:
             raise PhonogramError(f"Один вызов не более {MAX_PUSH_SAMPLES} отсчётов")
         if not np.all(np.isfinite(block)):
             raise PhonogramError("Отсчёты должны быть конечными числами")
-        if self._recording is not None:
-            total = self._pre_samples + self._recorded_samples + block.size
-            if total > int(MAX_PHONOGRAM_SECONDS * self.sample_rate_hz):
-                raise PhonogramError(f"Фонограмма не длиннее {MAX_PHONOGRAM_SECONDS} с")
         block = block.copy()
         self._ring.append(block)
         self._ring_samples += block.size
@@ -157,8 +153,15 @@ class PhonogramRecorder:
                 self._ring[0] = head[excess:]
                 self._ring_samples -= excess
         if self._recording is not None:
-            self._recording.append(block)
-            self._recorded_samples += block.size
+            remaining = max(0, int(MAX_PHONOGRAM_SECONDS * self.sample_rate_hz)
+                            - self._pre_samples - self._recorded_samples)
+            recorded = block[:remaining]
+            self._recording.append(recorded)
+            self._recorded_samples += recorded.size
+            if block.size >= remaining:
+                # The file limit ends only this recording. Keep accepting the
+                # full live block for rolling history and network subscribers.
+                self.stop()
         return block.size
 
     def start(self) -> dict[str, Any]:
