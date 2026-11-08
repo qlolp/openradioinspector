@@ -4,7 +4,7 @@
   // Presentation only. Sector polygons are computed by the core on the great
   // circle; the canvas draws an equirectangular view of the returned GeoJSON.
   const byId = id => document.getElementById(id);
-  const dom = Object.fromEntries(["run", "clear", "editor", "source", "status", "summary", "items", "canvas"]
+  const dom = Object.fromEntries(["run", "clear", "editor", "source", "status", "summary", "items", "canvas", "geojson"]
     .map(name => [name, byId(`map-${name}`)]));
   if (!dom.status) return;
   let scope = "", connected = true, suspended = false, result = null;
@@ -36,13 +36,14 @@
     return data;
   }
   function controls() {
-    dom.run.disabled = !(Boolean(scope) && connected && !suspended);
+    dom.run.disabled = Boolean(pending) || !(Boolean(scope) && connected && !suspended);
   }
   function clear() {
     pending?.abort(); pending = null; generation += 1; result = null;
     dom.summary.textContent = ""; dom.status.textContent = "";
     dom.items.replaceChildren();
     dom.canvas.hidden = true;
+    dom.geojson.value = "";
     controls();
   }
   function draw() {
@@ -88,7 +89,7 @@
     }
   }
   async function analyze() {
-    if (dom.run.disabled) return;
+    if (pending || dom.run.disabled) return;
     let body;
     try { body = request(); } catch (error) { clear(); dom.status.textContent = error.message; return; }
     const controller = new AbortController(); pending = controller; const current = ++generation;
@@ -107,6 +108,7 @@
       const data = validate(envelope.data);
       if (current !== generation || suspended) return;
       result = data;
+      dom.geojson.value = JSON.stringify(data.geojson, null, 2);
       draw();
       const rows = [];
       const line = document.createElement("li");
@@ -115,7 +117,7 @@
       dom.items.replaceChildren(...rows);
       dom.summary.textContent = "Карта — производный артефакт от введённых координат: "
         + "это не измерение, не привязка GPS и не нормативная карта.";
-      dom.status.textContent = "Карта построена. GeoJSON в черновике можно сохранить файлом.";
+      dom.status.textContent = "Карта построена. GeoJSON в поле результата можно сохранить файлом.";
     } catch (error) {
       if (current !== generation || controller.signal.aborted) return;
       dom.status.textContent = `Не удалось построить карту: ${error.message}`;

@@ -36,10 +36,16 @@ final class MeasurementMapModel: ObservableObject {
         if self.scope != scope || self.client !== client { clear() }
         self.client = client; self.scope = scope
     }
+    var geoJSONText: String {
+        guard let result else { return "" }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(result.geojson) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
     func reset() { configure(client: nil, scope: nil) }
     func clear() {
         revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
-        pending = false; result = nil; errorText = nil
+        pending = false; result = nil; errorText = nil; infoText = nil
     }
     func analyze() {
         guard !pending, let client, let scope else { return }
@@ -97,8 +103,12 @@ struct RemoteMeasurementMapPane: View {
                             .fontWeight(.semibold)
                         let bbox = result.summary.bbox
                         Text("Границы: широта \(String(describing: bbox["min_latitude_deg"] ?? 0))…\(String(describing: bbox["max_latitude_deg"] ?? 0)), долгота \(String(describing: bbox["min_longitude_deg"] ?? 0))…\(String(describing: bbox["max_longitude_deg"] ?? 0))")
-                        Text("GeoJSON готов: сохраните черновик файлом для картографа.")
+                        Text("GeoJSON результата — скопируйте в файл для картографа.")
                             .foregroundStyle(.secondary)
+                        ScrollView {
+                            Text(model.geoJSONText).font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }.frame(maxHeight: 160)
                     }.font(.caption)
                 } else {
                     Text("Карта строится только по кнопке; архив не изменяется.").foregroundStyle(.secondary)

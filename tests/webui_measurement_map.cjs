@@ -47,7 +47,7 @@ function setup() {
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['run', 'clear', 'editor', 'source', 'status', 'summary', 'items', 'canvas']) {
+  for (const name of ['run', 'clear', 'editor', 'source', 'status', 'summary', 'items', 'canvas', 'geojson']) {
     dom[name] = element(`map-${name}`);
   }
   const window = {
@@ -84,7 +84,7 @@ async function happyPath() {
   const app = setup();
   app.update();
   app.dom.editor.value = mapJson();
-  const promise = app.click('run'); app.click('run');
+  const promise = app.click('run'); app.window.OpenRadioMeasurementMap.setConnected(true); app.click('run');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(app.requests.length, 1, 'single flight');
   assert.match(app.requests[0].url, /\/api\/v1\/sessions\/session%2F1\/measurement-map$/);
@@ -93,10 +93,11 @@ async function happyPath() {
   assert.equal(sent.map_json, app.dom.editor.value);
   app.respond(0, result());
   await promise;
+  assert.equal(JSON.parse(app.dom.geojson.value).type, 'FeatureCollection');
   assert.equal(app.dom.canvas.hidden, false);
   assert.match(app.dom.summary.textContent, /не измерение/);
   assert.match(app.dom.items.children[0].textContent, /Точек: 1, секторов: 1/);
-  assert.match(app.dom.status.textContent, /GeoJSON в черновике/);
+  assert.match(app.dom.status.textContent, /GeoJSON в поле результата/);
   // Both the polygon and the point are drawn.
   const fills = app.drawing.filter(row => row[0] === 'fillStyle');
   assert.ok(fills.length >= 2);

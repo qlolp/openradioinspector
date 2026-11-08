@@ -48,6 +48,16 @@ def panel():
 
 
 class MapPanelTests(unittest.TestCase):
+    def test_clear_invalidates_pending_map(self):
+        p = panel(); future = Future(); future.set_running_or_notify_cancel()
+        p.executor.submit.side_effect = lambda *args: future
+        p.analyze(); current = p.generation
+        p.clear(); p.details.reset_mock()
+        future.set_result(response())
+        p.finish(current, 'session')
+        p.details.insert.assert_not_called()
+        self.assertGreater(p.generation, current)
+
     def test_result_and_text(self):
         self.assertEqual(validate_result(response(), "session"), response())
         text = result_text(response())

@@ -1,4 +1,6 @@
 """Windows measurement-map panel: GeoJSON from supplied coordinates only."""
+import json
+
 from concurrent.futures import ThreadPoolExecutor
 from math import isfinite
 from time import monotonic
@@ -34,10 +36,14 @@ def result_text(data):
     return (f"Точек: {summary['point_count']}, секторов: {summary['sector_count']}.\n"
             f"Границы: широта {summary['bbox']['min_latitude_deg']}…{summary['bbox']['max_latitude_deg']}, "
             f"долгота {summary['bbox']['min_longitude_deg']}…{summary['bbox']['max_longitude_deg']}.\n"
-            'Карта — производный артефакт от введённых координат: не измерение и не привязка GPS.')
+            'Карта — производный артефакт от введённых координат: не измерение и не привязка GPS.\n'
+            + json.dumps(data['geojson'], ensure_ascii=False, indent=2))
 
 
-class MeasurementMapPanel:
+from .tk_timers import TkTimerOwner
+
+
+class MeasurementMapPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -45,6 +51,7 @@ class MeasurementMapPanel:
         self.future = None
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='measurement-map')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='Карта измерений')
@@ -67,6 +74,10 @@ class MeasurementMapPanel:
         self.details.insert('1.0', value); self.details.configure(state='disabled')
 
     def clear(self):
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
+        self.button.configure(state="normal")
         self.show_details('')
         self.info.set('Карта строится только по кнопке; архив не изменяется.')
 
@@ -90,7 +101,7 @@ class MeasurementMapPanel:
         generation = self.generation
         session = self.app.session_id
         self.future = self.executor.submit(self.app.client.measurement_map, session, raw)
-        self.app.root.after(50, lambda: self.finish(generation, session))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation, session)
 
     def finish(self, generation, session):
         if self.closed: return
@@ -102,7 +113,7 @@ class MeasurementMapPanel:
             self.button.configure(state='normal')
             return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation, session)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation, session); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -120,5 +131,10 @@ class MeasurementMapPanel:
             self.clear()
 
     def close(self):
+        if self.closed: return
         self.closed = True
+        self._close_timers()
+        self.generation += 1
+        if self.future is not None: self.future.cancel()
+        self.future = None
         self.executor.shutdown(wait=False, cancel_futures=True)

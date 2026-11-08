@@ -110,7 +110,10 @@ def _validate_point(point: Any) -> dict[str, Any]:
 def _finite(value: Any, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MeasurementMapError(f"{name} должен быть конечным числом")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError as exc:
+        raise MeasurementMapError(f"{name} должен быть конечным числом") from exc
     if not math.isfinite(value):
         raise MeasurementMapError(f"{name} должен быть конечным числом")
     return value
@@ -156,8 +159,13 @@ def build_measurement_map(name: str, points: list[dict[str, Any]]) -> dict[str, 
                 "radius_m": sector["radius_m"],
             },
         })
-    latitudes = [point["latitude_deg"] for point in points]
-    longitudes = [point["longitude_deg"] for point in points]
+    coordinates = []
+    for feature in features:
+        geometry = feature["geometry"]
+        coordinates.extend([geometry["coordinates"]] if geometry["type"] == "Point"
+                           else geometry["coordinates"][0])
+    latitudes = [coordinate[1] for coordinate in coordinates]
+    longitudes = [coordinate[0] for coordinate in coordinates]
     return {
         "map": {
             "format": MAP_FORMAT, "format_version": 1, "name": name,

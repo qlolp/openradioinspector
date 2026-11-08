@@ -56,6 +56,21 @@ class MapContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_map_request({"map_json": map_json(many)})
 
+    def test_large_numbers_are_validation_errors_and_sectors_fit_bounds(self):
+        invalid = point(); invalid['latitude_deg'] = 10**400
+        with self.assertRaises(ValueError): parse_measurement_map(map_json([invalid]))
+        parsed = parse_measurement_map(map_json())
+        built = build_measurement_map(parsed['name'], parsed['points'])
+        bounds = built['summary']['bbox']
+        for feature in built['geojson']['features']:
+            geometry = feature['geometry']
+            coords = [geometry['coordinates']] if geometry['type'] == 'Point' else geometry['coordinates'][0]
+            for lon, lat in coords:
+                self.assertLessEqual(bounds['min_latitude_deg'], lat)
+                self.assertGreaterEqual(bounds['max_latitude_deg'], lat)
+                self.assertLessEqual(bounds['min_longitude_deg'], lon)
+                self.assertGreaterEqual(bounds['max_longitude_deg'], lon)
+
     def test_point_and_sector_ranges(self):
         cases = [
             {"latitude_deg": 91.0}, {"latitude_deg": True}, {"latitude_deg": float("nan")},
@@ -79,11 +94,10 @@ class MapContractTests(unittest.TestCase):
 
     def test_geojson_points_and_sector_geometry(self):
         result = build_measurement_map("Карта", [point(), point(label="Вторая", sector=None)])
-        self.assertEqual(result["summary"], {
-            "point_count": 2, "sector_count": 1,
-            "bbox": {"min_latitude_deg": 55.75, "max_latitude_deg": 55.75,
-                     "min_longitude_deg": 37.62, "max_longitude_deg": 37.62},
-        })
+        self.assertEqual(result["summary"]["point_count"], 2)
+        self.assertEqual(result["summary"]["sector_count"], 1)
+        self.assertLess(result["summary"]["bbox"]["min_latitude_deg"], 55.75)
+        self.assertGreater(result["summary"]["bbox"]["max_longitude_deg"], 37.62)
         features = result["geojson"]["features"]
         self.assertEqual(len(features), 3)
         self.assertEqual(features[0]["geometry"], {"type": "Point", "coordinates": [37.62, 55.75]})
