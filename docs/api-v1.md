@@ -12,7 +12,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 - Время — ISO 8601 в UTC с суффиксом `Z`.
 - Измерение содержит `started_at` и `ended_at`.
 - Единица исходного уровня обязательна. `s_meter_count` не преобразуется в `dBm` автоматически.
-- Текущий срез хранит сеансы только в памяти. Перезапуск сервера их удаляет; это явно отражено в `/api/v1/capabilities`.
+- Без `--session-database` данные хранятся в памяти и удаляются при перезапуске. С этим параметром сеансы, события и измерения сохраняются в SQLite и восстанавливаются; фактический режим виден в `/api/v1/capabilities`.
 
 ## Маршруты
 
@@ -25,6 +25,10 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 | `GET` | `/api/v1/sessions/{id}` | Один сеанс |
 | `POST` | `/api/v1/sessions/{id}/start` | Запуск сеанса из `draft` |
 | `POST` | `/api/v1/sessions/{id}/stop` | Остановка сеанса из `running` |
+| `POST` | `/api/v1/sessions/{id}/sweeps` | Приём спектрального свипа |
+| `GET` | `/api/v1/sessions/{id}/sweeps?stream_id=&limit=100` | Последние свипы сеанса или потока |
+| `POST` | `/api/v1/sessions/{id}/observations` | Приём наблюдения приёмника |
+| `GET` | `/api/v1/sessions/{id}/observations?stream_id=&limit=100` | Последние наблюдения сеанса или потока |
 | `GET` | `/api/v1/events/history?after=0&limit=100` | История событий |
 | `GET` | `/api/v1/events` | SSE-поток событий с replay |
 
@@ -85,6 +89,46 @@ curl -N http://127.0.0.1:8770/api/v1/events -H 'Last-Event-ID: 2'
 
 Если медленный клиент переполняет индивидуальную очередь, приборный поток не блокируется: для этого клиента отбрасывается самое старое ожидающее событие. После переподключения доступные события запрашиваются через replay.
 
-## Модели измерений в контракте
+## Приём измерений
 
-`Sweep`, `ReceiverObservation`, `Candidate` и `Investigation` уже определены в `radioinspector.contracts` и сериализуются в JSON, но HTTP-endpoints их приёма и постоянного хранения относятся к следующему срезу. Capabilities возвращают для них `false`, чтобы клиент не принимал модель за работающий аппаратный контур.
+`session_id` можно опустить в теле: сервер подставит его из маршрута. Если поле передано и не совпадает с маршрутом, возвращается HTTP 400. `stream_id` обязан принадлежать этому сеансу, а `level_unit` — точно совпадать с единицей потока. Это исключает незаметное преобразование отсчётов S-метра в дБм и запись одного прибора в поток другого.
+
+Пример свипа tinySA:
+
+```bash
+curl -sS http://127.0.0.1:8770/api/v1/sessions/SESSION_ID/sweeps \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "stream_id": "TINYSA_STREAM_ID",
+    "interval": {
+      "started_at": "2026-11-05T10:00:00Z",
+      "ended_at": "2026-11-05T10:00:01Z"
+    },
+    "frequencies_hz": [100000000, 100100000],
+    "levels": [-80.5, -42.0],
+    "level_unit": "dBm",
+    "settings": {"rbw_hz": 10000}
+  }'
+```
+
+Пример наблюдения AR-DV1:
+
+```json
+{
+  "stream_id": "RECEIVER_STREAM_ID",
+  "interval": {
+    "started_at": "2026-11-05T10:00:00Z",
+    "ended_at": "2026-11-05T10:00:01Z"
+  },
+  "frequency_hz": 145500000,
+  "mode": "FM",
+  "level": 37,
+  "level_unit": "s_meter_count",
+  "squelch_open": true,
+  "decoded_mode": "DMR"
+}
+```
+
+Успешный приём возвращает HTTP 201 и событие `sweep.received` или `observation.received` в SSE. Выборка возвращает последние `limit` записей в хронологическом порядке; допустимы значения от 1 до 1000.
+
+`Candidate` и `Investigation` определены в доменном контракте, но их HTTP-очередь ещё не реализована. `hardware_control` также остаётся `false`: приём модели измерения не означает подключение физического прибора.

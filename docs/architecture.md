@@ -46,7 +46,8 @@
 | `keywords.py` | Словарь 317 ключевых слов протоколов | — |
 | `tasks.py` | Плановые задания и профиль контроля частот | — |
 | `contracts.py` | Версионированные модели сеансов, потоков и исследований | — |
-| `session_service.py` | Жизненный цикл сеансов и поток событий | `contracts` |
+| `session_service.py` | Жизненный цикл сеансов, измерения и поток событий | `contracts`, `session_store` |
+| `session_store.py` | SQLite-архив сеансов, событий, свипов и наблюдений | `contracts` |
 | `assignments.py` | База данных частотных присвоений | — |
 | `geoloc.py` | Пеленгование, триангуляция, радиовидимость, компас | — |
 | `wifi.py` | Разбор кадров 802.11 | — |
@@ -152,3 +153,7 @@ Points801 DetMaxPeak VBW100.0 SweepT0.0 From30.0 To130.0.pan
 Веб-сервер работает на `ThreadingHTTPServer`, поэтому соединение SQLite
 создаётся с `check_same_thread=False`, а обращения к нему сериализуются
 замком `threading.RLock` внутри `PanoramaStore` и `AssignmentDatabase`.
+Общий архив `SQLiteSessionStore` также имеет одно соединение и один `RLock`:
+`SessionService` сериализует запись независимых приборных потоков, а HTTP-клиенты
+не работают с SQLite напрямую. При запуске с `--session-database` сеансы,
+события, свипы и наблюдения восстанавливаются из этого архива.
