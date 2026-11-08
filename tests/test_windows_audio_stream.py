@@ -190,7 +190,13 @@ class AudioCancellationTests(unittest.TestCase):
             p = panel(); p.connection = connection
             started = time.monotonic(); p.stop_pump()
             self.assertLess(time.monotonic() - started, 0.5)
-            worker.join(1); self.assertFalse(worker.is_alive())
+            worker.join(1)
+            if worker.is_alive():
+                import sys, traceback
+                frame = sys._current_frames().get(worker.ident)
+                details = ''.join(traceback.format_stack(frame)) if frame else 'No worker frame'
+                self.fail(f'PCM worker did not stop; socket={connection._socket!r}; '
+                          f'timeout={client.gettimeout()!r}\n{details}')
         finally:
             connection.cancel_read(); worker.join(3)
             response.close(); client.close(); peer.close()
