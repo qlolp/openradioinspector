@@ -88,6 +88,9 @@ final class DvbEvaluationModelTests: XCTestCase {
         try await waitFor { model.result != nil }
         XCTAssertEqual(model.result?.resultCode, "norm")
         XCTAssertNotNil(model.infoText)
+        model.draft.minMerText = "30"
+        XCTAssertNil(model.infoText)
+        XCTAssertNil(model.result)
     }
 
     @MainActor func testFailureNeverFreezes() async throws {

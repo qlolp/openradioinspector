@@ -43,7 +43,10 @@ class DvbEvaluationError(ValueError):
 def _finite(value: Any, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DvbEvaluationError(f"{name} должен быть конечным числом")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError as exc:
+        raise DvbEvaluationError(f"{name} должен быть конечным числом") from exc
     if value != value or value in (float("inf"), float("-inf")):
         raise DvbEvaluationError(f"{name} должен быть конечным числом")
     return value

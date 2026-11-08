@@ -52,6 +52,12 @@ class DvbContractTests(unittest.TestCase):
         self.assertEqual(set(parsed), {"parameters", "thresholds", "guard_interval", "code_rate"})
         self.assertEqual(parsed["guard_interval"], "1/4")
 
+    def test_oversized_numeric_values_are_validation_errors(self):
+        for key in PARAMETER_FIELDS:
+            invalid = body(); invalid['parameters'][key] = 10**309
+            with self.subTest(key=key), self.assertRaises(DvbEvaluationError):
+                validate_dvb_request(invalid)
+
     def test_ber_ranges_and_nonfinite_rejected(self):
         for field, value in (("ber_after_viterbi", 1.5), ("ber_after_viterbi", -0.1),
                              ("ber_after_rs", 2.0)):

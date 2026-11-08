@@ -41,7 +41,10 @@ def result_text(data):
     return '\n'.join(lines)
 
 
-class DvbEvaluationPanel:
+from .tk_timers import TkTimerOwner
+
+
+class DvbEvaluationPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app = app
         self.scope = None
@@ -49,6 +52,7 @@ class DvbEvaluationPanel:
         self.future = self.retired = self.data = None
         self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='dvb-evaluation')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8)
         notebook.add(frame, text='DVB-T')
@@ -84,6 +88,13 @@ class DvbEvaluationPanel:
         self.details.pack(fill='both', expand=True)
         scrollbar = ttk.Scrollbar(frame, orient='vertical', command=self.details.yview)
         scrollbar.pack(side='right', fill='y'); self.details.configure(yscrollcommand=scrollbar.set)
+        self.draft_traces = [(var, var.trace_add('write', self.draft_changed)) for var in self.entries.values()]
+        self.guard.bind('<<ComboboxSelected>>', self.draft_changed)
+        self.code.bind('<<ComboboxSelected>>', self.draft_changed)
+
+    def draft_changed(self, *_):
+        if not self.closed: self.clear()
+
 
     def show_details(self, value):
         self.details.configure(state='normal'); self.details.delete('1.0', 'end')
@@ -151,7 +162,7 @@ class DvbEvaluationPanel:
         generation = self.generation
         self.future = self.executor.submit(
             self.app.client.dvb_evaluation, self.app.session_id, sent)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'request', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -160,7 +171,7 @@ class DvbEvaluationPanel:
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд.'); return
         if not self.future.done():
-            self.app.root.after(50, lambda: self.finish(generation)); return
+            self._schedule_after(self.app.root, 'request', 50, self.finish, generation); return
         future, self.future = self.future, None
         self.button.configure(state='normal')
         try:
@@ -180,5 +191,13 @@ class DvbEvaluationPanel:
             self.clear()
 
     def close(self):
-        self.clear(); self.closed = True
+        if self.closed: return
+        self.closed = True
+        self._close_timers()
+        self.generation += 1
+        for future in (self.future, self.retired):
+            if future is not None: future.cancel()
+        self.future = self.retired = None
+        for var, trace in getattr(self, "draft_traces", []):
+            var.trace_remove("write", trace)
         self.executor.shutdown(wait=False, cancel_futures=True)
