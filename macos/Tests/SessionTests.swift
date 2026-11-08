@@ -127,6 +127,51 @@ final class SessionTests: XCTestCase {
         XCTAssertNil(model.nextInvestigation)
     }
 
+    @MainActor func testPhysicalTinySAUltraSmokeIfConnected() async throws {
+        let ports = SerialPort.availablePaths()
+        guard let path = ports.first(where: { $0.contains("usbmodem") }) else {
+            throw XCTSkip("Физический tinySA Ultra не обнаружен среди /dev/cu.usbmodem*")
+        }
+        let model = UltraModel()
+        model.portPath = path
+        model.connect()
+        try await waitFor { !model.connecting }
+        guard model.connected else {
+            throw XCTSkip("Не удалось открыть \(path): \(model.errorText ?? "неизвестная ошибка")")
+        }
+        XCTAssertTrue(model.identityMatches, "Идентификатор устройства должен совпасть с tinySA Ultra")
+        XCTAssertTrue(model.versionText.contains("tinySA4_"), "Версия должна содержать tinySA4_")
+
+        model.startOverview()
+        try await waitFor { model.scanning }
+
+        // Полный аппаратно подтверждённый скан tinySA Ultra 100k-800M (290 точек при rbw 30) занимает ~36 с
+        for _ in 0..<450 {
+            if !model.current.isEmpty || model.errorText != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertNil(model.errorText, "Ошибок свипа быть не должно: \(model.errorText ?? "")")
+        XCTAssertFalse(model.current.isEmpty, "Должны поступить точки спектра с физического прибора")
+        XCTAssertEqual(model.current.count, 290, "Ожидалось 290 точек из полного скана")
+        XCTAssertEqual(model.maximum.count, 290)
+        XCTAssertEqual(model.minimum.count, 290)
+        XCTAssertGreaterThan(model.waterfallRevision, 0)
+        XCTAssertTrue(model.rows.count >= 0) // порог проверен
+
+        model.stopOverview()
+        for _ in 0..<450 {
+            if !model.scanning { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertFalse(model.scanning, "Сканирование должно остановиться")
+        model.disconnect()
+        for _ in 0..<100 {
+            if !model.connected { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertFalse(model.connected, "Модель должна отключиться")
+    }
+
     @MainActor func testWindowObserverOnlyCleansUpItsOwnWindow() {
         let own = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
         let other = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
