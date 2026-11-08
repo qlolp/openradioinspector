@@ -6,11 +6,14 @@ import argparse
 import queue
 import sys
 from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
+from threading import Event, Lock
 from typing import Any, Callable, Optional
 
 from .archive_capacity import CAPACITY_NOTE, archive_capacity_color, archive_capacity_text
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
+from .tk_timers import TkTimerOwner
 from .workflows import (
     automatic_detection_payload,
     automatic_handoff_payload,
@@ -18,6 +21,13 @@ from .workflows import (
     investigation_payload,
     session_payload,
 )
+
+
+def _publish_message(messages, lock, closed, kind, revision, description, future) -> None:
+    """Worker completion owns only publication state, never a GUI/Tcl graph."""
+    with lock:
+        if not closed.is_set():
+            messages.put((kind, future, revision, description))
 
 
 def session_label(session: dict[str, Any]) -> str:
@@ -72,7 +82,7 @@ def policy_text(status: Optional[dict[str, Any]]) -> str:
     return f"{enabled} · {runtime.get('last_result', '?')} · процесс: runtime-only{suffix}"
 
 
-class WindowsApp:
+class WindowsApp(TkTimerOwner):
     """Тонкий UI: фоновые HTTP-запросы не обращаются к Tk напрямую."""
 
     def __init__(
@@ -98,15 +108,18 @@ class WindowsApp:
         self._waterfall_draw_key: Any = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="windows-api")
         self._messages: queue.Queue[tuple[str, Future, int, str]] = queue.Queue()
+        self._message_lock = Lock()
+        self._messages_closed = Event()
         self._revision = 0
         self._refresh_running = False
         self._action_running = False
         self._action_callbacks: dict[Future, Callable[[Any], None]] = {}
         self._closed = False
+        self._init_timers(root, self._shutdown)
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self.close)
-        self.root.after(0, self._drain_messages)
-        self.root.after(self.refresh_ms, self._poll)
+        self._schedule_after(self.root, "messages", 0, self._drain_messages)
+        self._schedule_after(self.root, "poll", self.refresh_ms, self._poll)
 
     def _build(self) -> None:
         ttk = self.ttk
@@ -350,6 +363,8 @@ class WindowsApp:
         return tree
 
     def connect(self) -> None:
+        if getattr(self, "_closed", False):
+            return
         try:
             self.client = self.client_factory(self.server_var.get())
         except (ValueError, PlatformClientError) as exc:
@@ -389,13 +404,23 @@ class WindowsApp:
             spectrum_stream_id=spectrum_stream_id,
         )
         future.add_done_callback(
-            lambda done: self._messages.put(("snapshot", done, revision, ""))
+            self._completion_callback("snapshot", revision, "")
         )
 
     def _poll(self) -> None:
         if not self._closed:
             self.refresh()
-            self.root.after(self.refresh_ms, self._poll)
+            self._schedule_after(self.root, "poll", self.refresh_ms, self._poll)
+
+    def _queue_message(self, kind: str, future: Future, revision: int, description: str) -> None:
+        _publish_message(self._messages, self._message_lock, self._messages_closed,
+                         kind, revision, description, future)
+
+    def _completion_callback(self, kind: str, revision: int, description: str):
+        # Capturing self, even through a weakref that is later resolved, can
+        # release the last GUI reference on a worker when its Future finishes.
+        return partial(_publish_message, self._messages, self._message_lock,
+                       self._messages_closed, kind, revision, description)
 
     def _submit_action(
         self,
@@ -413,14 +438,14 @@ class WindowsApp:
         if on_success is not None:
             self._action_callbacks[future] = on_success
         future.add_done_callback(
-            lambda done: self._messages.put(("action", done, revision, description))
+            self._completion_callback("action", revision, description)
         )
 
     def _drain_messages(self) -> None:
         if self._closed:
             return
         try:
-            while True:
+            while not self._closed:
                 kind, future, revision, description = self._messages.get_nowait()
                 if revision != self._revision:
                     if kind == "snapshot":
@@ -455,6 +480,8 @@ class WindowsApp:
                 if kind == "snapshot":
                     self._refresh_running = False
                     self._apply_snapshot(result)
+                    if self._closed:
+                        return
                     if hasattr(self, "sweep_context_panel"):
                         self.sweep_context_panel.snapshot_refreshed()
                     if hasattr(self, "frequency_rounding_panel"):
@@ -464,12 +491,14 @@ class WindowsApp:
                     callback = self._action_callbacks.pop(future, None)
                     if callback is not None:
                         callback(result)
+                    if self._closed:
+                        return
                     self.action_var.set(f"{description}: выполнено сервером.")
                     self._render_controls()
                     self.refresh()
         except queue.Empty:
             pass
-        self.root.after(100, self._drain_messages)
+        self._schedule_after(self.root, "messages", 100, self._drain_messages)
 
     def _show_archive_capacity(self, status, error=None) -> None:
         self.archive_capacity_var.set(archive_capacity_text(status, error))
@@ -1478,7 +1507,19 @@ class WindowsApp:
     def close(self) -> None:
         if self._closed:
             return
-        self._closed = True
+        self._shutdown()
+        self.root.destroy()
+
+    def _shutdown(self) -> None:
+        """Release resources even when root.destroy already removed children."""
+        with self._message_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._messages_closed.set()
+        # Future.cancel/shutdown can call _queue_message synchronously. Never
+        # hold the publication lock while stopping an executor or panel.
+        self._close_timers()
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.close()
         if hasattr(self, "threshold_panel"):
@@ -1494,8 +1535,13 @@ class WindowsApp:
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.close()
         self._action_callbacks.clear()
+        self._refresh_running = self._action_running = False
         self._executor.shutdown(wait=False, cancel_futures=True)
-        self.root.destroy()
+        while True:
+            try:
+                self._messages.get_nowait()
+            except queue.Empty:
+                break
 
 
 def main(argv: Optional[list[str]] = None) -> int:

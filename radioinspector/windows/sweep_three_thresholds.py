@@ -84,6 +84,7 @@ class ThreeThresholdsPanel(ThresholdPanel):
         self.app = app; self.scope = None; self.generation = 0
         self.future = self.retired = self.data = None; self.closed = False
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='three-thresholds')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8); notebook.add(frame, text='Три горизонтальных порога')
         ttk.Label(frame, text='НЕ НОРМАТИВ: −90, −80, −70 dBm — только примеры. Три независимых уровня в любом порядке, совпадения допустимы. Только чтение; без автоматического детектора.', wraplength=1050).pack(fill='x')
@@ -121,7 +122,7 @@ class ThreeThresholdsPanel(ThresholdPanel):
         self.info.set(f"Анализ sweep {source['id']}…"); self.button.configure(state='disabled')
         self.deadline = monotonic() + 8.0; generation = self.generation
         self.future = self.executor.submit(self.app.client.sweep_three_thresholds, self.app.session_id, source['id'], levels)
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -129,7 +130,7 @@ class ThreeThresholdsPanel(ThresholdPanel):
         if generation != self.generation or self.future is None: return
         if monotonic() >= self.deadline:
             self.clear(); self.info.set('Превышен срок ожидания 8 секунд; повторите по кнопке.'); return
-        if not self.future.done(): self.app.root.after(50, lambda: self.finish(generation)); return
+        if not self.future.done(): self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
             self.data = deepcopy(validate_three_thresholds(future.result(), self.expected, self.source, self.submitted_levels))
@@ -164,4 +165,5 @@ class ThreeThresholdsPanel(ThresholdPanel):
             x, cy = points[:2]; self.canvas.create_oval(x-3, cy-3, x+3, cy+3, fill='#6cd8ff', outline='#6cd8ff')
 
     def close(self):
-        self.clear(); self.closed = True; self.executor.shutdown(wait=False, cancel_futures=True)
+        super().close()
+        self.source = self.submitted_levels = None

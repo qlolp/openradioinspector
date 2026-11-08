@@ -87,8 +87,8 @@ PR #87, `2afba069263785e7dbdc79f8d26c8b99a7532bc6`, уже прошёл
 
 ## Локальная проверка нового runner
 
-С диагностикой единая команда `python -m tests.run_release_checks --swift` прошла на Mac:
-1036 Python/Node/Tk, 164 Swift SDK и 108 native тестов без пропусков;
+С исправлением Tk lifecycle единая команда `python -m tests.run_release_checks --swift` прошла на Mac:
+1060 Python/Node/Tk, 164 Swift SDK и 108 native тестов без пропусков;
 unsigned Xcode BUILD SUCCEEDED. Локально: Python 3.12.15, Tcl/Tk 9.0.4,
 Node 22.22.3; CI использует Node 24.
 Семь полных логических SHA-256 совпали, все собственные серверы остановлены
@@ -96,11 +96,11 @@ Node 22.22.3; CI использует Node 24.
 изоляции/жизненного цикла; реальные Linux/Windows/macOS CI проверяются после
 публикации точного коммита.
 
-В полном прогоне воспроизвелись 39 известных Tcl teardown сообщений
-`invalid command name ..._drain_messages`. Они не скрыты и не объявлены
-исправленными: владение таймерами WindowsApp — следующий отдельный дефект.
-Зелёные unittest assertions не означают отсутствие этих предупреждений
-или готовность всего продукта к релизу.
+В базовом PR #90 воспроизводились 39 Tcl teardown сообщений
+`invalid command name ..._drain_messages`. Отдельное
+[исправление Tk lifecycle](windows-tk-lifecycle.md) отменяет оставшиеся
+таймеры при закрытии; финальный локальный прогон содержит ноль таких ошибок.
+Hosted macOS и готовность всего продукта проверяются отдельно.
 
 
 ## Hosted macOS: обратный DNS loopback

@@ -206,6 +206,7 @@ class AveragePanel(ThresholdPanel):
         self.app = app; self.scope = None; self.generation = 0
         self.future = self.retired = self.data = self.detection = self.sources = None; self.closed = False; self.exporting = False; self.result_json = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-average')
+        self._init_timers(app.root)
         ttk, tk = app.ttk, app.tk
         frame = ttk.Frame(notebook, padding=8); notebook.add(frame, text='Усреднённый опорный')
         ttk.Label(frame, text='Исходные dBm; только чтение. Средняя линейная мощность и явный поиск областей прироста разности; кандидаты не создаются.', wraplength=1050).pack(fill='x')
@@ -294,7 +295,7 @@ class AveragePanel(ThresholdPanel):
             [s['id'] for s in self.sources], target['id'],
             self.minimum_increase_db, self.minimum_bins_value,
         )
-        self.app.root.after(50, lambda: self.finish(generation))
+        self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
         if self.closed: return
@@ -302,7 +303,7 @@ class AveragePanel(ThresholdPanel):
         if generation != self.generation or self.future is None: return
         if monotonic() >= self.deadline:
             self.abandon(); self.info.set('Превышен срок ожидания 8 секунд; повторите по кнопке.'); return
-        if not self.future.done(): self.app.root.after(50, lambda: self.finish(generation)); return
+        if not self.future.done(): self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
             result = future.result()
@@ -405,4 +406,5 @@ class AveragePanel(ThresholdPanel):
                     else: self.canvas.create_oval(x-3,y-3,x+3,y+3,fill=color,outline=color)
 
     def close(self):
-        self.clear(); self.closed = True; self.executor.shutdown(wait=False, cancel_futures=True)
+        super().close()
+        self.sources = self.detection = self.result_json = None
