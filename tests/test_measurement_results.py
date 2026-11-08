@@ -8,6 +8,8 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from contextlib import closing
 
 from radioinspector.contracts import to_primitive
 from radioinspector.measurement_results import (
@@ -120,7 +122,12 @@ class ResultServiceMixin:
     def save(self, body=None, stream=None):
         body = dict(body or payload())
         body["stream_id"] = stream or self.session.streams[0].id
-        return self.service.save_measurement_result(self.session.id, body)
+        from unittest.mock import patch
+        # Hosted Windows may assign the same wall-clock tick to consecutive saves.
+        self.saved_count = getattr(self, 'saved_count', 0) + 1
+        stamp = datetime(2026, 11, 8, tzinfo=timezone.utc) + timedelta(seconds=self.saved_count)
+        with patch('radioinspector.measurement_results.utc_now', return_value=stamp):
+            return self.service.save_measurement_result(self.session.id, body)
 
     def test_saves_and_lists_in_order_with_methodology_filter(self):
         first = self.save(payload("beta2_bandwidth", "norm"))
@@ -207,7 +214,7 @@ class ResultMigrationTests(unittest.TestCase):
             session = create_session(service)
             service.close()
             import sqlite3
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute('DROP TABLE measurement_results')
                 connection.execute('PRAGMA user_version = 3')
             service = SessionService(store=SQLiteSessionStore(path))
