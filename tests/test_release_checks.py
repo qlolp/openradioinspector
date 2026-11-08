@@ -263,17 +263,28 @@ class OwnedProcessTests(unittest.TestCase):
         body = """
 from pathlib import Path
 import time
+from unittest.mock import patch
+import sys
 from tests import run_release_checks as release
+trace = Path(sys.argv[1])
 def synthetic_blocked_test(*args, **kwargs):
-    time.sleep(0.12)
-    return 0
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if 'synthetic_blocked_test' in trace.read_text():
+            return 0
+        time.sleep(0.005)
+    raise AssertionError('Owned watchdog did not dump the blocked frame')
 release.run_python_suite = synthetic_blocked_test
-assert release._run_diagnostic_python_suite(Path('unused.json'), 0.03) == 0
-print('WATCHDOG_CANCELLED', flush=True)
-time.sleep(0.1)
+with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
+    assert release._run_diagnostic_python_suite(Path('unused.json'), 0.03) == 0
+    before = trace.read_text()
+    print(before, flush=True)
+    print('WATCHDOG_CANCELLED', flush=True)
+    time.sleep(0.1)
+    assert trace.read_text() == before, 'Watchdog continued after cancellation'
 """
         with redirect_stdout(io.StringIO()):
-            output = release.run_command([sys.executable, "-c", body], name="watchdog-regression",
+            output = release.run_command([sys.executable, "-c", body, str(self.directory/'owned-watchdog.log')], name="watchdog-regression",
                                          environment=self.environment, directory=self.directory, timeout=5)
         before, after = output.split("WATCHDOG_CANCELLED", 1)
         self.assertIn("Timeout", before)

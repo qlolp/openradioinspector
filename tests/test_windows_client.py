@@ -292,7 +292,10 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.client.stop_stream(self.session.id, self.tinysa_id)
         stopped = self.workers()[self.tinysa_id]["measurements"]
         receiver_before = self.workers()[self.receiver_id]["measurements"]
-        time.sleep(0.06)
+        wait_until(
+            lambda: self.workers()[self.receiver_id]["measurements"] > receiver_before,
+            "Receiver должен продолжать запись после остановки tinySA",
+        )
         current = self.workers()
         self.assertEqual(current[self.tinysa_id]["measurements"], stopped)
         self.assertGreater(current[self.receiver_id]["measurements"], receiver_before)
