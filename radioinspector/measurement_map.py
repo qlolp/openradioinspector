@@ -149,7 +149,7 @@ def build_measurement_map(name: str, points: list[dict[str, Any]]) -> dict[str, 
         polygon = _sector_polygon(point, sector)
         features.append({
             "type": "Feature",
-            "geometry": {"type": "Polygon", "coordinates": [polygon]},
+            "geometry": _sector_geometry(polygon),
             "properties": {
                 "kind": "antenna_sector",
                 "index": index,
@@ -162,10 +162,15 @@ def build_measurement_map(name: str, points: list[dict[str, Any]]) -> dict[str, 
     coordinates = []
     for feature in features:
         geometry = feature["geometry"]
-        coordinates.extend([geometry["coordinates"]] if geometry["type"] == "Point"
-                           else geometry["coordinates"][0])
+        if geometry["type"] == "Point":
+            coordinates.append(geometry["coordinates"])
+        else:
+            polygons = [geometry["coordinates"]] if geometry["type"] == "Polygon" else geometry["coordinates"]
+            for polygon in polygons:
+                coordinates.extend(polygon[0])
     latitudes = [coordinate[1] for coordinate in coordinates]
-    longitudes = [coordinate[0] for coordinate in coordinates]
+    origin = points[0]["longitude_deg"]
+    longitudes = [_view_longitude(coordinate[0], origin) for coordinate in coordinates]
     return {
         "map": {
             "format": MAP_FORMAT, "format_version": 1, "name": name,
@@ -178,6 +183,7 @@ def build_measurement_map(name: str, points: list[dict[str, Any]]) -> dict[str, 
             "bbox": {
                 "min_latitude_deg": min(latitudes), "max_latitude_deg": max(latitudes),
                 "min_longitude_deg": min(longitudes), "max_longitude_deg": max(longitudes),
+                "longitude_origin_deg": origin,
             },
         },
     }
@@ -198,3 +204,55 @@ def _sector_polygon(point: dict[str, Any], sector: dict[str, Any]) -> list[list[
         ring.append([lon, lat])
     ring.append([longitude, latitude])
     return ring
+
+
+def _view_longitude(longitude: float, origin: float) -> float:
+    while longitude - origin > 180.0:
+        longitude -= 360.0
+    while longitude - origin < -180.0:
+        longitude += 360.0
+    return longitude
+
+
+def _sector_geometry(ring: list[list[float]]) -> dict[str, Any]:
+    """Split dateline-crossing rings into RFC 7946 longitude bands."""
+    if max(p[0] for p in ring) - min(p[0] for p in ring) <= 180.0:
+        return {"type": "Polygon", "coordinates": [ring]}
+    unwrapped = [ring[0]]
+    for longitude, latitude in ring[1:-1]:
+        unwrapped.append([_view_longitude(longitude, unwrapped[-1][0]), latitude])
+
+    def clip(vertices, boundary, keep_greater):
+        output = []
+        if not vertices:
+            return output
+        previous = vertices[-1]
+        previous_inside = previous[0] >= boundary if keep_greater else previous[0] <= boundary
+        for current in vertices:
+            inside = current[0] >= boundary if keep_greater else current[0] <= boundary
+            if inside != previous_inside:
+                ratio = (boundary - previous[0]) / (current[0] - previous[0])
+                output.append([boundary, previous[1] + ratio * (current[1] - previous[1])])
+            if inside:
+                output.append(current)
+            previous, previous_inside = current, inside
+        return output
+
+    first = math.floor((min(p[0] for p in unwrapped) + 180.0) / 360.0)
+    last = math.floor((max(p[0] for p in unwrapped) + 180.0) / 360.0)
+    polygons = []
+    for band in range(first, last + 1):
+        vertices = clip(unwrapped, -180.0 + 360.0 * band, True)
+        vertices = clip(vertices, 180.0 + 360.0 * band, False)
+        if len(vertices) < 3:
+            continue
+        normalized = [[lon - 360.0 * band, lat] for lon, lat in vertices]
+        area = sum(a[0] * b[1] - b[0] * a[1]
+                   for a, b in zip(normalized, normalized[1:] + normalized[:1]))
+        if abs(area) <= 1e-18:
+            continue
+        normalized.append(normalized[0][:])
+        polygons.append([normalized])
+    if len(polygons) == 1:
+        return {"type": "Polygon", "coordinates": polygons[0]}
+    return {"type": "MultiPolygon", "coordinates": polygons}

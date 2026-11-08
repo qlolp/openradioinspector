@@ -207,8 +207,28 @@ final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked
     private let limit: Int
     private var response: URLResponse?
     private var body = Data()
+    private let completionLock = NSLock()
     private var finished = false
-    var completion: ((Result<(Data, URLResponse), Error>) -> Void)?
+    private var pendingResult: Result<(Data, URLResponse), Error>?
+    private var callback: ((Result<(Data, URLResponse), Error>) -> Void)?
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)? {
+        get {
+            completionLock.lock(); defer { completionLock.unlock() }
+            return callback
+        }
+        set {
+            completionLock.lock()
+            if let pending = pendingResult, let installed = newValue {
+                pendingResult = nil
+                completionLock.unlock()
+                installed(pending)
+                return
+            }
+            if !finished { callback = newValue }
+            completionLock.unlock()
+        }
+    }
+
 
     init(limit: Int) {
         self.limit = limit
@@ -225,9 +245,15 @@ final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked
     }
 
     private func finish(_ result: Result<(Data, URLResponse), Error>) {
-        guard !finished else { return }
+        completionLock.lock()
+        guard !finished else { completionLock.unlock(); return }
         finished = true
-        completion?(result)
+        let installed = callback
+        callback = nil
+        if installed == nil { pendingResult = result }
+        completionLock.unlock()
+        // A continuation or UI callback may re-enter; never call it under lock.
+        installed?(result)
     }
 
     func cancel() {
@@ -240,21 +266,30 @@ final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
-        self.response = response
-        completionHandler(.allow)
+        completionLock.lock()
+        let accepting = !finished
+        if accepting { self.response = response }
+        completionLock.unlock()
+        completionHandler(accepting ? .allow : .cancel)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard !finished else { return }
+        completionLock.lock()
+        guard !finished else { completionLock.unlock(); return }
         body.append(data)
-        if body.count >= limit, let response {
-            body = Data(body.prefix(limit))
-            finish(.success((body, response)))
+        let prefix = body.count >= limit ? Data(body.prefix(limit)) : nil
+        let response = self.response
+        completionLock.unlock()
+        if let prefix, let response {
+            finish(.success((prefix, response)))
             dataTask.cancel()
         }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        completionLock.lock()
+        let response = self.response, body = self.body
+        completionLock.unlock()
         guard !finished else { return }
         if let error {
             finish(.failure(PlatformError.connection(error.localizedDescription)))

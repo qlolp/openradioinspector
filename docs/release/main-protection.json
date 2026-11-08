@@ -1,0 +1,30 @@
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "synthetic-ubuntu-latest-py3.10",
+      "synthetic-ubuntu-latest-py3.12",
+      "synthetic-ubuntu-latest-py3.14",
+      "synthetic-windows-latest-py3.10",
+      "synthetic-windows-latest-py3.12",
+      "synthetic-windows-latest-py3.14",
+      "synthetic-macos-latest-py3.10",
+      "synthetic-macos-latest-py3.12",
+      "synthetic-macos-latest-py3.14",
+      "python",
+      "desktop (windows-latest)",
+      "desktop (macos-latest)",
+      "native-review-regressions"
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": false
+  },
+  "restrictions": null,
+  "required_conversation_resolution": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}

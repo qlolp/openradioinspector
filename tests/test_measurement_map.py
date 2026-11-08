@@ -71,6 +71,22 @@ class MapContractTests(unittest.TestCase):
                 self.assertLessEqual(bounds['min_longitude_deg'], lon)
                 self.assertGreaterEqual(bounds['max_longitude_deg'], lon)
 
+    def test_dateline_sectors_are_split_and_fit_a_local_viewport(self):
+        for longitude, azimuth in [(179.999, 90), (-179.999, 270)]:
+            source = point(latitude_deg=0, longitude_deg=longitude,
+                           sector={'azimuth_deg': azimuth, 'beamwidth_deg': 60, 'radius_m': 1000})
+            result = build_measurement_map('Dateline', [source])
+            geometry = result['geojson']['features'][1]['geometry']
+            self.assertEqual(geometry['type'], 'MultiPolygon')
+            self.assertEqual(len(geometry['coordinates']), 2)
+            for polygon in geometry['coordinates']:
+                ring = polygon[0]
+                self.assertEqual(ring[0], ring[-1])
+                self.assertTrue(all(-180 <= lon <= 180 for lon, _ in ring))
+                self.assertTrue(all(abs(a[0] - b[0]) < 1 for a, b in zip(ring, ring[1:])))
+            bounds = result['summary']['bbox']
+            self.assertLess(bounds['max_longitude_deg'] - bounds['min_longitude_deg'], 0.1)
+
     def test_point_and_sector_ranges(self):
         cases = [
             {"latitude_deg": 91.0}, {"latitude_deg": True}, {"latitude_deg": float("nan")},

@@ -135,7 +135,28 @@ async function guards() {
   assert.equal(lost.dom.run.disabled, true);
 }
 
+async function datelineMultiPolygonUsesLocalProjection() {
+  const app = setup(); app.update(); app.dom.editor.value = mapJson();
+  const pending = app.click('run');
+  const data = result();
+  data.geojson.features[0].geometry.coordinates = [179.999, 0];
+  data.geojson.features[1].geometry = {type: 'MultiPolygon', coordinates: [
+    [[[179.999, 0], [180, 0.01], [180, -0.01], [179.999, 0]]],
+    [[[-180, 0.01], [-179.99, 0], [-180, -0.01], [-180, 0.01]]],
+  ]};
+  data.summary.bbox = {min_latitude_deg: -0.01, max_latitude_deg: 0.01,
+    min_longitude_deg: 179.999, max_longitude_deg: 180.01, longitude_origin_deg: 179.999};
+  app.respond(0, data); await pending;
+  assert.equal(app.drawing.filter(row => row[0] === 'stroke').length, 2);
+  for (const [operation, x, y] of app.drawing) {
+    if (operation === 'moveTo' || operation === 'lineTo') {
+      assert(x >= 0 && x <= 960 && y >= 0 && y <= 320, 'split sector remains inside local viewport');
+    }
+  }
+}
+
 (async () => {
+  await datelineMultiPolygonUsesLocalProjection();
   await happyPath();
   await guards();
   const slice = platformCode.slice(platformCode.indexOf('  function updateComparison('),

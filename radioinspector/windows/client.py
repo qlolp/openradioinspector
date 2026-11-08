@@ -102,7 +102,8 @@ class AudioStreamConnection:
     def read_block(self, max_bytes: int = 8192) -> bytes:
         if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 65536:
             raise ValueError("Размер блока должен быть в диапазоне 1…65536 байт")
-        return self._response.read(max_bytes)
+        read = getattr(self._response, "read1", self._response.read)
+        return read(max_bytes)
 
     def cancel_read(self) -> None:
         """Interrupt socket IO without acquiring the buffered reader's lock."""
@@ -457,6 +458,9 @@ class PlatformClient:
             raise PlatformClientError(
                 "Формат отсчётов не pcm16le", status=200, code="invalid_stream"
             )
+        # Streaming idle policy is separate from the bounded header/request timeout.
+        if connection._socket is not None:
+            connection._socket.settimeout(120.0)
         return connection
 
     def signal_list_export(self, session_id: str, name: str) -> dict[str, Any]:

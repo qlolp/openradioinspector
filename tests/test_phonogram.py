@@ -135,6 +135,25 @@ class PhonogramServiceMixin:
         wav = self.service.phonogram_wav(self.session.id, stream)
         self.assertEqual(wav[:4], b"RIFF")
 
+    def test_wav_encoding_does_not_hold_the_service_lock(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        from radioinspector.phonogram import Phonogram
+        stream = self.session.streams[0].id
+        self.service.phonogram_start(self.session.id, {'stream_id': stream})
+        self.service.phonogram_stop(self.session.id, {'stream_id': stream})
+        entered, release = threading.Event(), threading.Event()
+        def encode(_):
+            entered.set(); release.wait(3); return b'synthetic wav'
+        with ThreadPoolExecutor(max_workers=2) as executor, patch.object(Phonogram, 'wav_bytes', encode):
+            encoding = executor.submit(self.service.phonogram_wav, self.session.id, stream)
+            try:
+                self.assertTrue(entered.wait(1))
+                self.assertTrue(executor.submit(self.service.list_sessions).result(timeout=1))
+            finally:
+                release.set()
+            self.assertEqual(encoding.result(timeout=1), b'synthetic wav')
+
     def test_unknown_stream_and_session(self):
         with self.assertRaises(ValueError):
             self.service.phonogram_push(self.session.id, {"stream_id": "foreign", "samples": [0.0]})

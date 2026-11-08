@@ -62,6 +62,19 @@ final class AudioStreamTests: XCTestCase {
          "queued_blocks": queued, "dropped_blocks": dropped]
     }
 
+    func testPrefixCancellationBeforeCallbackIsDeliveredExactlyOnce() {
+        let delegate = PlatformPrefixDelegate(limit: 8)
+        delegate.cancel()
+        var completed = 0
+        delegate.completion = { result in
+            completed += 1
+            if case .failure(let error) = result { XCTAssertTrue(error is CancellationError) }
+            else { XCTFail("Expected cancellation") }
+        }
+        delegate.cancel()
+        XCTAssertEqual(completed, 1)
+    }
+
     func testStatusDecodingGuards() throws {
         let good = try decode(statusObject(), as: PlatformAudioStreamStatus.self)
         XCTAssertEqual(good.subscribers, 1)
