@@ -56,6 +56,30 @@ class WorkflowPayloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "целым числом"):
             self.session(start_hz="88.5")
 
+    def test_explicit_serial_profile_assigns_adapters_without_claiming_decode(self):
+        payload = self.session(simulated=False, serial=True, tinysa_port='COM12', receiver_port='COM13')
+        self.assertEqual([s['settings']['adapter'] for s in payload['streams']],
+                         ['tinysa-serial', 'ardv1-serial'])
+        self.assertNotIn('hardware_decode', payload['streams'][1]['capabilities'])
+        self.assertEqual([s['port'] for s in payload['streams']], ['COM12', 'COM13'])
+        for changes in ({'simulated': True}, {'tinysa_port': 'sim://tinysa'},
+                        {'mode': 'DMR'}, {'serial': 'yes'},
+                        {'receiver_port': 'com12'}, {'receiver_port': '\\\\.\\COM12'},
+                        {'receiver_port': 'socket://localhost:1234'},
+                        {'receiver_port': 'rfc2217://localhost:1234'},
+                        {'receiver_port': '/dev/tty\x00USB0'}):
+            args = dict(simulated=False, serial=True, tinysa_port='COM12', receiver_port='COM13')
+            args.update(changes)
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.session(**args)
+
+    def test_serial_profile_preserves_unicode_and_posix_case(self):
+        payload = self.session(simulated=False, serial=True, name='Приборы 日本語',
+                               tinysa_port='/dev/Прибор', receiver_port='/dev/прибор')
+        self.assertEqual(payload['name'], 'Приборы 日本語')
+        self.assertEqual([stream['port'] for stream in payload['streams']],
+                         ['/dev/Прибор', '/dev/прибор'])
+
     def test_candidate_preserves_source_unit_interval_and_real_sweep_link(self) -> None:
         stream = {"id": "tiny/sa", "level_unit": "dBm"}
         payload = candidate_payload(

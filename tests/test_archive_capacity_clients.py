@@ -187,8 +187,8 @@ class WindowsCapacityTests(unittest.TestCase):
 
 class WebCapacityTests(unittest.TestCase):
     def test_panel_is_loaded_before_and_called_by_existing_refresh(self):
-        html = (ROOT / "radioinspector/web/static/platform.html").read_text()
-        platform = (ROOT / "radioinspector/web/static/platform.js").read_text()
+        html = (ROOT / "radioinspector/web/static/platform.html").read_text(encoding="utf-8")
+        platform = (ROOT / "radioinspector/web/static/platform.js").read_text(encoding="utf-8")
         self.assertLess(html.index('src="/static/archive-capacity.js"'), html.index('src="/static/platform.js"'))
         self.assertIn('id="archive-capacity-status"', html)
         self.assertIn('aria-live="polite"', html)

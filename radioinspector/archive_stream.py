@@ -54,7 +54,8 @@ def _error(message: str, code: str, line: Optional[int] = None) -> ArchiveIngest
 def _payloads(
     path: Path, digest: Any = None
 ) -> Iterator[tuple[int, dict[str, Any]]]:
-    with path.open("r", encoding="utf-8") as source:
+    # Preserve line terminators so the checkpoint hashes the exact snapshot bytes.
+    with path.open("r", encoding="utf-8", newline="") as source:
         for line_number, raw in enumerate(source, start=1):
             if digest is not None:
                 digest.update(raw.encode("utf-8"))

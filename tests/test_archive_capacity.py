@@ -6,6 +6,7 @@ import http.client
 import io
 import json
 import queue
+from contextlib import closing
 import sqlite3
 import tempfile
 import threading
@@ -229,7 +230,7 @@ class ArchiveCapacityTests(unittest.TestCase):
     def test_concurrent_writers_compete_for_last_slot_under_store_lock(self) -> None:
         # Calibrate real SQLite page growth on a backup rather than assume a page count.
         probe_path = str(Path(self.path).with_name("probe.sqlite"))
-        with sqlite3.connect(probe_path) as destination:
+        with closing(sqlite3.connect(probe_path)) as destination, destination:
             self.store._connection.backup(destination)
         probe = SQLiteSessionStore(probe_path)
         first = Sweep.from_dict(self.payload("sweeps", 1, 50_000))
@@ -263,7 +264,7 @@ class ArchiveCapacityTests(unittest.TestCase):
 
     def test_independent_connections_serialize_the_shared_final_budget(self) -> None:
         probe_path = str(Path(self.path).with_name("independent-probe.sqlite"))
-        with sqlite3.connect(probe_path) as destination:
+        with closing(sqlite3.connect(probe_path)) as destination, destination:
             self.store._connection.backup(destination)
         first = Sweep.from_dict(self.payload("sweeps", 1, 50_000))
         second = Sweep.from_dict(self.payload("sweeps", 2, 50_000))

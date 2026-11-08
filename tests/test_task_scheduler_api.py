@@ -42,6 +42,7 @@ class TaskSchedulerApiTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=3)
+        self.scheduler.close()
         self.sessions.close()
         self.temporary.cleanup()
 

@@ -89,45 +89,46 @@ def cmd_demo(args: argparse.Namespace) -> int:
     library = PanoramaLibrary(output)
     store, _existed = library.open_for(settings)
 
-    emitters = [
-        (102.5e6, 200e3, -35.0),
-        (104.3e6, 25e3, -55.0),
-        (107.9e6, 180e3, -42.0),
-        (45.2e6, 12e3, -70.0),
-    ]
-    base_time = datetime.now(timezone.utc) - timedelta(minutes=args.cycles)
-    rng = np.random.default_rng(7)
+    with store:
+        emitters = [
+            (102.5e6, 200e3, -35.0),
+            (104.3e6, 25e3, -55.0),
+            (107.9e6, 180e3, -42.0),
+            (45.2e6, 12e3, -70.0),
+        ]
+        base_time = datetime.now(timezone.utc) - timedelta(minutes=args.cycles)
+        rng = np.random.default_rng(7)
 
-    for cycle in range(args.cycles):
-        trace = _synthetic_panorama(settings, emitters, rng, cycle)
-        latitude = 55.75 + cycle * 0.0008
-        longitude = 37.62 + cycle * 0.0011
-        store.append(
-            trace,
-            recorded_at=base_time + timedelta(seconds=cycle * 3),
-            latitude=latitude,
-            longitude=longitude,
-            altitude=150.0,
-            speed=8.0,
-            heading=45.0,
-        )
+        for cycle in range(args.cycles):
+            trace = _synthetic_panorama(settings, emitters, rng, cycle)
+            latitude = 55.75 + cycle * 0.0008
+            longitude = 37.62 + cycle * 0.0011
+            store.append(
+                trace,
+                recorded_at=base_time + timedelta(seconds=cycle * 3),
+                latitude=latitude,
+                longitude=longitude,
+                altitude=150.0,
+                speed=8.0,
+                heading=45.0,
+            )
 
-    # Линия порога по умолчанию: горизонтальная прямая на уровне 2/3
-    # вертикальной сетки. Уровень сетки берётся по накопленному графику
-    # максимумов за весь сеанс наблюдения.
-    max_trace = store.max_trace()
-    assert max_trace is not None
-    line = ThresholdLine.default_for(max_trace)
-    store.save_threshold(line)
+        # Линия порога по умолчанию: горизонтальная прямая на уровне 2/3
+        # вертикальной сетки. Уровень сетки берётся по накопленному графику
+        # максимумов за весь сеанс наблюдения.
+        max_trace = store.max_trace()
+        assert max_trace is not None
+        line = ThresholdLine.default_for(max_trace)
+        store.save_threshold(line)
 
-    signals = SignalList()
-    for record in store.iter_panoramas():
-        signals.update_from_trace(record.trace, line, record.recorded_at)
-    signals.save(output / "signals.json")
+        signals = SignalList()
+        for record in store.iter_panoramas():
+            signals.update_from_trace(record.trace, line, record.recorded_at)
+        signals.save(output / "signals.json")
 
-    print(f"База данных панорам: {store.path}")
-    print(f"Записей: {store.count}, сигналов в списке: {len(signals)}")
-    return 0
+        print(f"База данных панорам: {store.path}")
+        print(f"Записей: {store.count}, сигналов в списке: {len(signals)}")
+        return 0
 
 
 def _synthetic_panorama(settings, emitters, rng, cycle: int) -> Trace:
@@ -660,6 +661,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # CLI output is UTF-8 even when redirected on a legacy Windows locale.
+    for stream in (sys.stdout, sys.stderr):
+        if callable(getattr(stream, "reconfigure", None)):
+            stream.reconfigure(encoding="utf-8")
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.func is cmd_serve and args.archive_max_bytes is not None:

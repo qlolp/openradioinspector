@@ -213,7 +213,7 @@ class FileTests(unittest.TestCase):
                 path.write_bytes(raw)
                 with self.assertRaises(error): read_profile_file(path)
             save_profile_file(path, profile(), True)
-            self.assertEqual(json.loads(path.read_text()), profile())
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), profile())
             before = path.read_bytes()
             with self.assertRaises(FileExistsError): save_profile_file(path, profile())
             self.assertEqual(path.read_bytes(), before)

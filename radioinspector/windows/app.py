@@ -876,37 +876,61 @@ class WindowsApp:
         for row, (name, label) in enumerate(labels):
             self._form_entry(frame, row, label, variables[name])
         simulated_var = self.tk.BooleanVar(value=True)
+        serial_var = self.tk.BooleanVar(value=False)
         self.ttk.Checkbutton(
             frame,
-            text="Явно использовать tinysa-sim и ardv1-sim; иначе только профили без workers",
+            text="Симуляторы tinySA и AR-DV1",
             variable=simulated_var,
+            command=lambda: serial_var.set(False) if simulated_var.get() else None,
         ).grid(row=7, column=0, columnspan=2, sticky="w", pady=6)
+        self.ttk.Checkbutton(
+            frame, text="Физические serial-приборы (FM/AM; стенд не проверен)",
+            variable=serial_var,
+            command=lambda: simulated_var.set(False) if serial_var.get() else None,
+        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=6)
         self.ttk.Label(
             frame,
-            text="Сеанс создаётся в draft. Запуск сеанса и потоков выполняется отдельно.",
+            text="Порты компьютера ядра: COM3/COM4 на Windows или /dev/… на Linux/macOS. "
+                 "Без выбранного режима создаётся только профиль. Запуск сеанса и потоков — отдельно.",
             wraplength=520,
-        ).grid(row=8, column=0, columnspan=2, sticky="ew", pady=4)
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", pady=4)
         client = self.client
+        revision = self._revision
 
         def submit() -> None:
+            if (self._closed or self._action_running or
+                    getattr(self, "_active_form", None) is not window):
+                return
+            if self.client is not client or self._revision != revision:
+                error_var.set("Контекст изменился. Откройте форму заново для текущего ядра.")
+                return
             try:
                 payload = session_payload(
                     **{name: variable.get() for name, variable in variables.items()},
                     simulated=bool(simulated_var.get()),
+                    serial=bool(serial_var.get()),
                 )
             except (TypeError, ValueError) as exc:
                 error_var.set(str(exc))
                 return
             self._destroy_form(window)
+
+            def create() -> dict[str, Any]:
+                result = client.create_session(payload)
+                if (not isinstance(result, dict) or not isinstance(result.get("id"), str)
+                        or not result["id"] or result.get("state") != "draft"):
+                    raise ValueError("Некорректный ответ ядра. Обновите список: профиль мог быть создан.")
+                return result
+
             self._submit_action(
                 "Создание двухприборного сеанса",
-                lambda: client.create_session(payload),
+                create,
                 on_success=self._use_created_session,
             )
 
-        self._form_buttons(window, frame, 9, "Создать сеанс", submit)
+        self._form_buttons(window, frame, 10, "Создать сеанс", submit)
         self.ttk.Label(frame, textvariable=error_var, foreground="#b3261e", wraplength=520).grid(
-            row=10, column=0, columnspan=2, sticky="ew", pady=4
+            row=11, column=0, columnspan=2, sticky="ew", pady=4
         )
 
     def _use_created_session(self, session: dict[str, Any]) -> None:

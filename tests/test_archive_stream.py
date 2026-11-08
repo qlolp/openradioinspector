@@ -97,9 +97,9 @@ class ArchiveStreamTests(unittest.TestCase):
                     self.session["id"], self.session["streams"][1]["id"], 99
                 ),
             }) + "\n")
-        payload = json.loads(self.path.read_text().splitlines()[-1])
+        payload = json.loads(self.path.read_text(encoding="utf-8").splitlines()[-1])
         payload["measurement"]["level_unit"] = "dBm"
-        lines = self.path.read_text().splitlines()
+        lines = self.path.read_text(encoding="utf-8").splitlines()
         lines[-1] = json.dumps(payload)
         self.path.write_text("\n".join(lines) + "\n")
         client = FakeClient(self.session, limit=1)
@@ -118,7 +118,7 @@ class ArchiveStreamTests(unittest.TestCase):
         self.assertTrue(result["complete"])
         self.assertEqual(len(first.posts), 4)
 
-        state = json.loads(checkpoint.read_text())
+        state = json.loads(checkpoint.read_text(encoding="utf-8"))
         state.update({
             "next_line": 4,
             "sweeps": 2,
@@ -184,6 +184,33 @@ class ArchiveStreamTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "checkpoint_mismatch")
 
+    def test_legacy_normalized_newline_checkpoint_fails_closed(self) -> None:
+        checkpoint = Path(self.temporary.name) / "legacy.json"
+        normalized = self.path.read_bytes().replace(b"\r\n", b"\n")
+        self.path.write_bytes(normalized)
+        # The old reader hashed CRLF/CR files exactly as this LF representation.
+        import_stream(FakeClient(self.session), self.path, self.session["id"], checkpoint_path=checkpoint)
+        state = json.loads(checkpoint.read_text(encoding="utf-8"))
+        for newline in (b"\r\n", b"\r"):
+            for complete in (False, True):
+                for dry_run in (False, True):
+                    with self.subTest(newline=newline, complete=complete, dry_run=dry_run):
+                        raw = normalized.replace(b"\n", newline)
+                        self.path.write_bytes(raw)
+                        legacy = {**state, "complete": complete}
+                        if not complete:
+                            legacy.update(next_line=4, sweeps=2, observations=0, batches=1)
+                        checkpoint.write_text(json.dumps(legacy), encoding="utf-8")
+                        saved_checkpoint = checkpoint.read_bytes()
+                        client = FakeClient(self.session)
+                        with self.assertRaises(ArchiveIngestError) as caught:
+                            import_stream(client, self.path, self.session["id"],
+                                          checkpoint_path=checkpoint, resume=True, dry_run=dry_run)
+                        self.assertEqual(caught.exception.code, "checkpoint_mismatch")
+                        self.assertEqual(client.posts, [])
+                        self.assertEqual(checkpoint.read_bytes(), saved_checkpoint)
+                        self.assertEqual(self.path.read_bytes(), raw)
+
     def test_checkpoint_requires_explicit_resume(self) -> None:
         checkpoint = Path(self.temporary.name) / "resume.json"
         import_stream(FakeClient(self.session), self.path, self.session["id"], checkpoint_path=checkpoint)
@@ -218,7 +245,20 @@ class ArchiveStreamTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "checkpoint_not_found")
         self.assertEqual(client.calls, [])
 
+    def test_hash_preserves_original_line_endings(self) -> None:
+        records = [json.loads(line) for line in self.path.read_text(encoding="utf-8").splitlines()]
+        records[1]["measurement"]["id"] = "панорама-雪"
+        original = ("\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n").encode("utf-8")
+        for newline in (b"\n", b"\r\n", b"\r"):
+            with self.subTest(newline=newline):
+                raw = original.replace(b"\n", newline)
+                self.path.write_bytes(raw)
+                result = import_stream(FakeClient(self.session), self.path, self.session["id"])
+                self.assertEqual(result["sha256"], hashlib.sha256(raw).hexdigest())
+                self.assertEqual((result["sweeps"], result["observations"]), (5, 2))
+
     def test_import_uses_immutable_input_snapshot(self) -> None:
+        self.path.write_bytes(self.path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
         expected_hash = hashlib.sha256(self.path.read_bytes()).hexdigest()
         original_scan = archive_stream_module._scan
 

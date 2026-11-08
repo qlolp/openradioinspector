@@ -16,6 +16,7 @@
   <script src="/static/sweep-context.js" defer></script>
   <script src="/static/frequency-rounding.js" defer></script>
   <script src="/static/platform.js" defer></script>
+  <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
   <script src="/static/archive-export.js" defer></script>
   <script src="/static/task-create.js" defer></script>
@@ -65,6 +66,20 @@
         <select id="session-select" aria-describedby="session-empty"></select>
         <p id="session-empty" class="empty-note">Запрашиваю сеансы ядра…</p>
         <div id="session-meta" class="session-meta"></div>
+        <details>
+          <summary>Новый serial-профиль</summary>
+          <form id="serial-session-form">
+            <label class="field-label" for="serial-session-name">Название сеанса</label>
+            <input id="serial-session-name" required maxlength="200" value="Двойной обзор">
+            <label class="field-label" for="serial-session-tinysa">Порт tinySA на компьютере ядра</label>
+            <input id="serial-session-tinysa" required placeholder="COM3 или /dev/ttyACM0">
+            <label class="field-label" for="serial-session-receiver">Порт AR-DV1 на компьютере ядра</label>
+            <input id="serial-session-receiver" required placeholder="COM4 или /dev/ttyUSB0">
+            <p class="unit-lock">FM 145,5 МГц; обзор 88–108 МГц, 201 точка, RBW 10 кГц. Генератор tinySA выключен. Windows требует pySerial на компьютере ядра. Аппаратный стенд не проверен.</p>
+            <button id="serial-session-submit" type="submit" class="button">Создать черновик</button>
+            <p id="serial-session-status" role="status" aria-live="polite"></p>
+          </form>
+        </details>
         <div class="button-grid">
           <button id="session-start" type="button" class="button primary" disabled>Запустить сеанс</button>
           <button id="session-stop" type="button" class="button danger-quiet" disabled>Остановить сеанс</button>

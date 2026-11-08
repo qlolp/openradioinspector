@@ -37,6 +37,7 @@ from .frequency_rounding import (
     FrequencyRoundingIncompatibleError, calculate_candidate_frequency_rounding,
     validate_rounding_request,
 )
+from .serial_ports import serial_port_identity
 from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 from .spectral_mask import calculate_sweep_mask
 from .sweep_comparison import compare_sweeps
@@ -266,6 +267,18 @@ class SessionService:
         creation = dict(payload)
         creation["created_at"] = to_primitive(self._clock())
         session = MonitoringSession.from_dict(creation)
+        # Creation-only validation: do not reinterpret historical archives or
+        # simulator profiles, and never open/enumerate ports to compare names.
+        serial_ports: set[str] = set()
+        for stream in session.streams:
+            if stream.settings.get("adapter") not in ("tinysa-serial", "ardv1-serial"):
+                continue
+            if not isinstance(stream.port, str) or not stream.port:
+                continue
+            identity = serial_port_identity(stream.port)
+            if identity in serial_ports:
+                raise ValueError("Один последовательный порт нельзя назначить двум serial-потокам")
+            serial_ports.add(identity)
         with self._lock:
             if session.id in self._sessions:
                 raise ValueError(f"Сеанс уже существует: {session.id}")

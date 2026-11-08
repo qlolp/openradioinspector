@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+from contextlib import closing
 import sqlite3
 import tempfile
 import threading
@@ -552,7 +553,7 @@ class PersistentInvestigationTests(unittest.TestCase):
             session.id, candidate_payload(spectrum_id, "atomic-candidate")
         )
         before = service.health()["last_event_id"]
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute(
                 "CREATE TRIGGER reject_queue_event BEFORE INSERT ON events "
                 "WHEN NEW.event_type = 'investigation.queued' "
@@ -568,7 +569,7 @@ class PersistentInvestigationTests(unittest.TestCase):
             service.get_candidate(session.id, candidate.id).state, CandidateState.NEW
         )
         self.assertEqual(service.health()["last_event_id"], before)
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             self.assertEqual(connection.execute(
                 "SELECT state FROM candidates WHERE id = 'atomic-candidate'"
             ).fetchone()[0], "new")
@@ -600,7 +601,7 @@ class PersistentInvestigationTests(unittest.TestCase):
             session.id, receiver_id, "atomic-result", BASE + timedelta(seconds=1)
         ))
         before = service.health()["last_event_id"]
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute(
                 "CREATE TRIGGER reject_complete_event BEFORE INSERT ON events "
                 "WHEN NEW.event_type = 'investigation.completed' "
@@ -612,7 +613,7 @@ class PersistentInvestigationTests(unittest.TestCase):
         self.assertEqual(current.state, InvestigationState.LISTENING)
         self.assertEqual(current.result_observation_ids, ())
         self.assertEqual(service.health()["last_event_id"], before)
-        with sqlite3.connect(self.path) as connection:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
             row = connection.execute(
                 "SELECT state, result_observation_ids_json FROM investigations WHERE id = ?",
                 (investigation.id,),

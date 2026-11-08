@@ -90,6 +90,101 @@ class WindowsReleaseFlowTests(unittest.TestCase):
         self.executor.finish()
         self.app._drain_messages()
 
+    def open_serial_form(self):
+        self.app._open_session_form()
+        window = self.app._active_form
+        window.withdraw()
+        frame = window.winfo_children()[0]
+        for row, text in ((1, 'COM12'), (2, 'COM13')):
+            entry = frame.grid_slaves(row=row, column=1)[0]
+            entry.delete(0, 'end')
+            entry.insert(0, text)
+        serial = frame.grid_slaves(row=8, column=0)[0]
+        serial.invoke()
+        simulated = frame.grid_slaves(row=7, column=0)[0]
+        self.assertFalse(simulated.instate(['selected']))
+        self.assertTrue(serial.instate(['selected']))
+        buttons = frame.grid_slaves(row=10, column=0)[0]
+        create = next(child for child in buttons.winfo_children() if child.cget('text') == 'Создать сеанс')
+        return window, create
+
+    def test_serial_form_selects_com_profile_without_starting_workers(self):
+        window, create = self.open_serial_form()
+        self.app.client.create_session.return_value = {'id': 'serial-created', 'state': 'draft'}
+        create.invoke()
+        self.assertEqual(len(self.executor.jobs), 1)
+        self.finish_action()
+        payload = self.app.client.create_session.call_args.args[0]
+        self.assertEqual([s['settings']['adapter'] for s in payload['streams']],
+                         ['tinysa-serial', 'ardv1-serial'])
+        self.app.client.start_session.assert_not_called()
+        self.app.client.start_workers.assert_not_called()
+
+    def test_serial_form_cannot_submit_to_replaced_connection_or_context(self):
+        for change in (lambda: setattr(self.app, 'client', Mock()),
+                       lambda: setattr(self.app, '_revision', self.app._revision + 1)):
+            window, create = self.open_serial_form()
+            change()
+            create.invoke()
+            self.assertEqual(self.executor.jobs, [])
+            self.assertTrue(window.winfo_exists())
+
+    def test_serial_form_cancel_and_repeated_create_while_pending(self):
+        window, _ = self.open_serial_form()
+        self.app._destroy_form(window)
+        self.assertEqual(self.executor.jobs, [])
+        _, create = self.open_serial_form()
+        self.app.client.create_session.return_value = {'id': 'serial-created', 'state': 'draft'}
+        create.invoke()
+        second, create_again = self.open_serial_form()
+        create_again.invoke()
+        self.assertTrue(second.winfo_exists())
+        self.assertEqual(len(self.executor.jobs), 1)
+        self.finish_action()
+        self.app.client.create_session.assert_called_once()
+
+    def test_serial_creation_reply_does_not_replace_new_context(self):
+        _, create = self.open_serial_form()
+        self.app.client.create_session.return_value = {'id': 'serial-created', 'state': 'draft'}
+        create.invoke()
+        self.app._revision += 1
+        self.app.session_id = 'new-context'
+        self.finish_action()
+        self.assertEqual(self.app.session_id, 'new-context')
+        self.assertFalse(self.app._action_running)
+
+    def test_dismissed_serial_form_ignores_late_submit_callback(self):
+        callbacks = []
+        original = self.app._form_buttons
+
+        def capture(*args):
+            callbacks.append(args[-1])
+            original(*args)
+
+        with patch.object(self.app, '_form_buttons', side_effect=capture):
+            window, _ = self.open_serial_form()
+        self.app._destroy_form(window)
+        callbacks[0]()
+        self.assertEqual(self.executor.jobs, [])
+
+    def test_serial_creation_errors_do_not_crash_or_retry(self):
+        from radioinspector.windows.client import PlatformClientError
+
+        for reply in (None, {}, {'id': 'unexpected', 'state': 'running'}):
+            _, create = self.open_serial_form()
+            self.app.client.create_session.return_value = reply
+            create.invoke()
+            self.finish_action()
+            self.assertIn('Некорректный ответ', self.app.action_var.get())
+            self.assertFalse(self.app._action_running)
+            self.assertEqual(self.executor.jobs, [])
+        _, create = self.open_serial_form()
+        self.app.client.create_session.side_effect = PlatformClientError('Synthetic HTTP 400')
+        create.invoke()
+        self.finish_action()
+        self.assertIn('Synthetic HTTP 400', self.app.action_var.get())
+        self.assertEqual(self.app.session_id, 'session/original')
+
     def test_actual_default_string_duration_submits_once_and_displays_result(self):
         window, entries, buttons = self.open_form()
         self.assertEqual(entries["duration_s"].get(), "60")

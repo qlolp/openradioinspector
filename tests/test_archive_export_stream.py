@@ -147,7 +147,7 @@ class ArchiveHttpStreamTests(unittest.TestCase):
             stream_id=receiver_id,
         )
         self.assertEqual((result["sweeps"], result["observations"]), (0, 0))
-        self.assertEqual(len(output.read_text().splitlines()), 1)
+        self.assertEqual(len(output.read_text(encoding="utf-8").splitlines()), 1)
         with self.assertRaises(ArchiveIngestError) as caught:
             fetch_archive_ndjson(
                 ArchiveIngestClient(self.node.url),
@@ -202,7 +202,7 @@ class ArchiveHttpStreamTests(unittest.TestCase):
             with self.assertRaises(ArchiveIngestError) as caught:
                 fetch_archive_ndjson(client, self.session.id, output)
         self.assertEqual(caught.exception.code, "incomplete_stream")
-        self.assertEqual(output.read_text(), "keep\n")
+        self.assertEqual(output.read_text(encoding="utf-8"), "keep\n")
 
     def test_main_reports_errors_without_output(self) -> None:
         output = Path(self.temporary.name) / "cli.ndjson"

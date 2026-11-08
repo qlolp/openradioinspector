@@ -95,7 +95,7 @@ class TaskSchedulerTests(unittest.TestCase):
         scheduler.enqueue(self.task("valid"))
         scheduler.configure(True)
         status = scheduler.run_once(BASE)
-        tasks = {item["name"]: item for item in json.loads(self.path.read_text())["tasks"]}
+        tasks = {item["name"]: item for item in json.loads(self.path.read_text(encoding="utf-8"))["tasks"]}
         self.assertEqual(tasks["missing"]["outcome"], OUTCOME_FILE_NOT_FOUND)
         self.assertEqual(tasks["valid"]["status"], STATUS_RUNNING)
         self.assertEqual(status["runtime"]["aborted_tasks"], 1)
@@ -174,10 +174,10 @@ class TaskSchedulerTests(unittest.TestCase):
     def test_second_owner_cannot_recover_or_overwrite_book(self) -> None:
         first = self.scheduler()
         first.enqueue(self.task())
-        before = self.path.read_text()
+        before = self.path.read_text(encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "другим scheduler"):
             TaskScheduler(TaskBook(self.path).load())
-        self.assertEqual(self.path.read_text(), before)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), before)
         first.configure(True)
         first.run_once(BASE)
         first.run_once(BASE + timedelta(seconds=10))
@@ -194,7 +194,7 @@ class TaskSchedulerTests(unittest.TestCase):
         second.enqueue(self.task("new-owner"))
         with self.assertRaisesRegex(RuntimeError, "закрыт"):
             first.enqueue(self.task("stale-owner"))
-        tasks = json.loads(self.path.read_text())["tasks"]
+        tasks = json.loads(self.path.read_text(encoding="utf-8"))["tasks"]
         self.assertEqual({item["name"] for item in tasks}, {"monitor", "new-owner"})
 
     def test_empty_optional_input_path_is_absent(self) -> None:
@@ -252,7 +252,7 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertIsInstance(errors[0], RuntimeError)
         self.assertFalse(first.status()["enabled"])
         self.assertIsNone(first.run_once(BASE))
-        tasks = json.loads(self.path.read_text())["tasks"]
+        tasks = json.loads(self.path.read_text(encoding="utf-8"))["tasks"]
         self.assertEqual({item["name"] for item in tasks}, {"monitor", "new-owner"})
 
     def test_reenable_waits_for_previous_thread_to_finish(self) -> None:
@@ -324,7 +324,7 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertTrue(predictable.is_symlink())
         self.assertFalse(self.path.is_symlink())
         self.assertEqual(
-            json.loads(self.path.read_text())["format"], TaskBook.FORMAT
+            json.loads(self.path.read_text(encoding="utf-8"))["format"], TaskBook.FORMAT
         )
 
     @unittest.skipIf(os.name == "nt", "POSIX permission bits")
@@ -356,7 +356,7 @@ class TaskSchedulerTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["started_tasks"], 1)
 
     def book_task(self, name="monitor") -> dict:
-        tasks = json.loads(self.path.read_text())["tasks"]
+        tasks = json.loads(self.path.read_text(encoding="utf-8"))["tasks"]
         return next(item for item in tasks if item["name"] == name)
 
 

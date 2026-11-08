@@ -9,6 +9,7 @@ import tomllib
 import unittest
 from html.parser import HTMLParser
 from pathlib import Path
+from unittest.mock import patch
 
 from radioinspector.web.server import STATIC_DIR, create_server
 
@@ -75,6 +76,16 @@ class WebUiTests(unittest.TestCase):
         self.assertIn('src="/static/app.js"', legacy)
         self.assertNotIn('id="candidate-form"', legacy)
 
+    def test_asset_mime_types_ignore_host_registry(self) -> None:
+        with patch("radioinspector.web.server.mimetypes.guess_type", return_value=("text/plain", None)):
+            for name, expected in (("platform.js", "text/javascript"), ("platform.css", "text/css"), ("platform.html", "text/html")):
+                with self.subTest(asset=name):
+                    route = "/platform.html" if name.endswith(".html") else f"/static/{name}"
+                    status, content_type, body = self.request(route)
+                    self.assertEqual(status, 200)
+                    self.assertEqual(content_type, expected + "; charset=utf-8")
+                    self.assertEqual(body, (STATIC_DIR / name).read_bytes().decode("utf-8"))
+
     def test_assets_are_local_and_packaged(self) -> None:
         html = (STATIC_DIR / "platform.html").read_text(encoding="utf-8")
         parser = _AssetParser()
@@ -91,7 +102,7 @@ class WebUiTests(unittest.TestCase):
                 status, actual_type, body = self.request(f"/static/{name}")
                 self.assertEqual(status, 200)
                 self.assertTrue(actual_type.startswith(content_type))
-                self.assertEqual(body, (STATIC_DIR / name).read_text(encoding="utf-8"))
+                self.assertEqual(body, (STATIC_DIR / name).read_bytes().decode("utf-8"))
 
         with (ROOT / "pyproject.toml").open("rb") as stream:
             project = tomllib.load(stream)

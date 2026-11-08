@@ -338,7 +338,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404, "Not found")
             return
         body = path.read_bytes()
-        ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        # Bundled web assets must not depend on host registry MIME overrides.
+        ctype = {
+            ".js": "text/javascript",
+            ".css": "text/css",
+            ".html": "text/html",
+        }.get(path.suffix.lower()) or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", f"{ctype}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

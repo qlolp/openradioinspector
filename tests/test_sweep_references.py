@@ -105,8 +105,10 @@ class ReferenceServiceMixin:
     def test_catalog_scope_envelope_capability_and_read_only(self):
         self.add()
         self.add(1, stream_id=self.session.streams[1].id)
-        a, _ = self.save("a")
-        b, _ = self.save("b", "sweep-1")
+        with patch.object(self.service, "_clock", return_value=BASE):
+            a, _ = self.save("a")
+        with patch.object(self.service, "_clock", return_value=BASE + timedelta(microseconds=1)):
+            b, _ = self.save("b", "sweep-1")
         before = (self.service.health(), self.service.events())
         catalog = self.catalog()
         self.assertEqual(set(catalog), {"session_id", "stream_id", "storage_mode", "persistent", "limit", "items"})

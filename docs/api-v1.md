@@ -179,6 +179,13 @@ HTTP работает в одном фоновом executor, обновлени�
 
 Пример настроек двух потоков при создании сеанса:
 
+На Windows общий transport выбирается ядром через pySerial (`pip install ".[serial]"`);
+поле `port` содержит `COM3`, `COM12` или `\\.\COM12`. На Linux/macOS сохраняется
+POSIX transport и путь `/dev/…`. ОС клиента значения не имеет. WebUI, Windows
+и macOS создают явный serial-профиль через существующий POST `/sessions`;
+создание не запускает исполнителей. Подробности и пределы проверки:
+[windows-core-serial.md](windows-core-serial.md).
+
 ```json
 {
   "name": "Непрерывный стенд",

@@ -19,7 +19,7 @@ class WebNamedReferenceTests(unittest.TestCase):
 
     def test_controls_keep_existing_measurement_surfaces(self):
         root = Path(__file__).resolve().parents[1]
-        html = (root / 'radioinspector/web/static/platform.html').read_text()
+        html = (root / 'radioinspector/web/static/platform.html').read_text(encoding="utf-8")
         for name in ('comparison-name', 'comparison-save', 'comparison-catalog', 'comparison-refresh',
                      'comparison-use', 'comparison-storage', 'comparison-catalog-status', 'comparison-catalog-notice',
                      'comparison-reference-select', 'comparison-pin', 'comparison-clear', 'comparison-run',

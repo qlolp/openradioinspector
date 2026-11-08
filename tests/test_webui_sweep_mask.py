@@ -21,7 +21,7 @@ class WebSweepMaskTests(unittest.TestCase):
 
     def test_panel_assets_and_existing_charts(self):
         static = Path(__file__).resolve().parents[1] / "radioinspector/web/static"
-        html = (static / "platform.html").read_text()
+        html = (static / "platform.html").read_text(encoding="utf-8")
         self.assertLess(html.index('src="/static/sweep-mask.js"'), html.index('src="/static/platform.js"'))
         for name in ("mask-canvas", "mask-editor", "mask-file", "mask-run", "mask-template", "mask-save", "mask-regions",
                      "spectrum-canvas", "waterfall-canvas", "comparison-canvas", "comparison-catalog", "threshold-canvas"):
