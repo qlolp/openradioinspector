@@ -309,3 +309,8 @@ form.editor { border-style: solid; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Read-only global capacity status remains visible without a selected session. */
+#archive-capacity-status[data-state="warning"] { color: #ffd36e; }
+#archive-capacity-status[data-state="full"] { color: #ff8f86; font-weight: 700; }
+#archive-capacity-status[data-state="unavailable"] { color: var(--muted); }

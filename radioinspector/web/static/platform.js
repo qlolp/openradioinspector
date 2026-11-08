@@ -810,6 +810,7 @@
       return;
     }
     state.refreshRunning = true;
+    window.OpenRadioArchiveCapacity?.refresh();
     renderSession();
     try {
       state.refreshQueued = false;

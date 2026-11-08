@@ -337,13 +337,13 @@ class WorkflowCommandTests(unittest.TestCase):
         self.assertIs(button.master, policies)
         self.assertEqual(button.kwargs["state"], "disabled")
 
-    def test_installed_windows_launcher_uses_completion_app(self) -> None:
+    def test_installed_windows_launcher_uses_scheduler_app(self) -> None:
         project = Path(__file__).resolve().parents[1] / "pyproject.toml"
         with project.open("rb") as stream:
             scripts = tomllib.load(stream)["project"]["scripts"]
         self.assertEqual(
             scripts["radioinspector-windows"],
-            "radioinspector.windows.completion_app:main",
+            "radioinspector.windows.scheduler_app:main",
         )
 
     def test_disabling_completion_uses_only_completion_api(self) -> None:

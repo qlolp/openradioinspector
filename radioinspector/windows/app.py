@@ -8,6 +8,7 @@ import sys
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
+from .archive_capacity import CAPACITY_NOTE, archive_capacity_color, archive_capacity_text
 from .client import PlatformClient, PlatformClientError, PlatformSnapshot, validate_tune
 from .spectrum import peak_of, sampled_indices, waterfall_color, waterfall_levels
 from .workflows import (
@@ -130,6 +131,15 @@ class WindowsApp:
         self.connection_var = self.tk.StringVar(value="Не подключено. Приборные порты открывает только сервер.")
         ttk.Label(connection, textvariable=self.connection_var, wraplength=1050).grid(
             row=1, column=0, columnspan=4, sticky="ew", pady=(7, 0)
+        )
+
+        self.archive_capacity_var = self.tk.StringVar(value=archive_capacity_text(None))
+        self.archive_capacity_label = ttk.Label(
+            connection, textvariable=self.archive_capacity_var, wraplength=1050
+        )
+        self.archive_capacity_label.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(7, 0))
+        ttk.Label(connection, text=CAPACITY_NOTE, wraplength=1050).grid(
+            row=3, column=0, columnspan=4, sticky="ew"
         )
 
         sessions = ttk.LabelFrame(outer, text="Сеанс и независимые исполнители", padding=8)
@@ -333,6 +343,7 @@ class WindowsApp:
             return
         self.session_id = None
         self._revision += 1
+        self._show_archive_capacity(None)
         self.connection_var.set("Запрашиваются health, capabilities и сеансы…")
         self.refresh()
 
@@ -398,6 +409,7 @@ class WindowsApp:
                     if kind == "snapshot":
                         self._refresh_running = False
                         self.connection_var.set(f"Ошибка обновления: {exc}")
+                        self._show_archive_capacity(None, str(exc))
                     else:
                         self._action_running = False
                         self._action_callbacks.pop(future, None)
@@ -419,8 +431,13 @@ class WindowsApp:
             pass
         self.root.after(100, self._drain_messages)
 
+    def _show_archive_capacity(self, status, error=None) -> None:
+        self.archive_capacity_var.set(archive_capacity_text(status, error))
+        self.archive_capacity_label.configure(foreground=archive_capacity_color(status, error))
+
     def _apply_snapshot(self, snapshot: PlatformSnapshot) -> None:
         self.snapshot = snapshot
+        self._show_archive_capacity(snapshot.archive_capacity, snapshot.archive_capacity_error)
         selected_exists = any(item.get("id") == self.session_id for item in snapshot.sessions)
         if self.session_id is not None and not selected_exists:
             self.session_id = None

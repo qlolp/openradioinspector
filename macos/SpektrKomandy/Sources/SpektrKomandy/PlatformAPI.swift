@@ -175,7 +175,18 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
 }
 
 final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let stagingURL: URL
+    private var finished = false
     var completion: ((URLResponse?, URL?, Error?) -> Void)?
+
+    init(stagingURL: URL) { self.stagingURL = stagingURL }
+
+    private func finish(_ response: URLResponse?, _ location: URL?, _ error: Error?) {
+        guard !finished else { return }
+        finished = true
+        completion?(response, location, error)
+        completion = nil
+    }
 
     func urlSession(
         _ session: URLSession,
@@ -192,7 +203,13 @@ final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
-        completion?(downloadTask.response, location, nil)
+        do {
+            // URLSession removes its temporary file when this callback returns.
+            try FileManager.default.moveItem(at: location, to: stagingURL)
+            finish(downloadTask.response, stagingURL, nil)
+        } catch {
+            finish(downloadTask.response, nil, error)
+        }
     }
 
     func urlSession(
@@ -200,7 +217,7 @@ final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        completion?(task.response, nil, error)
+        finish(task.response, nil, error)
     }
 }
 
@@ -332,6 +349,58 @@ public struct PlatformAnalyticsSummary: Decodable, Equatable {
     public let observations: PlatformObservationSummary
 }
 
+/// Global archive status. Byte counts describe the logical SQLite database, not disk free space.
+public struct PlatformArchiveCapacity: Decodable, Equatable {
+    public enum StorageMode: String, Decodable { case sqlite, memory }
+    public enum State: String, Decodable { case unlimited, ok, warning, full, unavailable }
+
+    public let storageMode: StorageMode
+    public let databaseBytes: Int64?
+    public let maxDatabaseBytes: Int64?
+    public let remainingBytes: Int64?
+    public let state: State
+    public let warningThreshold: Double
+    public let measurementWritesBlocked: Bool
+    public let automaticDeletion: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case storageMode, databaseBytes, maxDatabaseBytes, remainingBytes, state
+        case warningThreshold, measurementWritesBlocked, automaticDeletion
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        storageMode = try values.decode(StorageMode.self, forKey: .storageMode)
+        databaseBytes = try values.decode(Int64?.self, forKey: .databaseBytes)
+        maxDatabaseBytes = try values.decode(Int64?.self, forKey: .maxDatabaseBytes)
+        remainingBytes = try values.decode(Int64?.self, forKey: .remainingBytes)
+        state = try values.decode(State.self, forKey: .state)
+        warningThreshold = try values.decode(Double.self, forKey: .warningThreshold)
+        measurementWritesBlocked = try values.decode(Bool.self, forKey: .measurementWritesBlocked)
+        automaticDeletion = try values.decode(Bool.self, forKey: .automaticDeletion)
+        guard [databaseBytes, maxDatabaseBytes, remainingBytes].compactMap({ $0 }).allSatisfy({ $0 >= 0 }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .databaseBytes, in: values, debugDescription: "Некорректная ёмкость архива"
+            )
+        }
+        guard !automaticDeletion, warningThreshold == 0.9 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .automaticDeletion, in: values,
+                debugDescription: "Неподдерживаемая политика ёмкости архива"
+            )
+        }
+        if [.ok, .warning, .full].contains(state) {
+            guard storageMode == .sqlite, databaseBytes != nil,
+                  let limit = maxDatabaseBytes, limit > 0, remainingBytes != nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .databaseBytes, in: values,
+                    debugDescription: "Неполные данные ёмкости SQLite"
+                )
+            }
+        }
+    }
+}
+
 public struct PlatformArchiveExport: Equatable {
     public let sessionId: String
     public let fileURL: URL
@@ -354,6 +423,8 @@ public struct PlatformSnapshot: Equatable {
     public var taskSchedulerError: String?
     public var taskSchedulerTasks: [PlatformControlTask] = []
     public var taskSchedulerTasksError: String?
+    public var archiveCapacity: PlatformArchiveCapacity?
+    public var archiveCapacityError: String?
     public var analytics: PlatformAnalyticsSummary?
     public var analyticsError: String?
     public var workflowErrors: [String] = []
@@ -423,33 +494,75 @@ private func platformArchiveCount(_ response: URLResponse, name: String) throws 
     return value
 }
 
+private struct PlatformArchiveHeader: Decodable {
+    let format: String
+    let formatVersion: Int
+    let sessionID: String
+
+    private enum CodingKeys: String, CodingKey {
+        case format
+        case formatVersion = "format_version"
+        case sessionID = "session_id"
+    }
+}
+
 private func platformValidateNDJSON(
     at fileURL: URL, sessionID: String, sweeps: Int, observations: Int
 ) throws {
     let handle = try FileHandle(forReadingFrom: fileURL)
     defer { try? handle.close() }
-    var header: [String: Any]?
+    // Keep only a chunk plus the current record in memory; the archive remains on disk.
+    var hasHeader = false
     var tail = Data()
     var sweepCount = 0
     var observationCount = 0
     while true {
         let chunk = try handle.read(upToCount: 256 * 1024) ?? Data()
         if chunk.isEmpty { break }
-        var lines = (tail + chunk).split(separator: 0x0A)
+        var lines = (tail + chunk).split(separator: 0x0A, omittingEmptySubsequences: false)
         tail = lines.removeLast()
         for line in lines {
-            if header == nil {
-                header = try JSONSerialization.jsonObject(with: line, options: []) as? [String: Any]
+            // Blank JSON whitespace lines are accepted by the archive-stream importer.
+            if line.allSatisfy({ $0 == 0x20 || $0 == 0x09 || $0 == 0x0D }) { continue }
+            let record: [String: Any]
+            do {
+                guard let object = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                    throw PlatformError.invalidResponse("Строка NDJSON должна быть JSON-объектом")
+                }
+                record = object
+            } catch {
+                throw PlatformError.invalidResponse("Некорректная JSON-строка NDJSON")
             }
-            let text = String(decoding: line, as: UTF8.self)
-            if text.contains(#""kind":"sweep""#) { sweepCount += 1 }
-            if text.contains(#""kind":"observation""#) { observationCount += 1 }
+            if !hasHeader {
+                // Typed decoding rejects JSON booleans that NSNumber can bridge to Int.
+                guard Set(record.keys) == Set(["format", "format_version", "session_id"]),
+                      let header = try? JSONDecoder().decode(PlatformArchiveHeader.self, from: Data(line)),
+                      header.format == "openradioinspector-archive-ndjson",
+                      header.formatVersion == 1, header.sessionID == sessionID else {
+                    throw PlatformError.invalidResponse("Некорректный header NDJSON snapshot")
+                }
+                hasHeader = true
+                continue
+            }
+            guard Set(record.keys) == Set(["kind", "measurement"]),
+                  let measurement = record["measurement"] as? [String: Any],
+                  let id = measurement["id"] as? String,
+                  !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw PlatformError.invalidResponse("Некорректная запись NDJSON")
+            }
+            // The stream contract permits an omitted/null session_id, but not a foreign one.
+            if let supplied = measurement["session_id"], !(supplied is NSNull),
+               supplied as? String != sessionID {
+                throw PlatformError.invalidResponse("Сеанс измерения NDJSON не совпадает с выбранным")
+            }
+            switch record["kind"] as? String {
+            case "sweep": sweepCount += 1
+            case "observation": observationCount += 1
+            default: throw PlatformError.invalidResponse("Неизвестный kind записи NDJSON")
+            }
         }
     }
-    guard tail.isEmpty, let header,
-          header["format"] as? String == "openradioinspector-archive-ndjson",
-          header["format_version"] as? Int == 1,
-          header["session_id"] as? String == sessionID else {
+    guard tail.isEmpty, hasHeader else {
         throw PlatformError.invalidResponse("Некорректный NDJSON snapshot")
     }
     guard sweepCount == sweeps, observationCount == observations else {
@@ -609,6 +722,10 @@ public final class PlatformClient {
         try await measurements(kind: "observations", sessionID: sessionID, streamID: streamID)
     }
 
+    public func archiveCapacity() async throws -> PlatformArchiveCapacity {
+        try await get("/archive/capacity")
+    }
+
     public func analyticsSummary(sessionID: String) async throws -> PlatformAnalyticsSummary {
         try await get("/sessions/\(Self.segment(sessionID))/analytics/summary")
     }
@@ -627,7 +744,7 @@ public final class PlatformClient {
             at: temporary, withIntermediateDirectories: true
         )
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let delegate = PlatformDownloadDelegate()
+        let delegate = PlatformDownloadDelegate(stagingURL: temporary.appendingPathComponent("archive.ndjson"))
         let downloadConfiguration: URLSessionConfiguration
         if usesInjectedSession {
             downloadConfiguration = session.configuration
@@ -689,7 +806,10 @@ public final class PlatformClient {
         )
     }
 
-    public func snapshot(sessionID: String) async throws -> PlatformSnapshot {
+    // UI clients that poll global capacity independently can avoid a duplicate request.
+    public func snapshot(
+        sessionID: String, includeArchiveCapacity: Bool = true
+    ) async throws -> PlatformSnapshot {
         let session = try await getSession(sessionID)
         async let workersRequest: [PlatformWorker] = get(
             "/sessions/\(Self.segment(sessionID))/workers"
@@ -763,6 +883,15 @@ public final class PlatformClient {
             schedulerTasks = []
             schedulerTasksError = error.localizedDescription
         }
+        var capacity: PlatformArchiveCapacity?
+        var capacityError: String?
+        if includeArchiveCapacity {
+            do {
+                capacity = try await archiveCapacity()
+            } catch {
+                capacityError = error.localizedDescription
+            }
+        }
         return try await PlatformSnapshot(
             session: session, workers: workersRequest,
             sweeps: sweepsRequest, observations: observationsRequest,
@@ -772,6 +901,7 @@ public final class PlatformClient {
             automaticCompletion: completion,
             taskScheduler: scheduler, taskSchedulerError: schedulerError,
             taskSchedulerTasks: schedulerTasks, taskSchedulerTasksError: schedulerTasksError,
+            archiveCapacity: capacity, archiveCapacityError: capacityError,
             workflowErrors: workflowErrors
         )
     }

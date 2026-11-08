@@ -11,6 +11,7 @@ from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from ..contracts import CONTRACT_NAME, CONTRACT_VERSION
+from .archive_capacity import validate_archive_capacity
 
 MAX_RESPONSE_BYTES = 2_000_000
 
@@ -47,6 +48,8 @@ class PlatformSnapshot:
     task_scheduler_tasks_error: Optional[str] = None
     sweeps: list[dict[str, Any]] = field(default_factory=list)
     spectrum_stream_id: Optional[str] = None
+    archive_capacity: Optional[dict[str, Any]] = None
+    archive_capacity_error: Optional[str] = None
 
 
 def _segment(value: str, name: str) -> str:
@@ -319,6 +322,13 @@ class PlatformClient:
         session = _segment(session_id, "session_id")
         return self._post(f"/sessions/{session}/automatic-completion", payload)
 
+    def archive_capacity(self) -> dict[str, Any]:
+        data = self._request("GET", "/archive/capacity")
+        try:
+            return validate_archive_capacity(data)
+        except ValueError as exc:
+            raise PlatformClientError(str(exc), code="invalid_archive_capacity") from exc
+
     def task_scheduler(self) -> dict[str, Any]:
         return self._request("GET", "/task-scheduler")
 
@@ -374,6 +384,12 @@ class PlatformClient:
         health = self.health()
         capabilities = self.capabilities()
         sessions = self.list_sessions()
+        capacity = None
+        capacity_error = None
+        try:
+            capacity = self.archive_capacity()
+        except PlatformClientError as exc:
+            capacity_error = str(exc)
         scheduler_status = None
         scheduler_error = None
         scheduler_tasks: list[dict[str, Any]] = []
@@ -391,6 +407,8 @@ class PlatformClient:
                 health,
                 capabilities,
                 sessions,
+                archive_capacity=capacity,
+                archive_capacity_error=capacity_error,
                 task_scheduler=scheduler_status,
                 task_scheduler_error=scheduler_error,
                 task_scheduler_tasks=scheduler_tasks,
@@ -413,6 +431,8 @@ class PlatformClient:
             automatic_handoff=self.automatic_handoff(session_id),
             automatic_detection=self.automatic_detection(session_id),
             automatic_completion=self.automatic_completion(session_id),
+            archive_capacity=capacity,
+            archive_capacity_error=capacity_error,
             task_scheduler=scheduler_status,
             task_scheduler_error=scheduler_error,
             task_scheduler_tasks=scheduler_tasks,

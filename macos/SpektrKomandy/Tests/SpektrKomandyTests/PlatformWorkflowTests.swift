@@ -21,7 +21,7 @@ final class PlatformWorkflowTests: XCTestCase {
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
             do {
-                guard let (response, data) = try Self.handler?(request) else {
+                guard let (response, data) = try Self.handler?(bufferedTestRequest(request)) else {
                     throw PlatformError.connection("Нет заглушки")
                 }
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -469,6 +469,11 @@ final class PlatformWorkflowTests: XCTestCase {
         XCTAssertTrue(text.contains("dBm"))
         XCTAssertTrue(text.contains("s_meter_count"))
 
+        // A second valid download atomically replaces an existing destination.
+        try "old".write(to: destination, atomically: true, encoding: .utf8)
+        _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), text)
+
         let incomplete = try self.client { request in
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: 200, httpVersion: nil,
@@ -486,6 +491,94 @@ final class PlatformWorkflowTests: XCTestCase {
             XCTFail("Incomplete snapshot должен быть отклонён")
         } catch PlatformError.invalidResponse {
             XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "old")
+        }
+    }
+    func testArchiveExportPreservesDestinationOnInvalidNDJSON() async throws {
+        let header = #"{"format":"openradioinspector-archive-ndjson","format_version":1,"session_id":"s/1"}"#
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-invalid-export-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = folder.appendingPathComponent("archive.ndjson")
+        for body in ["not-json\n", header, header.replacingOccurrences(of: "s/1", with: "wrong") + "\n"] {
+            let client = try client { request in
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/x-ndjson",
+                                   "X-Archive-Sweeps": "0", "X-Archive-Observations": "0"]
+                )!
+                return (response, Data(body.utf8))
+            }
+            try "existing archive".write(to: destination, atomically: true, encoding: .utf8)
+            do {
+                _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+                XCTFail("Invalid NDJSON must not replace the destination")
+            } catch {
+                XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "existing archive")
+            }
+        }
+    }
+    func testArchiveExportParsesTopLevelKindsAndPreservesDestinationForInvalidRows() async throws {
+        let header = #"{"format":"openradioinspector-archive-ndjson","format_version":1,"session_id":"s/1"}"# + "\n"
+        // Cross a 256 KiB read boundary and keep a nested kind that must not affect counts.
+        let nested = """
+        {"kind": "sweep", "measurement": {"id":"sw/1","session_id":"s/1","level_unit":"dBm","settings":{"kind":"observation","note":"\(String(repeating: "x", count: 300_000))"}}}
+        """ + "\n"
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ori-record-export-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = folder.appendingPathComponent("archive.ndjson")
+        var body = " \t\r\n" + header + "\n" + nested + " \t\n"
+        var observations = 0
+        let client = try client { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil,
+                headerFields: ["Content-Type": "application/x-ndjson",
+                               "X-Archive-Sweeps": "1", "X-Archive-Observations": String(observations)]
+            )!
+            return (response, Data(body.utf8))
+        }
+        _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+        XCTAssertEqual(try Data(contentsOf: destination), Data(body.utf8), "Export must preserve original bytes")
+
+        let invalidRows = [
+            "{\"kind\":\"sweep\"\n",
+            #"{"kind":"unknown","measurement":{"id":"x"}}"# + "\n",
+            #"{"kind":"sweep","measurement":null}"# + "\n",
+            #"{"kind":"sweep"}"# + "\n",
+            #"{"kind":"sweep","measurement":{"id":"x","session_id":"foreign"}}"# + "\n",
+            #"{"kind":"sweep","measurement":{"id":"x","session_id":42}}"# + "\n",
+            #"{"kind":"sweep","measurement":{"id":""}}"# + "\n",
+            "[]\n",
+        ]
+        for row in invalidRows {
+            body = header + row
+            try "existing archive".write(to: destination, atomically: true, encoding: .utf8)
+            do {
+                _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+                XCTFail("Invalid measurement row must be rejected")
+            } catch PlatformError.invalidResponse {
+                XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "existing archive")
+            }
+        }
+        body = header.replacingOccurrences(of: "\"format_version\":1", with: "\"format_version\":true") + nested
+        try "existing archive".write(to: destination, atomically: true, encoding: .utf8)
+        do {
+            _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+            XCTFail("Boolean format_version must not be accepted as integer 1")
+        } catch PlatformError.invalidResponse {
+            XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "existing archive")
+        }
+        // A nested observation cannot satisfy a missing top-level observation.
+        body = header + nested
+        observations = 1
+        try "existing archive".write(to: destination, atomically: true, encoding: .utf8)
+        do {
+            _ = try await client.exportArchive(sessionID: "s/1", destination: destination)
+            XCTFail("Nested metadata must not satisfy archive counters")
+        } catch PlatformError.invalidResponse {
+            XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "existing archive")
         }
     }
     #endif

@@ -444,6 +444,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         port=args.port,
         database=args.database,
         session_database=args.session_database,
+        archive_max_bytes=args.archive_max_bytes,
     )
     return 0
 
@@ -634,6 +635,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--session-database",
         help="SQLite-архив общих сеансов и измерений; без него используется память",
     )
+    p.add_argument(
+        "--archive-max-bytes", type=int,
+        help="положительный лимит логического объёма SQLite в байтах; требует "
+             "--session-database; без опции лимита нет, автоматического удаления нет",
+    )
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser(
@@ -656,6 +662,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.func is cmd_serve and args.archive_max_bytes is not None:
+        if args.archive_max_bytes <= 0:
+            parser.error("--archive-max-bytes должен быть положительным целым числом")
+        if not args.session_database:
+            parser.error("--archive-max-bytes требует --session-database")
     return int(args.func(args) or 0)
 
 

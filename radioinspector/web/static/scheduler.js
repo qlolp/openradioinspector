@@ -17,7 +17,12 @@
     status: null,
     tasks: [],
     error: null,
+    tasksError: null,
+    suspended: false,
     actionPending: false,
+    actionRequest: null,
+    pendingReads: {},
+    readRequests: new Set(),
     generation: 0,
     timer: null,
   };
@@ -32,7 +37,30 @@
   }
 
   async function api(path, options = {}) {
+    // Only read-only polling has a deadline. Never cancel or retry a POST whose
+    // outcome might already have changed server state.
+    if (options.method && options.method !== "GET") return requestApi(path, options);
+    const read = { controller: new AbortController(), timer: null };
+    state.readRequests.add(read);
+    const deadline = new Promise((_, reject) => {
+      read.timer = window.setTimeout(() => {
+        read.controller.abort();
+        reject(new ApiError("Таймаут запроса (6 с)", "request_timeout"));
+      }, 6000);
+    });
+    try {
+      return await Promise.race([
+        requestApi(path, { ...options, signal: read.controller.signal }), deadline,
+      ]);
+    } finally {
+      window.clearTimeout(read.timer);
+      state.readRequests.delete(read);
+    }
+  }
+
+  async function requestApi(path, options = {}) {
     const request = { method: options.method || "GET", headers: { Accept: "application/json" } };
+    if (options.signal) request.signal = options.signal;
     if (options.body !== undefined) {
       request.headers["Content-Type"] = "application/json";
       request.body = JSON.stringify(options.body);
@@ -60,6 +88,67 @@
     return payload.data;
   }
 
+  function invalidateReads() {
+    state.generation += 1;
+    state.pendingReads = {};
+    for (const read of state.readRequests) read.controller.abort();
+  }
+
+  function refreshPart(key, load, apply) {
+    if (state.pendingReads[key]) return state.pendingReads[key].promise;
+    const generation = state.generation;
+    const pending = { promise: null };
+    state.pendingReads[key] = pending;
+    const current = () => generation === state.generation && !state.actionPending && !state.suspended;
+    pending.promise = load().then((value) => {
+      if (current()) apply(value, null);
+    }, (error) => {
+      if (current()) apply(null, error.message);
+    }).finally(() => {
+      if (state.pendingReads[key] === pending) delete state.pendingReads[key];
+    });
+    return pending.promise;
+  }
+
+  function refreshScheduler() {
+    if (state.actionPending || state.suspended) return Promise.resolve();
+    // Each endpoint coalesces independently and renders immediately on completion.
+    // A slow task list cannot starve status polling, or vice versa.
+    return Promise.allSettled([
+      refreshPart("status", () => api("/task-scheduler").then((value) => {
+        if (!value || typeof value.enabled !== "boolean") {
+          throw new ApiError("Некорректный статус scheduler", "invalid_response");
+        }
+        return value;
+      }), (value, error) => {
+        state.status = value;
+        state.error = error;
+        renderScheduler();
+      }),
+      refreshPart("tasks", () => api("/task-scheduler/tasks").then((value) => {
+        if (!value || !Array.isArray(value.items) || value.count !== value.items.length ||
+            value.items.some((task) => !task || typeof task.name !== "string" || typeof task.status !== "string")) {
+          throw new ApiError("Некорректный список ControlTask", "invalid_response");
+        }
+        return value.items;
+      }), (value, error) => {
+        state.tasks = value || [];
+        state.tasksError = error;
+        renderScheduler();
+      }),
+    ]);
+  }
+
+  function finishAction(action) {
+    if (state.actionRequest !== action) return;
+    state.actionRequest = null;
+    state.actionPending = false;
+    if (!state.suspended) {
+      renderScheduler();
+      if (action.generation !== state.generation) refreshScheduler();
+    }
+  }
+
   function renderScheduler() {
     const status = state.status;
     const enabled = Boolean(status?.enabled);
@@ -85,6 +174,13 @@
 
   function renderTasks() {
     dom.list.replaceChildren();
+    if (state.tasksError) {
+      const error = document.createElement("p");
+      error.className = "empty-state";
+      error.textContent = `Список ControlTask недоступен: ${state.tasksError}. Статус scheduler обновляется независимо.`;
+      dom.list.append(error);
+      return;
+    }
     if (!state.tasks.length) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
@@ -117,10 +213,12 @@
   }
 
   async function cancelTask(name) {
-    if (state.actionPending) return;
+    if (state.actionPending || state.suspended) return;
     state.actionPending = true;
-    state.generation += 1;
+    invalidateReads();
     const generation = state.generation;
+    const action = { generation };
+    state.actionRequest = action;
     state.error = null;
     renderScheduler();
     try {
@@ -128,6 +226,7 @@
         method: "POST", body: {},
       });
       if (generation !== state.generation) return;
+      state.actionRequest = null;
       state.actionPending = false;
       await refreshScheduler();
     } catch (error) {
@@ -135,18 +234,17 @@
       state.error = error.message;
       renderScheduler();
     } finally {
-      if (generation === state.generation) {
-        state.actionPending = false;
-        renderScheduler();
-      }
+      finishAction(action);
     }
   }
 
   async function configureScheduler(enabled) {
-    if (state.actionPending) return;
+    if (state.actionPending || state.suspended) return;
     state.actionPending = true;
-    state.generation += 1;
+    invalidateReads();
     const generation = state.generation;
+    const action = { generation };
+    state.actionRequest = action;
     state.error = null;
     renderScheduler();
     try {
@@ -159,10 +257,7 @@
       if (generation !== state.generation) return;
       state.error = error.message;
     } finally {
-      if (generation === state.generation) {
-        state.actionPending = false;
-        renderScheduler();
-      }
+      finishAction(action);
     }
   }
 
@@ -181,6 +276,16 @@
   });
   window.addEventListener("ori:tasks-changed", () => refreshScheduler());
   state.timer = window.setInterval(refreshScheduler, 2000);
-  window.addEventListener("pagehide", () => window.clearInterval(state.timer));
+  window.addEventListener("pagehide", () => {
+    state.suspended = true;
+    invalidateReads();
+    window.clearInterval(state.timer);
+  });
+  window.addEventListener("pageshow", () => {
+    if (!state.suspended) return;
+    state.suspended = false;
+    state.timer = window.setInterval(refreshScheduler, 2000);
+    refreshScheduler();
+  });
   refreshScheduler();
 })();

@@ -28,7 +28,7 @@ final class PlatformAPITests: XCTestCase {
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
             do {
-                guard let (response, data) = try Self.handler?(request) else {
+                guard let (response, data) = try Self.handler?(bufferedTestRequest(request)) else {
                     throw PlatformError.connection("Нет заглушки")
                 }
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -67,6 +67,169 @@ final class PlatformAPITests: XCTestCase {
       {"id":"ar/dv1","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count","state":"connected","capabilities":["tune"]}
     ]}
     """
+
+    private func capacityJSON(
+        state: String = "warning", storage: String = "sqlite", size: String = "900",
+        limit: String = "1000", remaining: String = "100", blocked: Bool = false
+    ) -> String {
+        """
+        {"storage_mode":"\(storage)","database_bytes":\(size),"max_database_bytes":\(limit),"remaining_bytes":\(remaining),"state":"\(state)","warning_threshold":0.9,"measurement_writes_blocked":\(blocked),"automatic_deletion":false}
+        """
+    }
+
+    func testArchiveCapacityUsesGlobalEndpointAndDecodesAllStates() async throws {
+        for state in ["unlimited", "ok", "warning", "full", "unavailable"] {
+            let limited = ["ok", "warning", "full"].contains(state)
+            let size: Int64? = state == "unavailable" ? nil : (state == "full" ? 1000 : (state == "ok" ? 500 : 900))
+            let remaining = limited ? 1000 - (size ?? 0) : nil
+            let body = capacityJSON(
+                state: state, storage: state == "unavailable" ? "memory" : "sqlite",
+                size: size.map(String.init) ?? "null",
+                limit: limited ? "1000" : "null", remaining: remaining.map(String.init) ?? "null",
+                blocked: state == "full"
+            )
+            let client = try client { request in
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.url?.absoluteString, "https://example.test/root/api/v1/archive/capacity")
+                XCTAssertNil(request.httpBody)
+                return (self.response(request.url!), self.envelope(body))
+            }
+            let capacity = try await client.archiveCapacity()
+            XCTAssertEqual(capacity.state.rawValue, state)
+            XCTAssertEqual(capacity.storageMode, state == "unavailable" ? .memory : .sqlite)
+            XCTAssertEqual(capacity.databaseBytes, size)
+            XCTAssertEqual(capacity.maxDatabaseBytes, limited ? 1000 : nil)
+            XCTAssertEqual(capacity.remainingBytes, remaining)
+            XCTAssertEqual(capacity.measurementWritesBlocked, state == "full")
+            XCTAssertEqual(capacity.warningThreshold, 0.9)
+            XCTAssertFalse(capacity.automaticDeletion)
+        }
+    }
+
+    func testArchiveCapacityRejectsMalformedNumbersAndState() async throws {
+        for body in [capacityJSON(size: "-1"), capacityJSON(size: "0.5"),
+                     capacityJSON(limit: "-10"), capacityJSON(remaining: "-1"),
+                     capacityJSON(state: "unknown"),
+                     capacityJSON().replacingOccurrences(of: "0.9", with: "1.9")] {
+            let client = try client { request in
+                (self.response(request.url!), self.envelope(body))
+            }
+            await XCTAssertThrowsPlatformError(try await client.archiveCapacity())
+        }
+    }
+
+    private var unsupportedCapacityPolicies: [String] {
+        [capacityJSON().replacingOccurrences(of: "\"automatic_deletion\":false", with: "\"automatic_deletion\":true"),
+         capacityJSON().replacingOccurrences(of: "0.9", with: "0.8")]
+    }
+
+    private var incompleteLimitedCapacities: [String] {
+        ["ok", "warning", "full"].flatMap { state in
+            let valid = capacityJSON(state: state, blocked: state == "full")
+            return [
+                capacityJSON(state: state, size: "null"),
+                capacityJSON(state: state, limit: "null"),
+                capacityJSON(state: state, remaining: "null"),
+                capacityJSON(state: state, limit: "0"),
+                capacityJSON(state: state, storage: "memory"),
+                valid.replacingOccurrences(of: "\"database_bytes\":900,", with: ""),
+                valid.replacingOccurrences(of: "\"max_database_bytes\":1000,", with: ""),
+                valid.replacingOccurrences(of: "\"remaining_bytes\":100,", with: ""),
+            ]
+        }
+    }
+
+    func testArchiveCapacityRejectsUnsupportedPolicy() async throws {
+        for body in unsupportedCapacityPolicies {
+            let client = try client { request in
+                (self.response(request.url!), self.envelope(body))
+            }
+            await XCTAssertThrowsPlatformError(try await client.archiveCapacity())
+        }
+    }
+
+    func testArchiveCapacityRequiresCompleteLimitedSQLiteCounts() async throws {
+        for body in incompleteLimitedCapacities {
+            let client = try client { request in
+                (self.response(request.url!), self.envelope(body))
+            }
+            await XCTAssertThrowsPlatformError(try await client.archiveCapacity())
+        }
+        // Nullable does not mean optional: all byte-count keys must still be present.
+        let unavailable = capacityJSON(state: "unavailable", storage: "memory", size: "null",
+                                       limit: "null", remaining: "null")
+        for key in ["database_bytes", "max_database_bytes", "remaining_bytes"] {
+            let body = unavailable.replacingOccurrences(of: "\"\(key)\":null,", with: "")
+            let client = try client { request in
+                (self.response(request.url!), self.envelope(body))
+            }
+            await XCTAssertThrowsPlatformError(try await client.archiveCapacity())
+        }
+    }
+
+    func testArchiveCapacitySnapshotIsolatesOldServerAndMalformedResponse() async throws {
+        let cases = [(200, "{}"), (404, "{}"), (500, "{}")]
+            + (unsupportedCapacityPolicies + incompleteLimitedCapacities).map { (200, $0) }
+        for (status, body) in cases {
+            let client = try client { request in
+                let path = request.url!.path
+                if path.hasSuffix("/archive/capacity") {
+                    return (self.response(request.url!, status: status),
+                            status == 200 ? self.envelope(body) :
+                            Data(#"{"error":{"code":"unavailable","message":"capacity unavailable"}}"#.utf8))
+                }
+                if path.hasSuffix("/workers") || path.hasSuffix("/sweeps") || path.hasSuffix("/observations")
+                    || path.hasSuffix("/candidates") || path.hasSuffix("/investigations") {
+                    return (self.response(request.url!), self.envelope("[]"))
+                }
+                if path.hasSuffix("/investigations/next") {
+                    return (self.response(request.url!), self.envelope("null"))
+                }
+                if path.hasSuffix("/task-scheduler") {
+                    return (self.response(request.url!), self.envelope(#"{"enabled":false,"scheduler_alive":false,"policy_persistent":false,"restart_requires_opt_in":true,"runtime":{},"tasks":{"total":0,"running":0,"completed":0}}"#))
+                }
+                if path.hasSuffix("/task-scheduler/tasks") {
+                    return (self.response(request.url!), self.envelope(#"{"items":[],"count":0}"#))
+                }
+                if path.contains("/automatic-") {
+                    return (self.response(request.url!), self.envelope(#"{"policy":{"enabled":false},"runtime":{},"scheduler_alive":false,"policy_persistent":false,"restart_requires_opt_in":true}"#))
+                }
+                return (self.response(request.url!), self.envelope(self.sessionJSON))
+            }
+            let snapshot = try await client.snapshot(sessionID: "session/old")
+            XCTAssertEqual(snapshot.session.id, "session/old")
+            XCTAssertTrue(snapshot.sweeps.isEmpty)
+            XCTAssertTrue(snapshot.observations.isEmpty)
+            XCTAssertTrue(snapshot.workflowErrors.isEmpty)
+            XCTAssertNotNil(snapshot.taskScheduler)
+            XCTAssertNil(snapshot.taskSchedulerError)
+            XCTAssertNil(snapshot.taskSchedulerTasksError)
+            XCTAssertNil(snapshot.archiveCapacity)
+            XCTAssertNotNil(snapshot.archiveCapacityError)
+        }
+    }
+
+    func testArchiveCapacityIncludedInSnapshotOrExplicitlyPolledSeparately() async throws {
+        var capacityRequests = 0
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/archive/capacity") {
+                capacityRequests += 1
+                return (self.response(request.url!), self.envelope(self.capacityJSON()))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/sweeps") || path.hasSuffix("/observations") {
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            return (self.response(request.url!), self.envelope(self.sessionJSON))
+        }
+        let snapshot = try await client.snapshot(sessionID: "session/old")
+        XCTAssertEqual(snapshot.archiveCapacity?.state, .warning)
+        XCTAssertNil(snapshot.archiveCapacityError)
+        let separate = try await client.snapshot(sessionID: "session/old", includeArchiveCapacity: false)
+        XCTAssertNil(separate.archiveCapacity)
+        XCTAssertNil(separate.archiveCapacityError)
+        XCTAssertEqual(capacityRequests, 1)
+    }
 
     func testBaseURLNormalizationAndValidation() throws {
         XCTAssertEqual(
@@ -274,6 +437,30 @@ final class PlatformAPITests: XCTestCase {
         XCTAssertEqual(completions, 1)
     }
 
+    func testDownloadDelegateRetainsFileAndFinishesOnlyOnce() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let temporary = folder.appendingPathComponent("system-download")
+        let staged = folder.appendingPathComponent("owned-download")
+        try Data("snapshot\n".utf8).write(to: temporary)
+        let delegate = PlatformDownloadDelegate(stagingURL: staged)
+        var completions = 0
+        delegate.completion = { _, location, error in
+            completions += 1
+            XCTAssertEqual(location, staged)
+            XCTAssertNil(error)
+        }
+        let session = URLSession(configuration: .ephemeral)
+        sessions.append(session)
+        let task = session.downloadTask(with: URL(string: "https://example.test/archive")!)
+        delegate.urlSession(session, downloadTask: task, didFinishDownloadingTo: temporary)
+        delegate.urlSession(session, task: task, didCompleteWithError: nil)
+        XCTAssertEqual(completions, 1)
+        XCTAssertEqual(try String(contentsOf: staged, encoding: .utf8), "snapshot\n")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary.path))
+    }
+
     func testDefaultClientCancellationStopsRealHTTPRequest() async throws {
         let logPath = "/tmp/ori-cancel-\(UUID().uuidString).log"
         let script = """
@@ -295,6 +482,22 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 print(server.server_address[1], flush=True)
 server.serve_forever()
 """
+        // Darwin forbids fork() from Swift; preserve the Linux harness and spawn safely on macOS.
+        #if canImport(Darwin)
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", "-c", script]
+        process.standardOutput = output
+        try process.run()
+        try output.fileHandleForWriting.close()
+        let descriptors = [output.fileHandleForReading.fileDescriptor]
+        defer {
+            if process.isRunning { process.terminate() }
+            process.waitUntilExit()
+            try? output.fileHandleForReading.close()
+        }
+        #else
         var descriptors: [Int32] = [-1, -1]
         XCTAssertEqual(pipe(&descriptors), 0)
         let arguments = ["env", "python3", "-c", script].map {
@@ -323,8 +526,9 @@ server.serve_forever()
             close(descriptors[0])
             kill(pid, SIGKILL)
             _ = waitpid(pid, nil, 0)
-            try? FileManager.default.removeItem(atPath: logPath)
         }
+        #endif
+        defer { try? FileManager.default.removeItem(atPath: logPath) }
         var readiness = pollfd(fd: descriptors[0], events: Int16(POLLIN), revents: 0)
         guard poll(&readiness, 1, 5000) == 1 else {
             XCTFail("HTTP-сервер не сообщил готовность за 5 секунд")

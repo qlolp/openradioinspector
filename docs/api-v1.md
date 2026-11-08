@@ -20,6 +20,7 @@ API предназначен для Raspberry Pi WebUI, Windows GUI, macOS и д
 |---|---|---|
 | `GET` | `/api/v1/health` | Состояние службы, число сеансов, последний ID события |
 | `GET` | `/api/v1/capabilities` | Фактические возможности и режим хранения |
+| `GET` | `/api/v1/archive/capacity` | Глобальный размер SQLite, предел и предупреждение |
 | `GET`, `POST` | `/api/v1/task-scheduler` | Глобальный runtime-only TaskScheduler, статус и opt-in |
 | `GET`, `POST` | `/api/v1/task-scheduler/tasks` | Read-only список и создание ControlTask в текущей TaskBook |
 | `POST` | `/api/v1/task-scheduler/tasks/{name}/cancel` | Отмена queued-задачи без остановки приборов |
@@ -156,7 +157,7 @@ HTTP работает в одном фоновом executor, обновлени�
 
 Существующее окно `macos/DvoynoyObzor` подключается к ядру через `SpektrKomandy/PlatformAPI.swift`. Оно использует `GET /sessions`, детали сеанса, `/workers`, `/sweeps?stream_id=…&limit=40`, `/observations?stream_id=…&limit=40`, кандидатов, очередь исследований, рекомендацию `next` и GET обеих автоматических политик. Команды охватывают создание сеанса, start/stop сеанса, всех workers и независимых потоков, `tune` только receiver, создание/отклонение кандидата и постановку в очередь, ручной и подтверждённый полуавтоматический handoff, complete/fail/cancel и изменение независимых политик. Базовый URL проверяется так же, как в Windows-клиенте; ID в путях и query кодируются, конверт и версия ответа обязательны. Ответ ограничен 2 МБ после загрузки.
 
-Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. `RemoteAnalyticsPane` запрашивает `/analytics/summary` только по кнопке; routine `PlatformClient.snapshot()` этот endpoint не вызывает. Явный запрос защищён `archiveAnalyticsPending` и generation, а polling не перезаписывает полученную сводку. Исходные `dBm` и `s_meter_count` разделены, ошибка изолирована. Подробности в [`macos-analytics.md`](macos-analytics.md). Пакет `SpektrKomandy` компилируется реальным Swift 6.0.3, все 53 его XCTest проходят; полное AppKit-приложение и Xcode-схема требуют macOS.
+Создание обычного сеанса не назначает adapter или port. Отдельная кнопка явно создает `tinysa-sim` и `ardv1-sim`; это не аппаратная проверка. Другая отдельная кнопка «Новый serial» требует два разных порта и назначает `tinysa-serial` и `ardv1-serial` с числовыми настройками спектра и receiver. Она не выбирает адаптер автоматически, не объявляет `hardware_decode` и не подтверждает аппаратный стенд. Спектр и водопад используют только архивные `dBm` sweeps, а панель AR-DV1 показывает исходные `s_meter_count`, режим, шумодав и временной интервал. Кандидат создаётся из фактического пика sweep с интервалом и ID измерения, без выдуманной полосы. Start-next отправляет актуальный ID с `confirm=true`. Выключение каждой политики отправляет только `enabled=false`, сброс фильтра receiver/analyzer кодируется явным `null`. Ошибка одного workflow-списка изолируется и не блокирует workers/sweeps/observations. Polling отбрасывает ответ прежнего `session_id`. Закрытие окна отменяет только клиентский polling и не останавливает ядро. `RemoteAnalyticsPane` запрашивает `/analytics/summary` только по кнопке; routine `PlatformClient.snapshot()` этот endpoint не вызывает. Явный запрос защищён `archiveAnalyticsPending` и generation, а polling не перезаписывает полученную сводку. Исходные `dBm` и `s_meter_count` разделены, ошибка изолирована. Подробности в [`macos-analytics.md`](macos-analytics.md). Пакет `SpektrKomandy`, native session/transport XCTest и полная Xcode-сборка проверены на macOS arm64 без подписи; аппаратный стенд не проводился.
 
 ## Независимые исполнители и симуляторы
 
@@ -593,3 +594,16 @@ queued / tuning / listening → cancelled
 ID кандидата и исследования в URL кодируются как один сегмент и декодируются ровно один раз, как ID сеанса и потока. Неизвестные объекты возвращают HTTP 404 с кодами `candidate_not_found` и `investigation_not_found`.
 
 `hardware_control=true` и `hardware_validation_not_run=true`: автоматическое обнаружение, ручной, полуавтоматический и автоматический handoff и модели архива проверены на синтетических sweeps и симуляторах, а явные serial-адаптеры — на scripted transport. Это не означает подключение или аппаратную проверку физических tinySA Ultra/AR-DV1.
+
+## Ограничение роста SQLite-архива
+
+`--archive-max-bytes` вместе с `--session-database` включает проверку логического
+размера SQLite до и после записи каждого пакета измерений. Превышение возвращает
+HTTP 507 `archive_capacity_exceeded`; весь пакет и его события откатываются,
+старые данные не удаляются. `/api/v1/archive/capacity` доступен без выбранного
+сеанса, показывает предупреждение от 90% и полный предел от 100%. Три клиента
+показывают этот статус независимо от live-измерений.
+
+Это ограничитель приёма измерений, а не жёсткая квота файловой системы: WAL и
+временные копии не учитываются, служебные записи остаются разрешены. Поля,
+команда запуска и границы описаны в [archive-capacity.md](archive-capacity.md).

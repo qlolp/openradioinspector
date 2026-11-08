@@ -62,6 +62,9 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            RemoteArchiveCapacityPane(model: model)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             Divider()
             VSplitView {
                 HSplitView {
@@ -132,6 +135,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskCreatePending = false
     @Published var taskCancelStatus = "Queued ControlTask не отменена"
     @Published var taskCancelPending = false
+    @Published var archiveCapacity: PlatformArchiveCapacity?
+    @Published var archiveCapacityError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
     @Published var archiveAnalyticsError: String?
     @Published var archiveAnalyticsPending = false
@@ -157,6 +162,9 @@ final class RemoteDualModel: ObservableObject {
     @Published var receiverPort = "/dev/ttyUSB0"
     @Published var showSerialForm = false
 
+    private let makeClient: (String) throws -> PlatformClient
+    private var connectionGeneration = 0
+    private var capacityRequestRevision = 0
     private var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
     private var generation = 0
@@ -165,6 +173,10 @@ final class RemoteDualModel: ObservableObject {
     private var handoffFormInitialized = false
     private var completionFormInitialized = false
     private var taskSchedulerCommandRevision = 0
+
+    init(makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) }) {
+        self.makeClient = makeClient
+    }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -181,14 +193,17 @@ final class RemoteDualModel: ObservableObject {
         return workers.first(where: { $0.streamId == streamID })
     }
 
-    func connect() {
+    func connect(startPolling: Bool = true) {
         do {
-            client = try PlatformClient(baseURL: serverURL)
+            client = try makeClient(serverURL)
+            connectionGeneration += 1
+            archiveCapacity = nil
+            archiveCapacityError = nil
             connected = true
             errorText = nil
             status = "Сервер подключён; приборные порты остаются у ядра"
             generation += 1
-            startPolling()
+            if startPolling { self.startPolling() }
             Task { await reloadSessions() }
         } catch {
             connected = false
@@ -197,6 +212,10 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func disconnect() {
+        connectionGeneration += 1
+        capacityRequestRevision += 1
+        archiveCapacity = nil
+        archiveCapacityError = nil
         generation += 1
         pollTask?.cancel()
         pollTask = nil
@@ -293,6 +312,38 @@ final class RemoteDualModel: ObservableObject {
 
     func refresh() async {
         guard let client else { return }
+        // Capacity belongs to this server, even when the selected session fails or changes.
+        async let capacityRefresh: Void = refreshArchiveCapacity(client)
+        await refreshSession(client)
+        await capacityRefresh
+    }
+
+    private func refreshArchiveCapacity(_ client: PlatformClient) async {
+        guard self.client === client else { return }
+        let connection = connectionGeneration
+        capacityRequestRevision += 1
+        let revision = capacityRequestRevision
+        do {
+            let capacity = try await client.archiveCapacity()
+            guard connection == connectionGeneration, self.client === client,
+                  revision == capacityRequestRevision else { return }
+            archiveCapacity = capacity
+            archiveCapacityError = nil
+        } catch {
+            guard connection == connectionGeneration, self.client === client,
+                  revision == capacityRequestRevision else { return }
+            // Never display stale capacity as current after an endpoint failure.
+            archiveCapacity = nil
+            if case PlatformError.http(status: 404, code: _, message: _) = error {
+                archiveCapacityError = "Сервер не поддерживает сведения о ёмкости архива (404)"
+            } else {
+                archiveCapacityError = describeSession(error)
+            }
+        }
+    }
+
+    private func refreshSession(_ client: PlatformClient) async {
+        guard self.client === client else { return }
         if selectedSessionID.isEmpty {
             await refreshTaskScheduler(client)
             return
@@ -301,8 +352,8 @@ final class RemoteDualModel: ObservableObject {
         let requestGeneration = generation
         let schedulerRevision = taskSchedulerCommandRevision
         do {
-            let snapshot = try await client.snapshot(sessionID: id)
-            guard requestGeneration == generation, id == selectedSessionID else { return }
+            let snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false)
+            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
             session = snapshot.session
             if let modes = receiver?.tuneModes, !modes.contains(mode) {
                 mode = modes.first ?? "FM"
@@ -313,7 +364,7 @@ final class RemoteDualModel: ObservableObject {
             errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
-            guard requestGeneration == generation, id == selectedSessionID else { return }
+            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
             errorText = describeSession(error)
         }
     }
@@ -351,8 +402,9 @@ final class RemoteDualModel: ObservableObject {
             errorText = "Перестройка доступна только receiver"
             return
         }
+        let requestedMode = mode
         performStreamAction(receiver) {
-            try await $0.tune(sessionID: $1, streamID: receiver.id, frequencyHz: frequencyHz, mode: mode)
+            try await $0.tune(sessionID: $1, streamID: receiver.id, frequencyHz: frequencyHz, mode: requestedMode)
         }
     }
 

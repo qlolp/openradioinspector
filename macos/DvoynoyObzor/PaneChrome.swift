@@ -298,6 +298,77 @@ struct RemoteTaskSchedulerPane: View {
     }
 }
 
+struct RemoteArchiveCapacityPane: View {
+    @ObservedObject var model: RemoteDualModel
+
+    var body: some View {
+        GroupBox("Ёмкость всего архива · сервер") {
+            VStack(alignment: .leading, spacing: 4) {
+                if let capacity = model.archiveCapacity {
+                    HStack {
+                        Label(stateTitle(capacity.state), systemImage: stateIcon(capacity.state))
+                            .foregroundStyle(stateColor(capacity.state))
+                        Text(capacity.storageMode == .sqlite ? "SQLite" : "В памяти")
+                        Text("Размер: \(bytes(capacity.databaseBytes)) · лимит: \(capacity.maxDatabaseBytes.map { bytes($0) } ?? "не задан")")
+                        if let remaining = capacity.remainingBytes {
+                            Text("Осталось: \(bytes(remaining))")
+                        }
+                    }
+                    if capacity.measurementWritesBlocked {
+                        Text("Запись новых измерений заблокирована; сохранённые данные не удаляются.")
+                            .foregroundStyle(.red)
+                    }
+                    if capacity.state == .warning {
+                        Text("Архив заполнен не менее чем на \(Int(capacity.warningThreshold * 100))% лимита.")
+                            .foregroundStyle(.orange)
+                    }
+                    if capacity.storageMode == .memory {
+                        Text("Архив в памяти: размер SQLite и контроль его лимита недоступны.")
+                    }
+                } else {
+                    Text(model.archiveCapacityError.map { "Ёмкость недоступна: \($0)" }
+                         ?? (model.connected ? "Ожидание сведений о ёмкости…" : "Подключитесь к серверу"))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Логический размер SQLite без WAL/SHM, не свободное место диска. Метаданные могут расти сверх лимита. Лимит задаётся CLI сервера; автоматического удаления нет.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func bytes(_ value: Int64?) -> String {
+        value.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .binary) } ?? "недоступен"
+    }
+
+    private func stateTitle(_ state: PlatformArchiveCapacity.State) -> String {
+        switch state {
+        case .unlimited: return "Без ограничения"
+        case .ok: return "В пределах лимита"
+        case .warning: return "Архив близок к лимиту"
+        case .full: return "Лимит архива достигнут"
+        case .unavailable: return "Ёмкость недоступна"
+        }
+    }
+
+    private func stateIcon(_ state: PlatformArchiveCapacity.State) -> String {
+        switch state {
+        case .full, .warning: return "exclamationmark.triangle.fill"
+        case .unavailable: return "questionmark.circle"
+        default: return "externaldrive"
+        }
+    }
+
+    private func stateColor(_ state: PlatformArchiveCapacity.State) -> Color {
+        switch state {
+        case .full: return .red
+        case .warning: return .orange
+        case .unavailable: return .secondary
+        default: return .primary
+        }
+    }
+}
+
 struct RemoteAnalyticsPane: View {
     @ObservedObject var model: RemoteDualModel
 

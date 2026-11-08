@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from .contracts import (
     Candidate,
@@ -27,6 +28,20 @@ from .contracts import (
 )
 
 SCHEMA_VERSION = 2
+ARCHIVE_WARNING_THRESHOLD = 0.9
+
+
+class ArchiveCapacityExceededError(RuntimeError):
+    """Измерение не помещается в логический лимит архива; транзакция отменена."""
+
+    def __init__(self, database_bytes: int, max_database_bytes: int) -> None:
+        self.database_bytes = database_bytes
+        self.max_database_bytes = max_database_bytes
+        super().__init__(
+            "Достигнут лимит SQLite-архива: "
+            f"{database_bytes} байт при лимите {max_database_bytes} байт. "
+            "Измерения и события пакета не записаны; автоматическое удаление отключено."
+        )
 
 
 def _json(value: Any) -> str:
@@ -49,25 +64,85 @@ def _object(value: str) -> dict[str, Any]:
 class SQLiteSessionStore:
     """Потокобезопасное хранилище платформы на стандартном ``sqlite3``."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, *, max_database_bytes: Optional[int] = None) -> None:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("Путь к базе сеансов не должен быть пустым")
+        if max_database_bytes is not None and (
+            isinstance(max_database_bytes, bool)
+            or not isinstance(max_database_bytes, int)
+            or max_database_bytes <= 0
+        ):
+            raise ValueError("max_database_bytes должен быть положительным целым числом")
         self.path = path
+        self.max_database_bytes = max_database_bytes
         if path != ":memory:":
             Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
+        try:
+            with self._lock, self._connection:
+                self._connection.execute("PRAGMA foreign_keys = ON")
+                self._connection.execute("PRAGMA busy_timeout = 5000")
+                self._connection.execute("PRAGMA journal_mode = WAL")
+                self._connection.execute("PRAGMA synchronous = NORMAL")
+                version = self._connection.execute("PRAGMA user_version").fetchone()[0]
+                if version > SCHEMA_VERSION:
+                    raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
+                self._create_schema()
+                self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        except BaseException:
+            self._connection.close()
+            raise
+
+    def _database_bytes_locked(self) -> int:
+        # Logical main-database pages, including schema, indexes and free pages.
+        # This is NOT a filesystem quota: WAL/SHM and metadata may grow further.
+        page_count = self._connection.execute("PRAGMA page_count").fetchone()[0]
+        page_size = self._connection.execute("PRAGMA page_size").fetchone()[0]
+        return int(page_count * page_size)
+
+    def archive_capacity(self) -> dict[str, Any]:
+        """Согласованный снимок логического объёма, без путей и размеров WAL."""
+        with self._lock:
+            size = self._database_bytes_locked()
+            limit = self.max_database_bytes
+            if limit is None:
+                state = "unlimited"
+            elif size >= limit:
+                state = "full"
+            elif size * 10 >= limit * 9:
+                state = "warning"
+            else:
+                state = "ok"
+            return {
+                "storage_mode": "sqlite",
+                "database_bytes": size,
+                "max_database_bytes": limit,
+                "remaining_bytes": None if limit is None else max(0, limit - size),
+                "state": state,
+                "warning_threshold": ARCHIVE_WARNING_THRESHOLD,
+                "measurement_writes_blocked": state == "full",
+                "automatic_deletion": False,
+            }
+
+    def _check_capacity_locked(self, *, before_write: bool) -> None:
+        limit = self.max_database_bytes
+        if limit is None:
+            return
+        size = self._database_bytes_locked()
+        if size > limit or (before_write and size == limit):
+            raise ArchiveCapacityExceededError(size, limit)
+
+    @contextmanager
+    def _measurement_transaction(self) -> Iterator[None]:
         with self._lock, self._connection:
-            self._connection.execute("PRAGMA foreign_keys = ON")
-            self._connection.execute("PRAGMA busy_timeout = 5000")
-            self._connection.execute("PRAGMA journal_mode = WAL")
-            self._connection.execute("PRAGMA synchronous = NORMAL")
-            version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > SCHEMA_VERSION:
-                raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
-            self._create_schema()
-            self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            # Reserve the SQLite writer before reading capacity. Both measurements
+            # and their events roll back if the post-write check rejects growth.
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._check_capacity_locked(before_write=True)
+            yield
+            self._check_capacity_locked(before_write=False)
 
     def _create_schema(self) -> None:
         self._connection.executescript(
@@ -348,7 +423,11 @@ class SQLiteSessionStore:
     def record_sweep(
         self, sweep: Sweep, *, event: Optional[SessionEvent] = None
     ) -> None:
-        self.record_sweeps([sweep], events=[event] if event is not None else [])
+        if event is None:
+            with self._measurement_transaction():
+                self._insert_sweep(sweep)
+        else:
+            self.record_sweeps([sweep], events=[event])
 
     def record_sweeps(
         self, sweeps: list[Sweep], *, events: list[SessionEvent] | tuple[SessionEvent, ...] = ()
@@ -356,7 +435,7 @@ class SQLiteSessionStore:
         """Записывает пакет свипов и их события одной транзакцией."""
         if len(sweeps) != len(events):
             raise ValueError("Число свипов и событий пакета должно совпадать")
-        with self._lock, self._connection:
+        with self._measurement_transaction():
             for sweep in sweeps:
                 self._insert_sweep(sweep)
             for event in events:
@@ -383,9 +462,11 @@ class SQLiteSessionStore:
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None
     ) -> None:
-        self.record_observations(
-            [observation], events=[event] if event is not None else []
-        )
+        if event is None:
+            with self._measurement_transaction():
+                self._insert_observation(observation)
+        else:
+            self.record_observations([observation], events=[event])
 
     def record_observations(
         self,
@@ -396,7 +477,7 @@ class SQLiteSessionStore:
         """Записывает пакет наблюдений и их события одной транзакцией."""
         if len(observations) != len(events):
             raise ValueError("Число наблюдений и событий пакета должно совпадать")
-        with self._lock, self._connection:
+        with self._measurement_transaction():
             for observation in observations:
                 self._insert_observation(observation)
             for event in events:

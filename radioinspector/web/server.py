@@ -24,6 +24,7 @@ import queue
 import tempfile
 import threading
 import time
+from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -46,7 +47,7 @@ from ..session_service import (
     SessionService,
 )
 from ..session_analytics import analytics_summary
-from ..session_store import SQLiteSessionStore
+from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..jsonio import dumps as json_dumps
@@ -459,6 +460,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_get(self, route: str, query: dict) -> None:
         try:
+            if route == "/api/v1/archive/capacity":
+                self._send_json(api_payload(self.sessions.archive_capacity()))
+                return
             if route == "/api/v1/health":
                 self._send_json(api_payload(self.sessions.health()))
                 return
@@ -858,6 +862,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(session))
                 return
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except ArchiveCapacityExceededError as exc:
+            self._send_api_error(507, "archive_capacity_exceeded", str(exc))
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
         except TaskNotFoundError as exc:
@@ -948,64 +954,83 @@ def create_server(
     automatic_completion: Optional[AutomaticInvestigationCompletion] = None,
     task_book: Optional[TaskBook] = None,
     task_scheduler: Optional[TaskScheduler] = None,
+    archive_max_bytes: Optional[int] = None,
 ) -> ThreadingHTTPServer:
     """Создаёт HTTP-сервер; отдельная функция упрощает встраивание и тесты."""
     if sessions is not None and session_database is not None:
         raise ValueError("Передайте либо sessions, либо session_database, но не оба")
-    state = ApplicationState(database=database, library=library)
-    if sessions is not None:
-        session_service = sessions
-    elif session_database:
-        session_service = SessionService(store=SQLiteSessionStore(session_database))
-    else:
-        session_service = SessionService()
-    if workers is not None and workers.sessions is not session_service:
-        raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
-    worker_manager = workers or DeviceWorkerManager(session_service)
-    if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
-        raise ValueError("AutomaticHandoffScheduler должен использовать тот же SessionService")
-    automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
-        session_service, tune=worker_manager.tune
-    )
-    if automatic_detection is not None and automatic_detection.sessions is not session_service:
-        raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
-    detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
-    if automatic_completion is not None and automatic_completion.sessions is not session_service:
-        raise ValueError("AutomaticInvestigationCompletion должен использовать тот же SessionService")
-    completion_scheduler = automatic_completion or AutomaticInvestigationCompletion(
-        session_service
-    )
-    if task_book is not None and task_scheduler is not None:
-        raise ValueError("Передайте либо task_book, либо task_scheduler, но не оба")
-    if task_scheduler is not None:
-        control_scheduler = task_scheduler
-    else:
-        book = task_book or TaskBook(
-            Path(tempfile.gettempdir()) / f"openradioinspector-task-book-{id(state)}.json"
+    if archive_max_bytes is not None and not session_database:
+        raise ValueError("archive_max_bytes требует session_database")
+    with ExitStack() as cleanup:
+        state = ApplicationState(database=database, library=library)
+        if state.store is not None:
+            cleanup.callback(state.store.close)
+        if sessions is not None:
+            session_service = sessions
+        elif session_database:
+            store = SQLiteSessionStore(session_database, max_database_bytes=archive_max_bytes)
+            cleanup.callback(store.close)
+            session_service = SessionService(store=store)
+        else:
+            session_service = SessionService()
+        if workers is not None and workers.sessions is not session_service:
+            raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
+        worker_manager = workers or DeviceWorkerManager(session_service)
+        if workers is None:
+            cleanup.callback(worker_manager.close)
+        if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
+            raise ValueError("AutomaticHandoffScheduler должен использовать тот же SessionService")
+        automatic_scheduler = automatic_handoff or AutomaticHandoffScheduler(
+            session_service, tune=worker_manager.tune
         )
-        control_scheduler = TaskScheduler(book)
-    handler = type(
-        "BoundHandler",
-        (Handler,),
-        {
-            "state": state,
-            "sessions": session_service,
-            "workers": worker_manager,
-            "automatic_handoff": automatic_scheduler,
-            "automatic_detection": detection_scheduler,
-            "automatic_completion": completion_scheduler,
-            "control_scheduler": control_scheduler,
-        },
-    )
-    httpd = ThreadingHTTPServer((host, port), handler)
-    httpd.daemon_threads = True
-    httpd.session_service = session_service
-    httpd.worker_manager = worker_manager
-    httpd.automatic_handoff = automatic_scheduler
-    httpd.automatic_detection = detection_scheduler
-    httpd.automatic_completion = completion_scheduler
-    httpd.control_scheduler = control_scheduler
-    return httpd
+        if automatic_handoff is None:
+            cleanup.callback(automatic_scheduler.close)
+        if automatic_detection is not None and automatic_detection.sessions is not session_service:
+            raise ValueError("AutomaticCandidateDetector должен использовать тот же SessionService")
+        detection_scheduler = automatic_detection or AutomaticCandidateDetector(session_service)
+        if automatic_detection is None:
+            cleanup.callback(detection_scheduler.close)
+        if automatic_completion is not None and automatic_completion.sessions is not session_service:
+            raise ValueError("AutomaticInvestigationCompletion должен использовать тот же SessionService")
+        completion_scheduler = automatic_completion or AutomaticInvestigationCompletion(
+            session_service
+        )
+        if automatic_completion is None:
+            cleanup.callback(completion_scheduler.close)
+        if task_book is not None and task_scheduler is not None:
+            raise ValueError("Передайте либо task_book, либо task_scheduler, но не оба")
+        if task_scheduler is not None:
+            control_scheduler = task_scheduler
+        else:
+            book = task_book or TaskBook(
+                Path(tempfile.gettempdir()) / f"openradioinspector-task-book-{id(state)}.json"
+            )
+            control_scheduler = TaskScheduler(book)
+            cleanup.callback(control_scheduler.close)
+        handler = type(
+            "BoundHandler",
+            (Handler,),
+            {
+                "state": state,
+                "sessions": session_service,
+                "workers": worker_manager,
+                "automatic_handoff": automatic_scheduler,
+                "automatic_detection": detection_scheduler,
+                "automatic_completion": completion_scheduler,
+                "control_scheduler": control_scheduler,
+            },
+        )
+        httpd = ThreadingHTTPServer((host, port), handler)
+        cleanup.callback(httpd.server_close)
+        httpd.daemon_threads = True
+        httpd.session_service = session_service
+        httpd.worker_manager = worker_manager
+        httpd.automatic_handoff = automatic_scheduler
+        httpd.automatic_detection = detection_scheduler
+        httpd.automatic_completion = completion_scheduler
+        httpd.control_scheduler = control_scheduler
+        cleanup.pop_all()
+        return httpd
 
 
 def serve(
@@ -1016,6 +1041,7 @@ def serve(
     session_database: Optional[str] = None,
     task_book: Optional[TaskBook] = None,
     task_scheduler: Optional[TaskScheduler] = None,
+    archive_max_bytes: Optional[int] = None,
 ) -> None:
     """Запуск веб-интерфейса."""
     httpd = create_server(
@@ -1024,6 +1050,7 @@ def serve(
         database=database,
         library=library,
         session_database=session_database,
+        archive_max_bytes=archive_max_bytes,
         task_book=task_book,
         task_scheduler=task_scheduler,
     )

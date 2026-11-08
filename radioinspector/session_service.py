@@ -32,7 +32,7 @@ from .contracts import (
     to_primitive,
     utc_now,
 )
-from .session_store import SQLiteSessionStore
+from .session_store import ARCHIVE_WARNING_THRESHOLD, SQLiteSessionStore
 
 
 class SessionNotFoundError(KeyError):
@@ -160,6 +160,8 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "archive_capacity_guard": True,
+                "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
                 "measurement_batch_atomic": True,
                 "measurement_batch_limit": MAX_MEASUREMENT_BATCH,
@@ -176,6 +178,22 @@ class SessionService:
                 "hardware_control": False,
             },
         }
+
+    def archive_capacity(self) -> dict[str, Any]:
+        """Статус архива; режим без SQLite не имеет метрик дискового объёма."""
+        with self._lock:
+            if self._store is not None:
+                return self._store.archive_capacity()
+            return {
+                "storage_mode": "memory",
+                "database_bytes": None,
+                "max_database_bytes": None,
+                "remaining_bytes": None,
+                "state": "unavailable",
+                "warning_threshold": ARCHIVE_WARNING_THRESHOLD,
+                "measurement_writes_blocked": False,
+                "automatic_deletion": False,
+            }
 
     def health(self) -> dict[str, Any]:
         with self._lock:
