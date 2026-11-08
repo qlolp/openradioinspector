@@ -852,6 +852,11 @@ class OrchestrationTests(unittest.TestCase):
         swift_commands = [args for args, _ in commands if args[0] == "swift"]
         self.assertEqual([args[3] for args in swift_commands], ["macos/SpektrKomandy", "macos"])
         self.assertTrue(all("--scratch-path" in args for args in swift_commands))
+        self.assertNotIn("--skip", swift_commands[0])
+        native = swift_commands[1]
+        self.assertEqual(native[native.index("--skip") + 1],
+                         "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected")
+        self.assertNotIn("--filter", native)
         xcode = commands[-1][0]
         self.assertEqual(xcode[0], "xcodebuild")
         self.assertIn("CODE_SIGNING_ALLOWED=NO", xcode)
