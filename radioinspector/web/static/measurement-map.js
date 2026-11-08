@@ -59,13 +59,18 @@
     const spanLon = Math.max(bbox.max_longitude_deg - bbox.min_longitude_deg, 0.002) * (1 + pad);
     const midLat = (bbox.min_latitude_deg + bbox.max_latitude_deg) / 2;
     const midLon = (bbox.min_longitude_deg + bbox.max_longitude_deg) / 2;
-    const project = (lat, lon) => [
-      20 + ((lon - midLon) / spanLon + 0.5) * (canvas.width - 40),
-      20 + (0.5 - (lat - midLat) / spanLat) * (canvas.height - 40),
-    ];
+    const origin = bbox.longitude_origin_deg ?? midLon;
+    const project = (lat, lon) => {
+      while (lon - origin > 180) lon -= 360;
+      while (lon - origin < -180) lon += 360;
+      return [20 + ((lon - midLon) / spanLon + 0.5) * (canvas.width - 40),
+              20 + (0.5 - (lat - midLat) / spanLat) * (canvas.height - 40)];
+    };
     for (const feature of result.geojson.features) {
-      if (feature.geometry.type === "Polygon") {
-        const ring = feature.geometry.coordinates[0];
+      const polygons = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates]
+        : feature.geometry.type === "MultiPolygon" ? feature.geometry.coordinates : [];
+      for (const polygon of polygons) {
+        const ring = polygon[0];
         context.beginPath();
         ring.forEach(([lon, lat], index) => {
           const [x, y] = project(lat, lon);
