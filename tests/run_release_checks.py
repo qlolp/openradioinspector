@@ -759,8 +759,13 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
             print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
             if swift:
                 for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
-                    output = run_command(["swift", "test", "--package-path", package,
-                                          "--scratch-path", str(directory / (name + "-build"))],
+                    command = ["swift", "test", "--package-path", package,
+                               "--scratch-path", str(directory / (name + "-build"))]
+                    if name == "swift-native":
+                        # This explicit hardware probe belongs to bench acceptance;
+                        # synthetic runs must never auto-open an attached device.
+                        command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
+                    output = run_command(command,
                                          name=name, environment=environment, directory=directory,
                                          timeout=command_timeout, shutdown_timeout=shutdown_timeout)
                     validate_swift_output(output, name)
