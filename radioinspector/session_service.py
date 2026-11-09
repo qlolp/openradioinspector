@@ -1362,6 +1362,7 @@ class SessionService:
             investigation = copy.deepcopy(current)
             candidate = copy.deepcopy(self._candidates[investigation.candidate_id])
             investigation.state = InvestigationState.LISTENING
+            investigation.listening_started_at = self._clock()
             candidate.state = CandidateState.INVESTIGATING
             return self._save_investigation_locked(
                 session_id, investigation, candidate, "investigation.listening"

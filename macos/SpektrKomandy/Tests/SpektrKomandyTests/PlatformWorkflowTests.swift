@@ -55,6 +55,20 @@ final class PlatformWorkflowTests: XCTestCase {
         Data("{\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":\(data)}".utf8)
     }
 
+    func testListeningOriginOptionalDecoding() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(investigationJSON.utf8)) as? [String: Any])
+        func decode() throws -> PlatformInvestigation {
+            try decoder.decode(PlatformInvestigation.self, from: JSONSerialization.data(withJSONObject: payload))
+        }
+        XCTAssertNil(try decode().listeningStartedAt)
+        payload["listening_started_at"] = NSNull()
+        XCTAssertNil(try decode().listeningStartedAt)
+        payload["listening_started_at"] = "2026-11-08T12:00:03Z"
+        XCTAssertEqual(try decode().listeningStartedAt, "2026-11-08T12:00:03Z")
+    }
+
     private let completionStatusJSON = """
     {"policy":{"enabled":true,"interval_seconds":0.5,"minimum_listening_seconds":10.0,"minimum_observations":2,"receiver_stream_id":"ar/1"},"runtime":{"last_result":"completed","last_error":null,"last_investigation_id":"i/1","completed_investigations":1,"skipped_investigations":0},"scheduler_alive":true,"policy_persistent":false,"restart_requires_opt_in":true,"automatic_fail_or_cancel":false}
     """
