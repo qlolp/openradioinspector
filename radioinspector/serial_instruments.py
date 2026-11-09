@@ -25,6 +25,7 @@ from .contracts import (
     utc_now,
 )
 from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adapter
+from .tinysa_profile import PROFILE_ID, matches_identity, profile_description, validate_receive_settings
 
 
 HARDWARE_VALIDATION_NOT_RUN = "not_run"
@@ -427,12 +428,12 @@ class TinySASerialAdapter(SimulatedAdapter):
         if stream.level_unit != "dBm":
             raise ValueError("tinysa-serial выдаёт только исходную единицу dBm")
         self._clock = clock
-        self.start_hz = self._frequency_setting("start_hz", 88_000_000)
-        self.stop_hz = self._frequency_setting("stop_hz", 108_000_000)
-        if self.stop_hz <= self.start_hz:
-            raise ValueError("stop_hz должно быть больше start_hz")
-        self.points = self._frequency_setting("points", 201, maximum=4096)
-        self.rbw_hz = self._frequency_setting("rbw_hz", 10_000, maximum=1_000_000_000)
+        requested = validate_receive_settings(self.settings)
+        self.start_hz = requested["start_hz"]
+        self.stop_hz = requested["stop_hz"]
+        self.points = requested["points"]
+        self.rbw_hz = requested["rbw_hz"]
+        self._identity: dict[str, str] = {}
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("tinysa-serial требует физический последовательный порт")
@@ -443,12 +444,6 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._sequence = 0
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
-
-    def _frequency_setting(self, name: str, default: int, *, maximum: int = 20_000_000_000) -> int:
-        value = self.settings.get(name, default)
-        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
-            raise ValueError(f"{name} должно быть целым в диапазоне 1…{maximum}")
-        return value
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:
@@ -502,8 +497,12 @@ class TinySASerialAdapter(SimulatedAdapter):
         info = self._transact("info", 3.0)
         version = self._transact("version", 3.0)
         identity = self._transact("deviceid", 3.0)
-        if "tinysa ultra" not in info.lower() or "tinySA4_" not in version or not identity.strip():
-            raise WorkerError("Ответ не похож на tinySA Ultra; scan не отправлен")
+        self._identity = {"info": info, "firmware": version}
+        if not matches_identity(info, version) or not identity.strip():
+            raise WorkerError(
+                f"tinySA Ultra: модель/firmware не поддержаны профилем {PROFILE_ID}; "
+                "setup и scan не отправлены"
+            )
         rbw_khz = self.rbw_hz / 1000
         rbw_text = str(round(rbw_khz, 6)).rstrip("0").rstrip(".")
         for command in (
@@ -526,6 +525,8 @@ class TinySASerialAdapter(SimulatedAdapter):
             frequencies, levels = parse_tinysa_scan(
                 self._transact(command, 90.0, allow_leading_prompt=True), command, self.points
             )
+            if frequencies[0] != self.start_hz or frequencies[-1] != self.stop_hz:
+                raise WorkerError("tinySA: границы scan не соответствуют запрошенному диапазону")
         except Exception as exc:
             raise self._taint_connection(exc) from exc
         ended_at = self._clock()
@@ -539,7 +540,13 @@ class TinySASerialAdapter(SimulatedAdapter):
             level_unit="dBm",
             settings={
                 "adapter": self.adapter_name,
-                "rbw_hz": self.rbw_hz,
+                "rbw_hz": self.rbw_hz,  # Legacy field: requested, not measured.
+                "receive_profile": PROFILE_ID,
+                "device_identity": dict(self._identity),
+                "rbw_requested_hz": self.rbw_hz,
+                "rbw_applied_state": "unknown",
+                "settings_source": "command_acknowledged",
+                "settings_readback": False,
                 "sequence": self._sequence,
                 "simulated": False,
                 "generator_output": "off",
@@ -554,6 +561,12 @@ class TinySASerialAdapter(SimulatedAdapter):
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,
+            "receive_profile": profile_description(),
+            "device_identity": dict(self._identity),
+            "rbw_requested_hz": self.rbw_hz,
+            "rbw_applied_hz": None,
+            "settings_source": "command_acknowledged" if self._ready else "unknown",
+            "settings_readback": False,
             "generator_output": "off" if self._ready else "unknown",
             "generator_output_source": self._generator_output_source,
             "generator_output_readback": False,

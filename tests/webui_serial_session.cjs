@@ -35,6 +35,7 @@ const success = () => ({ok: true, status: 201, json: async () => ({
   const payload = JSON.parse(request.options.body);
   assert.deepEqual(payload.streams.map(s => s.settings.adapter), ['tinysa-serial', 'ardv1-serial']);
   assert.deepEqual(payload.streams.map(s => s.level_unit), ['dBm', 's_meter_count']);
+  assert.equal(payload.streams[0].settings.receive_profile, 'tinysa-ultra-zs405-receive-v1');
   assert.equal(payload.streams[1].capabilities.includes('hardware_decode'), false);
   assert.equal(calls.length, 1); // Creation never starts a session or worker.
   for (const port of ['COM12', 'com12', '\\\\.\\COM12', 'sim://ardv1', '',
