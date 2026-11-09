@@ -20,6 +20,7 @@
     const payload = {name, streams: [
       {device: "tinySA Ultra", role: "spectrum_analyzer", level_unit: "dBm", port: tinySA,
         capabilities: ["sweep", "waterfall"], settings: {adapter: "tinysa-serial",
+          receive_profile: "tinysa-ultra-zs405-receive-v1",
           start_hz: 88000000, stop_hz: 108000000, points: 201, rbw_hz: 10000, period_s: 0.25}},
       {device: "AR-DV1", role: "receiver", level_unit: "s_meter_count", port: receiver,
         capabilities: ["tune", "audio"], settings: {adapter: "ardv1-serial",

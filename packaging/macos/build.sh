@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-python3 -m pip install -e '.[serial]' 'pyinstaller>=6.16,<7'
-python3 -m PyInstaller --clean --noconfirm --name openradioinspector-core --collect-all radioinspector --hidden-import serial.tools.list_ports --distpath build/macos/core --workpath build/macos/work --specpath build/macos packaging/core_entry.py
+python3 -m pip install -e '.[serial,audio]' 'pyinstaller>=6.16,<7'
+python3 -m PyInstaller --clean --noconfirm --name openradioinspector-core --collect-all radioinspector --collect-all sounddevice --collect-all _sounddevice_data --hidden-import serial.tools.list_ports --distpath build/macos/core --workpath build/macos/work --specpath build/macos packaging/core_entry.py
 xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Release -derivedDataPath build/macos/DerivedData ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 app=build/macos/OpenRadioInspector.app
 mkdir -p build/macos
@@ -14,6 +14,7 @@ cp -R build/macos/core/openradioinspector-core "$app/Contents/Helpers/"
 cp packaging/macos/launch-app.sh "$app/Contents/MacOS/OpenRadioInspector"
 chmod 755 "$app/Contents/MacOS/OpenRadioInspector"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable OpenRadioInspector' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$app/Contents/Info.plist" >/dev/null
 mkdir -p "$app/Contents/Resources/Notices"
 version=$(python3 -c 'from importlib.metadata import version; print(version("openradioinspector"))')
 /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.4.0' "$app/Contents/Info.plist"

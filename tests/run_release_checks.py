@@ -469,6 +469,21 @@ def _cleanup_registry(registry: Path, timeout: float) -> None:
         raise ReleaseCheckError("Could not finish nested command cleanup: " + "; ".join(errors))
 
 
+def _job_still_active(job: WindowsJob, timeout: float) -> bool:
+    """Wait for Windows job accounting after its parent handle was signalled.
+
+    Query only: a genuinely live descendant still times out and triggers the
+    existing forced cleanup/fail-closed gate. Never infer archive integrity
+    from the parent's zero exit alone.
+    """
+    deadline=time.monotonic()+timeout
+    while job.active():
+        remaining=deadline-time.monotonic()
+        if remaining<=0:return True
+        time.sleep(min(.01,remaining))
+    return False
+
+
 def _stop_command(process: subprocess.Popen, timeout: float, job: WindowsJob | None = None) -> None:
     if job is not None:
         job.terminate()
@@ -545,7 +560,7 @@ def run_command(command: list[str], *, name: str, environment: dict[str, str],
             process.stdin.write(b"go\n")
             process.stdin.close()
             process.wait(timeout=timeout)
-            if job is not None and job.active():
+            if job is not None and _job_still_active(job,shutdown_timeout):
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
             if job is None and _signal_group(process, 0):
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
@@ -677,7 +692,7 @@ class Fixture:
             except subprocess.TimeoutExpired:
                 forced = True
                 _stop_command(self.process, timeout, self.job)
-            if ((self.job is not None and self.job.active()) or
+            if ((self.job is not None and _job_still_active(self.job,timeout)) or
                     (self.job is None and _signal_group(self.process, 0))):
                 forced = True
                 _stop_command(self.process, timeout, self.job)

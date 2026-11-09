@@ -522,6 +522,9 @@ class Handler(BaseHTTPRequestHandler):
         if route in ("/platform", "/platform.html"):
             self._send_file(STATIC_DIR / "platform.html")
             return
+        if route in ("/instrument", "/instrument.html"):
+            self._send_file(STATIC_DIR / "instrument.html")
+            return
         if route == "/api/state":
             self._send_json(self.state.snapshot())
             return
@@ -593,6 +596,10 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         if origin and origin not in ("http://" + host, "https://" + host):
             raise RequestError("Чужой Origin запрещён", 403)
+        if len(parts)>=7 and parts[:3]==['api','v1','sessions'] and parts[4]=='streams' and parts[6]=='instrument':
+            payload=self._read_bounded_analysis_request(65536)
+            self._api_v1_post(route,payload)
+            return
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
@@ -707,6 +714,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_get(self, route: str, query: dict) -> None:
         try:
+            from ..tinysa.api import dispatch
+            if dispatch(self,'GET',route,query=query):return
             if route == "/api/v1/archive/capacity":
                 self._send_json(api_payload(self.sessions.archive_capacity()))
                 return
@@ -732,6 +741,8 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities["features"]["automatic_investigation_completion_opt_in_required"] = True
                 capabilities["features"]["automatic_investigation_completion_policy_persistent"] = False
                 capabilities["features"]["frequency_raster_rounding"] = True
+                capabilities["features"]["tinysa_ultra_instrument_control"] = True
+                capabilities["features"]["tinysa_ultra_hardware_validated"] = False
                 self._send_json(api_payload(capabilities))
                 return
             if route == "/api/v1/task-scheduler":
@@ -1049,6 +1060,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_post(self, route: str, payload: dict) -> None:
         try:
+            from ..tinysa.api import dispatch
+            if dispatch(self,'POST',route,payload=payload):return
             if route == "/api/v1/task-scheduler":
                 if set(payload) != {"enabled"}:
                     raise ValueError("Разрешено только поле enabled")
@@ -1515,6 +1528,9 @@ def create_server(
         if workers is not None and workers.sessions is not session_service:
             raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
         worker_manager = workers or DeviceWorkerManager(session_service)
+        from ..tinysa.api import InstrumentOperations
+        instruments=InstrumentOperations(session_service,worker_manager)
+        cleanup.callback(instruments.close)
         if workers is None:
             cleanup.callback(worker_manager.close)
         if automatic_handoff is not None and automatic_handoff.sessions is not session_service:
@@ -1556,6 +1572,7 @@ def create_server(
                 "state": state,
                 "sessions": session_service,
                 "workers": worker_manager,
+                "instruments": instruments,
                 "automatic_handoff": automatic_scheduler,
                 "automatic_detection": detection_scheduler,
                 "automatic_completion": completion_scheduler,
@@ -1567,6 +1584,7 @@ def create_server(
         httpd.daemon_threads = True
         httpd.session_service = session_service
         httpd.worker_manager = worker_manager
+        httpd.instrument_operations = instruments
         httpd.automatic_handoff = automatic_scheduler
         httpd.automatic_detection = detection_scheduler
         httpd.automatic_completion = completion_scheduler
@@ -1583,6 +1601,7 @@ def create_server(
                 detection_scheduler.close()
             if automatic_handoff is None:
                 automatic_scheduler.close()
+            instruments.close()
             if workers is None:
                 worker_manager.close()
             if worker_manager.active_count or worker_manager.pending_start_count:

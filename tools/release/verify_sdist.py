@@ -4,6 +4,13 @@ import sys
 import tarfile
 
 required = {
+    'radioinspector/tinysa/menu.json',
+    'radioinspector/web/static/instrument.html',
+    'radioinspector/web/static/instrument.js',
+    'radioinspector/web/static/instrument.css',
+    'radioinspector/windows/tinysa.py',
+    'macos/DvoynoyObzor/TinySAControlPane.swift',
+    'macos/SpektrKomandy/Sources/SpektrKomandy/PlatformTinySAControl.swift',
     'tests/fixtures/spectrum-presentation-v1.json',
     'tests/test_windows_spectrum_view.py',
     'tests/test_webui_spectrum_view.py',

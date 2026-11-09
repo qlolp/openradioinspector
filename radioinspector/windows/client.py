@@ -175,13 +175,15 @@ class PlatformClient:
         self, method: str, path: str, payload: Optional[dict[str, Any]] = None,
         *, expected_statuses: Optional[tuple[int, ...]] = None, strict_json: bool = False,
         response_limit: Optional[int] = None,
-        timeout: Optional[float] = None, exact_envelope: bool = False, preserve_data_json: bool = False
+        timeout: Optional[float] = None, exact_envelope: bool = False, preserve_data_json: bool = False,
+        request_headers: Optional[dict[str,str]] = None
     ) -> Any:
         limit = response_limit if response_limit is not None else MAX_RESPONSE_BYTES
         if self.max_response_bytes is not None:
             limit = min(limit, self.max_response_bytes)
         body = None
         headers = {"Accept": "application/json"}
+        headers.update(request_headers or {})
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
@@ -247,6 +249,27 @@ class PlatformClient:
         if preserve_data_json and isinstance(envelope["data"], dict):
             return AverageChangeResult(envelope["data"], _data_json(raw.decode("utf-8")))
         return envelope["data"]
+
+    def instrument(self,session_id,stream_id,resource,payload=None,*,client_key=None,offset=0):
+        allowed=resource in {'capabilities','settings','operations','artifacts'}
+        parts=resource.split('/')
+        allowed=allowed or (len(parts) in (2,3) and parts[0]=='operations' and len(parts[1])<=80 and parts[1].isalnum() and (len(parts)==2 or parts[2]=='cancel'))
+        if not allowed:raise ValueError('Unknown instrument resource')
+        path=f"/sessions/{_segment(session_id,'session_id')}/streams/{_segment(stream_id,'stream_id')}/instrument/{resource}"
+        if resource=='artifacts':
+            if type(offset) is not int or not 0<=offset<=10000000:raise ValueError('Invalid artifact offset')
+            path+=f'?limit=100&offset={offset}'
+        return self._request('GET' if payload is None else 'POST',path,payload,expected_statuses=(200,) if payload is None or resource.endswith('/cancel') else (202,),strict_json=True,response_limit=12*1024*1024,request_headers={'X-Instrument-Client':client_key} if client_key else None)
+
+    def instrument_artifact(self,session_id,stream_id,identifier):
+        path=f"/sessions/{_segment(session_id,'session_id')}/streams/{_segment(stream_id,'stream_id')}/instrument/artifacts/{_segment(identifier,'artifact_id')}/content"
+        request=urllib.request.Request(f'{self.base_url}/api/v1{path}',headers={'Accept':'application/octet-stream'})
+        try:
+            with self._opener.open(request,timeout=self.timeout) as response:
+                data=response.read(8*1024*1024+1)
+                if len(data)>8*1024*1024:raise ValueError('Artifact too large')
+                return data
+        except urllib.error.HTTPError as exc:raise self._decode_error(exc.read(MAX_RESPONSE_BYTES+1),exc.code) from exc
 
     @staticmethod
     def _decode_error(raw: bytes, status: int) -> PlatformClientError:
