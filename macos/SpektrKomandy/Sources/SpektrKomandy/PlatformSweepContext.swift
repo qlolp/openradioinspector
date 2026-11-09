@@ -118,3 +118,110 @@ extension PlatformClient {
         return result
     }
 }
+
+/// Sample-count occupancy reported by the core; acquisition coverage is not RF airtime.
+public struct PlatformOccupancySummary: Decodable, Equatable {
+    public let method: String
+    public let comparison: String
+    public let thresholdDbm: Double
+    public let sampleCount: Int
+    public let exceedanceCounts: [Int]
+    public let sampleFractions: [Double]
+    public let acquisitionSpanSeconds: Double
+    public let acquisitionCoveredSeconds: Double
+    public let acquisitionGapSeconds: Double
+    public let acquisitionGapCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case method, comparison, thresholdDbm, sampleCount, exceedanceCounts, sampleFractions
+        case acquisitionSpanSeconds, acquisitionCoveredSeconds, acquisitionGapSeconds, acquisitionGapCount, rfTimeOccupancy
+    }
+    public init(from decoder: Decoder) throws {
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        method = try v.decode(String.self, forKey: .method)
+        comparison = try v.decode(String.self, forKey: .comparison)
+        thresholdDbm = try v.decode(Double.self, forKey: .thresholdDbm)
+        sampleCount = try v.decode(Int.self, forKey: .sampleCount)
+        exceedanceCounts = try v.decode([Int].self, forKey: .exceedanceCounts)
+        sampleFractions = try v.decode([Double].self, forKey: .sampleFractions)
+        acquisitionSpanSeconds = try v.decode(Double.self, forKey: .acquisitionSpanSeconds)
+        acquisitionCoveredSeconds = try v.decode(Double.self, forKey: .acquisitionCoveredSeconds)
+        acquisitionGapSeconds = try v.decode(Double.self, forKey: .acquisitionGapSeconds)
+        acquisitionGapCount = try v.decode(Int.self, forKey: .acquisitionGapCount)
+        guard try v.decodeNil(forKey: .rfTimeOccupancy),
+              method == "sample_fraction", comparison == "strictly_greater", thresholdDbm.isFinite,
+              (1...33).contains(sampleCount), (0..<sampleCount).contains(acquisitionGapCount),
+              [acquisitionSpanSeconds, acquisitionCoveredSeconds, acquisitionGapSeconds].allSatisfy({ $0.isFinite && $0 >= 0 }),
+              acquisitionCoveredSeconds <= acquisitionSpanSeconds,
+              abs(acquisitionSpanSeconds - acquisitionCoveredSeconds - acquisitionGapSeconds) <= 0.000001,
+              exceedanceCounts.count == sampleFractions.count,
+              zip(exceedanceCounts, sampleFractions).allSatisfy({
+                  (0...sampleCount).contains($0) && $1.isFinite && abs($1 - Double($0) / Double(sampleCount)) <= 1e-12
+              }) else { throw PlatformError.invalidResponse("Некорректная сводка занятости") }
+    }
+}
+
+public struct PlatformSweepOccupancy: Decodable, Equatable {
+    public let context: PlatformSweepContext
+    public let occupancy: PlatformOccupancySummary
+    private var exportPayload: Data?
+    private enum CodingKeys: String, CodingKey { case occupancy }
+
+    public init(from decoder: Decoder) throws {
+        context = try PlatformSweepContext(from: decoder)
+        occupancy = try decoder.container(keyedBy: CodingKeys.self).decode(PlatformOccupancySummary.self, forKey: .occupancy)
+        guard occupancy.sampleCount == context.items.count,
+              occupancy.exceedanceCounts.count == context.points else {
+            throw PlatformError.invalidResponse("Занятость не соответствует архивному окну")
+        }
+    }
+    public static func == (a: Self, b: Self) -> Bool { a.context == b.context && a.occupancy == b.occupancy }
+
+    public static func validatedResponse(_ bytes: Data) throws -> Self {
+        var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
+        struct Response: Decodable { let contract: String; let contractVersion: Int; let data: PlatformSweepOccupancy }
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let response = try decoder.decode(Response.self, from: bytes)
+        guard response.contract == "openradioinspector-platform", response.contractVersion == 1 else {
+            throw PlatformError.invalidResponse("Неизвестный контракт занятости")
+        }
+        var result = response.data
+        result.exportPayload = try platformRawPayload(bytes)
+        return result
+    }
+    public func exportData() throws -> Data {
+        guard let exportPayload else { throw PlatformError.invalidResponse("Отсутствует исходный ответ сервера для экспорта") }
+        var bytes = Data("{\"format\":\"openradioinspector-sweep-occupancy\",\"format_version\":1,\"data\":".utf8)
+        bytes.append(exportPayload); bytes.append(contentsOf: "}\n".utf8)
+        return bytes
+    }
+}
+
+extension PlatformClient {
+    public func sweepOccupancy(sessionID: String, sweepID: String, before: Int, after: Int, thresholdDbm: Double) async throws -> PlatformSweepOccupancy {
+        struct Body: Encodable { let sweepId: String; let before: Int; let after: Int; let thresholdDbm: Double }
+        guard contextScopeID(sessionID), contextSweepID(sweepID), PlatformContextCounts.valid(before),
+              PlatformContextCounts.valid(after), thresholdDbm.isFinite else {
+            throw PlatformError.invalidCommand("Нужны ID, N1/N2 от 0 до 16 и конечный порог dBm")
+        }
+        let body = Body(sweepId: sweepID, before: before, after: after, thresholdDbm: thresholdDbm)
+        let encoder = JSONEncoder(); encoder.keyEncodingStrategy = .convertToSnakeCase
+        guard try encoder.encode(body).count <= 8192 else { throw PlatformError.invalidCommand("Запрос превышает 8192 байта") }
+        try Task.checkCancellation()
+        var wireResponse: Data?
+        let _: PlatformSweepOccupancy = try await post("/sessions/\(Self.segment(sessionID))/sweep-occupancy", body: body, expectedStatuses: [200], validateResponse: { bytes in
+            var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
+            wireResponse = bytes
+        })
+        try Task.checkCancellation()
+        guard let wireResponse else { throw PlatformError.invalidResponse("Отсутствует ответ сервера") }
+        let result = try PlatformSweepOccupancy.validatedResponse(wireResponse)
+        guard PlatformSweepContext.sameID(result.context.sessionId, sessionID),
+              PlatformSweepContext.sameID(result.context.anchorId, sweepID),
+              result.context.requested.before == before, result.context.requested.after == after,
+              result.occupancy.thresholdDbm == thresholdDbm else {
+            throw PlatformError.invalidResponse("Сервер вернул другое окно или порог")
+        }
+        return result
+    }
+}

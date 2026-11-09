@@ -29,22 +29,23 @@ function payload(all = sources(), anchor = 'source-4', before = 2, after = 2, se
     }) };
 }
 function setup() {
-  const dom = {}, events = {}, requests = [], timers = new Map(), drawing = [];
+  const dom = {}, events = {}, requests = [], timers = new Map(), drawing = [], downloads = [], blobs = [], revoked = [];
   let timerId = 0;
   const context2d = new Proxy({}, { get(target, key) { return target[key] || ((...args) => drawing.push([key, ...args])); },
     set(target, key, value) { target[key] = value; drawing.push([key, value]); return true; } });
   function element() {
     const result = { value: '', textContent: '', hidden: false, disabled: false, width: 960, height: 280, listeners: {}, children: [],
       addEventListener(event, fn) { this.listeners[event] = fn; }, replaceChildren(...items) { this.children = items; },
-      setAttribute(name, value) { this[name] = value; }, getContext() { return context2d; } };
+      setAttribute(name, value) { this[name] = value; }, click() { downloads.push(this.download); }, remove() {}, getContext() { return context2d; } };
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['anchor', 'before', 'after', 'run', 'clear', 'source', 'pinned', 'status', 'summary', 'items', 'selected', 'canvas', 'threshold', 'occupancy-run', 'occupancy']) dom[name] = element();
+  for (const name of ['anchor', 'before', 'after', 'run', 'clear', 'source', 'pinned', 'status', 'summary', 'items', 'selected', 'canvas', 'threshold', 'occupancy-run', 'occupancy', 'export']) dom[name] = element();
   dom.before.value = dom.after.value = '2'; dom.threshold.value = '-60';
   const window = { location: { origin: 'http://server-a' }, addEventListener(event, fn) { events[event] = fn; },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); } };
-  const context = vm.createContext({ window, document: { getElementById(id) { return dom[id.replace('context-', '')]; }, createElement: element },
+  const context = vm.createContext({ window, document: { body: { appendChild() {} }, getElementById(id) { return dom[id.replace('context-', '')]; }, createElement: element },
+    Blob, URL: { createObjectURL(blob) { blobs.push(blob); return "blob:occupancy"; }, revokeObjectURL(url) { revoked.push(url); } },
     AbortController, TextDecoder, TextEncoder, fetch(url, options) { return new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })); } });
   vm.runInContext(code, context);
   function update(sweeps = sources(), sessionId = 'session/1', streamId = 'tiny/1') { window.OpenRadioSweepContext.update({ sweeps, sessionId, streamId }); }
@@ -56,7 +57,7 @@ function setup() {
       .replace(/"__NONFINITE_Infinity__"/g, '1e999').replace(/"__NONFINITE_-Infinity__"/g, '-1e999').replace(/"__NONFINITE_NaN__"/g, 'NaN');
     const body = Buffer.from(json); requests[index].resolve(streamResponse([body], String(body.length), status));
   }
-  return { dom, events, requests, timers, drawing, window, context, update, click, choose, respond };
+  return { dom, events, requests, timers, drawing, downloads, blobs, revoked, window, context, update, click, choose, respond };
 }
 function streamResponse(chunks, length = null, status = 200) {
   const state = { reads: 0, cancelled: 0, released: 0 };
@@ -340,6 +341,10 @@ async function httpSmoke(base) {
   assert.match(app.dom.occupancy.textContent, /Разрывы: 4,/);
   assert.match(app.dom.occupancy.textContent, /5\/5 · 100.0%/);
   assert.match(app.dom.occupancy.textContent, /20 из 101/);
+  app.click('export');
+  const artifact = JSON.parse(await app.blobs[0].text());
+  assert.equal(artifact.data.items.length, 5); assert.equal(artifact.data.points, 101);
+  assert.equal(artifact.data.occupancy.threshold_dbm, -90);
   console.log('Web HTTP occupancy smoke passed: exact sources, sample fractions, acquisition gaps');
   app.update([], 'context-two', 'spectrum-two'); assert.equal(app.dom.run.disabled, true); assert.equal(app.dom.summary.textContent, '');
   console.log('Web HTTP context smoke passed: 5 × 101 raw bins, offsets -2..2, anchor 4, incomplete side, repeated load, edit, scope reset');
@@ -377,8 +382,34 @@ async function occupancyAnalysis() {
     assert.equal(broken.dom.occupancy.textContent, ''); assert.equal(broken.dom.canvas.hidden, true);
   }
 }
+async function occupancyExport() {
+  const app = setup(); app.update();
+  const data = payload();
+  data.occupancy = {method:'sample_fraction', comparison:'strictly_greater', threshold_dbm:-60,
+    sample_count:5, exceedance_counts:Array(data.points).fill(1), sample_fractions:Array(data.points).fill(.2),
+    acquisition_span_seconds:6, acquisition_covered_seconds:4, acquisition_gap_seconds:2,
+    acquisition_gap_count:1, rf_time_occupancy:null};
+  // Exact numeric tokens and nested keys survive despite JavaScript's parsed precision.
+  data.items.forEach(item => { item.settings.large_counter = 9007199254740992; });
+  const all = sources(); all.forEach(item => { item.settings.large_counter = 9007199254740992; });
+  app.update(all);
+  const rawData = JSON.stringify(data).replaceAll('9007199254740992', '9007199254740993');
+  const raw = '{"contract":"openradioinspector-platform","contract_version":1,"data":' + rawData + '}';
+  const work = app.click('occupancy-run');
+  app.requests[0].resolve(streamResponse([Buffer.from(raw)])); await work;
+  assert.equal(app.dom.export.disabled, false, app.dom.status.textContent);
+  app.click('export'); assert.deepEqual(app.downloads, ['sweep-occupancy.json']);
+  const artifact = await app.blobs[0].text();
+  assert.ok(artifact.includes(rawData)); assert.ok(artifact.includes('9007199254740993'));
+  assert.equal(JSON.parse(artifact).format, 'openradioinspector-sweep-occupancy');
+  assert.equal(app.requests.length, 1);
+  app.dom.threshold.listeners.input(); assert.equal(app.dom.export.disabled, true);
+  app.click('export'); assert.equal(app.blobs.length, 1);
+  for (const timer of app.timers.values()) if (timer.ms === 0) timer.fn();
+  assert.deepEqual(app.revoked, ['blob:occupancy']);
+}
 (async () => {
-  await occupancyAnalysis(); await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
+  await occupancyExport(); await occupancyAnalysis(); await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
   await bodiesAndStatuses(); await fullDrawing(); await platformIntegration(); if (process.argv[4]) await httpSmoke(process.argv[4]);
   console.log('sweep-context behavior checks completed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

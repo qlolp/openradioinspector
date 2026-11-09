@@ -155,7 +155,7 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
             throw PlatformError.invalidResponse("Неподдерживаемый контракт ответа сервера")
         }
         var result = response.data
-        result.exportPayload = try averageRawPayload(bytes)
+        result.exportPayload = try platformRawPayload(bytes)
         return result
     }
 
@@ -236,7 +236,7 @@ public struct PlatformSweepAverageExportArtifact {
 
 /// Locate the top-level data object without Foundation bridging, key normalization or numeric conversion.
 /// The complete document has already passed duplicate-key, shape and semantic validation.
-private func averageRawPayload(_ data: Data) throws -> Data {
+func platformRawPayload(_ data: Data) throws -> Data {
     let bytes = Array(data)
     var index = 0
     func whitespace() { while index < bytes.count && [9, 10, 13, 32].contains(bytes[index]) { index += 1 } }

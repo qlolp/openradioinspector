@@ -2,12 +2,12 @@
   "use strict";
 
   // Read-only archive presentation. Window selection and compatibility belong to the core.
-  const dom = Object.fromEntries(["anchor", "before", "after", "run", "clear", "source", "pinned", "status", "summary", "items", "selected", "canvas", "threshold", "occupancy-run", "occupancy"]
+  const dom = Object.fromEntries(["anchor", "before", "after", "run", "clear", "source", "pinned", "status", "summary", "items", "selected", "canvas", "threshold", "occupancy-run", "occupancy", "export"]
     .map(name => [name, document.getElementById(`context-${name}`)]));
   if (!dom.status) return;
   const MAX_RESPONSE_BYTES = 2000000;
   let scope = "", snapshot = {}, sweeps = [], pending = null, generation = 0, pinned = null, result = null, chosen = null;
-  let connected = true, suspended = false;
+  let connected = true, suspended = false, resultJSON = null;
   const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const scopeIdentity = value => typeof value === "string" && value.trim().length > 0 &&
@@ -118,7 +118,7 @@
   function strictJSON(text) {
     // JSON.parse alone silently overwrites duplicate keys and accepts 1e999 as Infinity.
     // Scan structure first, comparing decoded keys exactly, including escaped spellings.
-    let position = 0;
+    let position = 0, dataJSON = null;
     const space = () => { while (/[\t\n\r ]/.test(text[position] || "!") && position < text.length) position++; };
     function string() {
       if (text[position] !== '"') throw new Error("Некорректный JSON");
@@ -129,7 +129,7 @@
       }
       throw new Error("Незавершённая строка JSON");
     }
-    function visit() {
+    function visit(depth = 0) {
       space();
       if (text[position] === '"') { string(); return; }
       const opening = text[position];
@@ -138,13 +138,17 @@
         if (text[position] === closing) { position++; return; }
         while (position < text.length) {
           space();
+          let key;
           if (opening === "{") {
-            const key = string();
+            key = string();
             if (keys.has(key)) throw new Error("Повторяющийся ключ JSON");
             keys.add(key); space();
             if (text[position++] !== ":") throw new Error("Некорректный JSON");
           }
-          visit(); space();
+          space(); const start = position;
+          visit(depth + 1);
+          if (depth === 0 && key === "data") dataJSON = text.slice(start, position);
+          space();
           const separator = text[position++];
           if (separator === closing) return;
           if (separator !== ",") throw new Error("Некорректный JSON");
@@ -158,7 +162,7 @@
     }
     visit(); space();
     if (position !== text.length) throw new Error("Некорректный JSON");
-    return JSON.parse(text);
+    return { payload: JSON.parse(text), dataJSON };
   }
   async function readPayload(response, controller, current) {
     if (!response.body?.getReader) throw new Error("Сервер не предоставил потоковый ответ");
@@ -195,7 +199,7 @@
   }
   function discard() {
     dom.occupancy.textContent = "";
-    result = null; dom.summary.textContent = ""; dom.selected.textContent = ""; dom.items.replaceChildren();
+    result = null; resultJSON = null; dom.summary.textContent = ""; dom.selected.textContent = ""; dom.items.replaceChildren();
     dom.canvas.hidden = true; dom.canvas.getContext("2d").clearRect(0, 0, dom.canvas.width, dom.canvas.height);
   }
   function candidate() { return chosen?.id === dom.anchor.value ? chosen : sweeps.find(item => item.id === dom.anchor.value); }
@@ -203,6 +207,7 @@
     const source = candidate();
     dom.run.disabled = suspended || !connected || Boolean(pending) || !source || !snapshot.sessionId || !snapshot.streamId;
     dom["occupancy-run"].disabled = dom.run.disabled;
+    if (dom.export) dom.export.disabled = suspended || !connected || Boolean(pending) || !resultJSON;
     dom.anchor.disabled = suspended || !connected || (!sweeps.length && !chosen);
     dom.source.textContent = source ? `Для следующей загрузки: ${source.id}. ${chosen ? "Выбор сохранён локально; повторная загрузка проверит текущее окно архива." : "Выберите любой полученный dBm свип этого потока."}` : "Нет полученного архивного dBm свипа выбранного потока.";
     dom.pinned.textContent = pinned ? `Зафиксированный якорь (offset 0): ${pinned.source.id}\nСеанс: ${pinned.sessionId} · поток: ${pinned.streamId}\nUTC: ${interval(pinned.source.interval)}\nЗаписанные настройки: ${JSON.stringify(pinned.source.settings)}` : "Якорь не закреплён.";
@@ -307,6 +312,27 @@
       `Наиболее активные точки: ${ranked.length} из ${data.points} (одинаковые частоты сохраняются отдельно)\n` +
       ranked.map(row => `${row.hz} Гц [${row.index}] · ${row.count}/${value.sample_count} · ${(100 * value.sample_fractions[row.index]).toFixed(1)}%`).join("\n");
   }
+  function exportResult() {
+    if (!resultJSON || suspended || !connected || pending || !snapshot.sessionId || !snapshot.streamId) return;
+    let url, link;
+    try {
+      // Keep the validated wire JSON: arbitrary metadata integers and decimal
+      // tokens must not be rounded by a JSON.parse / JSON.stringify round trip.
+      const artifact = `{"format":"openradioinspector-sweep-occupancy","format_version":1,"data":${resultJSON}}\n`;
+      url = URL.createObjectURL(new Blob([artifact], {
+        type: "application/json;charset=utf-8",
+      }));
+      link = document.createElement("a");
+      link.href = url; link.download = "sweep-occupancy.json";
+      document.body.appendChild(link); link.click();
+      dom.status.textContent = "JSON-артефакт передан браузеру; сохранение файла подтверждается браузером.";
+    } catch (error) {
+      dom.status.textContent = `Не удалось экспортировать результат: ${error.message}`;
+    } finally {
+      link?.remove();
+      if (url) window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+  }
   async function load(withOccupancy = false) {
     if (suspended || !connected || pending || !candidate() || !snapshot.sessionId || !snapshot.streamId) return;
     cancel(); discard(); pinned = null;
@@ -340,13 +366,14 @@
         method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, cache: "no-store", signal: controller.signal, body,
       });
       if (current !== generation) { if (response.body?.cancel) cancelReader(response.body); return; }
-      const payload = await readPayload(response, controller, current);
+      const received = await readPayload(response, controller, current);
+      const payload = received?.payload;
       if (current !== generation) return;
       if (payload?.contract !== "openradioinspector-platform" || payload.contract_version !== 1) throw new Error("Неподдерживаемый контракт API");
       const data = validate(payload.data, request);
       const occupancy = withOccupancy ? validateOccupancy(data, request.threshold) : null;
       render(data);
-      if (occupancy) renderOccupancy(data, occupancy);
+      if (occupancy) { renderOccupancy(data, occupancy); resultJSON = received.dataJSON; }
       dom.status.textContent = "Окно ядра зафиксировано как снимок архива. Автоматический захват N1/N2 при обнаружении не реализован. Нет привязки к кандидатам, записи или команд прибору.";
     } catch (error) {
       if (current === generation) { discard(); dom.status.textContent = `Контекст недоступен: ${error.message}. Остальные панели продолжают работать.`; }
@@ -354,6 +381,7 @@
       window.clearTimeout(timer); if (current === generation) { pending = null; controls(); }
     }
   }
+  dom.export?.addEventListener("click", exportResult);
   dom.run.addEventListener("click", () => load()); dom.clear.addEventListener("click", clear);
   dom["occupancy-run"].addEventListener("click", () => load(true));
   for (const name of ["before", "after", "anchor", "threshold"]) dom[name].addEventListener(name === "anchor" ? "change" : "input", () => {
