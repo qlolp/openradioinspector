@@ -408,8 +408,21 @@ async function occupancyExport() {
   for (const timer of app.timers.values()) if (timer.ms === 0) timer.fn();
   assert.deepEqual(app.revoked, ['blob:occupancy']);
 }
+async function sharedOccupancyFixture() {
+  const raw = fs.readFileSync(require('node:path').join(__dirname, 'fixtures/sweep-occupancy-v1.json'));
+  const data = JSON.parse(raw).data, app = setup();
+  const all = data.items.map(item => ({...item, stream_id:data.stream_id, frequencies_hz:data.frequencies_hz}));
+  app.update(all, data.session_id, data.stream_id); app.choose(data.anchor_id); app.dom.threshold.value = '-97';
+  const work = app.click('occupancy-run'); app.requests[0].resolve(streamResponse([raw])); await work;
+  assert.match(app.dom.occupancy.textContent, /Порог: > -97 dBm · 5 свипов/);
+  assert.match(app.dom.occupancy.textContent, /Разрывы: 4,/);
+  assert.equal((app.dom.occupancy.textContent.match(/2\/5 · 40.0%/g) || []).length, 3);
+  app.click('export'); const artifact = await app.blobs[0].text();
+  assert.ok(artifact.includes('9007199254740993'));
+  assert.deepEqual(JSON.parse(artifact).data, data);
+}
 (async () => {
-  await occupancyExport(); await occupancyAnalysis(); await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
+  await sharedOccupancyFixture(); await occupancyExport(); await occupancyAnalysis(); await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
   await bodiesAndStatuses(); await fullDrawing(); await platformIntegration(); if (process.argv[4]) await httpSmoke(process.argv[4]);
   console.log('sweep-context behavior checks completed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

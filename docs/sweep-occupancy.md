@@ -109,8 +109,8 @@ data = artifact["data"]
 assert summarize_occupancy(data, data["occupancy"]["threshold_dbm"]) == data["occupancy"]
 ```
 
-Общая фикстура `tests/fixtures/sweep-occupancy-v1.json` проверяется в Python
-и Swift; содержит пять свипов, четыре разрыва и число 9007199254740993
+Общая фикстура `tests/fixtures/sweep-occupancy-v1.json` проверяется в Python,
+Swift и исполняемых обработчиках WebUI; содержит пять свипов, четыре разрыва и число 9007199254740993
 в настройках. Тесты проверяют неверные параметры ответа, отмену/смену
 области, поздний ответ и экспорт исходных данных без потери точности.
 
