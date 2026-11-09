@@ -375,6 +375,8 @@ class WindowsApp(TkTimerOwner):
         self.three_thresholds_panel = ThreeThresholdsPanel(self, notebook)
         from .sweep_context import SweepContextPanel
         self.sweep_context_panel = SweepContextPanel(self, notebook)
+        from .sweep_quality import SweepQualityPanel
+        self.sweep_quality_panel = SweepQualityPanel(self, notebook)
         from .frequency_rounding import FrequencyRoundingPanel
         self.frequency_rounding_panel = FrequencyRoundingPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
@@ -432,6 +434,8 @@ class WindowsApp(TkTimerOwner):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "sweep_quality_panel"):
+            self.sweep_quality_panel.update()
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
@@ -522,6 +526,8 @@ class WindowsApp(TkTimerOwner):
                             self.three_thresholds_panel.clear()
                         if hasattr(self, "sweep_context_panel"):
                             self.sweep_context_panel.disconnect()
+                        if hasattr(self, "sweep_quality_panel"):
+                            self.sweep_quality_panel.disconnect()
                         if hasattr(self, "frequency_rounding_panel"):
                             self.frequency_rounding_panel.disconnect()
                         self._show_archive_capacity(None, str(exc))
@@ -538,6 +544,8 @@ class WindowsApp(TkTimerOwner):
                         return
                     if hasattr(self, "sweep_context_panel"):
                         self.sweep_context_panel.snapshot_refreshed()
+                    if hasattr(self, "sweep_quality_panel"):
+                        self.sweep_quality_panel.snapshot_refreshed()
                     if hasattr(self, "frequency_rounding_panel"):
                         self.frequency_rounding_panel.snapshot_refreshed()
                 else:
@@ -695,6 +703,8 @@ class WindowsApp(TkTimerOwner):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "sweep_quality_panel"):
+            self.sweep_quality_panel.update()
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
@@ -880,6 +890,8 @@ class WindowsApp(TkTimerOwner):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "sweep_quality_panel"):
+            self.sweep_quality_panel.update()
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
@@ -955,6 +967,8 @@ class WindowsApp(TkTimerOwner):
             self.three_thresholds_panel.update()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.update()
+        if hasattr(self, "sweep_quality_panel"):
+            self.sweep_quality_panel.update()
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.update()
         if hasattr(self, "average_panel"):
@@ -1702,6 +1716,8 @@ class WindowsApp(TkTimerOwner):
             self.three_thresholds_panel.close()
         if hasattr(self, "sweep_context_panel"):
             self.sweep_context_panel.close()
+        if hasattr(self, "sweep_quality_panel"):
+            self.sweep_quality_panel.close()
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.close()
         self._action_callbacks.clear()

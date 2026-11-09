@@ -218,6 +218,7 @@ final class RemoteDualModel: ObservableObject {
     let threeSweepThresholds = ThreeSweepThresholdsModel()
     let sweepContext = SweepContextModel()
     let spectralMask = SpectralMaskModel()
+    let sweepQuality = SweepQualityModel()
     let frequencyRounding = FrequencyRoundingModel()
 
     let frequencyRaster = FrequencyRasterModel()
@@ -887,7 +888,7 @@ final class RemoteDualModel: ObservableObject {
         sweepAverage.reset()
         threeSweepThresholds.reset()
         sweepContext.reset()
-        spectralMask.reset()
+        spectralMask.reset(); sweepQuality.reset()
         frequencyRaster.reset()
         measurementResults.reset()
         frequencyCounter.reset()
@@ -1380,13 +1381,15 @@ final class RemoteDualModel: ObservableObject {
             sweepAverage.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: selectedSweeps)
+            sweepQuality.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: selectedSweeps)
             spectralMask.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
             sweepThreshold.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 source: selectedSweeps.last)
-        } else { sweepAverage.reset(); sweepContext.reset(); threeSweepThresholds.reset(); sweepThreshold.reset(); spectralMask.reset() }
+        } else { sweepAverage.reset(); sweepContext.reset(); threeSweepThresholds.reset(); sweepThreshold.reset(); spectralMask.reset(); sweepQuality.reset() }
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
@@ -1568,6 +1571,7 @@ struct RemoteUltraPane: View {
                 RemoteThreeSweepThresholdsPane(model: model.threeSweepThresholds)
                 RemoteSweepContextPane(model: model.sweepContext)
                 RemoteSweepThresholdPane(model: model.sweepThreshold)
+                RemoteSweepQualityPane(model: model.sweepQuality)
                 RemoteSpectralMaskPane(model: model.spectralMask)
                 RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 RemoteMeasurementResultsPane(model: model.measurementResults)

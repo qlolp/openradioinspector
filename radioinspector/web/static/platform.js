@@ -591,6 +591,9 @@
     window.OpenRadioSweepThreeThresholds?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
+    window.OpenRadioSweepQuality?.update({
+      sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
+    });
     window.OpenRadioSweepContext?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
@@ -898,6 +901,7 @@
       window.OpenRadioSweepAverage?.setConnected(true);
       window.OpenRadioSweepThreeThresholds?.setConnected(true);
       window.OpenRadioSweepContext?.setConnected(true);
+      window.OpenRadioSweepQuality?.setConnected(true);
       window.OpenRadioFrequencyRaster?.setConnected(true);
       window.OpenRadioMeasurementResults?.setConnected(true);
       window.OpenRadioFrequencyCounter?.setConnected(true);
@@ -916,6 +920,7 @@
       window.OpenRadioSweepAverage?.setConnected(false);
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
+      window.OpenRadioSweepQuality?.setConnected(false);
       window.OpenRadioFrequencyRaster?.setConnected(false);
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);
@@ -966,6 +971,7 @@
       window.OpenRadioSweepAverage?.setConnected(false);
       window.OpenRadioSweepThreeThresholds?.setConnected(false);
       window.OpenRadioSweepContext?.setConnected(false);
+      window.OpenRadioSweepQuality?.setConnected(false);
       window.OpenRadioFrequencyRaster?.setConnected(false);
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);

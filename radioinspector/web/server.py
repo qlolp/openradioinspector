@@ -47,6 +47,7 @@ from ..frequency_rounding import MAX_ROUNDING_REQUEST_BYTES, FrequencyRoundingIn
 from ..device_workers import DeviceWorkerManager, UnsupportedAdapterError, WorkerError
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_BYTES
 from ..frequency_counter import CounterIncompatibleError, MAX_COUNTER_REQUEST_BYTES
+from ..sweep_quality import QualityIncompatibleError, MAX_QUALITY_REQUEST_BYTES
 from ..dvb_parameters import DvbEvaluationError, MAX_DVB_REQUEST_BYTES
 from ..phonogram import PhonogramError
 from ..signal_list import SignalListError, MAX_IMPORT_REQUEST_BYTES
@@ -598,7 +599,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection",
                     "sweep-context", "sweep-occupancy", "candidate-frequency-rounding",
-                    "frequency-rounding", "frequency-counter", "dvb-evaluation", "measurement-map",
+                    "frequency-rounding", "frequency-counter", "dvb-evaluation", "measurement-map", "sweep-quality",
                 )):
             try:
                 if "?" in self.path:
@@ -614,6 +615,7 @@ class Handler(BaseHTTPRequestHandler):
 
                     "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
                     "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
+                    "sweep-quality": MAX_QUALITY_REQUEST_BYTES,
                     "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                     "measurement-map": MAX_MAP_REQUEST_BYTES,
                 }[parts[4]]
@@ -1133,6 +1135,10 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 self._send_json(api_payload(self.sessions.frequency_rounding(parts[3], payload)))
                 return
+            if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4] == "sweep-quality"):
+                self._send_json(api_payload(self.sessions.sweep_quality(parts[3], payload)))
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1382,6 +1388,8 @@ class Handler(BaseHTTPRequestHandler):
         except FrequencyRoundingIncompatibleError as exc:
             self._send_api_error(409, "frequency_rounding_incompatible", str(exc))
 
+        except QualityIncompatibleError as exc:
+            self._send_api_error(409, "quality_incompatible", str(exc))
         except CounterIncompatibleError as exc:
             self._send_api_error(409, "counter_incompatible", str(exc))
         except DvbEvaluationError as exc:

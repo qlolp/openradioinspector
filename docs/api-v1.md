@@ -724,3 +724,14 @@ JSON-артефакт; это не отдельный серверный мар�
 `.../investigations/next` сохраняет значение рекомендации очереди.
 Текущие клиенты получают списки и рекомендацию раздельно; новый Python
 `get_investigation` использует однозначный путь.
+
+### Read-only quality review of an archived sweep
+
+`POST /api/v1/sessions/{session_id}/sweep-quality` accepts exactly
+`sweep_id`, `edge_margin_db` (0 < value <= 200) and `high_level_dbm`
+(-200 <= value <= 100). It reports signed endpoint jumps and the number of
+samples meeting the explicit level threshold, with preserved source provenance.
+This is not an overload or calibration diagnosis and never modifies raw data,
+acquisition state or the archive. `features.sweep_quality` advertises the route.
+The complete contract, limits, errors and client semantics are in
+[sweep-quality.md](sweep-quality.md).
