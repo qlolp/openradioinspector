@@ -116,8 +116,8 @@ Swift и исполняемых обработчиках WebUI; содержит
 
 ```sh
 bash run_tests.sh -p test_windows_sweep_occupancy.py
-swift test --package-path macos/SpektrKomandy
-swift test --package-path macos
+# На macOS с Xcode — полная синтетическая проверка со своими HTTP-фикстурами
+python -m tests.run_release_checks --swift
 ```
 
 Интеграционный тест `test_webui_with_real_core_and_synthetic_archive`

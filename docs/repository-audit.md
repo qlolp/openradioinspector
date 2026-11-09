@@ -52,6 +52,9 @@ SwiftPM обнаруживает файлы автоматически и не �
 Ссылки на все 104 успешных проверки восьми голов — в
 [release/cleanup-outcome.json](release/cleanup-outcome.json).
 
+Следующий абзац — исторический снимок 8 ноября. Текущие решения по #115 и
+появившемуся #116: [свежий аудит 9 ноября](branch-audit-2026-11-09.md).
+
 Во время уборки параллельно появился [PR #115](https://github.com/qlolp/openradioinspector/pull/115),
 ветка `feature/radio-research-improvements`, head `8d838516f184b5b96a358cd34f45104c4a5e1697`.
 Это три уникальных коммита: архивная занятость API/WebUI, исследование и Swift

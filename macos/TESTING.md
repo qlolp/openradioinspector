@@ -1,26 +1,41 @@
 # Проверка macOS без оборудования
 
-Из каталога `macos/`:
+Полная синтетическая проверка запускается из корня репозитория:
 
 ```sh
-swift test --package-path SpektrKomandy --enable-code-coverage
-swift test
-bash ../run_tests.sh
+python -m tests.run_release_checks --swift
 ```
 
-Первый запуск проверяет библиотеку команд и моделей, второй — сессии,
-транспорт и модели приложения, третий — полный Python-набор репозитория.
-Приложение отдельно собирается в Xcode. Если вложенная sandbox SwiftPM
-недоступна (`sandbox_apply: Operation not permitted`), добавьте
-`--disable-sandbox` к командам `swift test`. Если ошибка возникает
-при запуске макросов SwiftUI/Testing, также добавьте
-`-Xswiftc -disable-sandbox` (локальный обход ограничения вложенной sandbox,
-не изменение настроек сборки приложения).
+Runner поднимает собственные HTTP-фикстуры и временные архивы, запускает Python,
+Node, Tk, обе Swift-suite и unsigned Xcode build; затем проверяет остановку
+серверов и неизменность архивов. Физический tinySA smoke явно исключён.
+Оборудование для этого прогона не требуется. Новые тесты `Swift Testing`
+требуют Swift 6 / Xcode 16 или новее; это не меняет минимальную macOS приложения.
+
+Для локального измерения покрытия SDK из корня репозитория:
+
+```sh
+swift test --package-path macos/SpektrKomandy --enable-code-coverage
+```
+
+Без окружения HTTP-фикстур часть интеграционных тестов SDK пропускается;
+такой запуск не заменяет полный release runner. Не используйте bare
+`swift test --package-path macos` как проверку без приборов: существующий
+`testPhysicalTinySAUltraSmokeIfConnected` при наличии USB-порта открывает
+прибор и запускает обзор. Явная аппаратная проверка описана в
+[hardware-acceptance.md](../docs/release/hardware-acceptance.md).
+
+Если вложенная sandbox SwiftPM недоступна (`sandbox_apply: Operation not
+permitted`), для отдельного локального SwiftPM-запуска доступен
+`--disable-sandbox`; при ошибке запуска макросов SwiftUI/Testing также доступен
+`-Xswiftc -disable-sandbox`. Это локальный обход ограничения вложенной sandbox,
+не изменение настроек приложения; результаты учитывайте отдельно от CI.
+
 
 Путь к JSON-отчёту покрытия библиотеки:
 
 ```sh
-swift test --package-path SpektrKomandy --show-codecov-path
+swift test --package-path macos/SpektrKomandy --show-codecov-path
 ```
 
 В отчёте учитывайте только файлы `Sources/SpektrKomandy/`: тесты и
