@@ -1,0 +1,126 @@
+command,group,purpose,access,source_id,pages,firmware_min,main_support,plan_task,notes
+AC,receive_processing,Скорость AGC и ручной gain,R/W,C,14,base,not_implemented,2,Только AM/SAH/SAL/SSB/CW; AC3 manual.
+AG,system,Громкость приёмника,R/W,C,6,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+AS,search,Автосохранение найденного в память,R/W,C,38,base,not_implemented,5,"Пишет память приёмника, не включает handoff ядра."
+BK,search,Связанные банки поиска,R/W,C,38,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+BP,system,Громкость beep,R/W,C,22,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+CC,digital,DMR color code,R/W,D,1,1512A,not_implemented,3,D: 0-16; configured nn и received rr отдельно.
+CI,squelch,CTCSS on/off/reverse,R/W,C,11,base,not_implemented,2,Reverse n=2 добавлен с 1702D по S/A/F.
+CM,digital,DMR mute по color code,R/W,D,1,1512A,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+CN,squelch,CTCSS частота и поиск,R/W,C,12,base,not_implemented,2,00 только response; 01-52 выбор; 99 поиск.
+DC,digital,D-CR/NXDN 15-bit descramble code,R/W,C,13,base,not_implemented,3,"15-bit scrambling, не расшифровка encrypted NXDN; auto-start format отдельно не задан."
+DI,squelch,DCS on/off,R/W,C,12,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+DJ,digital,Автовыдача цифровых сообщений,R/W,C,13,base,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+DK,digital,Последнее цифровое сообщение,R,C,13,base,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+DL,search,Задержка возобновления scan/search,R/W,C,19,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+DS,squelch,DCS код и поиск,R/W,C,12,base,not_implemented,2,"000 только response; 999 поиск; допустимые DCS из таблицы, не весь интервал."
+DT,system,Часы приёмника,R/W,C,20,base,not_implemented,8,Wall-clock без timezone; не UTC архива.
+EX,connection,Выход из remote,W,C,10,base,partial_core_scripted,1,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+FD,system,Scope быстрая выдача,R,C,43,base,not_implemented,8,S-meter counts; вход в scope и сетку подтвердить.
+FR,search,Максимальная задержка на активном сигнале,R/W,C,19,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+GL,system,Scope построчная выдача,R,C,43,base,not_implemented,8,F...L... lines; / terminal; 21/20; требуется scope mode.
+IF,receive_processing,Полоса ПЧ,R/W,C,15,base,not_implemented,2,Индекс зависит от режима; цифровая полоса автоматическая.
+KL,system,Цвет подсветки клавиш,R/W,C,23,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LB,system,Режим подсветки LCD,R/W,C,22,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LC,system,Событийная выдача частоты/статуса,R/W,C,24,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LD,system,Яркость LCD,R/W,C,22,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LM,system,Исходный S-meter и squelch status,R,C,25,base,partial_core_scripted,8,"Raw s_meter_count, не dBm; C содержит kk/kkk разной ширины."
+LN,system,Контраст LCD,R/W,C,23,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LQ,squelch,Порог level squelch,R/W,C,11,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LS,receive_processing,Auto-notch,R/W,C,15,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LT,system,Периодическая выдача S-meter,R/W,C,25,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+LU,system,Ориентация LCD,R/W,S,1,1903A,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MA,memory,Чтение памяти,R,C,41,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MB,memory,Удаление банка памяти,W,C,43,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MD,tuning,Выбор и чтение receive/decode mode,R/W,C,8-9,base,partial_core_scripted,2,C не включает TETRA 8/9; дополнения S/A/F. Сейчас только FM/AM.
+MDB,digital,Режим с busy flags,R,S,1,1903A,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MG,memory,Группа сканирования,R/W,C,42,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MM,memory,Сохранение текущих настроек,W,C,29,base,not_implemented,4,"D: MM/MM1/MM2/MM3 с 1509B; EEPROM write, 21 -> 20."
+MP,memory,Пропуск канала памяти,R/W,C,42,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MQ,memory,Удаление канала памяти,W,C,43,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MR,memory,Переход к каналу памяти,W,C,41,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MS,memory,Запуск сканирования памяти,W,C,41,base,not_implemented,4,Не смешивать TETRA/non-TETRA; не эквивалент host handoff.
+MW,memory,Настройка банка памяти,R/W,C,42,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+MX,memory,Запись канала памяти,W,C,42,base,not_implemented,4,Теги до12 chars; частичный аппаратный apply не атомарен.
+MYMEMBK,sd,Выдача backup банков памяти,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MYMEMCH,sd,Выдача backup каналов памяти,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MYSCANGRP,sd,Выдача backup scan groups,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MYSRCHBK,sd,Выдача backup search banks,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MYSRCHGRP,sd,Выдача backup search groups,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MYSYSTEM,sd,Выдача backup системы,R,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+MZ,sd,Запись backup данных,W,S,2,1903A,not_implemented,6,S/F: имя и назначение есть; полного wire backup-формата нет. Await full response; blocked до fixtures.
+NC,digital,NXDN RAN,R/W,D,1,1512A,not_implemented,3,D: 00-64; configured и received отдельно.
+NM,digital,NXDN mute по RAN,R/W,D,2,1512A,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+NQ,squelch,Порог noise squelch,R/W,C,10,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+NR,receive_processing,Noise reduction,R/W,C,15,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+OF,receive_processing,Выбор и направление offset,R/W,C,16,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+OL,receive_processing,Таблица offset frequencies,R/W,C,16,base,not_implemented,2,00 fixed zero; 01-19 user; 20-39 factory read-only.
+OT,digital,DMR slot selection,R/W,D,2,1509F,not_implemented,3,0=1+2; 1=2+1; 2=only1; 3=only2.
+OX,receive_processing,Monitor offset,R/W,C,17,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PC,digital,P25 NAC,R/W,D,2,1512A,not_implemented,3,"000-FFF hex, 3 символа; configured и received отдельно."
+PD,search,Удаление pass frequencies,W,C,40,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PM,digital,P25 mute по NAC,R/W,D,2,1512A,not_implemented,3,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PO,search,Priority on/off,R/W,C,17,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PP,search,Priority channel,R/W,C,17,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PR,search,Список pass frequencies,R,C,39,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PT,memory,Защита от записи,R/W,C,24,base,not_implemented,4,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+PW,search,Добавление pass frequency,W,C,39,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+QP,system,Выключение приёмника,W,C,6,base,not_implemented,8,Power-off не stop stream; отдельное действие.
+RE,connection,Режим result codes,R/W,C,26,base,partial_core_scripted,1,"C:4 документирует prefix; 10 unsolicited не ACK, 21 continuation. Bootstrap RE1 проверить."
+RF,tuning,Частота приёма,R/W,C,7,base,partial_core_scripted,2,"Общий адаптер только setter; без readback; API целые Hz, wire сетка 10Hz."
+RG,receive_processing,Ручной RF gain,R/W,C,14,base,not_implemented,2,000-110; действует при AC3.
+RN,connection,Серийный номер,R,C,28,base,partial_core_scripted,1,C:28 задаёт только RN read; R/W в C:5/S summary противоречит подробному описанию. Setter не определён; паспорт приватен.
+RS,system,System/full reset,W,C,29,base,not_implemented,8,"System/full reset различаются; отдельное действие, не auto-recovery."
+RT,system,Периодический receiver status,R/W,C,26,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+RX,system,Снимок receiver status,R,C,27,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SB,system,Скорость serial,R/W,C,28,base,not_implemented,8,Смена baud требует reconnect; не probe изменяющими командами.
+SC,receive_processing,Частота voice inversion,R/W,C,18,base,not_implemented,2,Недоступно US consumer version; только FM bandwidth<=15kHz.
+SD DIR,sd,Каталог SD,R,C,30,base,not_implemented,6,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SD INF,sd,Ёмкость и свободное место SD,R,C,31,base,not_implemented,6,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SD MMR,sd,Восстановление из SD,W,C,34,base,not_implemented,6,Может заменить память; предварительная копия и явное действие.
+SD MMW,sd,Резервирование на SD,W,C,33,base,not_implemented,6,"C содержит SYSYEM typo; подтвердить имена, не WAV transfer."
+SD PLY,sd,Проигрывание файла на приёмнике,W,C,32,base,not_implemented,6,"Playback на приборе, не сетевое воспроизведение."
+SD PST,sd,Статус SD record/playback,R,C,31,base,not_implemented,6,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SD REC,sd,Запись аудио на SD,W,C,32,base,not_implemented,6,Проверять PST; stop через / требует проверенного transcript.
+SD RSQ,sd,Пропуск тишины при записи,R/W,C,33,base,not_implemented,6,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SE,search,Запись search bank,W,C,36,base,not_implemented,5,C содержит посторонний SD DIR fragment; не использовать его как ответ SE.
+SG,search,Search group,R/W,C,38,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SH,tuning,Сдвиг шага настройки,R/W,C,8,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SI,receive_processing,Voice inversion on/off,R/W,C,18,base,not_implemented,2,Недоступно US consumer version; только FM bandwidth<=15kHz.
+SK,tetra,Разрешение перед записью activation key,W,T,1,2101C,not_implemented,7,Только перед TK KEY; не при обычном connect. Для activation уже действующая GSSI option не требуется.
+SL,search,Нижняя граница поиска,R/W,C,37,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SN,connection,Выдача serial number из summary,R,S,2,unknown,not_implemented,1,S перечисляет без полного wire-описания; alias RN не подтверждён.
+SP,system,Sleep timer,R/W,C,20,base,not_implemented,8,"C включает 15min, M specs не включает; проверить профиль."
+SQ,squelch,Выбор вида squelch,R/W,C,10,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SR,search,Чтение search bank,R,C,36,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SS,search,Запуск program search,W,C,37,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ST,tuning,Шаг настройки,R/W,C,7,base,swift_sdk_only,2,"Swift factory есть, управления через общее ядро нет."
+SU,search,Верхняя граница поиска,R/W,C,37,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+SX,search,Удаление search bank,W,C,37,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TI,search,Интервал priority,R/W,C,18,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK FAA,tetra,Чтение bookmarks,R,T,3-4,2101C+GSSI_option,not_implemented,7,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK FAQ,tetra,Удаление bookmarks,W,T,4,2101C+GSSI_option,not_implemented,7,Удаление00-49; %=все; 50 terminal не дополнительный слот.
+TK FAV,tetra,Экран bookmarks,W,T,2,2101C+GSSI_option,not_implemented,7,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK FAX,tetra,Добавление или изменение bookmark,W,T,4,2101C+GSSI_option,not_implemented,7,"T: ответ TT, setter TTT; формат требует transcript."
+TK GSA,tetra,Чтение GSSI list,R,T,5,2101C+GSSI_option,not_implemented,7,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK GSQ,tetra,Удаление GSSI entries,W,T,5,2101C+GSSI_option,not_implemented,7,Удаление000-199; %=все; 200 terminal не дополнительный слот.
+TK GSS,tetra,Экран GSSI,W,T,2-3,2101C+GSSI_option,not_implemented,7,"T: header GSS, setting GS; setter blocked до transcript."
+TK GSX,tetra,Добавление или изменение GSSI entry,W,T,5,2101C+GSSI_option,not_implemented,7,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK HOM,tetra,Чтение home frequency,R,T,3,2101C+GSSI_option,not_implemented,7,Setter только AR-DV10; AR-DV1 home определяется автоматически.
+TK KEY,tetra,Activation key GSSI PRO,R/W,T,1-2,2101C,not_implemented,7,15-digit secret; без логов/snapshot; permanent registration требует power cycle. Для activation уже действующая GSSI option не требуется.
+TK SNG,tetra,Single/multi GSSI,R/W,T,3,2101C+GSSI_option,not_implemented,7,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+TK STP,tetra,Остановка GSSI,W,T,2,2101C+GSSI_option,not_implemented,7,AR-DV1 завершает GSSI до смены mode/scan.
+TK STR,tetra,Запуск GSSI,W,T,2,2101C+GSSI_option,not_implemented,7,Только VFO+T-TC и активная PRO option.
+TR,system,Alarm/recording timer,R/W,C,21,base,not_implemented,8,C: TY/XE и расписания противоречивы; сначала transcript.
+TS,tetra,T-TC slot,R/W,S,3,1903A,not_implemented,7,"0 auto,1-4; сохранение slot в backup с1907B."
+VE,search,VFO search settings,R/W,C,35,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+VF,tuning,Выбор VFO,W,C,34,base,partial_core_scripted,2,Сейчас только A; C ниже путает VFO-Z и букву C.
+VI,tuning,Чтение A/B/Z,R,C,35,base,not_implemented,2,C содержит неверный заголовок VE; ответ многострочный.
+VQ,squelch,Voice squelch,R/W,C,11,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+VR,connection,Версия прошивки,R,C,28,base,partial_core_scripted,1,Raw suffix сохранять; не угадывать активность опции по неизвестному формату.
+VS,search,VFO search,W,C,34,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+WI,connection,Модель приёмника,R,C,28,base,not_implemented,1,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ZI,system,Receiver ID,R/W,C,24,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ZJ,tuning,Предыдущая частота/банк/канал,W,C,9,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ZK,tuning,Следующая частота/банк/канал,W,C,10,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ZP,system,Включение приёмника,W,C,6,base,not_implemented,8,При выключении только ZP; recording timer накладывает ограничения.
