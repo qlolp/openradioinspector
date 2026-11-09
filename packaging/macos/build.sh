@@ -14,6 +14,7 @@ cp -R build/macos/core/openradioinspector-core "$app/Contents/Helpers/"
 cp packaging/macos/launch-app.sh "$app/Contents/MacOS/OpenRadioInspector"
 chmod 755 "$app/Contents/MacOS/OpenRadioInspector"
 /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable OpenRadioInspector' "$app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$app/Contents/Info.plist" >/dev/null
 mkdir -p "$app/Contents/Resources/Notices"
 version=$(python3 -c 'from importlib.metadata import version; print(version("openradioinspector"))')
 /usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 0.4.0' "$app/Contents/Info.plist"

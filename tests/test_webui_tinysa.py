@@ -16,3 +16,6 @@ class WebTinySATests(unittest.TestCase):
         reference=next(k for k,v in project.items() if v.get('path')=='TinySAControlPane.swift')
         build=next(k for k,v in project.items() if v.get('isa')=='PBXBuildFile' and v.get('fileRef')==reference)
         self.assertTrue(any(build in v.get('files',[]) for v in project.values() if v.get('isa')=='PBXSourcesBuildPhase'))
+        app_configs=[v['buildSettings'] for v in project.values() if v.get('isa')=='XCBuildConfiguration' and v.get('buildSettings',{}).get('PRODUCT_BUNDLE_IDENTIFIER')]
+        self.assertEqual(len(app_configs),2)
+        for config in app_configs:self.assertIn('аналогового',config['INFOPLIST_KEY_NSMicrophoneUsageDescription'])

@@ -405,6 +405,7 @@ class Controller:
         if type(start) is not int or type(stop) is not int or not 100000<=start<=stop<=6000000000 or type(points) is not int or not 1<=points<=MAX_RAW_POINTS:
             raise ValueError('Недопустимые параметры scanraw')
         if stop>800000000 and not self.settings.get('ultra'):raise ValueError('Сначала включите Ultra')
+        zero_span=start==stop
         zero=self._text('zero')
         m=re.fullmatch(r'zero \{level\}\n([0-9]{1,4})dBm',zero.strip())
         if not m:raise ValueError('Нет однозначного readback zero; scanraw не отправлен')
@@ -416,6 +417,6 @@ class Controller:
         data=dict(frequencies_hz=hz,levels=levels,level_unit='dBm',wire_base64=base64.b64encode(raw).decode(),
                   zero_db=int(m[1]),started_at=started,ended_at=format_time(self.adapter._clock()),
                   sample_offsets_seconds=None,timing_source='interval_only',grid_source='firmware_ea71dfd_scanraw',
-                  requested_stop_hz=stop,stop_is_inclusive=False)
+                  requested_stop_hz=stop,stop_is_inclusive=None if zero_span else False)
         return self._artifact('zero_span' if zero_span else 'raw_scan',json.dumps(data,allow_nan=False).encode(),
                               'application/json','tinysa-zero-span.json' if zero_span else 'tinysa-raw-scan.json',started_at=started,ended_at=data['ended_at'],timing_source='host_usb_interval')

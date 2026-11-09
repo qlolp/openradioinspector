@@ -376,6 +376,8 @@
 				<string>5.0</string>
 				<key>ENABLE_TESTABILITY</key>
 				<string>YES</string>
+				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
+				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>
 			<key>name</key>
 			<string>Debug</string>
@@ -428,6 +430,8 @@
 				<string>minimal</string>
 				<key>SWIFT_VERSION</key>
 				<string>5.0</string>
+				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
+				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>
 			<key>name</key>
 			<string>Release</string>

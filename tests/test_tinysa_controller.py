@@ -187,3 +187,4 @@ class ControllerTests(unittest.TestCase):
         data=json.loads(base64.b64decode(result.artifact['data_base64']))
         self.assertIsNone(data['sample_offsets_seconds'])
         self.assertEqual(data['frequencies_hz'],[100500000]*3)
+        self.assertIsNone(data['stop_is_inclusive'])
