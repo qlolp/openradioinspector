@@ -405,7 +405,7 @@ struct RemoteAnalyticsPane: View {
                     } else {
                         Text("Спектральных свипов нет").foregroundStyle(.secondary)
                     }
-                    Text("archive_wide=\(summary.archiveWide) · исходные единицы не преобразуются")
+                    Text("archive_wide=\(String(summary.archiveWide)) · исходные единицы не преобразуются")
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(model.archiveAnalyticsError ?? "Сводка появится после выбора сеанса")
@@ -537,12 +537,12 @@ struct WorkflowPolicyStatus: View {
 
     var body: some View {
         if let status {
-            Text("enabled=\(status.policy.enabled) · scheduler=\(status.schedulerAlive) · результат=\(status.runtime.lastResult ?? "—")")
+            Text("enabled=\(String(status.policy.enabled)) · scheduler=\(String(status.schedulerAlive)) · результат=\(status.runtime.lastResult ?? "—")")
                 .font(.caption)
             if let error = status.runtime.lastError, !error.isEmpty {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
-            Text("runtime-only · persistent=\(status.policyPersistent) · после restart нужен новый opt-in=\(status.restartRequiresOptIn)")
+            Text("runtime-only · persistent=\(String(status.policyPersistent)) · после restart нужен новый opt-in=\(String(status.restartRequiresOptIn))")
                 .font(.caption).foregroundStyle(.secondary)
         } else {
             Text("Политика ещё не загружена").font(.caption).foregroundStyle(.secondary)
