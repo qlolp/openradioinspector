@@ -2,6 +2,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -181,14 +182,14 @@ class ListeningMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "owned.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 before = self.archive_fixture_values(connection)
             with (
                 patch.object(SQLiteSessionStore, "_create_reference_schema", side_effect=RuntimeError("synthetic migration failure")),
                 self.assertRaisesRegex(RuntimeError, "synthetic migration"),
             ):
                 SQLiteSessionStore(str(path))
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(self.archive_fixture_values(connection), before)
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
                 self.assertNotIn("listening_started_at", [r[1] for r in connection.execute("PRAGMA table_info(investigations)")])
@@ -225,7 +226,7 @@ class ListeningMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "owned-preservation.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 before = self.archive_fixture_values(connection)
             with SQLiteSessionStore(str(path)) as store:
                 self.assertEqual(self.archive_fixture_values(store._connection), before)
@@ -238,17 +239,66 @@ class ListeningMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "future.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("PRAGMA journal_mode = DELETE")
                 connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
                 before = self.archive_fixture_values(connection)
-            connection.close()
             before_bytes = path.read_bytes()
             with self.assertRaises(ValueError):
                 SQLiteSessionStore(str(path))
             self.assertEqual(path.read_bytes(), before_bytes)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "delete")
                 self.assertEqual(self.archive_fixture_values(connection), before)
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION + 1)
                 self.assertNotIn("listening_started_at", [row[1] for row in connection.execute("PRAGMA table_info(investigations)")])
+
+
+class MigrationConnectionLifetimeTests(unittest.TestCase):
+    def test_migrations_close_connections_before_directory_cleanup(self):
+        from contextlib import contextmanager
+
+        original_connect = sqlite3.connect
+        original_directory = tempfile.TemporaryDirectory
+        methods = (
+            "test_migration_and_rollback",
+            "test_migration_preserves_explicit_archive_fixture_values",
+            "test_future_schema_rejected_without_change",
+        )
+        for method in methods:
+            with self.subTest(method=method):
+                connections = []  # Strong references prevent GC from hiding leaks.
+                cleanup_checked = []
+
+                def connect(*args, connections=connections, **kwargs):
+                    connection = original_connect(*args, **kwargs)
+                    connections.append(connection)
+                    return connection
+
+                def assert_closed(connections=connections):
+                    self.assertTrue(connections)
+                    for connection in connections:
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            connection.execute("SELECT 1")
+
+                @contextmanager
+                def directory(*args, connections=connections, cleanup_checked=cleanup_checked, assert_closed=assert_closed, **kwargs):
+                    with original_directory(*args, **kwargs) as path:
+                        try:
+                            yield path
+                            assert_closed()  # Must precede filesystem cleanup on Windows.
+                            cleanup_checked.append(True)
+                        finally:
+                            # Keep the regression itself safe when exercising broken code.
+                            for connection in connections:
+                                connection.close()
+                    self.assertFalse(Path(path).exists())
+                    assert_closed()
+
+                with (
+                    patch.object(sqlite3, "connect", side_effect=connect),
+                    patch.object(tempfile, "TemporaryDirectory", side_effect=directory),
+                ):
+                    case = ListeningMigrationTests(method)
+                    getattr(case, method)()
+                self.assertEqual(cleanup_checked, [True])
