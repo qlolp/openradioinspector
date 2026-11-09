@@ -51,6 +51,11 @@ class TinySAReceiveProfileTests(unittest.TestCase):
         for info, firmware in (
             ('tinySA Ultra ZS405', 'tinySA4_v1.5-new'),
             ('tinySA Ultra ZS405', 'prefix ' + FIRMWARE),
+            ('tinySA Ultra ZS405', FIRMWARE + '\nHW Version:V0.4.5.2'),
+            ('tinySA Ultra ZS405', FIRMWARE + '\nHW Version:V0.4.5.1\nextra'),
+            ('tinySA Ultra ZS405', FIRMWARE + '\nHW Version:V0.4.5.1\nHW Version:V0.4.5.1'),
+            ('tinySA Ultra ZS405', 'HW Version:V0.4.5.1\n' + FIRMWARE),
+            ('tinySA Ultra ZS405', FIRMWARE + '\n' + FIRMWARE),
             ('tinySA Ultra+ ZS407', FIRMWARE),
             ('not tinySA Ultra ZS405', FIRMWARE),
         ):
@@ -68,6 +73,21 @@ class TinySAReceiveProfileTests(unittest.TestCase):
                 self.assertEqual(len(transport.sent), 3)
                 self.assertEqual(adapter.details()['device_identity']['firmware'], firmware)
                 self.assertEqual(adapter.details()['settings_source'], 'unknown')
+
+    def test_observed_multiline_version_accepts_only_known_hardware_line(self):
+        transport = TinySATransport.valid()
+        info = 'tinySA ULTRA ZS405\nCopyright: synthetic fixture\nBuild: synthetic'
+        version = FIRMWARE + '\nHW Version:V0.4.5.1'
+        transport.responses['info'] = [info.replace('\n', '\r\n') + '\r\nch>']
+        transport.responses['version'] = [version.replace('\n', '\r\n') + '\r\nch>']
+        adapter = TinySASerialAdapter(self.stream(), transport=transport)
+        self.addCleanup(adapter.close)
+        sweep = adapter.poll()
+        self.assertEqual(sweep.settings['device_identity'], {'info': info, 'firmware': version})
+        self.assertEqual(sweep.settings['hardware_validation'], 'not_run')
+        self.assertEqual(transport.sent[:3], [b'info\r', b'version\r', b'deviceid\r'])
+        self.assertEqual(transport.sent[-1], b'scan 100M 101M 3 3\r')
+        self.assertEqual(len(transport.sent), 10)
 
     def test_provenance_is_requested_and_acknowledged_never_applied(self):
         adapter = TinySASerialAdapter(self.stream(), transport=TinySATransport.valid())

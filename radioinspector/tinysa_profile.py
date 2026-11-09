@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 PROFILE_ID = "tinysa-ultra-zs405-receive-v1"
 FIRMWARE = "tinySA4_v1.4-235-gea71dfd"
+HARDWARE_VERSION_LINE = "HW Version:V0.4.5.1"
 MIN_FREQUENCY_HZ = 100_000
 MAX_FREQUENCY_HZ = 800_000_000
 MIN_POINTS = 2
@@ -64,5 +65,7 @@ def matches_identity(info: str, version: str) -> bool:
     # or arbitrary firmware merely because it starts with tinySA4_.
     return (
         any(line.strip().casefold() == "tinysa ultra zs405" for line in info.splitlines())
-        and version.strip() == FIRMWARE
+        and tuple(version.strip().splitlines()) in (
+            (FIRMWARE,), (FIRMWARE, HARDWARE_VERSION_LINE),
+        )
     )
