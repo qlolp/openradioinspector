@@ -3,6 +3,20 @@
 Версия исходников — `0.4.0.dev0`. Релиз и RC в ходе уборки не публикуются.
 Актуальные результаты ревизии и следующий план: [../repository-audit.md](../repository-audit.md).
 
+В ветке полного tinySA control реализованы typed settings/jobs, lab-аренда,
+live screen, отдельные артефакты, SD/presets/measurements/generator/audio и
+панели Web/Windows/macOS. Состав и ограничения:
+[tinySA full control](../tinysa-full-control.md). Это изменение ещё требует
+CI на точном head и отдельной аппаратной приёмки; прежние результаты ниже
+не объявляются проверкой этого среза.
+
+Локальная проверка tinySA-среза 9 ноября: release runner — **1516 тестов,
+0 skips**, семь временных архивов неизменны; реальный Chromium прошёл
+synthetic core/HTTP flow (экран480×320, lab, PNG, release). Wheel/sdist и
+установка wheel вне checkout проверены. Независимое ревью исправлений
+пройдено; Windows/macOS пакеты и native Swift подтверждаются CI, аппаратный
+ZS405/LISTEN/RF и восьмичасовой стенд остаются непроверенными.
+
 ## Состав
 
 Базовый выпуск уже вошёл в `main` через #105 (`d522bd4`), вместе со стабильным

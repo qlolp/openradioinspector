@@ -369,6 +369,8 @@ class WindowsApp(TkTimerOwner):
         self.map_panel = MeasurementMapPanel(self, notebook)
         from .audio_stream import AudioStreamPanel
         self.audio_stream_panel = AudioStreamPanel(self, notebook)
+        from .tinysa import TinySAPanel
+        self.tinysa_panel = TinySAPanel(self, notebook)
         from .sweep_average import AveragePanel
         self.average_panel = AveragePanel(self, notebook)
         from .sweep_three_thresholds import ThreeThresholdsPanel
@@ -1696,6 +1698,8 @@ class WindowsApp(TkTimerOwner):
             self.map_panel.close()
         if hasattr(self, "audio_stream_panel"):
             self.audio_stream_panel.close()
+        if hasattr(self, "tinysa_panel"):
+            self.tinysa_panel.close()
         if hasattr(self, "average_panel"):
             self.average_panel.close()
         if hasattr(self, "three_thresholds_panel"):
