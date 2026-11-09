@@ -57,6 +57,8 @@ struct ContentView: View {
                         .disabled(model.session == nil || model.busy)
                     Button(model.session?.streams.count == 1 ? "Остановить поток" : "Остановить оба потока") { model.stopWorkers() }
                         .disabled(model.session == nil || model.busy)
+                    Button("tinySA · lab / экран") { model.showTinySAControl = true }
+                        .disabled(!model.connected || model.analyzer == nil)
                     Spacer()
                     Text(model.status).font(.caption).foregroundStyle(.secondary)
                 }
@@ -78,6 +80,10 @@ struct ContentView: View {
         .frame(minWidth: 980, minHeight: 860)
         .sheet(isPresented: $model.showSerialForm) {
             RemoteSerialSessionPane(model: model)
+        }
+        .sheet(isPresented: $model.showTinySAControl) {
+            RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID,
+                                    streamID: model.analyzer?.id ?? "")
         }
         .background(WindowCloseObserver {
             // Закрытие UI не останавливает измерения и не закрывает приборы ядра.
@@ -110,6 +116,7 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
+    @Published var showTinySAControl = false
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
     }
@@ -342,6 +349,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func disconnect() {
+        showTinySAControl = false
         connectionGeneration += 1
         capacityRequestRevision += 1
         archiveCapacity = nil

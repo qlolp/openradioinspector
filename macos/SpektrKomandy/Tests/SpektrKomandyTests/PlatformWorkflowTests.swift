@@ -136,6 +136,7 @@ final class PlatformWorkflowTests: XCTestCase {
             let analyzer = streams[0]["settings"] as! [String: Any]
             let receiver = streams[1]["settings"] as! [String: Any]
             XCTAssertEqual(analyzer["adapter"] as? String, "tinysa-serial")
+            XCTAssertEqual(analyzer["receive_profile"] as? String, "tinysa-ultra-zs405-receive-v1")
             XCTAssertEqual(analyzer["start_hz"] as? Int, 88_000_000)
             XCTAssertEqual(analyzer["stop_hz"] as? Int, 108_000_000)
             XCTAssertEqual(analyzer["points"] as? Int, 201)

@@ -63,9 +63,10 @@ class WorkflowPayloadTests(unittest.TestCase):
         payload = self.session(simulated=False, serial=True, tinysa_port='COM12', receiver_port='COM13')
         self.assertEqual([s['settings']['adapter'] for s in payload['streams']],
                          ['tinysa-serial', 'ardv1-serial'])
+        self.assertEqual(payload['streams'][0]['settings']['receive_profile'], 'tinysa-ultra-zs405-receive-v1')
         self.assertNotIn('hardware_decode', payload['streams'][1]['capabilities'])
         self.assertEqual([s['port'] for s in payload['streams']], ['COM12', 'COM13'])
-        for changes in ({'simulated': True}, {'tinysa_port': 'sim://tinysa'},
+        for changes in ({'stop_hz': 800_000_001}, {'start_hz': 99_999}, {'simulated': True}, {'tinysa_port': 'sim://tinysa'},
                         {'mode': 'DMR'}, {'serial': 'yes'},
                         {'receiver_port': 'com12'}, {'receiver_port': '\\\\.\\COM12'},
                         {'receiver_port': 'socket://localhost:1234'},

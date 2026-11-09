@@ -341,6 +341,26 @@ class OwnedProcessTests(unittest.TestCase):
         self.assertIn("archive unchanged", output.getvalue())
         self.assertTrue(fixture.log.closed)
 
+    def test_windows_job_accounting_can_settle_after_clean_process_exit(self):
+        fixture=self.fixture(self.good_body());fixture.ready(5)
+        if fixture.job is not None:self.addCleanup(fixture.job.close)
+        fixture.job=Mock()
+        # Windows signals the parent handle before job accounting necessarily
+        # removes its last process. No live descendant exists in this fixture.
+        fixture.job.active.side_effect=[1,0]
+        with patch.object(release,'_stop_command') as stop,redirect_stdout(io.StringIO()) as output:
+            fixture.close(.1)
+        stop.assert_not_called()
+        self.assertIn('archive unchanged',output.getvalue())
+
+    def test_windows_job_that_remains_active_still_fails_closed(self):
+        fixture=self.fixture(self.good_body());fixture.ready(5)
+        if fixture.job is not None:self.addCleanup(fixture.job.close)
+        fixture.job=Mock();fixture.job.active.return_value=1
+        with patch.object(release,'_stop_command') as stop,redirect_stdout(io.StringIO()),self.assertRaisesRegex(release.ReleaseCheckError,'forced cleanup'):
+            fixture.close(.02)
+        stop.assert_called_once()
+
     def test_startup_exit_timeout_bad_json_and_nonlocal_url_fail(self):
         bodies = ["raise SystemExit(7)", "import time; time.sleep(30)",
                   "import sys; print('not json', flush=True); sys.stdin.read()",

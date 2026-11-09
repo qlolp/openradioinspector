@@ -565,6 +565,8 @@
   }
 
   function updateComparison() {
+    const tinyControl = document.getElementById('tinysa-control-link');
+    if(tinyControl) tinyControl.href='/instrument?session_id='+encodeURIComponent(state.sessionId||'')+'&stream_id='+encodeURIComponent(state.workers?.find(w=>w.adapter==='tinysa-serial')?.stream_id||state.spectrumStreamId||'');
     window.OpenRadioFrequencyRounding?.update({
       sessionId: state.sessionId, candidates: state.candidates,
     });
