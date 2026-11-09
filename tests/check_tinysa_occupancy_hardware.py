@@ -52,6 +52,7 @@ def main(argv=None):
         validate_occupancy(analysis,(sid,stream),anchor,2,2,-80)
         require(summarize_occupancy(analysis,-80)==analysis['occupancy'], 'Inconsistent occupancy')
         save_occupancy_file(root/'occupancy.json',analysis,analysis.data_json)
+        require(analysis.data_json in (root/'occupancy.json').read_text(encoding='utf-8'), 'Wire JSON was changed during export')
         (root/'occupancy.csv').write_text(export_csv((root/'occupancy.json').read_bytes()), encoding='utf-8', newline='')
         time.sleep(2)
         require(len(client.list_sweeps(sid,stream))==len(rows), 'Acquisition continued after stop')

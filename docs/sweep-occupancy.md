@@ -159,7 +159,8 @@ python -m radioinspector.occupancy_export sweep-occupancy.json --output sweep-oc
 
 ## Повторная аппаратная проверка
 
-2026-11-09 macOS обнаружила USB serial `/dev/cu.usbmodem4001`. Попытка
+2026-11-09 macOS обнаружила USB-устройство `tinySA4` (`0483:5740`)
+и serial `/dev/cu.usbmodem4001`. Версия прошивки в этом запуске не прочитана. Попытка
 запуска штатного `tinysa-serial` через отдельное ядро и временную SQLite
 остановилась на открытии порта: `Operation not permitted`. Повторный запуск
 с запросом расширенного доступа дал тот же результат. Новых аппаратных
