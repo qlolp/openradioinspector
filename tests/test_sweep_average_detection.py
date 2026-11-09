@@ -440,9 +440,10 @@ class AverageChangeDetectionHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, payload=None, path=None, raw=None, method="POST"):
-        body = raw if raw is not None else json.dumps(
-            _request() if payload is None else payload,
-        ).encode()
+        body = raw if raw is not None else (
+            None if method == "GET" and payload is None else
+            json.dumps(_request() if payload is None else payload).encode()
+        )
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         try:
             connection.request(method, path or self.path, body=body,
