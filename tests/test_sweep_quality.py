@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import copy
+from contextlib import closing
 import http.client
 import json
 import sqlite3
 import tempfile
 import threading
 import unittest
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 from radioinspector.contracts import Sweep
@@ -120,6 +122,36 @@ class QualityContractTests(unittest.TestCase):
         self.assertEqual(result['points'], 16384)
 
 
+def logical_archive_dump(path):
+    # sqlite3.Connection.__exit__ commits/rolls back, but does not close the
+    # handle. Keep its lifetime explicit so Windows can remove the temp DB.
+    with closing(sqlite3.connect(path)) as connection:
+        return '\n'.join(connection.iterdump())
+
+
+class QualityDumpOwnershipTests(unittest.TestCase):
+    def test_dump_closes_connection_on_success_and_iteration_failure(self):
+        for failing in (False, True):
+            with self.subTest(failing=failing):
+                connection = MagicMock()
+                connection.__enter__.return_value = connection
+                if failing:
+                    def broken_dump():
+                        yield 'BEGIN TRANSACTION;'
+                        raise RuntimeError('synthetic dump failure')
+                    connection.iterdump.return_value = broken_dump()
+                else:
+                    connection.iterdump.return_value = iter(['BEGIN TRANSACTION;', 'COMMIT;'])
+                with patch('tests.test_sweep_quality.sqlite3.connect', return_value=connection):
+                    if failing:
+                        with self.assertRaisesRegex(RuntimeError, 'synthetic dump failure'):
+                            logical_archive_dump('synthetic-only')
+                    else:
+                        self.assertEqual(logical_archive_dump('synthetic-only'), 'BEGIN TRANSACTION;\nCOMMIT;')
+                connection.close.assert_called_once_with()
+
+
+
 class QualityPersistenceTests(unittest.TestCase):
     def test_read_only_restart_logical_archive_and_events(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -134,16 +166,13 @@ class QualityPersistenceTests(unittest.TestCase):
                 service.sweep_quality(session.id, dict(request(), sweep_id='missing'))
             self.assertEqual(before, (service.events(), service.list_sweeps(session.id), service.list_sessions()))
             service.close()
-            def logical_dump():
-                with sqlite3.connect(path) as connection:
-                    return '\n'.join(connection.iterdump())
-            baseline = logical_dump()
+            baseline = logical_archive_dump(path)
             service = SessionService(store=SQLiteSessionStore(path))
             try:
                 self.assertEqual(service.sweep_quality(session.id, request()), first)
             finally:
                 service.close()
-            self.assertEqual(logical_dump(), baseline)
+            self.assertEqual(logical_archive_dump(path), baseline)
 
 
 class QualityHTTPTests(unittest.TestCase):
