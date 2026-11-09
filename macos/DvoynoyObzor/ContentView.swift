@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = RemoteDualModel()
@@ -1001,7 +1002,11 @@ final class RemoteDualModel: ObservableObject {
         let panel = NSSavePanel()
         panel.title = "Сохранить NDJSON snapshot"
         panel.nameFieldStringValue = "archive-\(safeName).ndjson"
-        panel.allowedFileTypes = ["ndjson"]
+        guard let ndjsonType = UTType(filenameExtension: "ndjson", conformingTo: .plainText) else {
+            archiveExportStatus = "Не удалось определить тип файла NDJSON"
+            return
+        }
+        panel.allowedContentTypes = [ndjsonType]
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         let requestGeneration = generation
         archiveExportPending = true
