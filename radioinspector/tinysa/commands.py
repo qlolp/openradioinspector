@@ -30,12 +30,13 @@ SETTINGS = {
     'ultra': dict(label='Ultra (расширенный диапазон)', command='ultra', type='boolean'),
     'spur': dict(label='Подавление spur', command='spur', type='choice', choices=['off','on','auto']),
     'repeat': dict(label='Повторов на частоту', command='repeat', type='integer', min=1, max=1000),
-    'sweep_seconds': dict(label='Время sweep, с (0=auto)', command='sweeptime', type='number', min=0, max=600),
+    'sweep_accuracy':dict(label='Точность sweep',command='sweep',type='choice',choices=['normal','precise','fast','noise']),
+    'sweep_seconds': dict(label='Время sweep, с (0=auto)', command='sweeptime', type='number', min=0, max=60),
     'external_gain_db': dict(label='Внешний gain, дБ', command='ext_gain', type='number', min=-100, max=100),
     'calculation': dict(label='Обработка трассы', command='calc', type='choice', choices=['off','minh','maxh','maxd','aver4','aver16','aver','quasi','log','lin']),
     'trigger_mode': dict(label='Trigger', command='trigger', type='choice', choices=['auto','normal','single']),
     'trigger_dbm': dict(label='Порог trigger, dBm', command='trigger', type='number', min=-174, max=30),
-    'trace_unit': dict(label='Единицы экрана', command='trace', type='choice', choices=['dBm','dBmV','dBuV','dBV','V','W']),
+    'trace_unit': dict(label='Единицы экрана', command='trace', type='choice', choices=['dBm','dBmV','dBuV','dBV','V','Vpp','W','RAW']),
     'ref_level': dict(label='Reference level (единицы экрана)', command='trace reflevel', type='number_or_auto', min=-174, max=150),
     'scale_div': dict(label='Масштаб на деление', command='trace scale', type='number_or_auto', min=0.01, max=100),
     'output_hz': dict(label='Генератор, Гц', command='freq', type='integer', min=100000, max=800000000, lab=True),
@@ -46,7 +47,7 @@ SETTINGS = {
     'am_depth_percent': dict(label='Глубина AM, %', command='modulation depth', type='integer', min=10, max=100, lab=True),
     'fm_deviation_hz': dict(label='Девиация FM, Гц', command='modulation deviation', type='integer', min=1000, max=300000, lab=True),
     'output_delta_db': dict(label='Изменение уровня sweep, дБ', command='levelchange', type='number', min=-90, max=90, lab=True),
-    'caloutput_mhz': dict(label='CAL, МГц (off/1/2/4/10/15/30)', command='caloutput', type='choice', choices=['off',1,2,4,10,15,30], lab=True),
+    'caloutput_mhz': dict(label='CAL, МГц', command='caloutput', type='choice', choices=['off',1,2,3,4,10,15,30], lab=True),
 }
 
 
@@ -79,10 +80,12 @@ def setting_command(name: str, value) -> Command:
 
 
 def catalog() -> dict:
+    from .forms import OPERATIONS
     data = json.loads(files(__package__).joinpath('menu.json').read_text(encoding='utf-8'))
     return dict(profile=CONTROL_PROFILE, source_revision=SOURCE_REVISION,
                 model='tinySA Ultra ZS405', screen=dict(width=480,height=320,format='rgb565be'),
-                hardware_validation='not_run', settings=json.loads(json.dumps(SETTINGS)), menu=data['items'],
+                wiki_version='1.3507+ (includes Ultra+; presence must be checked on live ZS405)',
+                hardware_validation='not_run',settings=json.loads(json.dumps(SETTINGS)),operations=json.loads(json.dumps(OPERATIONS)),menu=data['items'],
                 limitations=['No simultaneous analyzer and generator','No documented USB PCM or IQ',
                              'Screen is read-only in monitoring; lab actions require exclusive lease',
                              'Firmware source evidence is not physical validation'])

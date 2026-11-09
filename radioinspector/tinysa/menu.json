@@ -4,36 +4,6 @@
   "source_revision": "ea71dfd9e53d6dec95256ac70914659cf260d48d",
   "items": [
     {
-      "id": "analyzer/tinysa_basic",
-      "path": [
-        "analyzer",
-        "tinySA Basic"
-      ],
-      "label": "tinySA Basic",
-      "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
-    },
-    {
-      "id": "analyzer/getting_support",
-      "path": [
-        "analyzer",
-        "Getting support"
-      ],
-      "label": "Getting support",
-      "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
-    },
-    {
-      "id": "analyzer/faq",
-      "path": [
-        "analyzer",
-        "FAQ"
-      ],
-      "label": "FAQ",
-      "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
-    },
-    {
       "id": "analyzer/pause",
       "path": [
         "analyzer",
@@ -41,7 +11,9 @@
       ],
       "label": "PAUSE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset",
@@ -51,7 +23,9 @@
       ],
       "label": "PRESET",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/load_startup",
@@ -62,7 +36,9 @@
       ],
       "label": "LOAD STARTUP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/load_x",
@@ -73,7 +49,9 @@
       ],
       "label": "LOAD X",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/load_defaults",
@@ -84,7 +62,9 @@
       ],
       "label": "LOAD DEFAULTS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/save_settings",
@@ -95,7 +75,9 @@
       ],
       "label": "SAVE SETTINGS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/load_from_sd",
@@ -106,7 +88,9 @@
       ],
       "label": "LOAD from SD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store",
@@ -117,7 +101,9 @@
       ],
       "label": "STORE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store/store_as_startup",
@@ -129,7 +115,9 @@
       ],
       "label": "STORE AS STARTUP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store/store_x",
@@ -141,7 +129,9 @@
       ],
       "label": "STORE X",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store/store_sd",
@@ -153,7 +143,9 @@
       ],
       "label": "STORE -> SD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store/save_as_png",
@@ -165,7 +157,9 @@
       ],
       "label": "SAVE AS PNG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/preset/store/factory_defaults",
@@ -177,7 +171,9 @@
       ],
       "label": "FACTORY DEFAULTS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency",
@@ -187,7 +183,9 @@
       ],
       "label": "FREQUENCY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/start",
@@ -198,7 +196,9 @@
       ],
       "label": "START",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/stop",
@@ -209,7 +209,9 @@
       ],
       "label": "STOP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/center",
@@ -220,7 +222,9 @@
       ],
       "label": "CENTER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/span",
@@ -231,7 +235,9 @@
       ],
       "label": "SPAN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/zero_span",
@@ -242,7 +248,9 @@
       ],
       "label": "ZERO SPAN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/rbw",
@@ -253,7 +261,9 @@
       ],
       "label": "RBW",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band",
@@ -264,7 +274,9 @@
       ],
       "label": "MULTI BAND",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz",
@@ -276,7 +288,9 @@
       ],
       "label": "xHz yHz",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/start",
@@ -289,7 +303,9 @@
       ],
       "label": "START",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/end",
@@ -302,7 +318,9 @@
       ],
       "label": "END",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/center",
@@ -315,7 +333,9 @@
       ],
       "label": "CENTER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/span",
@@ -328,7 +348,9 @@
       ],
       "label": "SPAN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/level",
@@ -341,7 +363,9 @@
       ],
       "label": "LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/name",
@@ -354,7 +378,9 @@
       ],
       "label": "NAME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/xhz_yhz/disable",
@@ -367,7 +393,9 @@
       ],
       "label": "DISABLE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/altern",
@@ -379,7 +407,9 @@
       ],
       "label": "ALTERN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/bands_sd",
@@ -391,7 +421,9 @@
       ],
       "label": "BANDS->SD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/multi_band/sd_bands",
@@ -403,7 +435,9 @@
       ],
       "label": "SD->BANDS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/vbw",
@@ -414,7 +448,9 @@
       ],
       "label": "VBW",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/shift_freq",
@@ -425,7 +461,9 @@
       ],
       "label": "SHIFT FREQ",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/frequency/marker_center",
@@ -436,7 +474,9 @@
       ],
       "label": "MARKER -> CENTER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level",
@@ -446,7 +486,9 @@
       ],
       "label": "LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/ref_level",
@@ -457,7 +499,9 @@
       ],
       "label": "REF LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/scale/div",
@@ -468,7 +512,9 @@
       ],
       "label": "SCALE/DIV",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/attenuate",
@@ -479,7 +525,9 @@
       ],
       "label": "ATTENUATE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/unit",
@@ -490,7 +538,9 @@
       ],
       "label": "UNIT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/ext_gain",
@@ -501,7 +551,9 @@
       ],
       "label": "EXT GAIN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/lna",
@@ -512,7 +564,9 @@
       ],
       "label": "LNA",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger",
@@ -523,7 +577,9 @@
       ],
       "label": "TRIGGER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/auto",
@@ -535,7 +591,9 @@
       ],
       "label": "AUTO",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/normal",
@@ -547,7 +605,9 @@
       ],
       "label": "NORMAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/single",
@@ -559,7 +619,9 @@
       ],
       "label": "SINGLE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/level",
@@ -571,7 +633,9 @@
       ],
       "label": "LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/level/trigger_level",
@@ -584,7 +648,9 @@
       ],
       "label": "TRIGGER LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/level/trigger_trace_x",
@@ -597,7 +663,9 @@
       ],
       "label": "TRIGGER TRACE x",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/edge",
@@ -609,7 +677,9 @@
       ],
       "label": "EDGE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/trigger",
@@ -621,7 +691,9 @@
       ],
       "label": "TRIGGER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/interval",
@@ -633,7 +705,9 @@
       ],
       "label": "INTERVAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/beep",
@@ -645,7 +719,9 @@
       ],
       "label": "BEEP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/trigger/auto_save",
@@ -657,7 +733,9 @@
       ],
       "label": "AUTO SAVE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/level/listen",
@@ -668,7 +746,9 @@
       ],
       "label": "LISTEN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace",
@@ -678,7 +758,9 @@
       ],
       "label": "TRACE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/trace_n",
@@ -689,7 +771,9 @@
       ],
       "label": "TRACE n",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/enable",
@@ -700,7 +784,9 @@
       ],
       "label": "ENABLE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/freeze",
@@ -711,7 +797,9 @@
       ],
       "label": "FREEZE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state",
@@ -722,7 +810,9 @@
       ],
       "label": "CALC state",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/off",
@@ -734,7 +824,9 @@
       ],
       "label": "OFF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/min_hold",
@@ -746,7 +838,9 @@
       ],
       "label": "MIN HOLD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/max_hold",
@@ -758,7 +852,9 @@
       ],
       "label": "MAX HOLD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/max_decay",
@@ -770,7 +866,9 @@
       ],
       "label": "MAX DECAY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/aver_4",
@@ -782,7 +880,9 @@
       ],
       "label": "AVER 4",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/aver_16",
@@ -794,7 +894,9 @@
       ],
       "label": "AVER 16",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/aver",
@@ -806,7 +908,9 @@
       ],
       "label": "AVER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/quasi_peak",
@@ -818,7 +922,9 @@
       ],
       "label": "QUASI PEAK",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/calc_state/table_trace",
@@ -830,7 +936,9 @@
       ],
       "label": "TABLE->TRACE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/normalize",
@@ -841,7 +949,9 @@
       ],
       "label": "NORMALIZE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/subtract",
@@ -852,7 +962,9 @@
       ],
       "label": "SUBTRACT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/trace_trace",
@@ -863,7 +975,9 @@
       ],
       "label": "TRACE->TRACE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/trace_sd",
@@ -874,7 +988,9 @@
       ],
       "label": "TRACE->SD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/trace/sd_trace",
@@ -885,7 +1001,9 @@
       ],
       "label": "SD->TRACE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display",
@@ -895,7 +1013,9 @@
       ],
       "label": "DISPLAY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/pause_sweep",
@@ -906,7 +1026,9 @@
       ],
       "label": "PAUSE SWEEP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/waterfall",
@@ -917,7 +1039,9 @@
       ],
       "label": "WATERFALL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/big_number",
@@ -928,7 +1052,9 @@
       ],
       "label": "BIG NUMBER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/draw_line",
@@ -939,7 +1065,9 @@
       ],
       "label": "DRAW LINE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_time",
@@ -950,7 +1078,9 @@
       ],
       "label": "SWEEP TIME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_points",
@@ -961,7 +1091,9 @@
       ],
       "label": "SWEEP POINTS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy",
@@ -972,7 +1104,9 @@
       ],
       "label": "SWEEP ACCURACY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/normal",
@@ -984,7 +1118,9 @@
       ],
       "label": "NORMAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/precise",
@@ -996,7 +1132,9 @@
       ],
       "label": "PRECISE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/fast",
@@ -1008,7 +1146,9 @@
       ],
       "label": "FAST",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/noise_source",
@@ -1020,7 +1160,9 @@
       ],
       "label": "NOISE SOURCE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/nspeedup",
@@ -1032,7 +1174,9 @@
       ],
       "label": "NSPEEDUP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/sweep_accuracy/wspeedup",
@@ -1044,7 +1188,9 @@
       ],
       "label": "WSPEEDUP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/display/rotate_display",
@@ -1055,7 +1201,9 @@
       ],
       "label": "ROTATE DISPLAY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker",
@@ -1065,7 +1213,9 @@
       ],
       "label": "MARKER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker",
@@ -1076,7 +1226,9 @@
       ],
       "label": "MODIFY MARKER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/marker_n",
@@ -1088,7 +1240,9 @@
       ],
       "label": "MARKER n",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/delta_n",
@@ -1100,7 +1254,9 @@
       ],
       "label": "DELTA n",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/noise",
@@ -1112,7 +1268,9 @@
       ],
       "label": "NOISE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/tracking",
@@ -1124,7 +1282,9 @@
       ],
       "label": "TRACKING",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/trace_n",
@@ -1136,7 +1296,9 @@
       ],
       "label": "TRACE n",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/trace_average",
@@ -1148,7 +1310,9 @@
       ],
       "label": "TRACE AVERAGE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search",
@@ -1160,7 +1324,9 @@
       ],
       "label": "SEARCH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/peak_search",
@@ -1173,7 +1339,9 @@
       ],
       "label": "PEAK SEARCH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/min_left",
@@ -1186,7 +1354,9 @@
       ],
       "label": "MIN<-LEFT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/min_right",
@@ -1199,7 +1369,9 @@
       ],
       "label": "MIN->RIGHT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/max_left",
@@ -1212,7 +1384,9 @@
       ],
       "label": "MAX<-LEFT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/max_right",
@@ -1225,7 +1399,9 @@
       ],
       "label": "MAX->RIGHT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/enter_frequency",
@@ -1238,7 +1414,9 @@
       ],
       "label": "ENTER FREQUENCY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/tracking",
@@ -1251,7 +1429,9 @@
       ],
       "label": "TRACKING",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/peak_n",
@@ -1264,7 +1444,9 @@
       ],
       "label": "PEAK n",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/search/peak_excursion",
@@ -1277,7 +1459,9 @@
       ],
       "label": "PEAK EXCURSION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/modify_marker/delete",
@@ -1289,7 +1473,9 @@
       ],
       "label": "DELETE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops",
@@ -1300,7 +1486,9 @@
       ],
       "label": "MARKER OPS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops/_start",
@@ -1312,7 +1500,9 @@
       ],
       "label": "->START",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops/_stop",
@@ -1324,7 +1514,9 @@
       ],
       "label": "->STOP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops/_center",
@@ -1336,7 +1528,9 @@
       ],
       "label": "->CENTER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops/_span",
@@ -1348,7 +1542,9 @@
       ],
       "label": "->SPAN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/marker_ops/_ref_level",
@@ -1360,7 +1556,9 @@
       ],
       "label": "->REF LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/search_marker",
@@ -1371,7 +1569,9 @@
       ],
       "label": "SEARCH MARKER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/reset_markers",
@@ -1382,7 +1582,9 @@
       ],
       "label": "RESET MARKERS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/marker/n_markers",
@@ -1393,7 +1595,9 @@
       ],
       "label": "n MARKERS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure",
@@ -1403,7 +1607,9 @@
       ],
       "label": "MEASURE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/off",
@@ -1414,7 +1620,9 @@
       ],
       "label": "OFF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/harmonic",
@@ -1425,7 +1633,9 @@
       ],
       "label": "HARMONIC",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/oip3",
@@ -1436,7 +1646,9 @@
       ],
       "label": "OIP3",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/phase_noise",
@@ -1447,7 +1659,9 @@
       ],
       "label": "PHASE NOISE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/snr",
@@ -1458,7 +1672,9 @@
       ],
       "label": "SNR",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/_3db_width",
@@ -1469,7 +1685,9 @@
       ],
       "label": "-3dB WIDTH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/occupied_width",
@@ -1480,7 +1698,9 @@
       ],
       "label": "OCCUPIED WIDTH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/am",
@@ -1491,7 +1711,9 @@
       ],
       "label": "AM",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/fm",
@@ -1502,7 +1724,9 @@
       ],
       "label": "FM",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/thd",
@@ -1513,7 +1737,9 @@
       ],
       "label": "THD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/channel_power",
@@ -1524,7 +1750,9 @@
       ],
       "label": "CHANNEL POWER",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/linear",
@@ -1535,7 +1763,9 @@
       ],
       "label": "LINEAR",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/noise_figure",
@@ -1546,7 +1776,9 @@
       ],
       "label": "NOISE FIGURE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/noise_figure/measure_tinysa_nf",
@@ -1558,7 +1790,9 @@
       ],
       "label": "MEASURE TINYSA NF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/noise_figure/store_tinysa_nf",
@@ -1570,7 +1804,9 @@
       ],
       "label": "STORE TINYSA NF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/noise_figure/validate_tinysa_nf",
@@ -1582,7 +1818,9 @@
       ],
       "label": "VALIDATE TINYSA NF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/measure/noise_figure/measure_amp_nf",
@@ -1594,7 +1832,9 @@
       ],
       "label": "MEASURE AMP NF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage",
@@ -1604,7 +1844,9 @@
       ],
       "label": "STORAGE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/load_capture",
@@ -1615,7 +1857,9 @@
       ],
       "label": "LOAD CAPTURE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/load_settings",
@@ -1626,7 +1870,9 @@
       ],
       "label": "LOAD SETTINGS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/load_cmd",
@@ -1637,7 +1883,9 @@
       ],
       "label": "LOAD CMD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/load_config",
@@ -1648,7 +1896,9 @@
       ],
       "label": "LOAD CONFIG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/auto_name",
@@ -1659,7 +1909,9 @@
       ],
       "label": "AUTO NAME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/save_capture",
@@ -1670,7 +1922,9 @@
       ],
       "label": "SAVE CAPTURE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/save_settings",
@@ -1681,7 +1935,9 @@
       ],
       "label": "SAVE SETTINGS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/save_config",
@@ -1692,7 +1948,9 @@
       ],
       "label": "SAVE CONFIG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/mhz_csv",
@@ -1703,7 +1961,9 @@
       ],
       "label": "MHz CSV",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/save_traces",
@@ -1714,7 +1974,9 @@
       ],
       "label": "SAVE TRACES",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/storage/usb_disk",
@@ -1725,7 +1987,9 @@
       ],
       "label": "USB DISK",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config",
@@ -1735,7 +1999,9 @@
       ],
       "label": "CONFIG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/touch",
@@ -1746,7 +2012,9 @@
       ],
       "label": "TOUCH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/touch/touch_cal",
@@ -1758,7 +2026,9 @@
       ],
       "label": "TOUCH CAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/touch/touch_test",
@@ -1770,7 +2040,9 @@
       ],
       "label": "TOUCH TEST",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/self_test",
@@ -1781,7 +2053,9 @@
       ],
       "label": "SELF TEST",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_cal",
@@ -1792,7 +2066,9 @@
       ],
       "label": "LEVEL CAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_cal/calibrate_100khz_to_5_34ghz",
@@ -1804,7 +2080,9 @@
       ],
       "label": "CALIBRATE 100kHz to 5.34GHz",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_cal/calibrate_above_5_34ghz",
@@ -1816,7 +2094,9 @@
       ],
       "label": "CALIBRATE above 5.34GHz",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_cal/reset_calibration",
@@ -1828,7 +2108,9 @@
       ],
       "label": "RESET CALIBRATION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/version",
@@ -1839,7 +2121,9 @@
       ],
       "label": "VERSION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/spur_removal",
@@ -1850,7 +2134,9 @@
       ],
       "label": "SPUR REMOVAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/sample_rep",
@@ -1861,7 +2147,9 @@
       ],
       "label": "SAMPLE REP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/brightness",
@@ -1872,7 +2160,9 @@
       ],
       "label": "BRIGHTNESS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/date_time",
@@ -1883,7 +2173,9 @@
       ],
       "label": "DATE TIME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/date_time/set_time",
@@ -1895,7 +2187,9 @@
       ],
       "label": "SET TIME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/date_time/set_date",
@@ -1907,7 +2201,9 @@
       ],
       "label": "SET DATE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/pulse_high",
@@ -1918,7 +2214,9 @@
       ],
       "label": "PULSE HIGH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/lo_output",
@@ -1929,7 +2227,9 @@
       ],
       "label": "LO OUTPUT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/enable_ultra",
@@ -1940,7 +2240,9 @@
       ],
       "label": "ENABLE ULTRA",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/minimum_grid_lines",
@@ -1951,7 +2253,9 @@
       ],
       "label": "MINIMUM GRID LINES",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/jog_step",
@@ -1962,7 +2266,9 @@
       ],
       "label": "JOG STEP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/clear_config",
@@ -1973,7 +2279,9 @@
       ],
       "label": "CLEAR CONFIG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/connection",
@@ -1984,7 +2292,9 @@
       ],
       "label": "CONNECTION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/connection/usb",
@@ -1996,7 +2306,9 @@
       ],
       "label": "USB",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/connection/serial",
@@ -2008,7 +2320,9 @@
       ],
       "label": "SERIAL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/connection/serial_speed",
@@ -2020,7 +2334,9 @@
       ],
       "label": "SERIAL SPEED",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction",
@@ -2031,7 +2347,9 @@
       ],
       "label": "LEVEL CORRECTION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/input_level",
@@ -2043,7 +2361,9 @@
       ],
       "label": "INPUT LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/output_level",
@@ -2055,7 +2375,9 @@
       ],
       "label": "OUTPUT LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/output_level/30mhz_level",
@@ -2068,7 +2390,9 @@
       ],
       "label": "30MHz LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/output_level/1ghz_level",
@@ -2081,7 +2405,9 @@
       ],
       "label": "1GHz LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/output_level/1_2ghz_level",
@@ -2094,7 +2420,9 @@
       ],
       "label": "1.2GHz LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/in_curve",
@@ -2106,7 +2434,9 @@
       ],
       "label": "IN CURVE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/level_correction/out_curve",
@@ -2118,7 +2448,9 @@
       ],
       "label": "OUT CURVE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/ham_bands",
@@ -2129,7 +2461,9 @@
       ],
       "label": "HAM BANDS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config",
@@ -2140,7 +2474,9 @@
       ],
       "label": "EXPERT CONFIG",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/progress_bar",
@@ -2152,7 +2488,9 @@
       ],
       "label": "PROGRESS BAR",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/direct_mode",
@@ -2164,7 +2502,9 @@
       ],
       "label": "DIRECT MODE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/linear_averaging",
@@ -2176,7 +2516,9 @@
       ],
       "label": "LINEAR AVERAGING",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/harmonic",
@@ -2188,7 +2530,9 @@
       ],
       "label": "HARMONIC",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/freq_corr",
@@ -2200,7 +2544,9 @@
       ],
       "label": "FREQ CORR",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/nf",
@@ -2212,7 +2558,9 @@
       ],
       "label": "NF",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/dump_firmware",
@@ -2224,7 +2572,9 @@
       ],
       "label": "DUMP FIRMWARE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "analyzer/config/expert_config/internals",
@@ -2236,7 +2586,9 @@
       ],
       "label": "INTERNALS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/output",
@@ -2246,7 +2598,9 @@
       ],
       "label": "OUTPUT",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/freq",
@@ -2256,7 +2610,9 @@
       ],
       "label": "FREQ",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/level",
@@ -2266,7 +2622,9 @@
       ],
       "label": "LEVEL",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/level/above_800/900mhz_",
@@ -2277,7 +2635,9 @@
       ],
       "label": "Above 800/900MHz:",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod",
@@ -2287,7 +2647,9 @@
       ],
       "label": "MOD",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/none",
@@ -2298,7 +2660,9 @@
       ],
       "label": "NONE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/am",
@@ -2309,7 +2673,9 @@
       ],
       "label": "AM",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/fm",
@@ -2320,7 +2686,9 @@
       ],
       "label": "FM",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/freq",
@@ -2331,7 +2699,9 @@
       ],
       "label": "FREQ",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/am_depth",
@@ -2342,7 +2712,9 @@
       ],
       "label": "AM DEPTH",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/mod/fm_deviation",
@@ -2353,7 +2725,9 @@
       ],
       "label": "FM DEVIATION",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/sweep",
@@ -2363,7 +2737,9 @@
       ],
       "label": "SWEEP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/sweep/span",
@@ -2374,7 +2750,9 @@
       ],
       "label": "SPAN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/sweep/level_change",
@@ -2385,7 +2763,9 @@
       ],
       "label": "LEVEL CHANGE",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/sweep/sweep_time",
@@ -2396,7 +2776,9 @@
       ],
       "label": "SWEEP TIME",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/sweep/sweep_points",
@@ -2407,7 +2789,9 @@
       ],
       "label": "SWEEP POINTS",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/start_sweep",
@@ -2417,7 +2801,9 @@
       ],
       "label": "START SWEEP",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/external_gain",
@@ -2427,7 +2813,9 @@
       ],
       "label": "EXTERNAL GAIN",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/output/cleanest",
@@ -2438,7 +2826,9 @@
       ],
       "label": "CLEANEST",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     },
     {
       "id": "generator/output/highest_accuracy",
@@ -2449,7 +2839,10 @@
       ],
       "label": "HIGHEST ACCURACY",
       "access": "screen",
-      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+      "availability": "check_live_screen",
+      "presence_readback": false
     }
-  ]
+  ],
+  "wiki_version": "1.3507+; includes Ultra+ updates"
 }

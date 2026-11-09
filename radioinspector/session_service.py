@@ -138,6 +138,8 @@ class SessionService:
         self._investigations: dict[str, Investigation] = {}
         self._investigation_sessions: dict[str, str] = {}
         self._measurement_results: list[dict[str, Any]] = []
+        self._instrument_artifacts: dict[str, dict] = {}
+        self._instrument_artifact_bytes = 0
         self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
         self._audio_hub = AudioStreamHub()
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
@@ -1588,6 +1590,43 @@ class SessionService:
     def unsubscribe(self, subscriber_id: int) -> None:
         with self._lock:
             self._subscribers.pop(subscriber_id, None)
+
+    def instrument_context(self, session_id, stream_id):
+        session=self.get_session(session_id)
+        stream=next((item for item in session.streams if item.id==stream_id),None)
+        if stream is None:raise KeyError('Stream not found in session')
+        return stream
+
+    def save_instrument_artifact(self,session_id,stream_id,value):
+        from .tinysa.artifacts import make_artifact,summary
+        self.instrument_context(session_id,stream_id)
+        item=make_artifact(session_id,stream_id,value)
+        with self._lock:
+            if self._store is not None:self._store.save_instrument_artifact(item)
+            else:
+                if len(self._instrument_artifacts)>=64 or self._instrument_artifact_bytes+item['size_bytes']>32*1024*1024:
+                    raise ValueError('Memory artifact archive full; use SQLite or export existing artifacts')
+                self._instrument_artifacts[item['id']]=item
+                self._instrument_artifact_bytes+=item['size_bytes']
+        return summary(item)
+
+    def get_instrument_artifact(self,session_id,stream_id,artifact_id):
+        self.instrument_context(session_id,stream_id)
+        with self._lock:
+            if self._store is not None:return self._store.get_instrument_artifact(session_id,stream_id,artifact_id)
+            item=self._instrument_artifacts.get(artifact_id)
+            if item is None or item['session_id']!=session_id or item['stream_id']!=stream_id:raise KeyError('Artifact not found')
+            return copy.deepcopy(item)
+
+    def list_instrument_artifacts(self,session_id,stream_id,limit=100,offset=0):
+        from .tinysa.artifacts import summary
+        self.instrument_context(session_id,stream_id)
+        if type(limit) is not int or not 1<=limit<=100:raise ValueError('Artifact limit must be 1..100')
+        if type(offset) is not int or not 0<=offset<=10000000:raise ValueError('Artifact offset must be 0..10000000')
+        with self._lock:
+            if self._store is not None:return self._store.list_instrument_artifacts(session_id,stream_id,limit,offset)
+            items=[item for item in self._instrument_artifacts.values() if item['session_id']==session_id and item['stream_id']==stream_id]
+            return [summary(copy.deepcopy(x)) for x in sorted(items,key=lambda x:(x['created_at'],x['id']),reverse=True)[offset:offset+limit]]
 
     def close(self) -> None:
         with self._lock:

@@ -22,6 +22,7 @@ from .contracts import (
     ReceiverObservation,
     Sweep,
     TimeInterval,
+    format_time,
     utc_now,
 )
 from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adapter
@@ -41,6 +42,9 @@ class _SerialFraming:
     def _check_cancelled(self) -> None:
         if self._cancelled.is_set():
             raise WorkerError(f"Операция на {self.path} остановлена; требуется новое соединение")
+        check = getattr(self, '_ownership_check', None)
+        if check is not None:
+            check()
 
     def _require_clean_input(self) -> None:
         # There are no transaction IDs: pending bytes belong to an earlier
@@ -438,6 +442,7 @@ class TinySASerialAdapter(SimulatedAdapter):
         self.points = requested["points"]
         self.rbw_hz = requested["rbw_hz"]
         self._identity: dict[str, str] = {}
+        self._instrument = None
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("tinysa-serial требует физический последовательный порт")
@@ -517,8 +522,24 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._ready = True
         self._generator_output_source = "command_acknowledged"
 
+    def execute(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command != 'instrument':
+            return super().execute(command,payload)
+        if self._instrument is None:
+            from .tinysa.controller import Controller
+            self._instrument=Controller(self)
+        return self._instrument.execute(payload)
+
+    def instrument_idle(self) -> bool:
+        return self._instrument is not None and not self._instrument.before_poll()
+
     def poll(self) -> Sweep:
         self._ensure_usable()
+        if self._instrument is not None and self.start_hz==self.stop_hz:
+            from .tinysa.artifacts import InstrumentSample
+            started=self._clock()
+            item=self._instrument._raw({},zero_span=True)['artifact']
+            return InstrumentSample(TimeInterval(started,self._clock()),item)
         try:
             self._prepare()
             started_at = self._clock()
@@ -535,6 +556,14 @@ class TinySASerialAdapter(SimulatedAdapter):
             raise self._taint_connection(exc) from exc
         ended_at = self._clock()
         self._sequence += 1
+        if self._instrument is not None and (self._instrument._trace_processed or self._instrument.settings.get('calculation','off')!='off' or self._instrument.settings.get('trace_unit','dBm')!='dBm'):
+            import json
+            from .tinysa.artifacts import InstrumentSample
+            data=json.dumps(dict(frequencies_hz=frequencies,levels=levels,
+                level_unit=self._instrument.settings.get('trace_unit','dBm'),
+                started_at=format_time(started_at),ended_at=format_time(ended_at)),allow_nan=False).encode()
+            item=self._instrument._artifact('processed_trace',data,'application/json','tinysa-trace.json',started_at=format_time(started_at),ended_at=format_time(ended_at),timing_source='host_usb_interval')['artifact']
+            return InstrumentSample(TimeInterval(started_at,ended_at),item)
         return Sweep(
             session_id=self.stream.session_id,
             stream_id=self.stream.id,
@@ -557,11 +586,13 @@ class TinySASerialAdapter(SimulatedAdapter):
                 "generator_output_source": self._generator_output_source,
                 "generator_output_readback": False,
                 "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
+                **({'instrument':self._instrument.provenance(),'receive_profile':self._instrument.status()['profile'],
+                    'generator_output':'unknown','generator_output_source':'no_physical_readback'} if self._instrument is not None else {}),
             },
         )
 
     def details(self) -> dict[str, Any]:
-        return {
+        result = {
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,
@@ -578,14 +609,22 @@ class TinySASerialAdapter(SimulatedAdapter):
             "simulated": False,
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
         }
+        if self._instrument is not None:
+            result['instrument']=self._instrument.status()
+            result['generator_output']='unknown'
+            result['settings_source']=result['instrument']['settings_source']
+        return result
 
     def request_stop(self) -> None:
+        if self._instrument is not None and not self._instrument.request_stop():
+            return  # idle lab: owning worker can perform orderly off in close
         cancel = getattr(self.transport, "cancel", None)
         if cancel is not None:
             cancel()
 
     def close(self) -> None:
         if not self._closed:
+            if self._instrument is not None:self._instrument.shutdown()
             self._closed = True
             self._ready = False
             self._generator_output_source = "unknown"

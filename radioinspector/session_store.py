@@ -168,6 +168,17 @@ class SQLiteSessionStore:
             self._check_capacity_locked(before_write=False)
 
     def _create_schema(self) -> None:
+        # Independent additive artifact schema; does not compete with the
+        # listening/ingestion migrations of the core measurement tables.
+        self._connection.execute('''CREATE TABLE IF NOT EXISTS instrument_artifacts (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, stream_id TEXT NOT NULL,
+            schema_version INTEGER NOT NULL CHECK(schema_version=1), kind TEXT NOT NULL,
+            mime_type TEXT NOT NULL, filename TEXT NOT NULL, sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL, payload BLOB NOT NULL, metadata_json TEXT NOT NULL,
+            FOREIGN KEY(stream_id,session_id) REFERENCES streams(id,session_id) ON DELETE CASCADE
+        )''')
+        self._connection.execute('''CREATE INDEX IF NOT EXISTS instrument_artifacts_scope_time
+            ON instrument_artifacts(session_id,stream_id,created_at,id)''')
         schema = """
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -324,6 +335,32 @@ class SQLiteSessionStore:
             CREATE INDEX IF NOT EXISTS measurement_results_methodology
                 ON measurement_results(session_id, methodology, created_at)
         """)
+
+    def save_instrument_artifact(self, item: dict) -> None:
+        with self._measurement_transaction():
+            self._connection.execute('''INSERT INTO instrument_artifacts
+                (id,session_id,stream_id,schema_version,kind,mime_type,filename,sha256,created_at,payload,metadata_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
+                tuple(item[k] for k in ['id','session_id','stream_id','schema_version','kind','mime_type','filename','sha256','created_at','payload'])+(_json(item['metadata']),))
+
+    def get_instrument_artifact(self, session_id, stream_id, artifact_id):
+        with self._lock:
+            row=self._connection.execute('SELECT * FROM instrument_artifacts WHERE id=? AND session_id=? AND stream_id=?',
+                                         (artifact_id,session_id,stream_id)).fetchone()
+        if row is None:raise KeyError('Artifact not found')
+        item=dict(row);item['metadata']=_object(item.pop('metadata_json'));item['size_bytes']=len(item['payload'])
+        return item
+
+    def list_instrument_artifacts(self,session_id,stream_id,limit=100,offset=0):
+        with self._lock:
+            rows=self._connection.execute('''SELECT id,session_id,stream_id,schema_version,kind,mime_type,filename,
+                sha256,created_at,length(payload) AS size_bytes,metadata_json FROM instrument_artifacts
+                WHERE session_id=? AND stream_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?''',
+                (session_id,stream_id,limit,offset)).fetchall()
+        result=[]
+        for row in rows:
+            item=dict(row);item['metadata']=_object(item.pop('metadata_json'));result.append(item)
+        return result
 
     def _create_reference_schema(self) -> None:
         self._connection.execute("""
