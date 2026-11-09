@@ -681,6 +681,15 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 сосед отклоняет всё окно и не заменяется более далёким. Формат, лимиты и
 синтетический пример: [sweep-context.md](sweep-context.md).
 
+## Занятость архивного окна
+
+`features.sweep_occupancy` включает read-only
+`POST /api/v1/sessions/{id}/sweep-occupancy` с
+`{sweep_id, before, after, threshold_dbm}`. Ответ содержит снимок N1/N2 и
+долю измерений строго выше порога по каждой точке, счётчики и разрывы
+интервалов сканирования. Это не RF airtime. Полный контракт:
+[sweep-occupancy.md](sweep-occupancy.md).
+
 ## Таблица округления частот
 
 `features.candidate_frequency_rounding` включает read-only POST с

@@ -40,8 +40,8 @@ function setup() {
     Object.defineProperty(result, 'innerHTML', { set() { throw new Error('Unsafe HTML rendering'); } });
     return result;
   }
-  for (const name of ['anchor', 'before', 'after', 'run', 'clear', 'source', 'pinned', 'status', 'summary', 'items', 'selected', 'canvas']) dom[name] = element();
-  dom.before.value = dom.after.value = '2';
+  for (const name of ['anchor', 'before', 'after', 'run', 'clear', 'source', 'pinned', 'status', 'summary', 'items', 'selected', 'canvas', 'threshold', 'occupancy-run', 'occupancy']) dom[name] = element();
+  dom.before.value = dom.after.value = '2'; dom.threshold.value = '-60';
   const window = { location: { origin: 'http://server-a' }, addEventListener(event, fn) { events[event] = fn; },
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; }, clearTimeout(id) { timers.delete(id); } };
   const context = vm.createContext({ window, document: { getElementById(id) { return dom[id.replace('context-', '')]; }, createElement: element },
@@ -333,11 +333,52 @@ async function httpSmoke(base) {
   assert.match(app.dom.summary.textContent, /Недостаёт до: 2, после: 0/); assert.equal(calls.length, 2);
   app.dom.after.value = '0'; app.dom.after.listeners.input(); assert.equal(app.dom.canvas.hidden, true);
   await app.click('run'); assert.equal(calls.length, 3); assert.equal(app.dom.items.children.length, 1);
+  app.dom.before.value = app.dom.after.value = '2'; app.dom.threshold.value = '-90';
+  app.choose('one-sweep-4'); await app.click('occupancy-run');
+  assert.equal(calls.length, 4); assert.match(calls[3].url, /sweep-occupancy$/);
+  assert.match(app.dom.occupancy.textContent, /Порог: > -90 dBm · 5 свипов/);
+  assert.match(app.dom.occupancy.textContent, /Разрывы: 4,/);
+  assert.match(app.dom.occupancy.textContent, /5\/5 · 100.0%/);
+  assert.match(app.dom.occupancy.textContent, /20 из 101/);
+  console.log('Web HTTP occupancy smoke passed: exact sources, sample fractions, acquisition gaps');
   app.update([], 'context-two', 'spectrum-two'); assert.equal(app.dom.run.disabled, true); assert.equal(app.dom.summary.textContent, '');
   console.log('Web HTTP context smoke passed: 5 × 101 raw bins, offsets -2..2, anchor 4, incomplete side, repeated load, edit, scope reset');
 }
+async function occupancyAnalysis() {
+  const app = setup(); app.update();
+  const response = payload();
+  response.occupancy = { method: 'sample_fraction', comparison: 'strictly_greater', threshold_dbm: -60,
+    sample_count: response.items.length, exceedance_counts: Array(response.points).fill(1),
+    sample_fractions: Array(response.points).fill(1 / response.items.length),
+    acquisition_span_seconds: 6, acquisition_covered_seconds: 4, acquisition_gap_seconds: 2,
+    acquisition_gap_count: 1, rf_time_occupancy: null };
+  const first = app.click('occupancy-run');
+  assert.match(app.requests[0].url, /sweep-occupancy$/);
+  assert.equal(JSON.parse(app.requests[0].options.body).threshold_dbm, -60);
+  app.respond(0, response); await first;
+  assert.match(app.dom.occupancy.textContent, /Порог: > -60 dBm/);
+  assert.match(app.dom.occupancy.textContent, /Разрывы: 1, всего 2 с/);
+  const frozen = app.dom.occupancy.textContent;
+  app.update([sweep(99)]); assert.equal(app.dom.occupancy.textContent, frozen);
+  app.dom.threshold.value = '-70'; app.dom.threshold.listeners.input();
+  assert.equal(app.dom.occupancy.textContent, '');
+  const bad = app.click('occupancy-run'); app.respond(1, response); await bad;
+  assert.equal(app.dom.occupancy.textContent, ''); assert.equal(app.dom.canvas.hidden, true);
+  app.dom.threshold.value = '-60';
+  const late = app.click('occupancy-run'); app.update([], 'new-session', 'new-stream');
+  app.respond(2, response); await late; assert.equal(app.dom.occupancy.textContent, '');
+  assert.equal(app.dom['occupancy-run'].disabled, true);
+  const invalid = setup(); invalid.update(); invalid.dom.threshold.value = '';
+  await invalid.click('occupancy-run'); assert.equal(invalid.requests.length, 0);
+  for (const change of [ {sample_count: 99}, {rf_time_occupancy: 0.5}, {acquisition_gap_seconds: -1},
+      {sample_fractions: Array(response.points).fill(2)}, {exceedance_counts: []} ]) {
+    const broken = setup(); broken.update(); const work = broken.click('occupancy-run');
+    broken.respond(0, {...response, occupancy: {...response.occupancy, ...change}}); await work;
+    assert.equal(broken.dom.occupancy.textContent, ''); assert.equal(broken.dom.canvas.hidden, true);
+  }
+}
 (async () => {
-  await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
+  await occupancyAnalysis(); await happyAndFrozen(); await inputBoundaries(); await corruptResponses(); await exactOrder(); await staleAndLifecycle(); await retainedAnchorReload();
   await bodiesAndStatuses(); await fullDrawing(); await platformIntegration(); if (process.argv[4]) await httpSmoke(process.argv[4]);
   console.log('sweep-context behavior checks completed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
