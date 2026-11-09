@@ -1,0 +1,2455 @@
+{
+  "schema_version": 1,
+  "profile": "tinysa-ultra-zs405-control-v1",
+  "source_revision": "ea71dfd9e53d6dec95256ac70914659cf260d48d",
+  "items": [
+    {
+      "id": "analyzer/tinysa_basic",
+      "path": [
+        "analyzer",
+        "tinySA Basic"
+      ],
+      "label": "tinySA Basic",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/getting_support",
+      "path": [
+        "analyzer",
+        "Getting support"
+      ],
+      "label": "Getting support",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/faq",
+      "path": [
+        "analyzer",
+        "FAQ"
+      ],
+      "label": "FAQ",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/pause",
+      "path": [
+        "analyzer",
+        "PAUSE"
+      ],
+      "label": "PAUSE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset",
+      "path": [
+        "analyzer",
+        "PRESET"
+      ],
+      "label": "PRESET",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/load_startup",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "LOAD STARTUP"
+      ],
+      "label": "LOAD STARTUP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/load_x",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "LOAD X"
+      ],
+      "label": "LOAD X",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/load_defaults",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "LOAD DEFAULTS"
+      ],
+      "label": "LOAD DEFAULTS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/save_settings",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "SAVE SETTINGS"
+      ],
+      "label": "SAVE SETTINGS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/load_from_sd",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "LOAD from SD"
+      ],
+      "label": "LOAD from SD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE"
+      ],
+      "label": "STORE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store/store_as_startup",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE",
+        "STORE AS STARTUP"
+      ],
+      "label": "STORE AS STARTUP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store/store_x",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE",
+        "STORE X"
+      ],
+      "label": "STORE X",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store/store_sd",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE",
+        "STORE -> SD"
+      ],
+      "label": "STORE -> SD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store/save_as_png",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE",
+        "SAVE AS PNG"
+      ],
+      "label": "SAVE AS PNG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/preset/store/factory_defaults",
+      "path": [
+        "analyzer",
+        "PRESET",
+        "STORE",
+        "FACTORY DEFAULTS"
+      ],
+      "label": "FACTORY DEFAULTS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency",
+      "path": [
+        "analyzer",
+        "FREQUENCY"
+      ],
+      "label": "FREQUENCY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/start",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "START"
+      ],
+      "label": "START",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/stop",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "STOP"
+      ],
+      "label": "STOP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/center",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "CENTER"
+      ],
+      "label": "CENTER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/span",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "SPAN"
+      ],
+      "label": "SPAN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/zero_span",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "ZERO SPAN"
+      ],
+      "label": "ZERO SPAN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/rbw",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "RBW"
+      ],
+      "label": "RBW",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND"
+      ],
+      "label": "MULTI BAND",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz"
+      ],
+      "label": "xHz yHz",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/start",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "START"
+      ],
+      "label": "START",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/end",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "END"
+      ],
+      "label": "END",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/center",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "CENTER"
+      ],
+      "label": "CENTER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/span",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "SPAN"
+      ],
+      "label": "SPAN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/level",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "LEVEL"
+      ],
+      "label": "LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/name",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "NAME"
+      ],
+      "label": "NAME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/xhz_yhz/disable",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "xHz yHz",
+        "DISABLE"
+      ],
+      "label": "DISABLE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/altern",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "ALTERN"
+      ],
+      "label": "ALTERN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/bands_sd",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "BANDS->SD"
+      ],
+      "label": "BANDS->SD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/multi_band/sd_bands",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MULTI BAND",
+        "SD->BANDS"
+      ],
+      "label": "SD->BANDS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/vbw",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "VBW"
+      ],
+      "label": "VBW",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/shift_freq",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "SHIFT FREQ"
+      ],
+      "label": "SHIFT FREQ",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/frequency/marker_center",
+      "path": [
+        "analyzer",
+        "FREQUENCY",
+        "MARKER -> CENTER"
+      ],
+      "label": "MARKER -> CENTER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level",
+      "path": [
+        "analyzer",
+        "LEVEL"
+      ],
+      "label": "LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/ref_level",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "REF LEVEL"
+      ],
+      "label": "REF LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/scale/div",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "SCALE/DIV"
+      ],
+      "label": "SCALE/DIV",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/attenuate",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "ATTENUATE"
+      ],
+      "label": "ATTENUATE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/unit",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "UNIT"
+      ],
+      "label": "UNIT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/ext_gain",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "EXT GAIN"
+      ],
+      "label": "EXT GAIN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/lna",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "LNA"
+      ],
+      "label": "LNA",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER"
+      ],
+      "label": "TRIGGER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/auto",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "AUTO"
+      ],
+      "label": "AUTO",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/normal",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "NORMAL"
+      ],
+      "label": "NORMAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/single",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "SINGLE"
+      ],
+      "label": "SINGLE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/level",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "LEVEL"
+      ],
+      "label": "LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/level/trigger_level",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "LEVEL",
+        "TRIGGER LEVEL"
+      ],
+      "label": "TRIGGER LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/level/trigger_trace_x",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "LEVEL",
+        "TRIGGER TRACE x"
+      ],
+      "label": "TRIGGER TRACE x",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/edge",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "EDGE"
+      ],
+      "label": "EDGE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/trigger",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "TRIGGER"
+      ],
+      "label": "TRIGGER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/interval",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "INTERVAL"
+      ],
+      "label": "INTERVAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/beep",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "BEEP"
+      ],
+      "label": "BEEP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/trigger/auto_save",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "TRIGGER",
+        "AUTO SAVE"
+      ],
+      "label": "AUTO SAVE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/level/listen",
+      "path": [
+        "analyzer",
+        "LEVEL",
+        "LISTEN"
+      ],
+      "label": "LISTEN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace",
+      "path": [
+        "analyzer",
+        "TRACE"
+      ],
+      "label": "TRACE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/trace_n",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "TRACE n"
+      ],
+      "label": "TRACE n",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/enable",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "ENABLE"
+      ],
+      "label": "ENABLE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/freeze",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "FREEZE"
+      ],
+      "label": "FREEZE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state"
+      ],
+      "label": "CALC state",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/off",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "OFF"
+      ],
+      "label": "OFF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/min_hold",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "MIN HOLD"
+      ],
+      "label": "MIN HOLD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/max_hold",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "MAX HOLD"
+      ],
+      "label": "MAX HOLD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/max_decay",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "MAX DECAY"
+      ],
+      "label": "MAX DECAY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/aver_4",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "AVER 4"
+      ],
+      "label": "AVER 4",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/aver_16",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "AVER 16"
+      ],
+      "label": "AVER 16",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/aver",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "AVER"
+      ],
+      "label": "AVER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/quasi_peak",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "QUASI PEAK"
+      ],
+      "label": "QUASI PEAK",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/calc_state/table_trace",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "CALC state",
+        "TABLE->TRACE"
+      ],
+      "label": "TABLE->TRACE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/normalize",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "NORMALIZE"
+      ],
+      "label": "NORMALIZE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/subtract",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "SUBTRACT"
+      ],
+      "label": "SUBTRACT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/trace_trace",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "TRACE->TRACE"
+      ],
+      "label": "TRACE->TRACE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/trace_sd",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "TRACE->SD"
+      ],
+      "label": "TRACE->SD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/trace/sd_trace",
+      "path": [
+        "analyzer",
+        "TRACE",
+        "SD->TRACE"
+      ],
+      "label": "SD->TRACE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display",
+      "path": [
+        "analyzer",
+        "DISPLAY"
+      ],
+      "label": "DISPLAY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/pause_sweep",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "PAUSE SWEEP"
+      ],
+      "label": "PAUSE SWEEP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/waterfall",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "WATERFALL"
+      ],
+      "label": "WATERFALL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/big_number",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "BIG NUMBER"
+      ],
+      "label": "BIG NUMBER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/draw_line",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "DRAW LINE"
+      ],
+      "label": "DRAW LINE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_time",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP TIME"
+      ],
+      "label": "SWEEP TIME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_points",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP POINTS"
+      ],
+      "label": "SWEEP POINTS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY"
+      ],
+      "label": "SWEEP ACCURACY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/normal",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "NORMAL"
+      ],
+      "label": "NORMAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/precise",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "PRECISE"
+      ],
+      "label": "PRECISE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/fast",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "FAST"
+      ],
+      "label": "FAST",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/noise_source",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "NOISE SOURCE"
+      ],
+      "label": "NOISE SOURCE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/nspeedup",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "NSPEEDUP"
+      ],
+      "label": "NSPEEDUP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/sweep_accuracy/wspeedup",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "SWEEP ACCURACY",
+        "WSPEEDUP"
+      ],
+      "label": "WSPEEDUP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/display/rotate_display",
+      "path": [
+        "analyzer",
+        "DISPLAY",
+        "ROTATE DISPLAY"
+      ],
+      "label": "ROTATE DISPLAY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker",
+      "path": [
+        "analyzer",
+        "MARKER"
+      ],
+      "label": "MARKER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER"
+      ],
+      "label": "MODIFY MARKER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/marker_n",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "MARKER n"
+      ],
+      "label": "MARKER n",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/delta_n",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "DELTA n"
+      ],
+      "label": "DELTA n",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/noise",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "NOISE"
+      ],
+      "label": "NOISE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/tracking",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "TRACKING"
+      ],
+      "label": "TRACKING",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/trace_n",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "TRACE n"
+      ],
+      "label": "TRACE n",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/trace_average",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "TRACE AVERAGE"
+      ],
+      "label": "TRACE AVERAGE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH"
+      ],
+      "label": "SEARCH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/peak_search",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "PEAK SEARCH"
+      ],
+      "label": "PEAK SEARCH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/min_left",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "MIN<-LEFT"
+      ],
+      "label": "MIN<-LEFT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/min_right",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "MIN->RIGHT"
+      ],
+      "label": "MIN->RIGHT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/max_left",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "MAX<-LEFT"
+      ],
+      "label": "MAX<-LEFT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/max_right",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "MAX->RIGHT"
+      ],
+      "label": "MAX->RIGHT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/enter_frequency",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "ENTER FREQUENCY"
+      ],
+      "label": "ENTER FREQUENCY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/tracking",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "TRACKING"
+      ],
+      "label": "TRACKING",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/peak_n",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "PEAK n"
+      ],
+      "label": "PEAK n",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/search/peak_excursion",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "SEARCH",
+        "PEAK EXCURSION"
+      ],
+      "label": "PEAK EXCURSION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/modify_marker/delete",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MODIFY MARKER",
+        "DELETE"
+      ],
+      "label": "DELETE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS"
+      ],
+      "label": "MARKER OPS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops/_start",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS",
+        "->START"
+      ],
+      "label": "->START",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops/_stop",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS",
+        "->STOP"
+      ],
+      "label": "->STOP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops/_center",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS",
+        "->CENTER"
+      ],
+      "label": "->CENTER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops/_span",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS",
+        "->SPAN"
+      ],
+      "label": "->SPAN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/marker_ops/_ref_level",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "MARKER OPS",
+        "->REF LEVEL"
+      ],
+      "label": "->REF LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/search_marker",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "SEARCH MARKER"
+      ],
+      "label": "SEARCH MARKER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/reset_markers",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "RESET MARKERS"
+      ],
+      "label": "RESET MARKERS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/marker/n_markers",
+      "path": [
+        "analyzer",
+        "MARKER",
+        "n MARKERS"
+      ],
+      "label": "n MARKERS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure",
+      "path": [
+        "analyzer",
+        "MEASURE"
+      ],
+      "label": "MEASURE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/off",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "OFF"
+      ],
+      "label": "OFF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/harmonic",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "HARMONIC"
+      ],
+      "label": "HARMONIC",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/oip3",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "OIP3"
+      ],
+      "label": "OIP3",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/phase_noise",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "PHASE NOISE"
+      ],
+      "label": "PHASE NOISE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/snr",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "SNR"
+      ],
+      "label": "SNR",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/_3db_width",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "-3dB WIDTH"
+      ],
+      "label": "-3dB WIDTH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/occupied_width",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "OCCUPIED WIDTH"
+      ],
+      "label": "OCCUPIED WIDTH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/am",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "AM"
+      ],
+      "label": "AM",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/fm",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "FM"
+      ],
+      "label": "FM",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/thd",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "THD"
+      ],
+      "label": "THD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/channel_power",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "CHANNEL POWER"
+      ],
+      "label": "CHANNEL POWER",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/linear",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "LINEAR"
+      ],
+      "label": "LINEAR",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/noise_figure",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "NOISE FIGURE"
+      ],
+      "label": "NOISE FIGURE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/noise_figure/measure_tinysa_nf",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "NOISE FIGURE",
+        "MEASURE TINYSA NF"
+      ],
+      "label": "MEASURE TINYSA NF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/noise_figure/store_tinysa_nf",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "NOISE FIGURE",
+        "STORE TINYSA NF"
+      ],
+      "label": "STORE TINYSA NF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/noise_figure/validate_tinysa_nf",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "NOISE FIGURE",
+        "VALIDATE TINYSA NF"
+      ],
+      "label": "VALIDATE TINYSA NF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/measure/noise_figure/measure_amp_nf",
+      "path": [
+        "analyzer",
+        "MEASURE",
+        "NOISE FIGURE",
+        "MEASURE AMP NF"
+      ],
+      "label": "MEASURE AMP NF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage",
+      "path": [
+        "analyzer",
+        "STORAGE"
+      ],
+      "label": "STORAGE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/load_capture",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "LOAD CAPTURE"
+      ],
+      "label": "LOAD CAPTURE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/load_settings",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "LOAD SETTINGS"
+      ],
+      "label": "LOAD SETTINGS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/load_cmd",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "LOAD CMD"
+      ],
+      "label": "LOAD CMD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/load_config",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "LOAD CONFIG"
+      ],
+      "label": "LOAD CONFIG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/auto_name",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "AUTO NAME"
+      ],
+      "label": "AUTO NAME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/save_capture",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "SAVE CAPTURE"
+      ],
+      "label": "SAVE CAPTURE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/save_settings",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "SAVE SETTINGS"
+      ],
+      "label": "SAVE SETTINGS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/save_config",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "SAVE CONFIG"
+      ],
+      "label": "SAVE CONFIG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/mhz_csv",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "MHz CSV"
+      ],
+      "label": "MHz CSV",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/save_traces",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "SAVE TRACES"
+      ],
+      "label": "SAVE TRACES",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/storage/usb_disk",
+      "path": [
+        "analyzer",
+        "STORAGE",
+        "USB DISK"
+      ],
+      "label": "USB DISK",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config",
+      "path": [
+        "analyzer",
+        "CONFIG"
+      ],
+      "label": "CONFIG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/touch",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "TOUCH"
+      ],
+      "label": "TOUCH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/touch/touch_cal",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "TOUCH",
+        "TOUCH CAL"
+      ],
+      "label": "TOUCH CAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/touch/touch_test",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "TOUCH",
+        "TOUCH TEST"
+      ],
+      "label": "TOUCH TEST",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/self_test",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "SELF TEST"
+      ],
+      "label": "SELF TEST",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_cal",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CAL"
+      ],
+      "label": "LEVEL CAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_cal/calibrate_100khz_to_5_34ghz",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CAL",
+        "CALIBRATE 100kHz to 5.34GHz"
+      ],
+      "label": "CALIBRATE 100kHz to 5.34GHz",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_cal/calibrate_above_5_34ghz",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CAL",
+        "CALIBRATE above 5.34GHz"
+      ],
+      "label": "CALIBRATE above 5.34GHz",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_cal/reset_calibration",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CAL",
+        "RESET CALIBRATION"
+      ],
+      "label": "RESET CALIBRATION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/version",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "VERSION"
+      ],
+      "label": "VERSION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/spur_removal",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "SPUR REMOVAL"
+      ],
+      "label": "SPUR REMOVAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/sample_rep",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "SAMPLE REP"
+      ],
+      "label": "SAMPLE REP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/brightness",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "BRIGHTNESS"
+      ],
+      "label": "BRIGHTNESS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/date_time",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "DATE TIME"
+      ],
+      "label": "DATE TIME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/date_time/set_time",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "DATE TIME",
+        "SET TIME"
+      ],
+      "label": "SET TIME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/date_time/set_date",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "DATE TIME",
+        "SET DATE"
+      ],
+      "label": "SET DATE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/pulse_high",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "PULSE HIGH"
+      ],
+      "label": "PULSE HIGH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/lo_output",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LO OUTPUT"
+      ],
+      "label": "LO OUTPUT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/enable_ultra",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "ENABLE ULTRA"
+      ],
+      "label": "ENABLE ULTRA",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/minimum_grid_lines",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "MINIMUM GRID LINES"
+      ],
+      "label": "MINIMUM GRID LINES",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/jog_step",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "JOG STEP"
+      ],
+      "label": "JOG STEP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/clear_config",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "CLEAR CONFIG"
+      ],
+      "label": "CLEAR CONFIG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/connection",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "CONNECTION"
+      ],
+      "label": "CONNECTION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/connection/usb",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "CONNECTION",
+        "USB"
+      ],
+      "label": "USB",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/connection/serial",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "CONNECTION",
+        "SERIAL"
+      ],
+      "label": "SERIAL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/connection/serial_speed",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "CONNECTION",
+        "SERIAL SPEED"
+      ],
+      "label": "SERIAL SPEED",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION"
+      ],
+      "label": "LEVEL CORRECTION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/input_level",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "INPUT LEVEL"
+      ],
+      "label": "INPUT LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/output_level",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "OUTPUT LEVEL"
+      ],
+      "label": "OUTPUT LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/output_level/30mhz_level",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "OUTPUT LEVEL",
+        "30MHz LEVEL"
+      ],
+      "label": "30MHz LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/output_level/1ghz_level",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "OUTPUT LEVEL",
+        "1GHz LEVEL"
+      ],
+      "label": "1GHz LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/output_level/1_2ghz_level",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "OUTPUT LEVEL",
+        "1.2GHz LEVEL"
+      ],
+      "label": "1.2GHz LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/in_curve",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "IN CURVE"
+      ],
+      "label": "IN CURVE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/level_correction/out_curve",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "LEVEL CORRECTION",
+        "OUT CURVE"
+      ],
+      "label": "OUT CURVE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/ham_bands",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "HAM BANDS"
+      ],
+      "label": "HAM BANDS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG"
+      ],
+      "label": "EXPERT CONFIG",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/progress_bar",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "PROGRESS BAR"
+      ],
+      "label": "PROGRESS BAR",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/direct_mode",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "DIRECT MODE"
+      ],
+      "label": "DIRECT MODE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/linear_averaging",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "LINEAR AVERAGING"
+      ],
+      "label": "LINEAR AVERAGING",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/harmonic",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "HARMONIC"
+      ],
+      "label": "HARMONIC",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/freq_corr",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "FREQ CORR"
+      ],
+      "label": "FREQ CORR",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/nf",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "NF"
+      ],
+      "label": "NF",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/dump_firmware",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "DUMP FIRMWARE"
+      ],
+      "label": "DUMP FIRMWARE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "analyzer/config/expert_config/internals",
+      "path": [
+        "analyzer",
+        "CONFIG",
+        "EXPERT CONFIG",
+        "INTERNALS"
+      ],
+      "label": "INTERNALS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/output",
+      "path": [
+        "generator",
+        "OUTPUT"
+      ],
+      "label": "OUTPUT",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/freq",
+      "path": [
+        "generator",
+        "FREQ"
+      ],
+      "label": "FREQ",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/level",
+      "path": [
+        "generator",
+        "LEVEL"
+      ],
+      "label": "LEVEL",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/level/above_800/900mhz_",
+      "path": [
+        "generator",
+        "LEVEL",
+        "Above 800/900MHz:"
+      ],
+      "label": "Above 800/900MHz:",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod",
+      "path": [
+        "generator",
+        "MOD"
+      ],
+      "label": "MOD",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/none",
+      "path": [
+        "generator",
+        "MOD",
+        "NONE"
+      ],
+      "label": "NONE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/am",
+      "path": [
+        "generator",
+        "MOD",
+        "AM"
+      ],
+      "label": "AM",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/fm",
+      "path": [
+        "generator",
+        "MOD",
+        "FM"
+      ],
+      "label": "FM",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/freq",
+      "path": [
+        "generator",
+        "MOD",
+        "FREQ"
+      ],
+      "label": "FREQ",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/am_depth",
+      "path": [
+        "generator",
+        "MOD",
+        "AM DEPTH"
+      ],
+      "label": "AM DEPTH",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/mod/fm_deviation",
+      "path": [
+        "generator",
+        "MOD",
+        "FM DEVIATION"
+      ],
+      "label": "FM DEVIATION",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/sweep",
+      "path": [
+        "generator",
+        "SWEEP"
+      ],
+      "label": "SWEEP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/sweep/span",
+      "path": [
+        "generator",
+        "SWEEP",
+        "SPAN"
+      ],
+      "label": "SPAN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/sweep/level_change",
+      "path": [
+        "generator",
+        "SWEEP",
+        "LEVEL CHANGE"
+      ],
+      "label": "LEVEL CHANGE",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/sweep/sweep_time",
+      "path": [
+        "generator",
+        "SWEEP",
+        "SWEEP TIME"
+      ],
+      "label": "SWEEP TIME",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/sweep/sweep_points",
+      "path": [
+        "generator",
+        "SWEEP",
+        "SWEEP POINTS"
+      ],
+      "label": "SWEEP POINTS",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/start_sweep",
+      "path": [
+        "generator",
+        "START SWEEP"
+      ],
+      "label": "START SWEEP",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/external_gain",
+      "path": [
+        "generator",
+        "EXTERNAL GAIN"
+      ],
+      "label": "EXTERNAL GAIN",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/output/cleanest",
+      "path": [
+        "generator",
+        "OUTPUT",
+        "CLEANEST"
+      ],
+      "label": "CLEANEST",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    },
+    {
+      "id": "generator/output/highest_accuracy",
+      "path": [
+        "generator",
+        "OUTPUT",
+        "HIGHEST ACCURACY"
+      ],
+      "label": "HIGHEST ACCURACY",
+      "access": "screen",
+      "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+    }
+  ]
+}

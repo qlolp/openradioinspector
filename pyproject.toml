@@ -71,4 +71,5 @@ Issues = "https://github.com/qlolp/openradioinspector/issues"
 include = ["radioinspector*"]
 
 [tool.setuptools.package-data]
+"radioinspector.tinysa" = ["*.json"]
 "radioinspector.web" = ["static/*"]

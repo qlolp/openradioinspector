@@ -53,6 +53,8 @@ class _SerialFraming:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self._check_cancelled()
+            if len(self._stash) > 1024 * 1024:
+                raise WorkerError(f"Превышен размер текстового ответа: {label}")
             newline = self._stash.find(b"\n")
             if newline >= 0:
                 raw = bytes(self._stash[:newline]).rstrip(b"\r")
@@ -71,6 +73,8 @@ class _SerialFraming:
             remaining = deadline - time.monotonic()
             chunk = self._read_once(min(quiet, max(0.0, remaining)), label)
             if chunk:
+                if len(self._stash) > 1024 * 1024:
+                    raise WorkerError(f"Превышен размер текстового ответа: {label}")
                 text = self._stash.decode("utf-8", errors="replace")
                 if text.strip().endswith("ch>"):
                     self._stash.clear()
