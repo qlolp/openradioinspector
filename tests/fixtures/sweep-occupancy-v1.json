@@ -1,0 +1,183 @@
+{
+  "contract": "openradioinspector-platform",
+  "contract_version": 1,
+  "data": {
+    "session_id": "session",
+    "stream_id": "s",
+    "anchor_id": "sweep-3",
+    "order": "started_at_then_id",
+    "requested": {
+      "before": 2,
+      "after": 2
+    },
+    "available": {
+      "before": 2,
+      "after": 2
+    },
+    "missing": {
+      "before": 0,
+      "after": 0
+    },
+    "complete": true,
+    "frequencies_hz": [
+      100,
+      101,
+      102
+    ],
+    "level_unit": "dBm",
+    "points": 3,
+    "items": [
+      {
+        "offset": -2,
+        "id": "sweep-1",
+        "level_unit": "dBm",
+        "levels": [
+          -99,
+          -99,
+          -99
+        ],
+        "settings": {
+          "rbw_hz": 1000,
+          "flag": true,
+          "sequence": 1,
+          "metadata": {
+            "counter": 9007199254740993,
+            "key_with_underscores": [
+              true,
+              "эфир"
+            ]
+          }
+        },
+        "interval": {
+          "started_at": "2026-11-08T00:00:01.000001Z",
+          "ended_at": "2026-11-08T00:00:01.000002Z"
+        }
+      },
+      {
+        "offset": -1,
+        "id": "sweep-2",
+        "level_unit": "dBm",
+        "levels": [
+          -98,
+          -98,
+          -98
+        ],
+        "settings": {
+          "rbw_hz": 1000,
+          "flag": true,
+          "sequence": 2,
+          "metadata": {
+            "counter": 9007199254740993,
+            "key_with_underscores": [
+              true,
+              "эфир"
+            ]
+          }
+        },
+        "interval": {
+          "started_at": "2026-11-08T00:00:02.000001Z",
+          "ended_at": "2026-11-08T00:00:02.000002Z"
+        }
+      },
+      {
+        "offset": 0,
+        "id": "sweep-3",
+        "level_unit": "dBm",
+        "levels": [
+          -97,
+          -97,
+          -97
+        ],
+        "settings": {
+          "rbw_hz": 1000,
+          "flag": true,
+          "sequence": 3,
+          "metadata": {
+            "counter": 9007199254740993,
+            "key_with_underscores": [
+              true,
+              "эфир"
+            ]
+          }
+        },
+        "interval": {
+          "started_at": "2026-11-08T00:00:03.000001Z",
+          "ended_at": "2026-11-08T00:00:03.000002Z"
+        }
+      },
+      {
+        "offset": 1,
+        "id": "sweep-4",
+        "level_unit": "dBm",
+        "levels": [
+          -96,
+          -96,
+          -96
+        ],
+        "settings": {
+          "rbw_hz": 1000,
+          "flag": true,
+          "sequence": 4,
+          "metadata": {
+            "counter": 9007199254740993,
+            "key_with_underscores": [
+              true,
+              "эфир"
+            ]
+          }
+        },
+        "interval": {
+          "started_at": "2026-11-08T00:00:04.000001Z",
+          "ended_at": "2026-11-08T00:00:04.000002Z"
+        }
+      },
+      {
+        "offset": 2,
+        "id": "sweep-5",
+        "level_unit": "dBm",
+        "levels": [
+          -95,
+          -95,
+          -95
+        ],
+        "settings": {
+          "rbw_hz": 1000,
+          "flag": true,
+          "sequence": 5,
+          "metadata": {
+            "counter": 9007199254740993,
+            "key_with_underscores": [
+              true,
+              "эфир"
+            ]
+          }
+        },
+        "interval": {
+          "started_at": "2026-11-08T00:00:05.000001Z",
+          "ended_at": "2026-11-08T00:00:05.000002Z"
+        }
+      }
+    ],
+    "occupancy": {
+      "method": "sample_fraction",
+      "comparison": "strictly_greater",
+      "threshold_dbm": -97,
+      "sample_count": 5,
+      "exceedance_counts": [
+        2,
+        2,
+        2
+      ],
+      "sample_fractions": [
+        0.4,
+        0.4,
+        0.4
+      ],
+      "acquisition_span_seconds": 4.000001,
+      "acquisition_covered_seconds": 4.9999999999999996e-06,
+      "acquisition_gap_seconds": 3.9999960000000003,
+      "acquisition_gap_count": 4,
+      "rf_time_occupancy": null
+    }
+  }
+}

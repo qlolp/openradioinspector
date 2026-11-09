@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 import SpektrKomandy
 
 @MainActor
@@ -11,6 +13,10 @@ final class SweepContextModel: ObservableObject {
                 && PlatformSweepContext.sameID(a.stream, b.stream)
         }
     }
+    @Published var thresholdText = "-80" { didSet { if thresholdText != oldValue { clear() } } }
+    @Published private(set) var occupancyResult: PlatformSweepOccupancy?
+    @Published private(set) var exporting = false
+    private var exportID: UUID?
     @Published var beforeText = "2" { didSet { if beforeText != oldValue { clear() } } }
     @Published var afterText = "2" { didSet { if afterText != oldValue { clear() } } }
     @Published private(set) var choices: [PlatformSweep] = []
@@ -28,10 +34,17 @@ final class SweepContextModel: ObservableObject {
     private let timeoutNanoseconds: UInt64
     private let fetch: (PlatformClient, String, String, Int, Int) async throws -> PlatformSweepContext
 
+    private let fetchOccupancy: (PlatformClient, String, String, Int, Int, Double) async throws -> PlatformSweepOccupancy
+
     init(timeoutNanoseconds: UInt64 = 6_000_000_000,
          fetch: @escaping (PlatformClient, String, String, Int, Int) async throws -> PlatformSweepContext = {
              try await $0.sweepContext(sessionID: $1, sweepID: $2, before: $3, after: $4)
-         }) { self.timeoutNanoseconds = timeoutNanoseconds; self.fetch = fetch }
+         },
+         fetchOccupancy: @escaping (PlatformClient, String, String, Int, Int, Double) async throws -> PlatformSweepOccupancy = {
+             try await $0.sweepOccupancy(sessionID: $1, sweepID: $2, before: $3, after: $4, thresholdDbm: $5)
+         }) {
+        self.timeoutNanoseconds = timeoutNanoseconds; self.fetch = fetch; self.fetchOccupancy = fetchOccupancy
+    }
 
     private func count(_ text: String) -> Int? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -66,20 +79,30 @@ final class SweepContextModel: ObservableObject {
     func reset() { configure(client: nil, scope: nil, sweeps: []) }
     func clear() {
         revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
-        pending = false; result = nil; frozenAnchor = nil; selectedOffset = 0; errorText = nil
+        pending = false; result = nil; occupancyResult = nil; frozenAnchor = nil; selectedOffset = 0; errorText = nil
     }
-    func load() {
+    func load(withOccupancy: Bool = false) {
         guard !pending, let client, let scope, let anchor else { return }
         clear()
         guard let before, let after else { errorText = "Введите целые N1 и N2 от 0 до 16."; return }
         guard PlatformSweepContext.validSource(anchor) else { errorText = "Нужен архивный dBm свип с известными настройками и корректным UTC."; return }
+        let threshold = Double(thresholdText.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !withOccupancy || threshold?.isFinite == true else { errorText = "Введите конечный порог dBm."; return }
         let token = revision; pending = true; frozenAnchor = anchor
-        request = Task { [weak self, fetch] in
+        request = Task { [weak self, fetch, fetchOccupancy] in
             do {
-                let value = try await fetch(client, scope.session, anchor.id, before, after)
+                let analysis: PlatformSweepOccupancy?
+                let value: PlatformSweepContext
+                if withOccupancy, let threshold {
+                    let loaded = try await fetchOccupancy(client, scope.session, anchor.id, before, after, threshold)
+                    guard loaded.occupancy.thresholdDbm == threshold else { throw PlatformError.invalidResponse("Другой порог занятости") }
+                    analysis = loaded; value = loaded.context
+                } else {
+                    analysis = nil; value = try await fetch(client, scope.session, anchor.id, before, after)
+                }
                 guard let self, !Task.isCancelled, self.matches(scope, client, token) else { return }
                 try value.validate(anchor: anchor, before: before, after: after)
-                self.result = value; self.selectedOffset = 0; self.finish()
+                self.occupancyResult = analysis; self.result = value; self.selectedOffset = 0; self.finish()
             } catch {
                 guard let self, !Task.isCancelled, self.matches(scope, client, token) else { return }
                 switch error {
@@ -99,6 +122,22 @@ final class SweepContextModel: ObservableObject {
             guard let self, self.matches(scope, client, token), self.pending else { return }
             self.clear(); self.errorText = "Время ожидания архивного окна истекло. Можно повторить запрос."
         }
+    }
+    struct ExportTicket { let id: UUID; let revision: Int; let bytes: Data }
+    func beginExport() -> ExportTicket? {
+        guard !exporting, !pending, let occupancyResult else { return nil }
+        do {
+            let bytes = try occupancyResult.exportData()
+            let id = UUID(); exportID = id; exporting = true
+            return ExportTicket(id: id, revision: revision, bytes: bytes)
+        } catch { errorText = describeSession(error); return nil }
+    }
+    func finishExport(_ ticket: ExportTicket, to url: URL?) {
+        guard exportID == ticket.id else { return }
+        defer { exportID = nil; exporting = false }
+        guard let url, url.isFileURL, ticket.revision == revision, !pending, occupancyResult != nil else { return }
+        do { try ticket.bytes.write(to: url, options: .atomic) }
+        catch { errorText = describeSession(error) }
     }
     private func matches(_ scope: Scope, _ client: PlatformClient, _ token: Int) -> Bool {
         self.scope == scope && self.client === client && revision == token
@@ -121,13 +160,17 @@ struct RemoteSweepContextPane: View {
                 HStack {
                     input("N1 · до", text: $model.beforeText)
                     input("N2 · после", text: $model.afterText)
+                    input("Порог, dBm", text: $model.thresholdText, placeholder: "-80")
                 }
                 Text("N1 = 2 и N2 = 2 — начальные примеры. Допустимо 0…16 с каждой стороны. Для соседей после опорного выберите более ранний свип.").foregroundStyle(.secondary)
                 HStack {
                     Button("Загрузить окно") { model.load() }.disabled(!model.canLoad || model.pending)
+                    Button("Занятость") { model.load(withOccupancy: true) }.disabled(!model.canLoad || model.pending)
+                    Button("Экспорт JSON…") { exportFile() }.disabled(model.occupancyResult == nil || model.pending || model.exporting)
                     Button(model.pending ? "Отмена и очистка" : "Очистить окно") { model.clear() }
                     if model.pending { ProgressView().controlSize(.small) }
                 }
+                if let analysis = model.occupancyResult { occupancyView(analysis) }
                 if let result = model.result { resultView(result) }
                 ErrorLine(text: model.errorText)
                 Text("Только чтение архива по кнопке. Ближайшие свипы того же сеанса и потока упорядочены по UTC начала, затем точному ID. Опрос обновляет только варианты выбора. Выбранный свип и результат не меняются. Это основа N1/N2, не автоматический захват, не настройка ControlTask и не связь с кандидатом.")
@@ -135,8 +178,31 @@ struct RemoteSweepContextPane: View {
             }.font(.caption).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         }.onDisappear { model.clear() }
     }
-    private func input(_ title: String, text: Binding<String>) -> some View {
-        HStack { Text(title); TextField("0…16", text: text).textFieldStyle(.roundedBorder).frame(width: 65).accessibilityLabel(title) }
+    private func exportFile() {
+        guard let ticket = model.beginExport() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]; panel.nameFieldStringValue = "sweep-occupancy.json"
+        panel.begin { response in model.finishExport(ticket, to: response == .OK ? panel.url : nil) }
+    }
+    private func occupancyView(_ analysis: PlatformSweepOccupancy) -> some View {
+        let summary = analysis.occupancy
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Доля свипов с уровнем строго > \(summary.thresholdDbm) dBm · N=\(summary.sampleCount)")
+            Text("Интервал \(summary.acquisitionSpanSeconds) с · покрытие сбора \(summary.acquisitionCoveredSeconds) с · пропуски \(summary.acquisitionGapSeconds) с (\(summary.acquisitionGapCount))")
+            Text("Это доля отсчётов, не временная занятость эфира. Недостающие свипы не считаются тишиной.").foregroundStyle(.secondary)
+            DisclosureGroup("Все \(analysis.context.points) частотных отсчётов") {
+                ScrollView {
+                    LazyVStack(alignment: .leading) {
+                        ForEach(summary.exceedanceCounts.indices, id: \.self) { index in
+                            Text("[\(index)] \(analysis.context.frequenciesHz[index]) Гц · \(summary.exceedanceCounts[index])/\(summary.sampleCount) · \((summary.sampleFractions[index] * 100).formatted()) %")
+                        }
+                    }
+                }.frame(height: 160)
+            }
+        }
+    }
+    private func input(_ title: String, text: Binding<String>, placeholder: String = "0…16") -> some View {
+        HStack { Text(title); TextField(placeholder, text: text).textFieldStyle(.roundedBorder).frame(width: 65).accessibilityLabel(title) }
     }
     private func resultView(_ result: PlatformSweepContext) -> some View {
         VStack(alignment: .leading, spacing: 6) {

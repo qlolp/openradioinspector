@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from time import monotonic
 import json
+import os
 from .sweep_average import validate_source, utc_interval
 from .spectral_mask import same_json
 from .sweep_threshold import ThresholdPanel
@@ -78,6 +79,7 @@ class SweepContextPanel(ThresholdPanel):
     def __init__(self, app, notebook):
         self.app = app; self.scope = None; self.generation = 0
         self.future = self.retired = self.data = self.source = self.chosen_source = None; self.closed = False
+        self.result_json = None; self.exporting = False; self.occupancy_threshold = None
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='sweep-context')
         self._init_timers(app.root)
         tk, ttk = app.tk, app.ttk
@@ -85,11 +87,17 @@ class SweepContextPanel(ThresholdPanel):
         ttk.Label(frame, text='Разовый снимок архива вокруг выбранного sweep. N1/N2=2 — примеры. Не автоматический захват обнаружения; только чтение.', wraplength=1050).pack(fill='x')
         row = ttk.Frame(frame); row.pack(fill='x')
         self.anchor = tk.StringVar(); self.before = tk.StringVar(value='2'); self.after = tk.StringVar(value='2')
+        self.threshold = tk.StringVar(value='-80')
         self.anchors = ttk.Combobox(row, textvariable=self.anchor, state='readonly', width=35); self.anchors.pack(side='left')
         for title, var in (('N1 до (0…16)', self.before), ('N2 после (0…16)', self.after)):
             ttk.Label(row, text=title).pack(side='left'); ttk.Entry(row, textvariable=var, width=5).pack(side='left')
         self.button = ttk.Button(row, text='Зафиксировать / загрузить', command=self.analyze); self.button.pack(side='left')
         ttk.Button(row, text='Очистить', command=self.clear).pack(side='left')
+        row = ttk.Frame(frame); row.pack(fill='x')
+        ttk.Label(row, text='Порог dBm').pack(side='left')
+        ttk.Entry(row, textvariable=self.threshold, width=7).pack(side='left')
+        self.occupancy_button = ttk.Button(row, text='Занятость', command=lambda: self.analyze(True)); self.occupancy_button.pack(side='left')
+        self.export_button = ttk.Button(row, text='Экспорт JSON…', command=self.export_result, state='disabled'); self.export_button.pack(side='left')
         self.retained_info = tk.StringVar(); ttk.Label(frame, textvariable=self.retained_info, wraplength=1050).pack(fill='x')
         self.info = tk.StringVar(); ttk.Label(frame, textvariable=self.info, wraplength=1050).pack(fill='x')
         self.selected = tk.StringVar(); self.selection = ttk.Combobox(frame, textvariable=self.selected, state='readonly', width=70); self.selection.pack(fill='x')
@@ -98,7 +106,7 @@ class SweepContextPanel(ThresholdPanel):
         self.details = tk.Text(frame, height=9, state='disabled', wrap='none'); self.details.pack(fill='both', expand=True)
         scroll = ttk.Scrollbar(frame, orient='vertical', command=self.details.yview); scroll.pack(side='right', fill='y'); self.details.configure(yscrollcommand=scroll.set)
         self.anchor.trace_add('write', self.choose_anchor)
-        for var in (self.before, self.after): var.trace_add('write', lambda *args: self.clear())
+        for var in (self.before, self.after, self.threshold): var.trace_add('write', lambda *args: self.clear())
         self.server_trace = app.server_var.trace_add('write', self.disconnect)
         self.clear()
 
@@ -125,6 +133,13 @@ class SweepContextPanel(ThresholdPanel):
         self.snapshot_unavailable = False
         self.button.configure(state='disabled' if self.future is not None else 'normal')
         self.update()
+        self.refresh_controls()
+
+    def refresh_controls(self):
+        if hasattr(self, 'occupancy_button'):
+            self.occupancy_button.configure(state='disabled' if self.closed or self.future is not None or getattr(self, 'snapshot_unavailable', False) else 'normal')
+        if hasattr(self, 'export_button'):
+            self.export_button.configure(state='normal' if not self.closed and self.future is None and self.data is not None and getattr(self, 'result_json', None) is not None and not getattr(self, 'exporting', False) else 'disabled')
 
     def choose_anchor(self, *args):
         self.invalidate_choice()
@@ -158,13 +173,15 @@ class SweepContextPanel(ThresholdPanel):
 
     def clear(self):
         super().clear(); self.source = None
+        self.result_json = None; self.occupancy_threshold = None
         self.selection.configure(values=[]); self.selected.set('')
         self.info.set('Выберите anchor и загрузите N1/N2 явно. Автоматический захват не реализован.')
         if getattr(self, 'snapshot_unavailable', False):
             self.button.configure(state='disabled')
             self.info.set('Нет свежего снимка сервера. Загрузка недоступна до успешного обновления.')
+        self.refresh_controls()
 
-    def analyze(self):
+    def analyze(self, with_occupancy=False):
         self.update()
         if self.closed or self.future is not None or getattr(self, 'snapshot_unavailable', False): return
         if self.retired is not None and not self.retired.done():
@@ -175,13 +192,23 @@ class SweepContextPanel(ThresholdPanel):
             source = deepcopy(getattr(self, 'chosen_source', None))
             require(isinstance(source, dict) and source['id'] == self.anchor.get())
             validate_scoped_source(source, self.app.session_id, self.app.selected_stream_id())
+            threshold = None
+            if with_occupancy:
+                from .sweep_occupancy import finite_number
+                threshold = float(self.threshold.get())
+                require(finite_number(threshold))
         except (ValueError, TypeError, KeyError) as exc:
             self.clear(); self.info.set(str(exc)); return
         self.clear(); self.source = source; self.counts = counts
+        self.occupancy_threshold = threshold
         self.expected = (self.app.session_id, self.app.selected_stream_id())
         self.info.set(f"Зафиксирован anchor {source['id']}; загрузка…"); self.button.configure(state='disabled')
         self.deadline = monotonic()+8; generation = self.generation
-        self.future = self.executor.submit(self.app.client.sweep_context, self.app.session_id, source['id'], *counts)
+        if with_occupancy:
+            self.future = self.executor.submit(self.app.client.sweep_occupancy, self.app.session_id, source['id'], *counts, threshold)
+        else:
+            self.future = self.executor.submit(self.app.client.sweep_context, self.app.session_id, source['id'], *counts)
+        self.refresh_controls()
         self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation)
 
     def finish(self, generation):
@@ -193,12 +220,53 @@ class SweepContextPanel(ThresholdPanel):
         if not self.future.done(): self._schedule_after(self.app.root, 'analysis', 50, self.finish, generation); return
         future, self.future = self.future, None; self.button.configure(state='normal')
         try:
-            self.data = deepcopy(validate_context(future.result(), self.expected, self.source, *self.counts))
+            data = future.result()
+            if self.occupancy_threshold is not None:
+                from .sweep_occupancy import validate_occupancy
+                validate_occupancy(data, self.expected, self.source, *self.counts, self.occupancy_threshold)
+                self.result_json = getattr(data, 'data_json', None)
+            self.data = deepcopy(validate_context(data, self.expected, self.source, *self.counts))
             self.selection.configure(values=[f"{s['offset']:+d} · {s['id']}" for s in self.data['items']])
             self.selection.current(self.data['available']['before'])
             self.show_details(result_text(self.data)); self.info.set('Архивный снимок зафиксирован. Выберите строку для полного исходного спектра dBm.'); self.draw()
+            if self.occupancy_threshold is not None:
+                from .sweep_occupancy import occupancy_text
+                self.show_details(occupancy_text(self.data) + '\n\n' + result_text(self.data))
         except Exception as exc:
-            self.data = None; self.info.set(f'Контекст недоступен: {exc}. Остальные панели доступны.')
+            self.data = None; self.result_json = None; self.info.set(f'Контекст недоступен: {exc}. Остальные панели доступны.')
+        self.refresh_controls()
+
+    def export_result(self):
+        from tkinter import TclError, filedialog, messagebox
+        from .sweep_occupancy import save_occupancy_file
+        if self.closed or self.exporting: return
+        self.update()
+        if self.future is not None or self.data is None or self.result_json is None: return
+        generation, data, data_json = self.generation, self.data, self.result_json
+        self.exporting = True; self.refresh_controls()
+
+        def current():
+            if self.closed: return False
+            self.update()
+            return not self.closed and self.generation == generation and self.future is None and self.data is data
+
+        try:
+            path = filedialog.asksaveasfilename(parent=self.app.root, title='Экспорт занятости и исходных свипов',
+                defaultextension='.json', initialfile='sweep-occupancy.json', filetypes=[('JSON', '*.json')])
+            if not current() or not path: return
+            overwrite = os.path.lexists(path)
+            if overwrite:
+                approved = messagebox.askyesno('Заменить файл?', f'Заменить {path}?', parent=self.app.root)
+                if not current() or not approved: return
+            save_occupancy_file(path, data, data_json, overwrite)
+            self.info.set(f'Занятость и исходные измерения сохранены: {path}')
+        except TclError:
+            return
+        except (OSError, ValueError, TypeError) as exc:
+            if current(): self.info.set(f'Не удалось экспортировать результат: {exc}')
+        finally:
+            self.exporting = False
+            if not self.closed: self.refresh_controls()
 
     def draw(self):
         self.canvas.delete('all')

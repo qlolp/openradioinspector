@@ -342,6 +342,20 @@ class PlatformClient:
             raise ValueError('Запрос превышает 8192 байта')
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-context", payload, expected_statuses=(200,), strict_json=True, timeout=8.0)
 
+    def sweep_occupancy(self, session_id: str, sweep_id: str, before: int, after: int, threshold_dbm: float) -> dict[str, Any]:
+        from .sweep_average import identity
+        from .sweep_context import scope_identity, validate_counts
+        from .sweep_occupancy import finite_number
+        if not scope_identity(session_id) or not identity(sweep_id) or not finite_number(threshold_dbm):
+            raise ValueError('Нужны корректные ID и конечный порог dBm')
+        validate_counts(before, after)
+        payload = {'sweep_id': sweep_id, 'before': before, 'after': after, 'threshold_dbm': threshold_dbm}
+        if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode('utf-8')) > 8192:
+            raise ValueError('Запрос превышает 8192 байта')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-occupancy", payload,
+                             expected_statuses=(200,), strict_json=True, timeout=8.0,
+                             exact_envelope=True, preserve_data_json=True)
+
     def sweep_three_thresholds(self, session_id: str, sweep_id: str, levels_dbm: list[float]) -> dict[str, Any]:
         from .sweep_average import identity
         from .sweep_three_thresholds import validate_levels

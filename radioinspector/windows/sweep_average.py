@@ -181,6 +181,11 @@ def save_average_change_file(path, comparison, detection, overwrite=False, *, da
             average_change_artifact(comparison, detection),
             ensure_ascii=False, indent=2, allow_nan=False,
         ) + '\n').encode('utf-8')
+    save_analysis_bytes(path, payload, overwrite)
+
+
+def save_analysis_bytes(path, payload, overwrite=False):
+    """Atomically publish a complete local artifact; never clobber without approval."""
     destination = Path(path)
     temporary = None
     try:

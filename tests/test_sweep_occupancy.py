@@ -158,6 +158,23 @@ class OccupancyHTTPTests(unittest.TestCase):
         self.assertEqual(self.post(b" " * 8193)[0], 413)
         self.assertEqual((service.health(), service.events()), before)
 
+    def test_windows_client_uses_real_core_and_retains_export_sources(self):
+        from radioinspector.windows.client import PlatformClient
+        from radioinspector.windows.sweep_occupancy import validate_occupancy, save_occupancy_file
+        import tempfile
+        service = self.server.session_service
+        session = service.list_sessions()[0]
+        session_id = session['id'] if isinstance(session, dict) else session.id
+        client = PlatformClient(f'http://127.0.0.1:{self.server.server_address[1]}')
+        result = client.sweep_occupancy(session_id, 'sweep-1', 2, 2, -60)
+        source = dict(result['items'][0], session_id=session_id, stream_id=result['stream_id'], frequencies_hz=result['frequencies_hz'])
+        validate_occupancy(result, (session_id, result['stream_id']), source, 2, 2, -60)
+        self.assertEqual(result['occupancy']['exceedance_counts'], [0, 0, 0, 1])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'occupancy.json'
+            save_occupancy_file(path, result, result.data_json)
+            self.assertEqual(json.loads(path.read_text())['data'], result)
+
     @unittest.skipUnless(shutil.which("node"), "Node required for real WebUI/HTTP integration")
     def test_webui_with_real_core_and_synthetic_archive(self):
         from tests.sweep_context_smoke_server import _populate
