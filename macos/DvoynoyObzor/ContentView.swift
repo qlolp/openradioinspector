@@ -110,11 +110,11 @@ struct PinnedSweepReference {
 @MainActor
 final class RemoteDualModel: ObservableObject {
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
     }
     @Published var sessions: [PlatformSession] = []
     @Published var selectedSessionID = "" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope(); frequencyRounding.reset() } }
+        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
     }
     @Published var session: PlatformSession? {
         didSet {
@@ -124,6 +124,11 @@ final class RemoteDualModel: ObservableObject {
             }
         }
     }
+    @Published var auxiliaryStreamID = "" {
+        didSet { if !PlatformThreeSweepThresholds.sameID(auxiliaryStreamID, oldValue) { applyAuxiliaryStream() } }
+    }
+    private var auxiliaryClient: PlatformClient?
+    private var auxiliarySession: PlatformSession?
     @Published var workers: [PlatformWorker] = []
     @Published var connected = false
     @Published var busy = false
@@ -218,6 +223,10 @@ final class RemoteDualModel: ObservableObject {
     let measurementResults = MeasurementResultsModel()
     let frequencyCounter = FrequencyCounterModel()
     let dvbEvaluation = DvbEvaluationModel()
+    let phonogram = PhonogramModel()
+    let signalList = SignalListModel()
+    let measurementMap = MeasurementMapModel()
+    let audioStream = AudioStreamModel()
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
@@ -284,6 +293,26 @@ final class RemoteDualModel: ObservableObject {
         investigations.first(where: { $0.id == selectedInvestigationID })
     }
 
+    func configureAuxiliaryStreams(client: PlatformClient?, session: PlatformSession?) {
+        auxiliaryClient = client; auxiliarySession = session
+        if let session, !session.streams.contains(where: { PlatformThreeSweepThresholds.sameID($0.id, auxiliaryStreamID) }) {
+            auxiliaryStreamID = session.streams.first(where: { $0.isReceiver })?.id ?? session.streams.first?.id ?? ""
+        }
+        applyAuxiliaryStream()
+    }
+    private func applyAuxiliaryStream() {
+        guard let client = auxiliaryClient, let session = auxiliarySession,
+              session.streams.contains(where: { PlatformThreeSweepThresholds.sameID($0.id, auxiliaryStreamID) }) else {
+            phonogram.reset(); signalList.reset(); audioStream.reset(); return
+        }
+        phonogram.configure(client: client,
+            scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
+        signalList.configure(client: client,
+            scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
+        audioStream.configure(client: client,
+            scope: .init(server: serverURL, session: session.id, stream: auxiliaryStreamID))
+    }
+
     func worker(for streamID: String?) -> PlatformWorker? {
         guard let streamID else { return nil }
         return workers.first(where: { $0.streamId == streamID })
@@ -320,6 +349,7 @@ final class RemoteDualModel: ObservableObject {
         pollTask?.cancel()
         pollTask = nil
         client = nil
+        configureAuxiliaryStreams(client: nil, session: nil)
         connected = false
         busy = false
         session = nil
@@ -861,6 +891,10 @@ final class RemoteDualModel: ObservableObject {
         measurementResults.reset()
         frequencyCounter.reset()
         dvbEvaluation.reset()
+        phonogram.reset()
+        signalList.reset()
+        measurementMap.reset()
+        audioStream.reset()
         sweepThreshold.reset()
         cancelReferenceRequest()
         loadedReferenceScope = nil
@@ -1272,7 +1306,10 @@ final class RemoteDualModel: ObservableObject {
            PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
             dvbEvaluation.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID))
-        } else { dvbEvaluation.reset() }
+            measurementMap.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID))
+            configureAuxiliaryStreams(client: client, session: snapshot.session)
+        } else { dvbEvaluation.reset(); measurementMap.reset(); configureAuxiliaryStreams(client: nil, session: nil) }
         investigations = snapshot.investigations
         nextInvestigation = snapshot.nextInvestigation
         automaticHandoffStatus = snapshot.automaticHandoff
@@ -1531,6 +1568,15 @@ struct RemoteUltraPane: View {
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
+                Picker("Поток фонограммы / обмена", selection: $model.auxiliaryStreamID) {
+                    ForEach(model.session?.streams ?? [], id: \.id) { stream in
+                        Text("\(stream.device) · \(stream.id) · \(stream.levelUnit)").tag(stream.id)
+                    }
+                }.disabled(model.session?.streams.isEmpty ?? true)
+                RemotePhonogramPane(model: model.phonogram)
+                RemoteSignalListPane(model: model.signalList)
+                RemoteMeasurementMapPane(model: model.measurementMap)
+                RemoteAudioStreamPane(model: model.audioStream)
                 GroupBox("Превышения порога") {
                     if model.rows.isEmpty {
                         Text("Превышений нет").foregroundStyle(.secondary)

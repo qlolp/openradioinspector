@@ -88,6 +88,52 @@ def _segment(value: str, name: str) -> str:
     return quote(value, safe="")
 
 
+class AudioStreamConnection:
+    """Открытый ответ audio/pcm без Content-Length; читается блоками до закрытия."""
+
+    def __init__(self, response: Any) -> None:
+        self._response = response
+        self._socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+        if self._socket is not None:
+            # After headers, an idle stream waits for PCM, EOF or explicit cancel;
+            # the ordinary request timeout must not discard an accepted stream.
+            self._socket.settimeout(None)
+        headers = getattr(response, "headers", {}) or {}
+        self.content_type = headers.get("Content-Type", "")
+        self.sample_rate = headers.get("X-Sample-Rate", "")
+        self.sample_format = headers.get("X-Sample-Format", "")
+
+    def read_block(self, max_bytes: int = 8192) -> bytes:
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 65536:
+            raise ValueError("Размер блока должен быть в диапазоне 1…65536 байт")
+        read = getattr(self._response, "read1", self._response.read)
+        return read(max_bytes)
+
+    def cancel_read(self) -> None:
+        """Interrupt socket IO without acquiring the buffered reader's lock."""
+        connection, self._socket = self._socket, None
+        if connection is not None:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # EOF/another cancellation already closed this socket.
+            # Winsock can leave an outstanding recv blocked after shutdown.
+            # Detach transfers handle ownership before close, so the worker's
+            # later BufferedReader.close cannot close a reused descriptor.
+            try:
+                descriptor = connection.detach()
+                if descriptor >= 0:
+                    socket.close(descriptor)
+            except OSError:
+                pass
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        except OSError:
+            pass
+
+
 def validate_tune(frequency_hz: Any, mode: Any) -> tuple[int, str]:
     """Проверяет команду до отправки; значения не переводятся из МГц или S-метра."""
     if isinstance(frequency_hz, bool) or not isinstance(frequency_hz, int):
@@ -372,6 +418,89 @@ class PlatformClient:
         from ..dvb_parameters import validate_dvb_request
         validate_dvb_request(payload)
         return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/dvb-evaluation",
+                             payload, expected_statuses=(200,))
+
+    def phonogram_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/status?{query}",
+                             expected_statuses=(200,))
+
+    def phonogram_start(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/start",
+                             {"stream_id": stream_id}, expected_statuses=(200,))
+
+    def phonogram_stop(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/phonogram/stop",
+                             {"stream_id": stream_id}, expected_statuses=(200,))
+
+    def audio_stream_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/audio/status?{query}",
+                             expected_statuses=(200,))
+
+    def audio_stream_open(self, session_id: str, stream_id: str) -> AudioStreamConnection:
+        """Открыть трансляцию PCM; ответ без Content-Length живёт до закрытия."""
+        _segment(stream_id, 'stream_id')
+        query = urlencode({"stream_id": stream_id})
+        request = urllib.request.Request(
+            f"{self.base_url}/api/v1/sessions/{_segment(session_id, 'session_id')}/audio/stream?{query}",
+            headers={"Accept": "audio/pcm"},
+            method="GET",
+        )
+        try:
+            response = self._opener.open(request, timeout=self.timeout)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read(MAX_RESPONSE_BYTES + 1)
+            raise self._decode_error(raw, exc.code) from exc
+        except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+            reason = getattr(exc, "reason", exc)
+            raise PlatformClientError(
+                f"Сервер недоступен: {reason}", code="connection_error"
+            ) from exc
+        connection = AudioStreamConnection(response)
+        if "audio/pcm" not in connection.content_type:
+            connection.close()
+            raise PlatformClientError(
+                "Сервер не отдаёт audio/pcm", status=200, code="invalid_stream"
+            )
+        if connection.sample_format not in ("", "pcm16le"):
+            connection.close()
+            raise PlatformClientError(
+                "Формат отсчётов не pcm16le", status=200, code="invalid_stream"
+            )
+        return connection
+
+    def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
+        from ..signal_list import parse_signal_list
+        # The name is validated by the core through the artifact builder; here
+        # only the request size is bounded before it leaves the client.
+        params = {"name": name or "Список сигналов"}
+        if stream_id is not None:
+            _segment(stream_id, 'stream_id')
+            params['stream_id'] = stream_id
+        query = urlencode(params)
+        return self._request('GET', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/export?{query}",
+                             expected_statuses=(200,))
+
+    def signal_list_import(self, session_id: str, stream_id: str, list_json: str) -> dict[str, Any]:
+        from ..signal_list import MAX_IMPORT_REQUEST_BYTES, parse_signal_list
+        parse_signal_list(list_json)
+        _segment(stream_id, 'stream_id')
+        payload = {"stream_id": stream_id, "list_json": list_json}
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > MAX_IMPORT_REQUEST_BYTES:
+            raise ValueError('Запрос превышает 524 288 байт')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/signal-list/import",
+                             payload, expected_statuses=(201,))
+
+    def measurement_map(self, session_id: str, map_json: str) -> dict[str, Any]:
+        from ..measurement_map import validate_map_request
+        validate_map_request({"map_json": map_json})
+        payload = {"map_json": map_json}
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/measurement-map",
                              payload, expected_statuses=(200,))
 
     def sweep_threshold(self, session_id: str, sweep_id: str, window_points: int = 21, margin_db: float = 6) -> dict[str, Any]:

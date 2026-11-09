@@ -21,6 +21,10 @@
   <script src="/static/measurement-results.js" defer></script>
   <script src="/static/frequency-counter.js" defer></script>
   <script src="/static/dvb-evaluation.js" defer></script>
+  <script src="/static/phonogram.js" defer></script>
+  <script src="/static/signal-list.js" defer></script>
+  <script src="/static/measurement-map.js" defer></script>
+  <script src="/static/audio-stream.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -462,6 +466,78 @@
           <p id="dvb-status" role="status" aria-live="polite"></p>
           <p id="dvb-summary"></p>
           <ol id="dvb-items" aria-label="Вердикты по параметрам DVB-T"></ol>
+        </section>
+        <section class="phono-panel" aria-labelledby="phono-heading">
+          <h3 id="phono-heading">Фонограмма · запись с пятисекундной предысторией</h3>
+          <p>Рекордер держит скользящее окно последних 5 секунд аудиопотока; кнопка «Начать запись» фиксирует окно как предысторию — файл уже содержит звучавшее до нажатия. Запись — runtime-состояние: в архив сеанса ничего не пишется, исходные отсчёты не изменяются.</p>
+          <label for="phono-stream">Аудиопоток сеанса</label>
+          <select id="phono-stream" disabled aria-describedby="phono-source"></select>
+          <div class="form-actions">
+            <button id="phono-start" class="button" type="button" disabled>Начать запись (с предысторией 5 с)</button>
+            <button id="phono-stop" class="button" type="button" disabled>Остановить запись</button>
+            <button id="phono-refresh" class="button" type="button" disabled>Обновить состояние</button>
+          </div>
+          <p id="phono-source">Нет потоков выбранного сеанса.</p>
+          <p>Отсчёты поступают из аудиопотока (приборные потоки) или через API
+            <code>POST …/phonogram/frames</code>; панель их не генерирует и не подменяет.
+            Предыстория фиксирована — 5 секунд. WAV последней фонограммы:
+            <code>GET …/phonogram/wav?stream_id=…</code>.</p>
+          <p id="phono-status" role="status" aria-live="polite"></p>
+          <p id="phono-summary"></p>
+          <ol id="phono-items" aria-label="Состояние записи фонограммы"></ol>
+        </section>
+        <section class="siglist-panel" aria-labelledby="siglist-heading">
+          <h3 id="siglist-heading">Список сигналов · выгрузка и загрузка</h3>
+          <p>Переносимый JSON-список сигналов, как «Save RadioInspector signal's data to file» и «Load from network (from other instrument)» оригинала. Экспорт сериализует архивных кандидатов сеанса; импорт создаёт новых кандидатов через обычный жизненный цикл. Единицы измерения не конвертируются: dBm и s_meter_count никогда не пересчитываются друг в друга.</p>
+          <div class="form-grid">
+            <label>Имя списка для экспорта<input id="siglist-name" type="text" value="Список сигналов"></label>
+            <label>Поток обмена<select id="siglist-stream" disabled aria-describedby="siglist-source"></select></label>
+          </div>
+          <label for="siglist-editor">Черновик списка · JSON</label>
+          <textarea id="siglist-editor" rows="10" spellcheck="false" placeholder="Экспорт заполнит это поле; можно вставить чужой список"></textarea>
+          <div class="form-actions">
+            <button id="siglist-export" class="button" type="button" disabled>Выгрузить список сигналов</button>
+            <button id="siglist-import" class="button" type="button" disabled>Загрузить список сигналов</button>
+          </div>
+          <p id="siglist-source">Нет потоков выбранного сеанса.</p>
+          <p>Импорт — явная запись: каждый сигнал становится кандидатом в состоянии <code>new</code>. Автопреобразование единиц запрещено; запись с чужой единицей отклоняется целиком.</p>
+          <p id="siglist-status" role="status" aria-live="polite"></p>
+          <p id="siglist-summary"></p>
+          <ol id="siglist-items" aria-label="Итог обмена списком сигналов"></ol>
+        </section>
+        <section class="map-panel" aria-labelledby="map-heading">
+          <h3 id="map-heading">Карта точек измерений и секторов</h3>
+          <p>GeoJSON FeatureCollection: точки измерений и антенные секторы (азимут, ширина луча, радиус). Секторы строятся ядром по дуге большого круга через геодезические функции. Координаты вводятся явно; это производный артефакт, не измерение и не привязка GPS.</p>
+          <label for="map-editor">Черновик карты · JSON</label>
+          <textarea id="map-editor" rows="10" spellcheck="false" placeholder='{"format":"openradioinspector-measurement-map","format_version":1,"name":"Карта","points":[{"latitude_deg":55.75,"longitude_deg":37.62,"label":"Точка 1","sector":{"azimuth_deg":90,"beamwidth_deg":60,"radius_m":1000}}]}'></textarea>
+          <div class="form-actions">
+            <button id="map-run" class="button" type="button" disabled>Построить карту</button>
+            <button id="map-clear" class="button" type="button">Очистить результат</button>
+          </div>
+          <p id="map-source">Нет выбранного сеанса.</p>
+          <p>Только явное действие строит карту; архив не изменяется. GeoJSON можно сохранить из черновика результата. Это не нормативная карта и не аттестация.</p>
+          <p id="map-status" role="status" aria-live="polite"></p>
+          <p id="map-summary"></p>
+          <ol id="map-items" aria-label="Сводка карты"></ol>
+          <canvas id="map-canvas" width="960" height="320" role="img" aria-label="Карта точек измерений и секторов" hidden></canvas>
+            <label for="map-geojson">GeoJSON результата — можно скопировать в файл</label>
+            <textarea id="map-geojson" rows="8" readonly aria-label="GeoJSON результата"></textarea>
+        </section>
+        <section class="audio-panel" aria-labelledby="audio-heading">
+          <h3 id="audio-heading">Аудио по сети · трансляция демодулированного сигнала</h3>
+          <p>Сетевой режим RemoteMD: блоки PCM16LE поступают клиенту по мере того, как рекордер принимает отсчёты. Подключение удерживается ответом сервера без Content-Length. Остановленный клиент теряет только собственную очередь (потери считаются); запись и другие клиенты не блокируются.</p>
+          <label for="audio-stream">Аудиопоток сеанса</label>
+          <select id="audio-stream" disabled aria-describedby="audio-source"></select>
+          <div class="form-actions">
+            <button id="audio-connect" class="button" type="button" disabled>Подключить трансляцию</button>
+            <button id="audio-disconnect" class="button" type="button" disabled>Отключить</button>
+            <button id="audio-refresh" class="button" type="button" disabled>Обновить статус</button>
+          </div>
+          <p id="audio-source">Нет потоков выбранного сеанса.</p>
+          <p>Панель не генерирует аудио и не пишет архив: поток — доставка, а не запись. Отсчёты поступают через <code>POST …/phonogram/frames</code> или из приборных потоков.</p>
+          <p id="audio-status" role="status" aria-live="polite"></p>
+          <p id="audio-summary"></p>
+          <ol id="audio-items" aria-label="Состояние сетевой трансляции"></ol>
         </section>
       </section>
 
