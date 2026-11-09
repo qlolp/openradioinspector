@@ -6,6 +6,7 @@ SQLite-архив подключается через ``SQLiteSessionStore``. Б
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import replace
 import copy
 import queue
@@ -132,6 +133,8 @@ class SessionService:
         self._sessions: dict[str, MonitoringSession] = {}
         self._events: deque[SessionEvent] = deque(maxlen=history_limit)
         self._sweeps: list[Sweep] = []
+        self._sweep_sequence = 0
+        self._ingestion: dict[tuple[str, Optional[str]], list[tuple[int, Sweep]]] = {}
         self._sweep_references: list[dict[str, Any]] = []
         self._observations: list[ReceiverObservation] = []
         self._candidates: dict[str, Candidate] = {}
@@ -444,7 +447,7 @@ class SessionService:
                 if self._store is not None:
                     self._store.record_sweep(sweep, event=event)
                 else:
-                    self._sweeps.append(copy.deepcopy(sweep))
+                    self._append_memory_sweeps([sweep])
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"Свип уже существует или нарушает связи: {sweep.id}") from exc
             self._publish_event_locked(event)
@@ -522,7 +525,7 @@ class SessionService:
                 if self._store is not None:
                     self._store.record_sweeps(sweeps, events=events)
                 else:
-                    self._sweeps.extend(copy.deepcopy(sweeps))
+                    self._append_memory_sweeps(sweeps)
             except sqlite3.IntegrityError as exc:
                 raise ValueError("Пакет свипов содержит дубликат или нарушает связи") from exc
             for event in events:
@@ -992,6 +995,41 @@ class SessionService:
                 self._sweep_references.append(copy.deepcopy(reference))
             self._publish_event_locked(event)
             return copy.deepcopy(reference), True
+
+    def _append_memory_sweeps(self, sweeps: list[Sweep]) -> None:
+        copies = copy.deepcopy(sweeps)
+        for sweep in copies:
+            self._sweep_sequence += 1
+            entry = (self._sweep_sequence, sweep)
+            for key in ((sweep.session_id, None), (sweep.session_id, sweep.stream_id)):
+                self._ingestion.setdefault(key, []).append(entry)
+        self._sweeps.extend(copies)
+
+    def sweep_ingestion_boundary(self, session_id: str) -> int:
+        with self._lock:
+            self._get_locked(session_id)
+            if self._store is not None:
+                return self._store.sweep_ingestion_boundary(session_id)
+            items = self._ingestion.get((session_id, None), [])
+            return items[-1][0] if items else 0
+
+    def sweeps_after_ingestion(
+        self, session_id: str, *, after: int, stream_id: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[tuple[int, Sweep]]:
+        if isinstance(after, bool) or not isinstance(after, int) or after < 0:
+            raise ValueError("after должно быть неотрицательным целым числом")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit должно быть целым числом от 1 до 1000")
+        with self._lock:
+            self._validate_stream_query_locked(session_id, stream_id)
+            if self._store is not None:
+                return self._store.sweeps_after_ingestion(
+                    session_id, after=after, stream_id=stream_id, limit=limit,
+                )
+            items = self._ingestion.get((session_id, stream_id), [])
+            start = bisect_right(items, after, key=lambda item: item[0])
+            return copy.deepcopy(items[start:start + limit])
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
