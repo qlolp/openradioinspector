@@ -202,6 +202,107 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
     }
 }
 
+/// Collects at most `limit` bytes of an endless delivery stream, then cancels.
+final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let limit: Int
+    private var response: URLResponse?
+    private var body = Data()
+    private let completionLock = NSLock()
+    private var finished = false
+    private var pendingResult: Result<(Data, URLResponse), Error>?
+    private var callback: ((Result<(Data, URLResponse), Error>) -> Void)?
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)? {
+        get {
+            completionLock.lock(); defer { completionLock.unlock() }
+            return callback
+        }
+        set {
+            completionLock.lock()
+            if let pending = pendingResult, let installed = newValue {
+                pendingResult = nil
+                completionLock.unlock()
+                installed(pending)
+                return
+            }
+            if !finished { callback = newValue }
+            completionLock.unlock()
+        }
+    }
+
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+
+    private func finish(_ result: Result<(Data, URLResponse), Error>) {
+        completionLock.lock()
+        guard !finished else { completionLock.unlock(); return }
+        finished = true
+        let installed = callback
+        callback = nil
+        if installed == nil { pendingResult = result }
+        completionLock.unlock()
+        // A continuation or UI callback may re-enter; never call it under lock.
+        installed?(result)
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        completionLock.lock()
+        let accepting = !finished
+        if accepting { self.response = response }
+        completionLock.unlock()
+        completionHandler(accepting ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        completionLock.lock()
+        guard !finished else { completionLock.unlock(); return }
+        body.append(data)
+        let prefix = body.count >= limit ? Data(body.prefix(limit)) : nil
+        let response = self.response
+        completionLock.unlock()
+        if let prefix, let response {
+            finish(.success((prefix, response)))
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        completionLock.lock()
+        let response = self.response, body = self.body
+        completionLock.unlock()
+        guard !finished else { return }
+        if let error {
+            finish(.failure(PlatformError.connection(error.localizedDescription)))
+            return
+        }
+        guard let response else {
+            finish(.failure(PlatformError.connection("Ответ сервера не получен")))
+            return
+        }
+        finish(.success((body, response)))
+    }
+}
+
 final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let stagingURL: URL
     private var finished = false
@@ -1077,6 +1178,44 @@ public final class PlatformClient {
         } onCancel: {
             session.invalidateAndCancel()
         }
+    }
+
+    /// Bounded raw GET for endless delivery streams: collects at most `maxBytes`, then drops the connection.
+    func receivePrefix(_ request: URLRequest, maxBytes: Int) async throws -> (Data, URLResponse) {
+        if Task.isCancelled { throw CancellationError() }
+        let data: Data
+        let response: URLResponse
+        if usesInjectedSession {
+            (data, response) = try await session.data(for: request)
+        } else {
+            let delegate = PlatformPrefixDelegate(limit: maxBytes)
+            let session = URLSession(
+                configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+            )
+            defer { session.invalidateAndCancel() }
+            (data, response) = try await withTaskCancellationHandler {
+                if Task.isCancelled { throw CancellationError() }
+                return try await withCheckedThrowingContinuation { continuation in
+                    let task = session.dataTask(with: request)
+                    delegate.completion = { result in
+                        continuation.resume(with: result)
+                    }
+                    if Task.isCancelled {
+                        task.cancel()
+                        delegate.cancel()
+                    } else {
+                        task.resume()
+                    }
+                }
+            } onCancel: {
+                session.invalidateAndCancel()
+            }
+        }
+        if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
+           !platformSameOrigin(original, final) {
+            throw PlatformError.connection("Перенаправление на другой origin отклонено")
+        }
+        return (data, response)
     }
 
     private static func streamPath(sessionID: String, streamID: String, action: String) -> String {

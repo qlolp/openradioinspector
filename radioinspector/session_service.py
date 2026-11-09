@@ -47,6 +47,12 @@ from .frequency_counter import (
     calculate_frequency_counter, validate_counter_request,
 )
 from .dvb_parameters import evaluate_dvb_parameters
+from .phonogram import PhonogramError, PhonogramRecorder
+from .signal_list import (
+    SignalListError, build_signal_list, import_candidates, parse_signal_list,
+)
+from .measurement_map import build_measurement_map, validate_map_request
+from .audio_stream import AudioStreamError, AudioStreamHub
 from .measurement_results import (
     METHODOLOGIES, describe_catalog, make_result_record,
 )
@@ -132,6 +138,8 @@ class SessionService:
         self._investigations: dict[str, Investigation] = {}
         self._investigation_sessions: dict[str, str] = {}
         self._measurement_results: list[dict[str, Any]] = []
+        self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
+        self._audio_hub = AudioStreamHub()
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
         self._sequence = 0
         self._subscriber_sequence = 0
@@ -217,6 +225,10 @@ class SessionService:
                 "measurement_methodology_catalog": True,
                 "frequency_counter": True,
                 "dvb_t_evaluation": True,
+                "phonogram_pre_history": True,
+                "signal_list_exchange": True,
+                "measurement_map": True,
+                "remote_audio_stream": True,
                 "archive_capacity_guard": True,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
@@ -713,6 +725,146 @@ class SessionService:
             self._get_locked(session_id)
             result = evaluate_dvb_parameters(payload)
             return {"session_id": session_id, **result}
+
+    def _phonogram_recorder(self, session_id: str, stream_id: str) -> Any:
+        """Runtime recorder per session and stream; nothing enters the archive."""
+        if not isinstance(stream_id, str) or not stream_id.strip():
+            raise ValueError("stream_id должен быть непустым ID потока")
+        session = self._get_locked(session_id)
+        if not any(item.id == stream_id for item in session.streams):
+            raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+        key = (session_id, stream_id)
+        if key not in self._phonograms:
+            self._phonograms[key] = (PhonogramRecorder(), None)
+        return self._phonograms[key][0]
+
+    def phonogram_push(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Подать отсчёты аудиопотока: в буфер предыстории и сетевым клиентам."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id", "samples"}:
+            raise ValueError("Разрешены только поля stream_id и samples")
+        samples = payload["samples"]
+        if not isinstance(samples, list) or not samples or len(samples) > 4800:
+            raise ValueError("samples должен содержать от 1 до 4800 отсчётов")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            recorder.push(samples)
+            # Delivery to network clients happens after the recorder accepts
+            # the block; a slow client only ever loses its own queue tail.
+            self._audio_hub.publish(session_id, payload["stream_id"], samples)
+            return recorder.status()
+
+    def audio_stream_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._phonogram_recorder(session_id, stream_id)
+            return self._audio_hub.status(session_id, stream_id)
+
+    def audio_stream_subscribe(self, session_id: str, stream_id: str):
+        """Подписка на сетевую трансляцию; HTTP-слой пишет блоки клиенту."""
+        with self._lock:
+            self._phonogram_recorder(session_id, stream_id)
+            return self._audio_hub.subscribe(session_id, stream_id)
+
+    def audio_stream_unsubscribe(self, session_id: str, stream_id: str, subscription) -> None:
+        self._audio_hub.unsubscribe(session_id, stream_id, subscription)
+
+    def phonogram_start(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Начать запись фонограммы; окно буфера становится предысторией."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id"}:
+            raise ValueError("Разрешено только поле stream_id")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            recorder.start()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **recorder.status()}
+
+    def phonogram_stop(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Завершить запись: предыстория и записанная часть в одном результате."""
+        if not isinstance(payload, dict) or set(payload) != {"stream_id"}:
+            raise ValueError("Разрешено только поле stream_id")
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, payload["stream_id"])
+            recorder.stop()
+            return {"session_id": session_id, "stream_id": payload["stream_id"], **recorder.status()}
+
+    def phonogram_status(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, stream_id)
+            return {"session_id": session_id, "stream_id": stream_id, **recorder.status()}
+
+    def phonogram_wav(self, session_id: str, stream_id: str) -> bytes:
+        """WAV последней фонограммы; запись в архив не выполняется."""
+        with self._lock:
+            recorder = self._phonogram_recorder(session_id, stream_id)
+            phonogram = recorder.completed()
+        return phonogram.wav_bytes()
+
+    def measurement_map(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Build a measurement map from supplied coordinates; read-only."""
+        request = validate_map_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            result = build_measurement_map(request["name"], request["points"])
+            return {"session_id": session_id, **result}
+
+    def signal_list_export(self, session_id: str, name: str, stream_id: Optional[str] = None) -> dict[str, Any]:
+        """Export archived candidates as a portable signal list; read-only."""
+        with self._lock:
+            session = self._get_locked(session_id)
+            if stream_id is not None and not any(stream.id == stream_id for stream in session.streams):
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            candidates = [
+                item for item in self._candidates.values()
+                if item.session_id == session_id and (stream_id is None or item.source_stream_id == stream_id)
+            ]
+            candidates.sort(key=lambda item: (item.interval.started_at, item.id))
+            artifact = build_signal_list(candidates, name)
+            return {
+                "session_id": session_id,
+                "exported": len(artifact["entries"]),
+                "list": artifact,
+            }
+
+    def signal_list_import(
+        self, session_id: str, payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create new candidates from an imported signal list.
+
+        This is an explicit write through the normal candidate lifecycle:
+        each entry becomes one ``new`` candidate on the chosen stream, with
+        its own creation event. Levels are never converted.
+        """
+        if not isinstance(payload, dict) or set(payload) != {"stream_id", "list_json"}:
+            raise ValueError("Разрешены только поля stream_id и list_json")
+        stream_id = payload["stream_id"]
+        if not isinstance(stream_id, str) or not stream_id.strip():
+            raise ValueError("stream_id должен быть непустым ID потока")
+        artifact = parse_signal_list(payload["list_json"])
+        with self._lock:
+            session = self._get_locked(session_id)
+            stream = next((item for item in session.streams if item.id == stream_id), None)
+            if stream is None:
+                raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
+            payloads = import_candidates(stream_id, stream.level_unit, artifact)
+            candidates = [Candidate.from_dict(dict(item, session_id=session_id, state="new"))
+                          for item in payloads]
+            created = [candidate.id for candidate in candidates]
+            if len(set(created)) != len(created) or any(identifier in self._candidates for identifier in created):
+                raise ValueError("Повторяющийся ID кандидата")
+            events = []
+            for index, candidate in enumerate(candidates, 1):
+                self._validate_measurement_locked(session_id, candidate.source_stream_id, candidate.level_unit)
+                events.append(SessionEvent(sequence=self._sequence + index, event_type="candidate.created",
+                                           occurred_at=self._clock(), session_id=session_id,
+                                           payload={"candidate": to_primitive(candidate)}))
+            if self._store is not None:
+                self._store.save_candidates_batch(list(zip(candidates, events)))
+            for candidate, event in zip(candidates, events):
+                self._candidates[candidate.id] = candidate
+                self._publish_event_locked(event)
+            return {
+                "session_id": session_id, "stream_id": stream_id,
+                "imported": len(created), "candidate_ids": created,
+                "name": artifact["name"],
+            }
 
     def save_measurement_result(
         self, session_id: str, payload: dict[str, Any],

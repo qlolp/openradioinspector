@@ -861,6 +861,14 @@ class SQLiteSessionStore:
             if event is not None:
                 self._insert_event(event)
 
+    def save_candidates_batch(self, items: list[tuple[Candidate, SessionEvent]]) -> None:
+        """Commit a whole imported list and its creation events atomically."""
+        with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
+            for candidate, event in items:
+                self._upsert_candidate(candidate)
+                self._insert_event(event)
+
     def _upsert_candidate(self, candidate: Candidate) -> None:
         data = to_primitive(candidate)
         owner = self._connection.execute(
