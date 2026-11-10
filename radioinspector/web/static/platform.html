@@ -27,6 +27,7 @@
   <script src="/static/audio-stream.js" defer></script>
   <script src="/static/monitoring.js" defer></script>
   <script src="/static/monitoring-research.js" defer></script>
+  <script src="/static/monitoring-operations.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -92,6 +93,23 @@
     </details>
     <div data-role="events" aria-live="polite"></div>
     <audio controls preload="none" aria-label="Аудиозапись события"></audio>
+    <details><summary>Настройки охраны и архива</summary>
+      <button data-action="settings-load">Загрузить настройки</button>
+      <label><input name="autostart" type="checkbox"> Разрешаю восстановление охраны после перезапуска ядра</label>
+      <label>Резерв места, МиБ<input name="archive-reserve" type="number" min="1" value="256"></label>
+      <label>Минимальный срок хранения, с<input name="archive-retention" type="number" min="60" value="3600"></label>
+      <label><input name="webhook-enabled" type="checkbox"> Доставлять webhook</label><label>Адрес<input name="webhook-url" type="url"></label>
+      <label>Новый секрет<input name="webhook-secret" type="password" autocomplete="new-password" placeholder="Пустое поле сохраняет прежний секрет"></label>
+      <button data-action="settings-save">Сохранить явно</button><button data-action="storage-refresh">Проверить архив</button>
+      <p data-role="settings-status" aria-live="polite"></p><p data-role="storage-status" aria-live="polite"></p>
+    </details>
+    <details><summary>Журнал тревог и операторский вердикт</summary>
+      <label><input name="alarm-sound" type="checkbox"> Звук новых тревог в этом клиенте</label>
+      <button data-action="alerts-refresh">Обновить тревоги</button><button data-action="alerts-next" disabled>Следующая страница тревог</button>
+      <p data-role="alerts-status" aria-live="polite"></p><div data-role="alerts"></div>
+      <label>Вердикт выбранному событию<select name="event-disposition"><option value="unreviewed">Неизвестный</option><option value="authorized">Разрешён оператором</option><option value="false_positive">Ложное срабатывание</option><option value="investigate">Требует исследования</option></select></label>
+      <input name="event-comment" maxlength="1000" placeholder="Комментарий"><button data-action="event-review">Записать вердикт</button>
+    </details>
     <details><summary>Ручное управление и поиск источника</summary>
       <p>Захват прибора приостанавливает его автоматизацию. Истёкшая аренда оставляет паузу; потерянный ключ сбрасывается снятием охраны.</p>
       <select name="manual-role" aria-label="Ручной прибор"><option value="receiver">AR-DV1</option><option value="analyzer">tinySA</option></select>

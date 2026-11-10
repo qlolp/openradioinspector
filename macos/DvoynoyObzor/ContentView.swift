@@ -73,7 +73,11 @@ struct ContentView: View {
                 Text("Радиомониторинг").tag("monitoring")
                 Text("Исследование").tag("research")
             }.pickerStyle(.segmented).padding(.horizontal)
-            MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", sessionID: model.selectedSessionID)
+            MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", sessionID: model.selectedSessionID,
+                                    onProjectSession: { id in
+                                        model.selectSession(id)
+                                        Task { await model.reloadSessions() }
+                                    })
             Divider()
             VSplitView {
                 HSplitView {
@@ -1761,6 +1765,7 @@ struct RemoteSweepComparisonPane: View {
 
 
 import AVFoundation
+import AppKit
 
 @MainActor
 final class MonitoringWorkspaceModel: ObservableObject {
@@ -1799,6 +1804,25 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var baselineComparison: MonitoringValue = .null
     @Published var sources: [MonitoringValue] = []
     @Published var sourcesNext = ""
+    @Published var operationsSettings: MonitoringValue = .null
+    @Published var storage: MonitoringValue = .null
+    @Published var alerts: [MonitoringValue] = []
+    @Published var alertsNext = ""
+    @Published var alertsLatest = true
+    @Published var operationsPending: Set<String> = []
+    @Published var operationsErrors: [String: String] = [:]
+    @Published var operationsNotice = ""
+    @Published var autostart = false
+    @Published var archiveReserve = "268435456"
+    @Published var archiveRetention = "3600"
+    @Published var webhookEnabled = false
+    @Published var webhookURL = ""
+    @Published var webhookSecret = ""
+    @Published var localSoundEnabled = false
+    private var operationsRequests: [String: UUID] = [:]
+    private var operationsRevision = 0
+    private var alertsPageAfter: String?
+    private var soundState = MonitoringAlertSoundState()
     private var researchRequests: [String: UUID] = [:]
     private var historyQuery = MonitoringHistoryQuery()
     var selectedSweep: MonitoringHistoryRow? { rawSweep ?? history.first { $0.id == selectedSweepID } }
@@ -1835,8 +1859,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
-    func configure(_ server: String, _ session: String) {
-        let next = server + "|" + session
+    func configure(_ server: String) {
+        let next = server
         guard next != scope else { return }
         scope = next; selected = ""; projects = []; audioInputs = .null
         invalidateProject()
@@ -1853,6 +1877,11 @@ final class MonitoringWorkspaceModel: ObservableObject {
         search = .null; coverage = ""; history = []; historyNext = ""; selectedSweepID = ""; rawSweep = nil
         rawDetail = .null; baselineComparison = .null; sources = []; sourcesNext = ""
         historyDescription = "История ещё не загружена."
+        stopOperations()
+        operationsSettings = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
+        alertsPageAfter = nil; soundState = MonitoringAlertSoundState(); operationsErrors = [:]; operationsNotice = ""
+        autostart = false; archiveReserve = "268435456"; archiveRetention = "3600"
+        webhookEnabled = false; webhookURL = ""; webhookSecret = ""; localSoundEnabled = false
         stopAudio()
     }
 
@@ -2162,6 +2191,145 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }) { result in sources = result["items"].items; sourcesNext = result["next_cursor"].text }
     }
 
+    func stopOperations() {
+        operationsRevision += 1; operationsRequests = [:]; operationsPending = []
+        webhookSecret = ""
+    }
+
+    func matchesOperations(endpoint: String, projectID: String) -> Bool { scope == endpoint && selected == projectID }
+
+    @discardableResult
+    private func operationsRequest(
+        _ channel: String, eventID: String? = nil,
+        request: (PlatformClient, String) async throws -> MonitoringValue,
+        apply: (MonitoringValue) -> Void
+    ) async -> Bool {
+        guard let client, !selected.isEmpty, !operationsPending.contains(channel) else { return false }
+        let generation = revision, viewGeneration = operationsRevision, projectID = selected, token = UUID()
+        operationsRequests[channel] = token; operationsPending.insert(channel)
+        defer {
+            if operationsRequests[channel] == token { operationsRequests[channel] = nil; operationsPending.remove(channel) }
+        }
+        do {
+            let result = try await request(client, projectID)
+            guard revision == generation, operationsRevision == viewGeneration, selected == projectID,
+                  operationsRequests[channel] == token, eventID == nil || selectedEvent == eventID, !Task.isCancelled else { return false }
+            operationsErrors[channel] = nil
+            // These responses never write the general diagnostic JSON, especially settings.
+            apply(result)
+            return true
+        } catch {
+            if revision == generation, operationsRevision == viewGeneration, selected == projectID,
+               operationsRequests[channel] == token, eventID == nil || selectedEvent == eventID, !Task.isCancelled {
+                operationsErrors[channel] = error.localizedDescription
+                if channel == "storage" { storage = .null }
+            }
+            return false
+        }
+    }
+
+    func loadOperationsSettings() async {
+        await operationsRequest("settings", request: { client, id in try await client.monitoringSettings(projectID: id) }) { result in
+            applySettings(result)
+        }
+    }
+
+    private func applySettings(_ value: MonitoringValue) {
+        operationsSettings = value
+        autostart = value["autostart"].bool == true
+        archiveReserve = value["archive"]["minimum_free_bytes"].scalar
+        archiveRetention = value["archive"]["minimum_retention_seconds"].scalar
+        webhookEnabled = value["webhook"]["enabled"].bool == true
+        webhookURL = value["webhook"]["url"].text
+    }
+
+    var operationsSettingsValidation: String? {
+        guard let reserve = Int64(archiveReserve), (1_048_576...1_000_000_000_000_000).contains(reserve) else {
+            return "Резерв: целые байты от 1048576 до 1000000000000000."
+        }
+        guard let retention = Int64(archiveRetention), (60...31_536_000).contains(retention) else {
+            return "Срок хранения: целые секунды от 60 до 31536000."
+        }
+        if webhookSecret.unicodeScalars.count > 1024 { return "Новый секрет должен содержать не более 1024 символов." }
+        if webhookURL.unicodeScalars.count > 2048 { return "Адрес webhook должен содержать не более 2048 символов." }
+        if !webhookURL.isEmpty {
+            guard let url = URLComponents(string: webhookURL), ["http", "https"].contains(url.scheme ?? ""),
+                  !(url.host ?? "").isEmpty, url.user == nil, url.password == nil, url.fragment == nil else {
+                return "Для webhook нужен HTTP(S) URL без учётных данных и fragment."
+            }
+        }
+        if webhookEnabled && (webhookURL.isEmpty || (webhookSecret.isEmpty && operationsSettings["webhook"]["secret_configured"].bool != true)) {
+            return "Для включения webhook укажите адрес и новый или уже сохранённый секрет."
+        }
+        return nil
+    }
+
+    var operationsSettingsBody: [String: MonitoringValue]? {
+        guard operationsSettingsValidation == nil,
+              let reserve = Int64(archiveReserve), let retention = Int64(archiveRetention) else { return nil }
+        var webhook: [String: MonitoringValue] = ["enabled": .boolean(webhookEnabled), "url": .string(webhookURL)]
+        if !webhookSecret.isEmpty { webhook["secret"] = .string(webhookSecret) }
+        return ["autostart": .boolean(autostart),
+            "archive": .object(["minimum_free_bytes": .integer(reserve), "minimum_retention_seconds": .integer(retention)]),
+            "webhook": .object(webhook)]
+    }
+
+    func saveOperationsSettings(body: [String: MonitoringValue]) async {
+        let current = revision, viewGeneration = operationsRevision
+        let secret = body["webhook"]?["secret"].text ?? ""
+        let saved = await operationsRequest("settings", request: { client, id in try await client.monitoringSettings(projectID: id, body: body) }) { result in
+            applySettings(result); webhookSecret = ""
+            operationsNotice = "Настройки проекта сохранены."
+        }
+        if current == revision, viewGeneration == operationsRevision {
+            // Clear the entered credential after an attempt, including a rejected save.
+            if webhookSecret == secret { webhookSecret = "" }
+            if saved, !Task.isCancelled { await refreshStorage() }
+        }
+    }
+
+    func refreshStorage() async {
+        await operationsRequest("storage", request: { client, id in try await client.monitoringStorage(projectID: id) }) { storage = $0 }
+    }
+
+    func pollAlerts() async {
+        await operationsRequest("alerts-live", request: { client, id in try await client.monitoringAlerts(projectID: id) }) { result in
+            let items = result["items"].items
+            if soundState.observe(items, enabled: localSoundEnabled) { NSSound.beep() }
+            if alertsLatest { alerts = items; alertsNext = result["next_cursor"].text; alertsPageAfter = nil }
+        }
+    }
+
+    func showLatestAlerts() async { alertsLatest = true; await pollAlerts() }
+
+    func alertPage(after: String?) async {
+        if after == nil { await showLatestAlerts(); return }
+        alertsLatest = false
+        await operationsRequest("alerts-page", request: { client, id in try await client.monitoringAlerts(projectID: id, after: after) }) { result in
+            alerts = result["items"].items; alertsNext = result["next_cursor"].text; alertsPageAfter = after
+        }
+    }
+
+    func acknowledgeAlert(_ alertID: String) async {
+        let current = revision
+        let saved = await operationsRequest("alerts-ack", request: { client, id in try await client.monitoringAcknowledgeAlert(projectID: id, alertID: alertID) }) { _ in
+            operationsNotice = "Оповещение подтверждено оператором."
+        }
+        guard current == revision, saved, !Task.isCancelled else { return }
+        if alertsLatest { await pollAlerts() } else { await alertPage(after: alertsPageAfter) }
+    }
+
+    func reviewEvent(eventID: String, disposition: String, comment: String) async {
+        guard selectedEvent == eventID else { return }
+        await operationsRequest("event-review", eventID: eventID, request: { client, id in
+            try await client.monitoringReviewEvent(projectID: id, eventID: eventID, disposition: disposition, comment: comment)
+        }) { result in
+            event = result
+            if let index = events.firstIndex(where: { $0["id"].text == eventID }) { events[index] = result }
+            operationsNotice = "Решение оператора сохранено."
+        }
+    }
+
 }
 
 struct MonitoringManualLease {
@@ -2172,7 +2340,11 @@ struct MonitoringManualLease {
 struct MonitoringWorkspacePane: View {
     let server: String
     let sessionID: String
+    var onProjectSession: (String) -> Void = { _ in }
     @StateObject private var workspace = MonitoringWorkspaceModel()
+    @State private var sessionFollow = MonitoringProjectSessionFollowState()
+    @State private var verdict = "unreviewed"
+    @State private var verdictComment = ""
     @State private var name = "Наблюдение"
     @State private var site = "Объект"
     @State private var confirm = false
@@ -2203,6 +2375,11 @@ struct MonitoringWorkspacePane: View {
                 manualControls
                 searchControls
                 historyControls
+                operationsSettingsControls
+                storageControls
+                alertControls
+                if !workspace.operationsNotice.isEmpty { Text(workspace.operationsNotice).font(.caption) }
+                ForEach(workspace.operationsErrors.keys.sorted(), id: \.self) { key in ErrorLine(text: workspace.operationsErrors[key]) }
                 ErrorLine(text: workspace.researchError)
                 if !workspace.researchPending.isEmpty { ProgressView("Исследование: запрос к ядру…").controlSize(.small) }
                 if workspace.pending { ProgressView("Запрос к ядру…").controlSize(.small) }
@@ -2219,15 +2396,38 @@ struct MonitoringWorkspacePane: View {
             .frame(maxHeight: 440)
         }
         .padding(.horizontal)
-        .task(id: server + "|" + sessionID) { workspace.configure(server, sessionID); await workspace.load() }
+        .task(id: server) { workspace.configure(server); await workspace.load() }
         .onChange(of: workspace.selected) { _ in
             confirm = false
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
         }
         .onChange(of: workspace.selectedInput) { _ in workspace.audioConfirmed = false }
         .onChange(of: workspace.audioEnabled) { _ in workspace.audioConfirmed = false }
-        .onDisappear { workspace.stopAudio() }
-        .task(id: server + "|" + sessionID + "|" + workspace.selected + "|" + String(searchExpanded)) {
+        .onDisappear { workspace.stopAudio(); workspace.stopOperations() }
+        .onChange(of: workspace.project["active_session_id"].text) { id in
+            if let next = sessionFollow.sessionToFollow(endpoint: server, projectID: workspace.selected, activeSessionID: id) { onProjectSession(next) }
+        }
+        .onChange(of: workspace.selectedEvent) { _ in verdict = "unreviewed"; verdictComment = "" }
+        .onChange(of: workspace.event) { value in
+            verdict = value["disposition"].text.isEmpty ? "unreviewed" : value["disposition"].text
+            verdictComment = value["operator_comment"].text
+        }
+        .task(id: server + "|" + workspace.selected) {
+            let endpoint = server, projectID = workspace.selected
+            guard !endpoint.isEmpty, !projectID.isEmpty, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
+            await workspace.loadOperationsSettings()
+            var tick = 0
+            while !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) {
+                await workspace.pollAlerts()
+                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
+                await workspace.refreshStatus()
+                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
+                if tick % 6 == 0 { await workspace.refreshStorage() }
+                tick += 1
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
+            }
+        }
+        .task(id: server + "|" + workspace.selected + "|" + String(searchExpanded)) {
             guard searchExpanded, !workspace.selected.isEmpty else { return }
             while !Task.isCancelled {
                 await workspace.refreshSearch()
@@ -2346,6 +2546,140 @@ struct MonitoringWorkspacePane: View {
                 }
                 Toggle("Наблюдать изменения разрешённого сигнала", isOn: $watchChanges)
             }.disabled(workspace.selected.isEmpty || workspace.pending)
+        }
+    }
+
+    private var operationsSettingsControls: some View {
+        DisclosureGroup("Настройки проекта · автозапуск и уведомления") {
+            VStack(alignment: .leading, spacing: 8) {
+                Button("Прочитать сохранённые настройки") { workspace.perform { await workspace.loadOperationsSettings() } }
+                Toggle("Автоматически запускать охрану после старта ядра", isOn: $workspace.autostart)
+                Text("Автозапуск по умолчанию выключен. Изменение применяется только кнопкой сохранения.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text("Резерв свободного места, байт")
+                    TextField("268435456", text: $workspace.archiveReserve).frame(width: 150)
+                    Text("Минимальное хранение, секунд")
+                    TextField("3600", text: $workspace.archiveRetention).frame(width: 120)
+                }
+                Toggle("Включить доставку webhook", isOn: $workspace.webhookEnabled)
+                TextField("URL webhook, https://…", text: $workspace.webhookURL)
+                SecureField("Новый секрет; пустое поле сохраняет действующий", text: $workspace.webhookSecret).privacySensitive()
+                Text("Секрет в ядре: \(workspace.operationsSettings["webhook"]["secret_configured"].bool == true ? "настроен" : "не настроен"). Поле очищается после попытки сохранения; секрет не выводится в диагностике.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Сохранить настройки проекта") {
+                    guard let body = workspace.operationsSettingsBody else { return }
+                    workspace.perform { await workspace.saveOperationsSettings(body: body) }
+                }.disabled(workspace.operationsSettings == .null || workspace.operationsSettingsBody == nil)
+                if workspace.operationsSettingsBody == nil {
+                    Text(workspace.operationsSettingsValidation ?? "Проверьте настройки проекта.").font(.caption).foregroundStyle(.orange)
+                }
+                if workspace.operationsSettings["detector"] != .null {
+                    DisclosureGroup("Параметры детектора · только чтение") {
+                        Text(workspace.operationsSettings["detector"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
+            }.disabled(workspace.selected.isEmpty || workspace.operationsPending.contains("settings"))
+        }
+    }
+
+    private var storageControls: some View {
+        DisclosureGroup("Хранение архива · готовность") {
+            VStack(alignment: .leading, spacing: 6) {
+                Button("Обновить хранение") { workspace.perform { await workspace.refreshStorage() } }
+                    .disabled(workspace.selected.isEmpty || workspace.operationsPending.contains("storage"))
+                if workspace.storage == .null { Text("Состояние хранения не получено.").foregroundStyle(.secondary) }
+                else {
+                    Text(workspace.storage["ready"].bool == true ? "Хранилище: проверка ядра пройдена" : "Архив не готов: проверьте резерв и требуемый срок")
+                        .foregroundStyle(workspace.storage["ready"].bool == true ? Color.primary : Color.orange)
+                    Text("Свободно в файловой системе: \(workspace.storage["filesystem_free_bytes"].scalar) байт")
+                    Text("Резерв: \(workspace.storage["minimum_free_bytes"].scalar) байт · доступно: \(workspace.storage["available_bytes"].scalar) байт")
+                    Text("Темп записи по данным ядра: \(workspace.storage["bytes_per_second"].scalar) байт/с")
+                    Text("Оценка хранения: \(workspace.storage["estimated_retention_seconds"] == .null ? "нет достаточных данных" : workspace.storage["estimated_retention_seconds"].scalar + " с") · требуется: \(workspace.storage["required_retention_seconds"].scalar) с")
+                    Text("Размер архива: \(workspace.storage["capacity"]["database_bytes"].scalar) байт · состояние: \(workspace.storage["capacity"]["state"].scalar)")
+                }
+                Text("Автоматическое удаление выключено. Состояние обновляется чтением каждые 30 секунд.").font(.caption).foregroundStyle(.secondary)
+            }.font(.caption)
+        }
+    }
+
+    private var alertControls: some View {
+        DisclosureGroup("Оповещения · оператор и доставка") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Звук новых оповещений в этом окне", isOn: $workspace.localSoundEnabled)
+                    .disabled(workspace.selected.isEmpty)
+                Text("Звук по умолчанию выключен; первая полученная страница звучать не будет. Опрос каждые 5 секунд работает и при свёрнутых разделах. При смене проекта звук снова выключается.")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button("Последние оповещения") { workspace.perform { await workspace.showLatestAlerts() } }
+                    Button("Следующая страница") {
+                        let cursor = workspace.alertsNext
+                        workspace.perform { await workspace.alertPage(after: cursor) }
+                    }.disabled(workspace.alertsNext.isEmpty)
+                }.disabled(workspace.selected.isEmpty || workspace.operationsPending.contains("alerts-page"))
+                Text(workspace.alertsLatest ? "Последние оповещения · обновляются автоматически" : "Архивная страница · новые оповещения продолжают отслеживаться")
+                    .font(.caption)
+                if workspace.operationsSettings["webhook"]["enabled"].bool != true {
+                    Text("Доставка webhook выключена в сохранённых настройках.").font(.caption).foregroundStyle(.secondary)
+                }
+                if workspace.alerts.isEmpty { Text("Оповещений нет или страница ещё не получена.").font(.caption) }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(workspace.alerts.enumerated()), id: \.offset) { _, item in
+                            alertRow(item)
+                        }
+                    }
+                }.frame(maxHeight: 230)
+            }
+        }
+    }
+
+    private func alertRow(_ item: MonitoringValue) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(severityLabel(item["severity"].text)) · \(item["message"].text)").font(.headline)
+            Text("\(item["kind"].text) · UTC \(item["occurred_at"].text.isEmpty ? item["created_at"].text : item["occurred_at"].text)").font(.caption)
+            Text("Доставка: \(deliveryLabel(item["delivery"]["state"].text)) · попыток: \(item["delivery"]["attempts"].scalar) · следующий повтор UTC: \(item["delivery"]["next_attempt_at"].scalar)").font(.caption)
+            ErrorLine(text: item["delivery"]["last_error"].text)
+            HStack {
+                if item["acknowledged_at"] == .null {
+                    Button("Подтвердить оповещение") {
+                        let id = item["id"].text
+                        workspace.perform { await workspace.acknowledgeAlert(id) }
+                    }.disabled(workspace.operationsPending.contains("alerts-ack"))
+                } else { Text("Подтверждено UTC \(item["acknowledged_at"].text)").font(.caption) }
+                if !item["event_id"].text.isEmpty {
+                    Button("Открыть событие") {
+                        let id = item["event_id"].text
+                        workspace.perform { await workspace.showEvent(id) }
+                    }.disabled(workspace.pending)
+                }
+            }
+            Divider()
+        }
+    }
+
+    private func severityLabel(_ value: String) -> String {
+        ["info": "Информация", "warning": "Внимание", "error": "Ошибка", "critical": "Критично"][value] ?? value
+    }
+    private func deliveryLabel(_ value: String) -> String {
+        ["disabled": "выключена", "pending": "в очереди", "retry": "ожидает повтора", "sending": "отправляется", "sent": "доставлено", "delivered": "доставлено", "failed": "ошибка", "exhausted": "попытки исчерпаны"][value] ?? (value.isEmpty ? "нет данных" : value)
+    }
+
+    private var eventVerdictControls: some View {
+        GroupBox("Решение оператора") {
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Вердикт", selection: $verdict) {
+                    Text("Не рассмотрено").tag("unreviewed")
+                    Text("Разрешённый сигнал").tag("authorized")
+                    Text("Ложное срабатывание").tag("false_positive")
+                    Text("Исследовать").tag("investigate")
+                }
+                TextField("Комментарий оператора", text: $verdictComment)
+                Button("Сохранить решение") {
+                    let id = workspace.selectedEvent, disposition = verdict, comment = verdictComment
+                    workspace.perform { await workspace.reviewEvent(eventID: id, disposition: disposition, comment: comment) }
+                }.disabled(workspace.selectedEvent.isEmpty || workspace.operationsPending.contains("event-review"))
+            }
         }
     }
 
@@ -2555,6 +2889,7 @@ struct MonitoringWorkspacePane: View {
         let analysis = event["analysis"]
         return VStack(alignment: .leading, spacing: 6) {
             Text("Событие \(event["id"].text)").font(.headline)
+            eventVerdictControls
             Text("\(label(event["kind"].text)) · \(event["start_frequency_hz"].scalar)…\(event["end_frequency_hz"].scalar) Гц")
             Text("Уровень \(event["peak_level"].scalar) dBm · превышение \(event["peak_excess_db"].scalar) dB")
             Text("UTC: \(event["first_seen"].text) — \(event["last_seen"].text)").font(.caption)

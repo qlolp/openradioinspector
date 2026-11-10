@@ -7,7 +7,7 @@ from ..session_store import SQLiteSessionStore
 
 
 class ProjectStore:
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self, store):
         self.owned = store is None

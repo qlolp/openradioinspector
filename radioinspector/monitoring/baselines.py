@@ -84,6 +84,7 @@ class BaselineOperations:
                             event = record(identifier, state='open', disposition='unreviewed',
                                 first_seen=evidence[0]['started_at'] if evidence else format_time(sweep.interval.started_at), source_count=0,
                                 source_refs=[], baseline_id=baseline['id'], detector_version=VERSION, **region)
+                            event['detector_parameters']=copy.deepcopy(project['parameters'])
                         if region['peak_excess_db'] > event.get('peak_excess_db', -1): event.update(region)
                         event.update(last_seen=format_time(sweep.interval.ended_at), quiet_sweeps=0)
                         source = dict(session_id=sweep.session_id, stream_id=sweep.stream_id, sweep_id=sweep.id)
@@ -98,6 +99,8 @@ class BaselineOperations:
                         self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
                             created_at=event['created_at'], event_id=event['id'], **source))
                         self.store.put('event', event); touched.add(event['id']); events.add(event['id'])
+                        if project['state'] in ('armed','searching'):
+                            self.notify_event(project,event)
                     for event in opens:
                         if event['id'] in touched: continue
                         lo, hi = event['first_bin'], event['last_bin']

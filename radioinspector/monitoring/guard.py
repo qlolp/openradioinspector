@@ -81,6 +81,8 @@ class GuardOperations:
             if any(r['sid'] == old_sid for r in self.runtime.values()):
                 raise WorkerError('Этот сеанс уже принадлежит другому проекту на охране')
             self.workers.stop_session(old_sid)
+            if self.sessions.get_session(old_sid).state.value == 'running':
+                self.sessions.stop_session(old_sid)
             streams = []
             for role in ('analyzer', 'receiver'):
                 stream = copy.deepcopy(project['profile'][role])
@@ -125,7 +127,7 @@ class GuardOperations:
         with self.lock:
             self.runtime.pop(identifier, None)
             project = self.project(identifier)
-            project.update(state='ready', coverage='stopped')
+            project.update(state='ready', coverage='stopped', resume_requested=False)
             return self.store.put('project', project)
 
     def _guard_loop(self, identifier, runtime):
@@ -133,8 +135,13 @@ class GuardOperations:
             statuses = self.workers.start_session(runtime['sid'])
             if any(x['state'] == 'error' for x in statuses):
                 raise WorkerError('Не удалось запустить оба прибора; проверьте журнал исполнителей')
+            storage_checked=0.
             while not runtime['stop'].wait(.2):
                 project = self.project(identifier)
+                if time.monotonic()-storage_checked>=2:
+                    if not self.storage_report(identifier,probe=True)['ready']:
+                        raise WorkerError('Архив не обеспечивает резерв места/запись/заданный срок хранения')
+                    storage_checked=time.monotonic()
                 statuses=self.workers.list_workers(runtime['sid'])
                 if any(not x['alive'] and x['stream_id'] not in runtime['manual'] for x in statuses):
                     raise WorkerError('Исполнитель прибора остановился; охрана не обеспечивает полное покрытие')
@@ -147,7 +154,11 @@ class GuardOperations:
             with self.lock:
                 project = self.project(identifier)
                 project.update(state='error', last_error=str(exc), coverage='error')
-                try: self.store.put('project', project)
+                runtime['critical_alert']=self.volatile_error(project,str(exc))
+                try:
+                    self.store.put('project', project)
+                    self.notify_error(project,str(exc))
+                    runtime['critical_alert']['volatile']=False
                 except Exception: pass  # Archive failure must remain visible in runtime too.
                 runtime['error'] = str(exc)
             runtime['stop'].set()
@@ -244,6 +255,8 @@ class GuardOperations:
         project = self.project(identifier)
         with self.lock:
             runtime = self.runtime.get(identifier)
+            if runtime and runtime.get('error'):
+                project.update(state='error',coverage='error',last_error=runtime['error'])
             return dict(project=project, active=bool(runtime and not runtime['stop'].is_set()),
                 receiver_busy=bool(runtime and runtime['receiver_busy']),
                 error=runtime.get('error') if runtime else project.get('last_error'),
