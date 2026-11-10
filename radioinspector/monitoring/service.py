@@ -14,15 +14,17 @@ from .models import record, text
 from .baselines import BaselineOperations
 from .guard import GuardOperations
 from .research import ResearchOperations
+from .operations import OperationalMonitoring
 
 
-class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations):
+class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations, OperationalMonitoring):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
         self.lock = threading.RLock()
         self._closed = False
         self.initialize_runtime()
+        self.initialize_operations()
 
     def create(self, payload):
         if set(payload) - {'name', 'site', 'session_id'}:
@@ -74,7 +76,9 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations)
         durations = [(s.interval.ended_at-s.interval.started_at).total_seconds() for s in sweeps]
         performance = dict(sweeps=len(sweeps), mean_sweep_seconds=statistics.mean(durations) if durations else None,
                            mean_sweep_bytes=statistics.mean(len(json.dumps(to_primitive(s)).encode()) for s in sweeps) if sweeps else None)
-        return dict(project_id=identifier, ready=all(c['ok'] for c in checks), checks=checks,
+        storage = self.storage_report(identifier,probe=True) if self.sessions._store and self.sessions._store.persistent else None
+        if storage:check('storage_budget',storage['ready'],'Свободное место, запись и прогноз хранения без автоудаления')
+        return dict(project_id=identifier, ready=all(c['ok'] for c in checks), checks=checks,storage=storage,
                     capacity=capacity, performance=performance,
                     workers=self.workers.list_workers(session.id), hardware_validation='not_run',
                     baseline_ready=project['baseline_id'] is not None)
@@ -84,7 +88,16 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations)
             if self._closed: return
             self._closed = True
             identifiers=list(self.runtime)
+        self._supervisor_stop.set()
+        if self._supervisor and self._supervisor is not threading.current_thread():self._supervisor.join(timeout=8)
         for identifier in identifiers:
-            self.disarm(identifier, {})
+            with self._project_lifecycle(identifier):
+                runtime=self.runtime.get(identifier)
+                if runtime is None:continue
+                project=self.project(identifier)
+                resume=project.get('autostart',False) and not runtime['stop'].is_set()
+                self.disarm(identifier, {})
+                if resume:
+                    project=self.project(identifier);project['resume_requested']=True;self.store.put('project',project)
         self.workers.control_authorizer = None
         self.store.close()

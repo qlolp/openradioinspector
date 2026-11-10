@@ -11,6 +11,8 @@ from urllib.parse import quote
 
 from ..contracts import parse_time
 from .spectrum import waterfall_color
+from .tk_timers import TkTimerOwner
+from .client import PlatformClientError
 
 
 RECEIVER_MODES = ('AUTO', 'FM', 'AM', 'DSTAR', 'YSF', 'ALINCO', 'NXDN', 'P25', 'DPMR', 'DMR')
@@ -40,11 +42,50 @@ def _save(raw, path):
     return {'saved': str(path)}
 
 
-class MonitoringPanel:
+VERDICT_LABELS = {'unreviewed':'Не просмотрено', 'authorized':'Разрешённый сигнал',
+                  'false_positive':'Ложное срабатывание', 'investigate':'Исследовать'}
+DELIVERY_LABELS = {'disabled':'отключена', 'pending':'ожидается', 'delivering':'отправляется',
+                   'sent':'доставлено', 'failed':'ошибка доставки'}
+
+
+def _public_data(value, secret=''):
+    if isinstance(value, dict):
+        return {key:_public_data(item, secret) for key,item in value.items() if str(key).lower() not in ('secret','token')}
+    if isinstance(value, list): return [_public_data(item, secret) for item in value]
+    if isinstance(value, str) and secret: return value.replace(secret, '[скрыто]')
+    return value
+
+
+def _post_settings(client, path, payload):
+    secret = payload.get('webhook', {}).get('secret', '')
+    try:
+        return _public_data(client.monitoring(path, payload), secret)
+    except Exception as exc:
+        message = str(exc).replace(secret, '[скрыто]') if secret else str(exc)
+        raise PlatformClientError(message, status=getattr(exc, 'status', None), code=getattr(exc, 'code', 'settings_error')) from None
+
+
+def _poll_project(client, project, health):
+    result = {}
+    for resource in (('alerts', 'storage', 'status') if health else ('alerts',)):
+        try:
+            result[resource] = client.monitoring('/' + quote(project, safe='') + '/' + resource,
+                **({'query':{'limit':50}} if resource == 'alerts' else {}))
+        except Exception as exc: result[resource] = {'poll_error':str(exc)}
+    return result
+
+
+def _follow_session(client, identifier):
+    try: return {'session':client.get_session(identifier)}
+    except Exception: return {'error':'Не удалось загрузить новый сеанс охраны; обновите статус проекта.'}
+
+
+class MonitoringPanel(TkTimerOwner):
     def __init__(self, app, notebook):
         self.app, self.notebook = app, notebook
         self._client = app.client
-        self._revision = getattr(app, '_revision', 0)
+        self.closed = False
+        self._followed_runs, self._following_runs = set(), set()
         self.generation = 0
         self.items, self.events, self.devices = [], [], []
         self.event = None
@@ -136,6 +177,8 @@ class MonitoringPanel:
         self.output = tk.Text(self.diagnostics_page, height=7, state='disabled', wrap='word')
         self.output.pack(fill='both', expand=True)
         self._build_research(receiver_page)
+        self._build_operations(events_page)
+        self._init_timers(app.root)
         self._bind_scroll(self.content)
         self.tabs = list(notebook.tabs())
 
@@ -149,10 +192,10 @@ class MonitoringPanel:
         for child in widget.winfo_children(): self._bind_scroll(child)
 
     def _sync_context(self):
-        revision = getattr(self.app, '_revision', 0)
-        if self.app.client is self._client and revision == self._revision:
+        if self.app.client is self._client:
             return
-        self._client, self._revision = self.app.client, revision
+        self._client = self.app.client
+        self._followed_runs, self._following_runs = set(), set()
         self.items, self.devices = [], []
         self.choice.configure(values=[]); self.choice.set('')
         self.audio_choice.configure(values=[]); self.audio_choice.set('')
@@ -165,7 +208,9 @@ class MonitoringPanel:
 
     def project_changed(self, _event=None):
         self.generation += 1
+        self._following_runs.clear()
         self._clear_research()
+        self._reset_operations()
         self.active, self.event, self.events = None, None, []
         self.audio_confirm.set(False)
         self.receiver_mode.set('AUTO')
@@ -175,28 +220,33 @@ class MonitoringPanel:
         self.status_text.set('Статус не запрошен; оборудование не проверено.')
         self.event_text.set('Выберите событие; подробности открывают сохранённые данные ядра.')
         self.render({'message': 'Выберите «Статус» для актуальных настроек проекта.'})
+        self._arm_operations_poll(0)
 
     def render(self, data):
         if data.get('error') and 'project' not in data:
             self.status_text.set(str(data['error'])[:900])
             self.workspace.select(self.diagnostics_page)
-        text = json.dumps(data, ensure_ascii=False, indent=2)
+        text = json.dumps(_public_data(data), ensure_ascii=False, indent=2)
         if len(text) > 24000: text = text[:24000] + '\n… диагностический вывод сокращён'
         self.output.configure(state='normal'); self.output.delete('1.0', 'end')
         self.output.insert('1.0', text); self.output.configure(state='disabled')
 
     def _context(self):
-        return (self.app.client, getattr(self.app, '_revision', 0), self.generation, self.selected())
+        return (self.app.client, self.generation, self.selected())
 
     def _valid(self, context):
-        return not getattr(self.app, '_closed', False) and context == self._context()
+        return not self.closed and not getattr(self.app, '_closed', False) and context == self._context()
 
     def _submit(self, operation, callback, *, event_id=None):
+        if self.closed or getattr(self.app, '_closed', False) or getattr(self.app, '_action_running', False) or not self.app.client:
+            return False
         context = self._context()
         def completed(data):
             if self._valid(context) and (event_id is None or self.selected_event() == event_id):
                 callback(data)
-        self.app._submit_action('Проект наблюдения', operation, completed)
+        submit = getattr(self.app, '_submit_project_action', self.app._submit_action)
+        submit('Проект наблюдения', operation, completed)
+        return True
 
     def call(self, path='', payload=None):
         self._sync_context()
@@ -222,30 +272,18 @@ class MonitoringPanel:
             self.event = None
             for item in self.event_tree.get_children(): self.event_tree.delete(item)
             for event in self.events:
-                analysis = event.get('analysis') or {}
-                self.event_tree.insert('', 'end', iid=event['id'], values=(event.get('last_seen', ''), event.get('kind', ''),
-                    event.get('center_frequency_hz', ''), event.get('state', ''), analysis.get('state', 'не запрошен'),
-                    'есть' if analysis.get('audio') else 'нет'))
+                self.event_tree.insert('', 'end', iid=event['id'], values=self._event_values(event))
         elif '/events/' in path:
             self.event = data
             self.workspace.select(self.diagnostics_page)
         elif path.endswith('/status'):
-            self.active = bool(data.get('active')) or data.get('project', {}).get('state') == 'armed'
-            project = data.get('project', {})
-            self.receiver_mode.set(project.get('receiver_mode', 'AUTO'))
-            worker_errors = '; '.join(str(w.get('error') or w.get('last_error')) for w in data.get('workers', []) if w.get('error') or w.get('last_error'))
-            self.status_text.set(f"Охрана: {'активна' if data.get('active') else 'выключена'}; приёмник: "
-                f"{'занят' if data.get('receiver_busy') else 'свободен'}; аудио: {'настроено' if data.get('audio_configured') else 'не выбрано'}. "
-                f"Оборудование: {'не проверено' if data.get('hardware_validation') == 'not_run' else data.get('hardware_validation', 'неизвестно')}. "
-                f"{data.get('error') or worker_errors or ''}"[:900])
-            configured = project.get('audio')
-            if configured: self.audio_text.set('Настроенный вход ядра: ' + str(configured.get('name', ''))[:800])
-            else: self.audio_text.set('Аудио не настроено. Выберите и подтвердите вход AR-DV1 явно.')
+            self._show_status(data, update_inputs=True)
         elif path.endswith(('/arm', '/disarm', '/configure')):
             if path.endswith('/disarm'): self._clear_research()
             self.active = data.get('state') == 'armed'
             self.status_text.set('Команда выполнена. Запросите «Статус» для состояния исполнителей; оборудование не проверено.')
         self.render(data)
+        if path.endswith('/arm'): self._maybe_follow(data)
 
     def refresh(self): self.call()
 
@@ -306,6 +344,8 @@ class MonitoringPanel:
     def event_changed(self, _event=None):
         self.event = next((e for e in self.events if e['id'] == self.selected_event()), None)
         if self.event:
+            self.verdict.set(VERDICT_LABELS.get(self.event.get('disposition'), 'Не просмотрено'))
+            self.verdict_comment.set(self.event.get('operator_comment', ''))
             analysis = self.event.get('analysis') or {}
             self.event_text.set(f"{self.event.get('center_frequency_hz', '—')} Гц · {self.event.get('kind', '')} · "
                 f"{analysis.get('state', 'приёмник ещё не исследовал')} · WAV: {'есть' if analysis.get('audio') else 'нет'}. "
@@ -715,3 +755,259 @@ class MonitoringPanel:
                         [('baseline-p50','#ffd36e',[p['baseline_p50_dbm'] for p in items]),
                          ('baseline-p95','#5de19a',[p['baseline_p95_dbm'] for p in items]),
                          ('comparison-current','#52d6e8',[p['current_dbm'] for p in items])])
+
+    def _build_operations(self, events_page):
+        tk, ttk = self.app.tk, self.app.ttk
+        self.settings_loaded = False
+        self.autostart, self.webhook_enabled, self.beep_enabled = [tk.BooleanVar(value=False) for _ in range(3)]
+        self.minimum_free, self.minimum_retention = tk.StringVar(value='268435456'), tk.StringVar(value='3600')
+        self.webhook_url, self.webhook_secret = tk.StringVar(), tk.StringVar()
+        self.settings_text = tk.StringVar(value='Настройки не загружены. Обновите их перед сохранением.')
+        self.storage_text = tk.StringVar(value='Прогноз архива не получен.')
+        self.alert_summary = tk.StringVar(value='Уведомления не загружены.')
+        self.alert_text = tk.StringVar()
+        self.alerts, self.alert_cursor, self.alert_page_after = [], None, None
+        self.seen_alerts, self.alerts_initialized = {}, False
+        self.next_health_poll = 0
+        self.verdict, self.verdict_comment = tk.StringVar(value='Не просмотрено'), tk.StringVar()
+        row = ttk.Frame(events_page); row.pack(fill='x', before=self.event_tree.master)
+        ttk.Combobox(row, state='readonly', values=list(VERDICT_LABELS.values()), textvariable=self.verdict, width=25).pack(side='left')
+        ttk.Entry(row, textvariable=self.verdict_comment, width=30).pack(side='left', fill='x', expand=True)
+        ttk.Button(row, text='Сохранить вердикт', command=self.review_event).pack(side='left')
+        operations = ttk.Frame(self.workspace, padding=4); self.workspace.add(operations, text='Эксплуатация')
+        pages = ttk.Notebook(operations); pages.pack(fill='both', expand=True)
+        settings_page, storage_page, alerts_page = [ttk.Frame(pages, padding=4) for _ in range(3)]
+        for page,title in [(settings_page,'Настройки'),(storage_page,'Архив'),(alerts_page,'Уведомления')]: pages.add(page,text=title)
+        self.operations_page, self.alerts_page = operations, alerts_page
+        ttk.Checkbutton(settings_page, text='Автоматически восстановить охрану после перезапуска ядра', variable=self.autostart).pack(anchor='w')
+        for label,variable in [('Резерв свободного места, байт',self.minimum_free),('Минимальный срок хранения, секунд',self.minimum_retention)]:
+            row = ttk.Frame(settings_page); row.pack(fill='x')
+            ttk.Label(row,text=label).pack(side='left'); ttk.Entry(row,textvariable=variable,width=20).pack(side='left')
+        ttk.Checkbutton(settings_page,text='Включить webhook уведомлений',variable=self.webhook_enabled).pack(anchor='w')
+        row = ttk.Frame(settings_page); row.pack(fill='x')
+        ttk.Label(row,text='HTTP(S) URL').pack(side='left'); ttk.Entry(row,textvariable=self.webhook_url,width=65).pack(side='left',fill='x',expand=True)
+        row = ttk.Frame(settings_page); row.pack(fill='x')
+        ttk.Label(row,text='Новый секрет').pack(side='left')
+        ttk.Entry(row,textvariable=self.webhook_secret,show='•',width=35).pack(side='left')
+        ttk.Label(row,text='Пустое поле сохраняет текущий секрет.').pack(side='left')
+        row = ttk.Frame(settings_page); row.pack(fill='x')
+        ttk.Button(row,text='Обновить настройки',command=self.load_settings).pack(side='left')
+        ttk.Button(row,text='Сохранить настройки',command=self.save_settings).pack(side='left')
+        ttk.Label(settings_page,textvariable=self.settings_text,wraplength=900).pack(fill='x')
+        ttk.Button(storage_page,text='Обновить прогноз',command=self.storage).pack(anchor='w')
+        ttk.Label(storage_page,textvariable=self.storage_text,wraplength=900).pack(fill='x')
+        ttk.Label(storage_page,text='Прогноз рассчитывает ядро. При неизвестной скорости срок хранения неизвестен. Автоматическое удаление выключено.',wraplength=900).pack(fill='x')
+        row = ttk.Frame(alerts_page); row.pack(fill='x')
+        ttk.Button(row,text='Последние уведомления',command=self.load_alerts).pack(side='left')
+        ttk.Button(row,text='Следующая страница',command=lambda:self.load_alerts(next_page=True)).pack(side='left')
+        ttk.Button(row,text='Подтвердить оператором',command=self.ack_alert).pack(side='left')
+        ttk.Checkbutton(row,text='Звук новых тревог на этом ПК',variable=self.beep_enabled).pack(side='left')
+        ttk.Label(alerts_page,textvariable=self.alert_summary,wraplength=900).pack(fill='x')
+        columns = ('utc','severity','message','ack','delivery')
+        alert_rows = ttk.Frame(alerts_page); alert_rows.pack(fill='both',expand=True)
+        self.alert_tree = ttk.Treeview(alert_rows,columns=columns,show='headings',height=4)
+        for key,label,width in zip(columns,['UTC','Важность','Сообщение','Подтверждение','Доставка'],[180,90,320,170,140]):
+            self.alert_tree.heading(key,text=label); self.alert_tree.column(key,width=width,minwidth=60)
+        alert_scroll = ttk.Scrollbar(alert_rows,orient='vertical',command=self.alert_tree.yview)
+        self.alert_tree.configure(yscrollcommand=alert_scroll.set)
+        self.alert_tree.pack(side='left',fill='both',expand=True); alert_scroll.pack(side='right',fill='y')
+        self.alert_tree.bind('<<TreeviewSelect>>',self.alert_selected)
+        ttk.Label(alerts_page,textvariable=self.alert_text,wraplength=900).pack(fill='x')
+
+    def _reset_operations(self):
+        self._tk_timers.cancel('operations')
+        self.alerts, self.alert_cursor, self.alert_page_after = [], None, None
+        self.seen_alerts, self.alerts_initialized = {}, False
+        self.next_health_poll, self.settings_loaded = 0, False
+        self.autostart.set(False); self.webhook_enabled.set(False)
+        self.minimum_free.set('268435456'); self.minimum_retention.set('3600')
+        self.webhook_url.set(''); self.webhook_secret.set('')
+        self.verdict.set('Не просмотрено'); self.verdict_comment.set('')
+        self.settings_text.set('Настройки не загружены. Обновите их перед сохранением.')
+        self.storage_text.set('Прогноз архива не получен.')
+        self.alert_summary.set('Уведомления не загружены. Проверка каждые 5 секунд при подключении и выбранном проекте.')
+        self.alert_text.set('')
+        for identifier in self.alert_tree.get_children(): self.alert_tree.delete(identifier)
+
+    def _arm_operations_poll(self, delay=5000):
+        if not self.closed and not getattr(self.app,'_closed',False) and self.app.client and self.selected():
+            self._schedule_after(self.app.root,'operations',delay,self.poll_operations)
+        else: self._tk_timers.cancel('operations')
+
+    def poll_operations(self):
+        if self.closed or getattr(self.app,'_closed',False):
+            self._close_timers(); return
+        self._sync_context()
+        self._arm_operations_poll()
+        if not self.app.client or not self.selected() or getattr(self.app,'_action_running',False): return
+        health = time.monotonic() >= self.next_health_poll
+        if health: self.next_health_poll = time.monotonic()+15
+        def completed(data):
+            alerts = data.get('alerts',{})
+            if alerts.get('poll_error'): self.alert_summary.set('Не удалось проверить уведомления: '+str(alerts['poll_error'])[:500])
+            else: self._receive_alerts(alerts,polling=True)
+            if 'storage' in data:
+                if data['storage'].get('poll_error'): self.storage_text.set('Прогноз не обновлён: '+str(data['storage']['poll_error'])[:500])
+                else: self._show_storage(data['storage'])
+            if 'status' in data and not data['status'].get('poll_error'): self._show_status(data['status'],update_inputs=False)
+            self._refresh_manual()
+        self._submit(partial(_poll_project,self.app.client,self.selected(),health),completed)
+
+    def close(self):
+        if self.closed: return
+        self.closed = True
+        self.generation += 1
+        self._close_timers()
+        self.leases.clear()
+
+    def load_settings(self):
+        self._research('settings',None,self._receive_settings)
+
+    def _receive_settings(self, data):
+        data = _public_data(data)
+        self.settings_loaded = True
+        self.autostart.set(bool(data.get('autostart')))
+        archive, webhook = data.get('archive',{}), data.get('webhook',{})
+        self.minimum_free.set(str(archive.get('minimum_free_bytes',268435456)))
+        self.minimum_retention.set(str(archive.get('minimum_retention_seconds',3600)))
+        self.webhook_enabled.set(bool(webhook.get('enabled')))
+        self.webhook_url.set(webhook.get('url','')); self.webhook_secret.set('')
+        self.settings_text.set(('Секрет webhook настроен. ' if webhook.get('secret_configured') else 'Секрет webhook не настроен. ')
+            +'Параметры детектора из ядра: '+json.dumps(data.get('detector',{}),ensure_ascii=False)[:2000])
+        self.render(data)
+
+    def save_settings(self):
+        self._sync_context()
+        if not self.settings_loaded:
+            self.render({'error':'Сначала обновите настройки выбранного проекта.'}); return
+        if getattr(self.app,'_action_running',False): return
+        try:
+            reserve, retention = int(self.minimum_free.get()), int(self.minimum_retention.get())
+            if not 1048576<=reserve<=10**15 or not 60<=retention<=31536000: raise ValueError()
+        except ValueError:
+            self.render({'error':'Резерв: 1048576…1000000000000000 байт; срок: 60…31536000 секунд, целые числа.'}); return
+        hook = dict(enabled=self.webhook_enabled.get(),url=self.webhook_url.get().strip())
+        secret = self.webhook_secret.get()
+        if secret: hook['secret'] = secret
+        payload = dict(autostart=self.autostart.get(),archive=dict(minimum_free_bytes=reserve,minimum_retention_seconds=retention),webhook=hook)
+        if self.selected() and self.app.client:
+            path = '/'+quote(self.selected(),safe='')+'/settings'
+            if self._submit(partial(_post_settings,self.app.client,path,payload),self._receive_settings): self.webhook_secret.set('')
+
+    def storage(self):
+        def completed(data): self._show_storage(data); self.render(data)
+        self._research('storage',None,completed)
+
+    @staticmethod
+    def _bytes_text(value):
+        return 'неизвестно' if value is None else f'{value/1024**2:.1f} МиБ'
+
+    def _show_storage(self, data):
+        forecast = data.get('estimated_retention_seconds')
+        rate = data.get('bytes_per_second')
+        self.storage_text.set(f"Архив: {'готов' if data.get('ready') else 'не готов'}. Свободно на диске: {self._bytes_text(data.get('filesystem_free_bytes'))}; "
+            f"резерв: {self._bytes_text(data.get('minimum_free_bytes'))}; доступно для архива: {self._bytes_text(data.get('available_bytes'))}.\n"
+            +f"Скорость: {'неизвестна' if rate is None else str(round(rate))+' байт/с'}; прогноз хранения: {'неизвестен' if forecast is None else format(forecast/3600,'.1f')+' ч'}; "
+            +f"требуется: {data.get('required_retention_seconds','—')} с. Автоматическое удаление выключено.")
+
+    def load_alerts(self, next_page=False):
+        if next_page and not self.alert_cursor: return
+        after = self.alert_cursor if next_page else None
+        query = {'limit':50}
+        if after: query['after'] = after
+        def completed(data):
+            self.alert_page_after = after
+            self._receive_alerts(data,polling=False)
+            self.render(data)
+        self._research('alerts',None,completed,query=query)
+
+    def _receive_alerts(self, data, *, polling):
+        items = data.get('items',[])[:100]
+        first_page = polling or self.alert_page_after is None
+        if first_page:
+            unseen = [item for item in items if item['id'] not in self.seen_alerts and not item.get('acknowledged_at')]
+            if self.alerts_initialized and unseen and self.beep_enabled.get(): self.app.root.bell()
+            for item in reversed(items): self.seen_alerts[item['id']] = True
+            while len(self.seen_alerts)>1000: self.seen_alerts.pop(next(iter(self.seen_alerts)))
+            self.alerts_initialized = True
+        self.alert_summary.set(f"Проверены последние {len(items)} уведомлений; "
+            + ('открыта предыдущая страница.' if polling and self.alert_page_after else 'доставка webhook показана отдельно от подтверждения оператора.'))
+        if polling and self.alert_page_after: return
+        selected = self.alert_tree.selection()
+        self.alerts, self.alert_cursor = items, data.get('next_cursor')
+        for identifier in self.alert_tree.get_children(): self.alert_tree.delete(identifier)
+        for item in self.alerts:
+            delivery = item.get('delivery',{})
+            self.alert_tree.insert('', 'end',iid=item['id'],values=(item.get('created_at',''),item.get('severity',''),item.get('message',''),
+                item.get('acknowledged_at') or 'не подтверждено',DELIVERY_LABELS.get(delivery.get('state'),'неизвестна')))
+        if selected and self.alert_tree.exists(selected[0]): self.alert_tree.selection_set(selected[0]); self.alert_selected()
+        else: self.alert_text.set('Выберите уведомление для попыток доставки, следующего повтора и ошибки.')
+
+    def alert_selected(self, _event=None):
+        selection = self.alert_tree.selection()
+        item = next((item for item in self.alerts if selection and item['id']==selection[0]),None)
+        if not item: return
+        delivery = item.get('delivery',{})
+        self.alert_text.set(f"{item.get('kind','')} · событие {item.get('event_id') or '—'} · {str(item.get('message',''))[:300]}\n"
+            +f"Доставка: {DELIVERY_LABELS.get(delivery.get('state'),'неизвестна')}; попытки: {delivery.get('attempts',0)}; "
+            +f"следующий повтор UTC: {delivery.get('next_attempt_at') or '—'}; ошибка: {str(delivery.get('last_error') or '—')[:300]}")
+
+    def ack_alert(self):
+        selection = self.alert_tree.selection()
+        if not selection: return
+        identifier = selection[0]
+        def completed(data):
+            updated = []
+            for item in self.alerts:
+                updated.append(dict(item,acknowledged_at=data.get('acknowledged_at') or 'подтверждено') if item['id']==identifier else item)
+            self._receive_alerts(dict(items=updated,next_cursor=self.alert_cursor),polling=False)
+            self.render(data)
+        self._research('alerts/'+quote(identifier,safe='')+'/ack',{},completed)
+
+    @staticmethod
+    def _event_values(event):
+        analysis = event.get('analysis') or {}
+        return (event.get('last_seen',''),event.get('kind',''),event.get('center_frequency_hz',''),
+            VERDICT_LABELS.get(event.get('disposition'),event.get('state','')),analysis.get('state','не запрошен'),'есть' if analysis.get('audio') else 'нет')
+
+    def review_event(self):
+        identifier = self.selected_event()
+        if not identifier: return
+        disposition = next((key for key,label in VERDICT_LABELS.items() if label==self.verdict.get()),None)
+        if disposition is None: return
+        payload = dict(disposition=disposition,comment=self.verdict_comment.get()[:1000])
+        def completed(data):
+            self.events = [data if event['id']==identifier else event for event in self.events]
+            if self.event_tree.exists(identifier): self.event_tree.item(identifier,values=self._event_values(data))
+            self.event_changed(); self.render(data)
+        self._research('events/'+quote(identifier,safe='')+'/review',payload,completed,
+            guard=lambda:self.selected_event()==identifier)
+
+    def _show_status(self, data, *, update_inputs):
+        self.active = bool(data.get('active')) or data.get('project',{}).get('state') == 'armed'
+        project = data.get('project',{})
+        worker_errors = '; '.join(str(w.get('error') or w.get('last_error')) for w in data.get('workers',[]) if w.get('error') or w.get('last_error'))
+        self.status_text.set(f"Охрана: {'активна' if data.get('active') else 'выключена'}; приёмник: {'занят' if data.get('receiver_busy') else 'свободен'}; "
+            +f"аудио: {'настроено' if data.get('audio_configured') else 'не выбрано'}. Оборудование: "
+            +f"{'не проверено' if data.get('hardware_validation')=='not_run' else data.get('hardware_validation','неизвестно')}. "
+            +str(data.get('error') or worker_errors or '')[:500])
+        if update_inputs:
+            self.receiver_mode.set(project.get('receiver_mode','AUTO'))
+            configured = project.get('audio')
+            self.audio_text.set(('Настроенный вход ядра: '+str(configured.get('name',''))[:800]) if configured else 'Аудио не настроено. Выберите и подтвердите вход AR-DV1 явно.')
+        if data.get('active'): self._maybe_follow(project)
+
+    def _maybe_follow(self, project):
+        identifier = project.get('active_session_id')
+        key = (self.selected(),identifier)
+        if not identifier or key in self._followed_runs or key in self._following_runs or not hasattr(self.app,'_use_created_session'): return
+        if self.app.session_id == identifier:
+            self._followed_runs.add(key); return
+        original_selection = self.app.session_id
+        def completed(data):
+            self._following_runs.discard(key)
+            if data.get('error'):
+                self.status_text.set(data['error']); return
+            self._followed_runs.add(key)
+            if self.app.session_id == original_selection: self.app._use_created_session(data['session'])
+        if self._submit(partial(_follow_session,self.app.client,identifier),completed): self._following_runs.add(key)

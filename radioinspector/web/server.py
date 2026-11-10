@@ -1608,6 +1608,7 @@ def create_server(
             resources.close()
         httpd.resource_cleanup = resources
         httpd.server_close = close_owned_resources
+        monitoring.start()
         return httpd
 
 

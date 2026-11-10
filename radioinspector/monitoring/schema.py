@@ -3,7 +3,7 @@
 def install_schema(db):
     db.execute('CREATE TABLE IF NOT EXISTS monitoring_schema (version INTEGER NOT NULL)')
     version = db.execute('SELECT version FROM monitoring_schema').fetchone()
-    if version and version[0] > 2:
+    if version and version[0] > 3:
         raise ValueError('Неподдерживаемая версия проектов наблюдения')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_records (
         kind TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL,
@@ -11,9 +11,18 @@ def install_schema(db):
     db.execute('''CREATE INDEX IF NOT EXISTS monitoring_scope_time
         ON monitoring_records(kind,project_id,created_at,id)''')
     if not version:
-        db.execute('INSERT INTO monitoring_schema VALUES (?)', (2,))
+        db.execute('INSERT INTO monitoring_schema VALUES (?)', (3,))
     else:
-        db.execute('UPDATE monitoring_schema SET version=2 WHERE version<2')
+        db.execute('UPDATE monitoring_schema SET version=3 WHERE version<3')
+    db.execute('''CREATE TABLE IF NOT EXISTS monitoring_webhooks(
+        project_id TEXT PRIMARY KEY,url TEXT NOT NULL,secret TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS monitoring_notifications(
+        id TEXT PRIMARY KEY,project_id TEXT NOT NULL,created_at TEXT NOT NULL,payload TEXT NOT NULL,
+        state TEXT NOT NULL,attempts INTEGER NOT NULL,next_at TEXT,error TEXT,lease_until TEXT,acknowledged_at TEXT)''')
+    db.execute('''CREATE INDEX IF NOT EXISTS monitoring_notifications_scope_time
+        ON monitoring_notifications(project_id,created_at DESC,id DESC)''')
+    db.execute('''CREATE INDEX IF NOT EXISTS monitoring_notifications_pending
+        ON monitoring_notifications(state,next_at,lease_until,created_at,id)''')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_sessions(
         project_id TEXT NOT NULL,session_id TEXT NOT NULL,PRIMARY KEY(project_id,session_id))''')
     db.execute('''INSERT OR IGNORE INTO monitoring_sessions SELECT r.id,j.value
@@ -36,6 +45,7 @@ def install_sweep_index(db):
         return parse_time(value).isoformat(timespec='microseconds').replace('+00:00','Z')
     # Upgrade an unpublished development index without touching source rows.
     db.execute('DROP INDEX IF EXISTS monitoring_sweeps_session_time')
+    db.execute('CREATE INDEX IF NOT EXISTS monitoring_investigations_state_time ON investigations(state,created_at,id)')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_sweep_index(
         sweep_id TEXT PRIMARY KEY REFERENCES sweeps(id) ON DELETE CASCADE,
         session_id TEXT NOT NULL,started_at TEXT NOT NULL,ended_at TEXT NOT NULL,

@@ -117,6 +117,7 @@ class WindowsApp(TkTimerOwner):
         self._refresh_running = False
         self._action_running = False
         self._action_callbacks: dict[Future, Callable[[Any], None]] = {}
+        self._project_action_clients: dict[Future, PlatformClient] = {}
         self._closed = False
         self._init_timers(root, self._shutdown)
         self._build()
@@ -482,6 +483,7 @@ class WindowsApp(TkTimerOwner):
         description: str,
         operation: Callable[[], Any],
         on_success: Optional[Callable[[Any], None]] = None,
+        *, project_scoped: bool = False,
     ) -> None:
         if self.client is None or self._action_running or self._closed:
             return
@@ -490,11 +492,17 @@ class WindowsApp(TkTimerOwner):
         self._render_controls()
         revision = self._revision
         future = self._executor.submit(operation)
+        if project_scoped:
+            self._project_action_clients[future] = self.client
         if on_success is not None:
             self._action_callbacks[future] = on_success
         future.add_done_callback(
             self._completion_callback("action", revision, description)
         )
+
+    def _submit_project_action(self, description, operation, on_success=None) -> None:
+        # Project context follows a connected core, independently of research session selection.
+        self._submit_action(description, operation, on_success, project_scoped=True)
 
     def _drain_messages(self) -> None:
         if self._closed:
@@ -502,7 +510,9 @@ class WindowsApp(TkTimerOwner):
         try:
             while not self._closed:
                 kind, future, revision, description = self._messages.get_nowait()
-                if revision != self._revision:
+                project_client = getattr(self, '_project_action_clients', {}).pop(future, None)
+                same_project_core = project_client is not None and project_client is self.client
+                if revision != self._revision and not same_project_core:
                     if kind == "snapshot":
                         self._refresh_running = False
                     else:
@@ -1678,6 +1688,8 @@ class WindowsApp(TkTimerOwner):
         # Future.cancel/shutdown can call _queue_message synchronously. Never
         # hold the publication lock while stopping an executor or panel.
         self._close_timers()
+        if hasattr(self, "monitoring_panel"):
+            self.monitoring_panel.close()
         if hasattr(self, "comparison_panel"):
             self.comparison_panel.close()
         if hasattr(self, "threshold_panel"):
@@ -1711,6 +1723,7 @@ class WindowsApp(TkTimerOwner):
         if hasattr(self, "frequency_rounding_panel"):
             self.frequency_rounding_panel.close()
         self._action_callbacks.clear()
+        getattr(self, '_project_action_clients', {}).clear()
         self._refresh_running = self._action_running = False
         self._executor.shutdown(wait=False, cancel_futures=True)
         while True:

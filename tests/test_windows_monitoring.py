@@ -23,10 +23,13 @@ class Client:
     def __init__(self):
         self.calls = []
         self.result = {}
+        self.responses = {}
 
     def monitoring(self, path='', payload=None, *, query=None):
         self.calls.append((path, payload, query) if query is not None else (path, payload))
-        return self.result
+        result = self.responses.get(path, self.result)
+        if isinstance(result, Exception): raise result
+        return result
 
     def instrument_artifact(self, session, stream, identifier):
         self.calls.append((session, stream, identifier))
@@ -332,6 +335,150 @@ class MonitoringTkTests(unittest.TestCase):
         self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
 
 
+    def test_settings_are_explicit_and_secret_is_not_rendered(self):
+        self.assertFalse(self.panel.autostart.get())
+        self.assertFalse(self.panel.beep_enabled.get())
+        self.panel.save_settings()
+        self.assertEqual(self.pending, [])
+        self.panel.load_settings(); self.complete(settings())
+        self.assertEqual(self.panel.minimum_free.get(), '268435456')
+        self.assertEqual(self.panel.minimum_retention.get(), '3600')
+        self.panel.autostart.set(True)
+        self.panel.webhook_enabled.set(True)
+        self.panel.webhook_url.set('https://example.test/hook')
+        self.panel.webhook_secret.set('TOP-SECRET-VALUE')
+        self.panel.save_settings()
+        self.assertEqual(self.panel.webhook_secret.get(), '')
+        self.complete(dict(settings(), webhook=dict(enabled=True, url='https://example.test/hook', secret_configured=True, secret='TOP-SECRET-VALUE')))
+        path, payload = self.app.client.calls[-1]
+        self.assertEqual(path, '/p1/settings')
+        self.assertTrue(payload['autostart'])
+        self.assertEqual(payload['webhook']['secret'], 'TOP-SECRET-VALUE')
+        self.assertNotIn('TOP-SECRET-VALUE', self.panel.output.get('1.0', 'end'))
+        self.panel.save_settings(); self.complete(settings())
+        self.assertNotIn('secret', self.app.client.calls[-1][1]['webhook'])
+
+    def test_secret_is_redacted_from_transport_errors_and_busy_save_keeps_entry(self):
+        self.panel.load_settings(); self.complete(settings())
+        self.panel.webhook_secret.set('PRIVATE-123')
+        self.app._action_running = True
+        self.panel.save_settings()
+        self.assertEqual(self.pending, [])
+        self.assertEqual(self.panel.webhook_secret.get(), 'PRIVATE-123')
+        self.app._action_running = False
+        self.app.client.responses['/p1/settings'] = RuntimeError('failed using PRIVATE-123')
+        self.panel.save_settings()
+        with self.assertRaises(Exception) as caught: self.complete()
+        self.assertNotIn('PRIVATE-123', str(caught.exception))
+        self.assertEqual(self.panel.webhook_secret.get(), '')
+
+    def test_storage_unknown_forecast_and_readiness_are_human_readable(self):
+        self.panel.storage()
+        self.complete(storage())
+        self.assertIn('неизвест', self.panel.storage_text.get())
+        self.assertIn('выключено', self.panel.storage_text.get())
+        self.assertIn('не готов', self.panel.storage_text.get())
+        self.panel.storage()
+        self.complete(dict(storage(), ready=True, bytes_per_second=1024, estimated_retention_seconds=7200))
+        self.assertIn('2.0 ч', self.panel.storage_text.get())
+        self.assertIn('готов', self.panel.storage_text.get())
+
+    def test_alert_initial_snapshot_is_quiet_and_new_unacknowledged_alert_beeps_once(self):
+        self.panel.beep_enabled.set(True)
+        with patch.object(self.root, 'bell') as bell:
+            self.panel.load_alerts(); self.complete(dict(items=[alert('a1')], next_cursor='older+/='))
+            bell.assert_not_called()
+            self.panel.load_alerts(); self.complete(dict(items=[alert('a2'), alert('a1')], next_cursor=None))
+            bell.assert_called_once()
+            self.panel.load_alerts(); self.complete(dict(items=[alert('a2'), alert('a1'), alert('a3', acknowledged_at='2026-11-10T12:00:00Z')], next_cursor=None))
+            bell.assert_called_once()
+        self.panel.alert_tree.selection_set('a2'); self.panel.alert_selected()
+        self.assertIn('отключена', self.panel.alert_text.get())
+        self.assertIn('0', self.panel.alert_text.get())
+
+    def test_alert_ack_and_event_verdict_keep_project_context(self):
+        self.panel.load_alerts(); self.complete(dict(items=[alert('a1')], next_cursor=None))
+        self.panel.alert_tree.selection_set('a1')
+        self.panel.ack_alert(); self.complete(dict(id='a1',acknowledged=True))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/alerts/a1/ack', {}))
+        self.assertIn('подтверждено', str(self.panel.alert_tree.item('a1', 'values')))
+        self.select_event()
+        self.panel.verdict.set('Ложное срабатывание')
+        self.panel.verdict_comment.set('Проверено оператором')
+        self.panel.review_event(); self.complete(dict(EVENT, disposition='false_positive', operator_comment='Проверено оператором'))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/events/e1/review',
+            dict(disposition='false_positive', comment='Проверено оператором')))
+        self.assertEqual(self.panel.selected(), 'p1')
+        self.assertIn('Ложное срабатывание', str(self.panel.event_tree.item('e1', 'values')))
+
+    def test_read_only_poll_runs_when_other_tab_selected_and_does_not_overwrite_input(self):
+        self.panel.receiver_mode.set('FM')
+        self.panel.workspace.select(self.panel.history_page)
+        self.panel.render({'retained': 'Operator diagnostic'})
+        self.app.client.responses.update({'/p1/alerts': dict(items=[alert('a1')], next_cursor=None),
+            '/p1/storage': storage(), '/p1/status': dict(active=True, project=dict(id='p1',state='armed',receiver_mode='AM'),
+                 receiver_busy=False, workers=[], error=None, audio_configured=False, hardware_validation='not_run')})
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertEqual({call[0] for call in self.app.client.calls}, {'/p1/alerts','/p1/storage','/p1/status'})
+        self.assertTrue(all(call[1] is None for call in self.app.client.calls))
+        self.assertEqual(self.panel.receiver_mode.get(), 'FM')
+        self.assertIn('Operator diagnostic', self.panel.output.get('1.0','end'))
+        self.assertIn('a1', self.panel.alert_tree.get_children())
+        self.assertEqual(set(self.panel._tk_timers.pending), {'operations'})
+
+    def test_poll_busy_disconnect_stale_completion_and_close_cancel_timer(self):
+        self.app._action_running = True
+        self.panel.poll_operations()
+        self.assertEqual(self.pending, [])
+        self.assertEqual(len(self.panel._tk_timers.pending), 1)
+        self.app._action_running = False
+        self.panel.poll_operations()
+        self.panel.choice.current(1); self.panel.project_changed()
+        self.app.client.responses.update({'/p1/alerts': dict(items=[alert('stale')], next_cursor=None), '/p1/storage': storage()})
+        self.complete()
+        self.assertNotIn('stale', self.panel.alert_tree.get_children())
+        self.app.client = None
+        self.panel.poll_operations()
+        self.assertEqual(self.panel._tk_timers.pending, {})
+        self.panel.close()
+        self.assertTrue(self.panel.closed)
+        self.assertEqual(self.panel._tk_timers.pending, {})
+
+    def test_alert_pagination_preserves_older_page_during_background_updates(self):
+        self.panel.load_alerts(); self.complete(dict(items=[alert('a1')], next_cursor='older+/='))
+        self.panel.load_alerts(next_page=True); self.complete(dict(items=[alert('old')], next_cursor=None))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/alerts', None, {'limit':50, 'after':'older+/='}))
+        self.app.client.responses['/p1/alerts'] = dict(items=[alert('a2')], next_cursor=None)
+        self.panel.poll_operations(); self.complete()
+        self.assertEqual(self.panel.alert_tree.get_children(), ('old',))
+        self.assertIn('a2', self.panel.seen_alerts)
+
+
+    def test_new_guard_session_follows_live_once_and_preserves_project_and_leases(self):
+        followed = []
+        def use_session(data):
+            followed.append(data['id'])
+            self.app.session_id = data['id']
+            self.app._revision += 1
+        self.app._use_created_session = use_session
+        self.app.client.get_session = lambda sid: dict(id=sid,state='running',streams=[])
+        self.panel.leases['receiver'] = dict(token='retained', deadline=10**20)
+        self.panel.arm(); self.complete(dict(id='p1',state='armed',active_session_id='guard-1'))
+        self.complete()
+        self.assertEqual(followed, ['guard-1'])
+        self.assertEqual(self.panel.selected(), 'p1')
+        self.panel._sync_context()
+        self.assertEqual(self.panel.leases['receiver']['token'], 'retained')
+        self.app.session_id = 'manual-history'; self.app._revision += 1
+        self.panel.status(); self.complete(dict(active=True, project=dict(id='p1',state='armed',active_session_id='guard-1'), workers=[]))
+        self.assertEqual(self.pending, [])
+        self.assertEqual(self.app.session_id, 'manual-history')
+        self.panel.status(); self.complete(dict(active=True, project=dict(id='p1',state='armed',active_session_id='guard-2'),workers=[]))
+        self.complete()
+        self.assertEqual(followed, ['guard-1','guard-2'])
+
+
 def history_page():
     return dict(next_cursor='page+/=', items=[dict(id=key, session_id='s', stream_id='a',
         interval=dict(started_at=time, ended_at=time.replace('00Z','01Z').replace('10Z','11Z')),
@@ -364,3 +511,47 @@ class MonitoringClientQueryTests(unittest.TestCase):
         self.assertLessEqual(opener.response.count, 2_000_001)
         for path in ('/p/history?after=x', '/p/../history'):
             with self.assertRaises(ValueError): client.monitoring(path, query={})
+
+
+def settings():
+    return dict(autostart=False, archive=dict(minimum_free_bytes=268435456, minimum_retention_seconds=3600),
+                webhook=dict(enabled=False,url='',secret_configured=False), detector=dict(margin_db=10))
+
+
+def storage():
+    return dict(capacity=None,filesystem_free_bytes=1024**3,minimum_free_bytes=268435456,available_bytes=805306368,
+                bytes_per_second=None,estimated_retention_seconds=None,required_retention_seconds=3600,ready=False,automatic_deletion=False)
+
+
+def alert(identifier, **changes):
+    return dict(id=identifier,event_id='e1',severity='warning',created_at='2026-11-10T12:00:00Z',kind='new_signal',
+                message='Обнаружено излучение',acknowledged_at=None,
+                delivery=dict(state='disabled',attempts=0,next_attempt_at=None,last_error=None),**changes) if not changes else dict(alert(identifier),**changes)
+
+
+class MonitoringProjectActionScopeTests(unittest.TestCase):
+    def test_project_http_callback_survives_session_switch_but_not_endpoint_switch(self):
+        from concurrent.futures import Future
+        from radioinspector.windows.app import WindowsApp
+        from tests.test_windows_tk_lifecycle import TclRoot
+        root = TclRoot()
+        try:
+            with patch.object(WindowsApp, '_build'), patch('radioinspector.windows.app.ThreadPoolExecutor'):
+                app = WindowsApp(root, Mock(), Mock())
+            app.refresh = Mock(); app._render_controls = Mock(); app.action_var = Mock()
+            app.client = Client()
+            future = Future(); app._executor.submit.return_value = future
+            received = []
+            app._submit_project_action('project', lambda: {}, received.append)
+            app._revision += 1; app.session_id = 'other-session'
+            future.set_result({'retained':True}); app._drain_messages()
+            self.assertEqual(received, [{'retained':True}])
+            future = Future(); app._executor.submit.return_value = future
+            app._submit_project_action('project', lambda: {}, received.append)
+            app.client = Client(); app._revision += 1
+            future.set_result({'stale':True}); app._drain_messages()
+            self.assertEqual(received, [{'retained':True}])
+            app.close()
+            self.assertEqual(root.pending(), ())
+        finally:
+            root.dispose()

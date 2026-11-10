@@ -4,8 +4,8 @@
   const root = document.getElementById('monitoring-workspace');
   if (!root) return;
   const projects = root.querySelector('[name=project]'), info = root.querySelector('pre');
-  let generation = 0, busy = false;
-  async function request(path = '', body) {
+  let generation = 0, busy = false, followedSession = '';
+  async function request(path = '', body, options = {}) {
     if (busy) return;
     busy = true; const current = generation;
     try {
@@ -18,6 +18,12 @@
       if (!response.ok) throw Error(envelope.error?.message || `HTTP ${response.status}`);
       if (current !== generation) return;
       const data = envelope.data;
+      const project = data.project || (data.active_session_id ? data : null);
+      const scope = project ? `${project.id}|${project.active_session_id}` : '';
+      if (scope && scope !== followedSession) {
+        followedSession = scope;
+        window.dispatchEvent(new CustomEvent('ori-monitoring-session', {detail:{sessionId:project.active_session_id}}));
+      }
       if (path === '' && Array.isArray(data.items)) {
         const previous = projects.value;
         projects.replaceChildren(...data.items.map(p => new Option(`${p.name} · ${p.site} · ${p.state}`, p.id)));
@@ -30,9 +36,9 @@
           const option = new Option(`${d.index}: ${d.name}`, d.index); option.dataset.deviceName = d.name; return option;
         }));
       }
-      info.textContent = JSON.stringify(data, null, 2);
+      if (!options.quiet) info.textContent = JSON.stringify(data, null, 2);
       return data;
-    } catch (error) { if (current === generation) info.textContent = error.message; }
+    } catch (error) { if (current === generation && !options.quiet) info.textContent = error.message; }
     finally { busy = false; }
   }
   root.querySelector('[name=workspace]').addEventListener('change', event => {
@@ -67,7 +73,7 @@
     scoped('configure', {audio:{device:Number(option.value),name:option.dataset.deviceName,confirm:true}});
   };
   root.querySelector('[data-action=audio-disable]').onclick = () => scoped('configure', {audio:null});
-  projects.addEventListener('change', () => { generation++; root.querySelector('[data-role=events]').replaceChildren(); root.querySelector('audio').pause(); root.querySelector('audio').removeAttribute('src'); });
+  projects.addEventListener('change', () => { generation++; followedSession = ''; root.querySelector('[data-role=events]').replaceChildren(); root.querySelector('audio').pause(); root.querySelector('audio').removeAttribute('src'); });
   function renderEvents(items) {
     const list = root.querySelector('[data-role=events]'); list.replaceChildren();
     const eventChoice = root.querySelector('[name=search-event]'), previous = eventChoice.value;

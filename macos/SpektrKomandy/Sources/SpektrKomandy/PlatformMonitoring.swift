@@ -125,6 +125,34 @@ public struct MonitoringHistoryRow: Equatable, Sendable, Identifiable {
     }
 }
 
+/// A bounded latest-page snapshot; historical page navigation never feeds this state.
+public struct MonitoringAlertSoundState: Sendable {
+    private var initialized = false
+    private var seen: Set<String> = []
+    public init() {}
+    public mutating func observe(_ items: [MonitoringValue], enabled: Bool) -> Bool {
+        let latest = Array(items.prefix(100))
+        let shouldSound = initialized && enabled && latest.contains {
+            !$0["id"].text.isEmpty && !seen.contains($0["id"].text) && $0["acknowledged_at"] == .null
+        }
+        seen = Set(latest.map { $0["id"].text }.filter { !$0.isEmpty })
+        initialized = true
+        return shouldSound
+    }
+}
+
+/// Follow a changed project session once; later manual archive browsing remains selected.
+public struct MonitoringProjectSessionFollowState: Sendable {
+    private var followed: [String: [String: String]] = [:]
+    public init() {}
+    public mutating func sessionToFollow(endpoint: String, projectID: String, activeSessionID: String) -> String? {
+        guard !endpoint.isEmpty, !projectID.isEmpty, !activeSessionID.isEmpty,
+              followed[endpoint]?[projectID] != activeSessionID else { return nil }
+        followed[endpoint, default: [:]][projectID] = activeSessionID
+        return activeSessionID
+    }
+}
+
 extension PlatformClient {
     public func monitoring(_ path: String = "", body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
         guard path.isEmpty || (path.hasPrefix("/") && !path.contains("?") && !path.contains("..")) else { throw PlatformError.connection("Некорректный путь проекта") }
@@ -207,6 +235,76 @@ extension PlatformClient {
         let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/sources", query: query)
         guard result["items"].items.count <= limit else { throw PlatformError.invalidResponse("Слишком большая страница источников") }
         return result
+    }
+
+    /// Settings never enter the diagnostic JSON path. Unknown fields, including secrets, are discarded.
+    public func monitoringSettings(projectID: String, body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        do {
+            let path = "/monitoring-projects/\(Self.segment(projectID))/settings"
+            let result: MonitoringValue
+            if var body {
+                if case .object(var webhook)? = body["webhook"], webhook["secret"] == .string("") {
+                    webhook.removeValue(forKey: "secret"); body["webhook"] = .object(webhook)
+                }
+                result = try await post(path, body: body)
+            } else { result = try await get(path) }
+            guard result["autostart"].bool != nil, result["archive"]["minimum_free_bytes"].integer != nil,
+                  result["archive"]["minimum_retention_seconds"].integer != nil,
+                  result["webhook"]["enabled"].bool != nil, result["webhook"]["secret_configured"].bool != nil,
+                  case .string(let url) = result["webhook"]["url"] else {
+                throw PlatformError.invalidResponse("Некорректные настройки проекта")
+            }
+            let detectorKeys = ["margin_db", "impulse_db", "hysteresis_db", "confirmations", "window_sweeps", "dwell_seconds"]
+            let detector = Dictionary(uniqueKeysWithValues: detectorKeys.compactMap { key -> (String, MonitoringValue)? in
+                result["detector"][key].double == nil ? nil : (key, result["detector"][key])
+            })
+            // The API contract returns only public webhook configuration, never the credential.
+            return .object(["autostart": result["autostart"],
+                "archive": .object(["minimum_free_bytes": result["archive"]["minimum_free_bytes"],
+                                    "minimum_retention_seconds": result["archive"]["minimum_retention_seconds"]]),
+                "webhook": .object(["enabled": result["webhook"]["enabled"], "url": .string(url),
+                                     "secret_configured": result["webhook"]["secret_configured"]]),
+                "detector": .object(detector)])
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as PlatformError {
+            // Neither a reflected server message nor the request body may expose the credential.
+            if case .http(let status, _, _) = error {
+                throw PlatformError.http(status: status, code: "monitoring_settings_failed",
+                    message: "Не удалось прочитать или сохранить настройки (HTTP \(status)). Проверьте поля и подключение.")
+            }
+            throw PlatformError.connection("Не удалось прочитать или сохранить настройки проекта")
+        } catch { throw PlatformError.connection("Не удалось прочитать или сохранить настройки проекта") }
+    }
+
+    public func monitoringStorage(projectID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        return try await get("/monitoring-projects/\(Self.segment(projectID))/storage")
+    }
+
+    public func monitoringAlerts(projectID: String, limit: Int = 100, after: String? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, (1...100).contains(limit) else { throw PlatformError.invalidCommand("Выберите проект и размер страницы 1…100") }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/alerts", query: query)
+        guard result["items"].items.count <= limit,
+              result["items"].items.allSatisfy({ !$0["id"].text.isEmpty }) else {
+            throw PlatformError.invalidResponse("Некорректная страница оповещений")
+        }
+        return result
+    }
+
+    public func monitoringAcknowledgeAlert(projectID: String, alertID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !alertID.isEmpty else { throw PlatformError.invalidCommand("Выберите оповещение проекта") }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/alerts/\(Self.segment(alertID))/ack", body: [String: MonitoringValue]())
+    }
+
+    public func monitoringReviewEvent(projectID: String, eventID: String, disposition: String, comment: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !eventID.isEmpty, ["unreviewed", "authorized", "false_positive", "investigate"].contains(disposition) else {
+            throw PlatformError.invalidCommand("Выберите событие и решение оператора")
+        }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/review",
+                             body: ["disposition": .string(disposition), "comment": .string(comment)])
     }
 
     /// A complete, bounded WAV artifact from the core, never a local capture device.

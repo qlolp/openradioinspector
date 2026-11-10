@@ -2,6 +2,7 @@
 from urllib.parse import unquote
 from ..contracts import api_payload
 from ..device_workers import WorkerError
+import sqlite3
 
 
 def dispatch(handler, method, route, payload=None, query=None):
@@ -12,7 +13,17 @@ def dispatch(handler, method, route, payload=None, query=None):
     tail = [unquote(x) for x in route[len(prefix):].strip('/').split('/') if x]
     query = query or {}
     try:
-        if len(tail)==3 and tail[1] in ('manual','search'):
+        if len(tail)==2 and tail[1] in ('settings','storage','alerts'):
+            identifier,action=tail
+            if method=='GET':
+                value=service.settings(identifier) if action=='settings' else service.storage_report(identifier) if action=='storage' else service.alerts(identifier,query)
+                handler._send_json(api_payload(value))
+            elif method=='POST' and action=='settings':
+                handler._send_json(api_payload(service.update_settings(identifier,payload)))
+            else:raise ValueError('Неверный метод настройки/журнала')
+        elif method=='POST' and len(tail)==4 and tail[1]=='alerts' and tail[3]=='ack':
+            handler._send_json(api_payload(service.acknowledge_alert(tail[0],tail[2],payload)))
+        elif len(tail)==3 and tail[1] in ('manual','search'):
             identifier,group,action=tail
             if group=='search' and action=='status' and method=='GET':
                 handler._send_json(api_payload(service.search_status(identifier)))
@@ -90,6 +101,10 @@ def dispatch(handler, method, route, payload=None, query=None):
         handler._send_api_error(404, 'monitoring_not_found', str(exc))
     except WorkerError as exc:
         handler._send_api_error(409, 'monitoring_conflict', str(exc))
+    except sqlite3.OperationalError as exc:
+        unavailable=any(word in str(exc).lower() for word in ('readonly','read-only','full','disk i/o'))
+        handler._send_api_error(507 if unavailable else 500,'monitoring_archive_unavailable',
+            'SQLite-архив недоступен; исходные измерения не удаляются')
     except (ValueError, TypeError, StopIteration) as exc:
         handler._send_api_error(400, 'invalid_monitoring_request', str(exc))
     return True

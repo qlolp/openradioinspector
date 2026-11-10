@@ -290,6 +290,10 @@ class ResearchOperations:
             trace=Trace([sweep.frequencies_hz[i] for i in indexes],[sweep.levels[i] for i in indexes]).decimate(320)
             value=to_primitive(sweep);value.update(frequencies_hz=[int(hz) for hz in trace.frequencies],levels=trace.levels.tolist(),
                 original_point_count=len(sweep.levels),display_only=True)
+            value['settings']={k:v for k,v in sweep.settings.items() if k in (
+                'adapter','rbw_hz','rbw_requested_hz','receive_profile','generator_output','overload','incomplete','simulated')
+                and (v is None or type(v) in (int,float,bool) or isinstance(v,str) and len(v)<=200)}
+            value['settings_available_in_original']=True
             items.append(value)
         return dict(items=items,next_cursor=cursor)
 

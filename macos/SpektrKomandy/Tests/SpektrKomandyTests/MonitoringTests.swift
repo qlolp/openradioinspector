@@ -394,4 +394,169 @@ final class MonitoringTests: XCTestCase {
         catch let error as PlatformError { if case .invalidResponse = error {} else { XCTFail("Unexpected error: \(error)") } }
     }
 
+    private var publicSettingsJSON: String {
+        #"{"autostart":false,"archive":{"minimum_free_bytes":268435456,"minimum_retention_seconds":3600},"webhook":{"enabled":false,"url":"https://hooks.example.test/receive","secret_configured":true},"detector":{"margin_db":6,"confirmations":3,"window_sweeps":5}}"#
+    }
+
+    func testSettingsResponseAllowlistDropsSecretsAtEveryConfigurationLevel() async throws {
+        var value = try JSONDecoder().decode(MonitoringValue.self, from: Data(publicSettingsJSON.utf8))
+        guard case .object(var object) = value else { return XCTFail("Expected object") }
+        object["secret"] = .string("server-private-value")
+        if case .object(var webhook)? = object["webhook"] {
+            webhook["secret"] = .string("server-private-value"); object["webhook"] = .object(webhook)
+        }
+        if case .object(var detector)? = object["detector"] {
+            detector["secret"] = .string("server-private-value"); object["detector"] = .object(detector)
+        }
+        value = .object(object)
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/monitoring-projects/p%2F1/settings"))
+            return (self.response(request), try self.valueEnvelope(value))
+        }
+        let safe = try await client.monitoringSettings(projectID: "p/1")
+        XCTAssertEqual(safe["webhook"]["secret"], .null)
+        XCTAssertEqual(safe["detector"]["secret"], .null)
+        XCTAssertEqual(safe["secret"], .null)
+        XCTAssertFalse(safe.pretty.contains("server-private-value"))
+        XCTAssertEqual(safe["webhook"]["secret_configured"].bool, true)
+    }
+
+    func testBlankWebhookSecretIsOmittedAndPartialSettingsRemainPartial() async throws {
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            XCTAssertEqual(body, .object(["webhook": .object(["enabled": .boolean(false)])]))
+            return (self.response(request), self.envelope(self.publicSettingsJSON))
+        }
+        _ = try await client.monitoringSettings(projectID: "p", body: ["webhook": .object(["enabled": .boolean(false), "secret": .string("")])])
+    }
+
+    func testNewWebhookSecretIsSentOnlyInExplicitSettingsBody() async throws {
+        let credential = "private-test-credential"
+        let client = try makeClient { request in
+            XCTAssertFalse(request.url!.absoluteString.contains(credential))
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            XCTAssertTrue(body["webhook"]["secret"].text == credential)
+            return (self.response(request), self.envelope(self.publicSettingsJSON))
+        }
+        let result = try await client.monitoringSettings(projectID: "p", body: ["autostart": .boolean(true), "webhook": .object(["secret": .string(credential)])])
+        XCTAssertFalse(result.pretty.contains(credential))
+    }
+
+    func testSettingsErrorsNeverExposeReflectedSecretOrServerMessage() async throws {
+        let credential = "private-reflected-value"
+        let client = try makeClient { request in
+            let error: MonitoringValue = .object(["error": .object(["code": .string(credential), "message": .string("Invalid credential: " + credential)])])
+            return (self.response(request, status: 400), try JSONEncoder().encode(error))
+        }
+        do {
+            _ = try await client.monitoringSettings(projectID: "p", body: ["webhook": .object(["secret": .string(credential)])])
+            XCTFail("Invalid settings must fail")
+        } catch let error as PlatformError {
+            XCTAssertFalse(error.localizedDescription.contains(credential))
+            if case .http(let status, let code, _) = error { XCTAssertEqual(status, 400); XCTAssertFalse(code.contains(credential)) }
+            else { XCTFail("Expected HTTP failure") }
+        }
+    }
+
+    func testStorageAndAlertPollingMethodsOnlyReadAndPreservePreciseBytesAndCursor() async throws {
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertNil(request.httpBody)
+            if request.url!.path.hasSuffix("/storage") {
+                return (self.response(request), self.envelope(#"{"capacity":{},"filesystem_free_bytes":9007199254740991,"minimum_free_bytes":268435456,"available_bytes":123,"bytes_per_second":null,"estimated_retention_seconds":null,"required_retention_seconds":3600,"ready":true,"automatic_deletion":false}"#))
+            }
+            XCTAssertTrue(request.url!.absoluteString.contains("/monitoring-projects/p%2F1/alerts?"))
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            XCTAssertEqual(query.first { $0.name == "after" }?.value, "opaque/created+id==")
+            XCTAssertEqual(query.first { $0.name == "limit" }?.value, "100")
+            return (self.response(request), self.envelope(#"{"items":[{"id":"notice","notification_id":"notice","acknowledged_at":null,"delivery":{"state":"pending","attempts":2,"last_error":null}}],"next_cursor":"next"}"#))
+        }
+        let storage = try await client.monitoringStorage(projectID: "p/1")
+        XCTAssertEqual(storage["filesystem_free_bytes"], .integer(9007199254740991))
+        XCTAssertEqual(storage["estimated_retention_seconds"], .null)
+        let alerts = try await client.monitoringAlerts(projectID: "p/1", after: "opaque/created+id==")
+        XCTAssertEqual(alerts["next_cursor"].text, "next")
+        XCTAssertEqual(alerts["items"].items.first?["delivery"]["attempts"], .integer(2))
+    }
+
+    func testAlertAcknowledgementAndEventVerdictUseSeparateScopedExplicitPosts() async throws {
+        var posts = 0
+        let client = try makeClient { request in
+            posts += 1; XCTAssertEqual(request.httpMethod, "POST")
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            if request.url!.absoluteString.hasSuffix("/p%2F1/alerts/a%2F1/ack") {
+                XCTAssertEqual(body, .object([:]))
+            } else {
+                XCTAssertTrue(request.url!.absoluteString.hasSuffix("/p%2F1/events/e%2F1/review"))
+                XCTAssertEqual(body, .object(["disposition": .string("false_positive"), "comment": .string("Проверено оператором")]))
+            }
+            return (self.response(request), self.envelope("{}"))
+        }
+        _ = try await client.monitoringAcknowledgeAlert(projectID: "p/1", alertID: "a/1")
+        _ = try await client.monitoringReviewEvent(projectID: "p/1", eventID: "e/1", disposition: "false_positive", comment: "Проверено оператором")
+        XCTAssertEqual(posts, 2)
+    }
+
+    func testAlertLimitsAndUnknownVerdictsFailBeforeNetwork() async throws {
+        let client = try makeClient { _ in XCTFail("No network expected"); throw CancellationError() }
+        for limit in [0, 101] {
+            do { _ = try await client.monitoringAlerts(projectID: "p", limit: limit); XCTFail("Invalid limit must fail") }
+            catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected error") } }
+        }
+        do { _ = try await client.monitoringReviewEvent(projectID: "p", eventID: "e", disposition: "automatic_tune", comment: ""); XCTFail("Unknown verdict must fail") }
+        catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected error") } }
+    }
+
+    func testAlertPagesRejectOversizedServerResponse() async throws {
+        let client = try makeClient { request in
+            let value: MonitoringValue = .object(["items": .array(Array(repeating: .object(["id": .string("n")]), count: 101))])
+            return (self.response(request), try self.valueEnvelope(value))
+        }
+        do { _ = try await client.monitoringAlerts(projectID: "p"); XCTFail("Oversized page must fail") }
+        catch let error as PlatformError { if case .invalidResponse = error {} else { XCTFail("Unexpected error") } }
+    }
+
+    func testLocalAlertSoundStartsQuietAndRequiresOptInForNewUnacknowledgedIDs() {
+        func alert(_ id: String, acknowledged: Bool = false, attempts: Int64 = 0) -> MonitoringValue {
+            .object(["id": .string(id), "acknowledged_at": acknowledged ? .string("2026-11-10T10:00:00Z") : .null,
+                     "delivery": .object(["attempts": .integer(attempts)])])
+        }
+        var state = MonitoringAlertSoundState()
+        XCTAssertFalse(state.observe([alert("old")], enabled: true), "First snapshot stays quiet even after opt-in")
+        XCTAssertFalse(state.observe([alert("muted-new"), alert("old")], enabled: false))
+        XCTAssertFalse(state.observe([alert("muted-new", attempts: 2), alert("old")], enabled: true), "Delivery retry does not replay sound")
+        XCTAssertFalse(state.observe([alert("already-acked", acknowledged: true), alert("muted-new")], enabled: true))
+        XCTAssertTrue(state.observe([alert("new"), alert("already-acked", acknowledged: true)], enabled: true))
+        XCTAssertFalse(state.observe([alert("new"), alert("already-acked", acknowledged: true)], enabled: true))
+        state = MonitoringAlertSoundState()
+        XCTAssertFalse(state.observe([alert("another-project")], enabled: true), "New scope starts quietly")
+    }
+
+    func testProjectSessionFollowFiresOncePerChangedActiveSessionAndScope() {
+        var follow = MonitoringProjectSessionFollowState()
+        XCTAssertNil(follow.sessionToFollow(endpoint: "core", projectID: "p", activeSessionID: ""))
+        XCTAssertEqual(follow.sessionToFollow(endpoint: "core", projectID: "p", activeSessionID: "prepared"), "prepared")
+        XCTAssertNil(follow.sessionToFollow(endpoint: "core", projectID: "p", activeSessionID: "prepared"))
+        XCTAssertEqual(follow.sessionToFollow(endpoint: "core", projectID: "p", activeSessionID: "armed-new"), "armed-new")
+        // Polling cannot force a later manual research-session selection back to the guard session.
+        XCTAssertNil(follow.sessionToFollow(endpoint: "core", projectID: "p", activeSessionID: "armed-new"))
+        XCTAssertEqual(follow.sessionToFollow(endpoint: "other-core", projectID: "p", activeSessionID: "armed-new"), "armed-new")
+        XCTAssertEqual(follow.sessionToFollow(endpoint: "core", projectID: "other-project", activeSessionID: "armed-new"), "armed-new")
+    }
+
+    func testSettingsTransportErrorsNeverExposeCredentialText() async throws {
+        let credential = "private-network-error-value"
+        let client = try makeClient { _ in
+            throw URLError(.cannotConnectToHost, userInfo: [NSLocalizedDescriptionKey: credential])
+        }
+        do {
+            _ = try await client.monitoringSettings(projectID: "p", body: ["webhook": .object(["secret": .string(credential)])])
+            XCTFail("Connection must fail")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.contains(credential))
+        }
+    }
+
 }
