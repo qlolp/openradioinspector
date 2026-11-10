@@ -11,7 +11,6 @@ import copy
 import math
 import threading
 import time
-from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -152,8 +151,7 @@ class AutomaticCandidateDetector:
         self._policies: dict[str, dict[str, Any]] = {}
         self._runtime: dict[str, dict[str, Any]] = {}
         self._next_run: dict[str, float] = {}
-        self._seen: dict[str, set[str]] = {}
-        self._seen_order: dict[str, deque[str]] = {}
+        self._cursor: dict[str, int] = {}
         self._recent: dict[str, list[dict[str, Any]]] = {}
         self._dispatch_locks: dict[str, threading.Lock] = {}
         self._dispatching: set[str] = set()
@@ -205,7 +203,7 @@ class AutomaticCandidateDetector:
                 raise RuntimeError("Детектор уже закрыт")
             previous = copy.deepcopy(self._policies.get(session_id, DEFAULT_POLICY))
             policy = copy.deepcopy(previous)
-            runtime = self._runtime.setdefault(session_id, _runtime())
+            self._runtime.setdefault(session_id, _runtime())
             self._dispatch_locks.setdefault(session_id, threading.Lock())
 
         if "enabled" in payload:
@@ -255,14 +253,28 @@ class AutomaticCandidateDetector:
             if stream.level_unit != "dBm":
                 raise ValueError("Политика может выбирать только поток с исходными dBm")
 
+        # Validation may block; do not delay a concurrent disable or replay
+        # fields from its stale policy snapshot. Only merge supplied fields.
+        validated_patch = {key: policy[key] for key in payload}
+        with self._lock:
+            dispatch_lock = self._dispatch_locks[session_id]
+        with dispatch_lock:
+            return self._configure_serialized(session_id, validated_patch)
+
+    def _configure_serialized(self, session_id: str, patch: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             if self._closed:
                 raise RuntimeError("Детектор уже закрыт")
             previous = self._policies.get(session_id, DEFAULT_POLICY)
-            policy = {**copy.deepcopy(previous), **{key: policy[key] for key in payload}}
+            policy = {**copy.deepcopy(previous), **patch}
             enabling = policy["enabled"] and not previous["enabled"]
+        boundary = self.sessions.sweep_ingestion_boundary(session_id) if enabling else None
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("Детектор уже закрыт")
+            runtime = self._runtime.setdefault(session_id, _runtime())
             if enabling:
-                self._mark_seen(session_id, self.sessions.list_sweeps(session_id, limit=1000))
+                self._cursor[session_id] = boundary
             self._policies[session_id] = copy.deepcopy(policy)
             runtime["last_result"] = "enabled" if policy["enabled"] else "disabled"
             runtime["last_error"] = None
@@ -317,15 +329,16 @@ class AutomaticCandidateDetector:
                 with self._lock:
                     runtime["last_result"] = "session_not_running"
                 return []
-            sweeps = self.sessions.list_sweeps(session_id, limit=1000)
             with self._lock:
-                seen = self._seen.setdefault(session_id, set())
-            pending = [item for item in sweeps if item.id not in seen]
+                after = self._cursor[session_id]
+            pending = self.sessions.sweeps_after_ingestion(
+                session_id, after=after, stream_id=policy["stream_id"], limit=1000,
+            )
             created: list[Candidate] = []
             duplicates = 0
             processed = 0
             last_sweep_id = None
-            for sweep in pending:
+            for sequence, sweep in pending:
                 last_sweep_id = sweep.id
                 completed = False
                 try:
@@ -387,8 +400,11 @@ class AutomaticCandidateDetector:
                     completed = True
                 finally:
                     if completed:
-                        self._mark_seen(session_id, [sweep])
+                        with self._lock:
+                            self._cursor[session_id] = sequence
             with self._lock:
+                if len(pending) == 1000:
+                    self._next_run[session_id] = self._monotonic()
                 runtime["sweeps_processed"] += processed
                 runtime["candidates_created"] += len(created)
                 runtime["duplicates_suppressed"] += duplicates
@@ -443,18 +459,6 @@ class AutomaticCandidateDetector:
                     "expires_at": self._monotonic() + policy["cooldown_seconds"],
                 }
             )
-
-    def _mark_seen(self, session_id: str, sweeps: list[Sweep]) -> None:
-        with self._lock:
-            seen = self._seen.setdefault(session_id, set())
-            order = self._seen_order.setdefault(session_id, deque())
-            for sweep in sweeps:
-                if sweep.id in seen:
-                    continue
-                seen.add(sweep.id)
-                order.append(sweep.id)
-            while len(order) > self._history_limit:
-                seen.discard(order.popleft())
 
     def _dispatch_session(self, session_id: str) -> None:
         try:

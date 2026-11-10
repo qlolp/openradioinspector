@@ -197,6 +197,7 @@ class ListeningMigrationTests(unittest.TestCase):
         add_current_metadata(fixture.service, fixture.session.id, fixture.spectrum_id)
         fixture.scheduler.close()
         # Owned synthetic database only: reconstruct the previous nullable-column schema.
+        store._connection.execute("DROP TABLE sweep_ingestion")
         store._connection.execute("ALTER TABLE investigations DROP COLUMN listening_started_at")
         store._connection.execute("PRAGMA user_version = 4")
         store._connection.commit()
@@ -242,7 +243,7 @@ class ListeningMigrationTests(unittest.TestCase):
             "reference_source": "SELECT id, session_id, stream_id, sweep_id, name FROM sweep_references WHERE name = 'migration baseline'",
             "reference_values": "SELECT id, created_at, started_at, ended_at, level_unit, points FROM sweep_references WHERE name = 'migration baseline'",
             "events": "SELECT sequence, event_type, occurred_at, payload_json FROM events ORDER BY sequence",
-            "indices": "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' ORDER BY name",
+            "indices": "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name != 'sweep_ingestion' ORDER BY name",
         }
         values = {key: [tuple(row) for row in connection.execute(query)] for key, query in queries.items()}
         values.update(current_metadata_values(connection))

@@ -215,6 +215,8 @@ class ResultMigrationTests(unittest.TestCase):
             service.close()
             import sqlite3
             with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute('DROP TABLE sweep_ingestion')
+                connection.execute('ALTER TABLE investigations DROP COLUMN listening_started_at')
                 connection.execute('DROP TABLE measurement_results')
                 connection.execute('PRAGMA user_version = 3')
             service = SessionService(store=SQLiteSessionStore(path))

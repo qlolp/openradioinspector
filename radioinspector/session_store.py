@@ -29,7 +29,7 @@ from .contracts import (
 from .sweep_references import check_reference_creation
 from .sweep_context import ContextIncompatibleError, validate_context_request
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 ARCHIVE_WARNING_THRESHOLD = 0.9
 
 
@@ -108,6 +108,7 @@ class SQLiteSessionStore:
                 if version > SCHEMA_VERSION:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
                 self._create_schema()
+                self._create_ingestion_schema(backfill=version < 6)
                 self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         except BaseException:
             self._connection.close()
@@ -342,6 +343,64 @@ class SQLiteSessionStore:
             CREATE INDEX IF NOT EXISTS measurement_results_methodology
                 ON measurement_results(session_id, methodology, created_at)
         """)
+
+    def _create_ingestion_schema(self, *, backfill: bool) -> None:
+        self._connection.execute("""
+            CREATE TABLE IF NOT EXISTS sweep_ingestion (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                sweep_id TEXT NOT NULL UNIQUE,
+                session_id TEXT NOT NULL,
+                stream_id TEXT NOT NULL,
+                FOREIGN KEY (sweep_id, session_id, stream_id)
+                    REFERENCES sweeps(id, session_id, stream_id) ON DELETE CASCADE
+            )
+        """)
+        for name, columns in (
+            ("session", "session_id, sequence"),
+            ("stream", "session_id, stream_id, sequence"),
+        ):
+            self._connection.execute(
+                f"CREATE INDEX IF NOT EXISTS sweep_ingestion_{name} "
+                f"ON sweep_ingestion({columns})"
+            )
+        if backfill:
+            # Historical arrival order is unknown. These deterministic ordinals
+            # precede every new arrival and the detector's opt-in boundary.
+            self._connection.execute("""
+                INSERT INTO sweep_ingestion(sweep_id, session_id, stream_id)
+                SELECT id, session_id, stream_id FROM sweeps
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM sweep_ingestion i WHERE i.sweep_id = sweeps.id
+                ) ORDER BY id
+            """)
+
+    def sweep_ingestion_boundary(self, session_id: str) -> int:
+        with self._lock:
+            return self._connection.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM sweep_ingestion WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()[0]
+
+    def sweeps_after_ingestion(
+        self, session_id: str, *, after: int, stream_id: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[tuple[int, Sweep]]:
+        if isinstance(after, bool) or not isinstance(after, int) or after < 0:
+            raise ValueError("after must be a nonnegative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
+        clause = "i.session_id = ? AND i.sequence > ?"
+        parameters: list[Any] = [session_id, after]
+        if stream_id is not None:
+            clause += " AND i.stream_id = ?"
+            parameters.append(stream_id)
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT i.sequence, s.* FROM sweep_ingestion i "
+                f"JOIN sweeps s ON s.id = i.sweep_id WHERE {clause} "
+                "ORDER BY i.sequence LIMIT ?", (*parameters, limit),
+            ).fetchall()
+            return [(row["sequence"], self._sweep_from_row(row)) for row in rows]
 
     def save_instrument_artifact(self, item: dict) -> None:
         with self._measurement_transaction():
@@ -679,6 +738,11 @@ class SQLiteSessionStore:
         self._connection.execute('INSERT INTO monitoring_sweep_index VALUES (?,?,?,?,?,?)',
             (sweep.id,sweep.session_id,_archive_time(sweep.interval.started_at),_archive_time(sweep.interval.ended_at),
              min(sweep.frequencies_hz),max(sweep.frequencies_hz)))
+
+        self._connection.execute(
+            "INSERT INTO sweep_ingestion(sweep_id, session_id, stream_id) VALUES (?, ?, ?)",
+            (sweep.id, sweep.session_id, sweep.stream_id),
+        )
 
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None
