@@ -168,6 +168,8 @@ class SQLiteSessionStore:
             self._check_capacity_locked(before_write=False)
 
     def _create_schema(self) -> None:
+        from .monitoring.schema import install_schema
+        install_schema(self._connection)
         # Independent additive artifact schema; does not compete with the
         # listening/ingestion migrations of the core measurement tables.
         self._connection.execute('''CREATE TABLE IF NOT EXISTS instrument_artifacts (

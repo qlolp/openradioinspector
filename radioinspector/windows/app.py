@@ -379,6 +379,8 @@ class WindowsApp(TkTimerOwner):
         self.sweep_context_panel = SweepContextPanel(self, notebook)
         from .frequency_rounding import FrequencyRoundingPanel
         self.frequency_rounding_panel = FrequencyRoundingPanel(self, notebook)
+        from .monitoring import MonitoringPanel
+        self.monitoring_panel = MonitoringPanel(self, notebook)
         self.streams_tree.bind("<<TreeviewSelect>>", self._select_stream)
         self.action_var = self.tk.StringVar(value="Команды выполняются на сервере; GUI не пишет в архив.")
         ttk.Label(outer, textvariable=self.action_var, wraplength=1100).grid(row=5, column=0, sticky="ew", pady=(8, 0))

@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var model = RemoteDualModel()
+    @State private var workspaceMode = "research"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,13 +69,23 @@ struct ContentView: View {
             RemoteArchiveCapacityPane(model: model)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
+            Picker("Рабочий режим", selection: $workspaceMode) {
+                Text("Радиомониторинг").tag("monitoring")
+                Text("Исследование").tag("research")
+            }.pickerStyle(.segmented).padding(.horizontal)
+            MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", sessionID: model.selectedSessionID)
             Divider()
             VSplitView {
                 HSplitView {
                     RemoteArPane(model: model).frame(minWidth: 460)
                     RemoteUltraPane(model: model).frame(minWidth: 460)
                 }
-                RemoteWorkflowPane(model: model).frame(minHeight: 280)
+                if workspaceMode == "research" {
+                    RemoteWorkflowPane(model: model).frame(minHeight: 280)
+                } else {
+                    Text("Радиомониторинг · проект, готовность и исходные панорамы. Исследование не останавливает сбор.")
+                        .padding()
+                }
             }
         }
         .frame(minWidth: 980, minHeight: 860)
@@ -1745,5 +1756,68 @@ struct RemoteSweepComparisonPane: View {
 
     private func change(_ value: PlatformComparisonExtremum) -> String {
         String(format: "%+.2f dB · %.6f МГц", value.deltaDb, Double(value.frequencyHz) / 1_000_000)
+    }
+}
+
+
+@MainActor
+final class MonitoringWorkspaceModel: ObservableObject {
+    @Published var projects: [MonitoringValue] = []
+    @Published var selected = ""
+    @Published var details = "Выберите подготовленный сеанс."
+    @Published var pending = false
+    private var client: PlatformClient?
+    private var scope = ""
+    private var revision = 0
+    func configure(_ server: String, _ session: String) {
+        let next = server + "|" + session
+        if next != scope {
+            revision += 1; scope = next; selected = ""; projects = []
+            client = server.isEmpty ? nil : try? PlatformClient(baseURL: server)
+        }
+    }
+    func call(_ path: String = "", body: [String: MonitoringValue]? = nil) async {
+        guard let client, !pending else { return }
+        let current = revision; pending = true
+        defer { pending = false }
+        do {
+            let result = try await client.monitoring(path, body: body)
+            guard current == revision, !Task.isCancelled else { return }
+            if case .array(let values) = result["items"] {
+                projects = values
+                if !values.contains(where: { $0["id"].text == selected }) { selected = values.first?["id"].text ?? "" }
+            }
+            details = result.pretty
+        } catch { if current == revision { details = error.localizedDescription } }
+    }
+}
+
+struct MonitoringWorkspacePane: View {
+    let server: String
+    let sessionID: String
+    @StateObject private var workspace = MonitoringWorkspaceModel()
+    @State private var name = "Наблюдение"
+    @State private var site = "Объект"
+    var body: some View {
+        DisclosureGroup("Проект наблюдения · подготовка") {
+            HStack {
+                TextField("Название", text: $name)
+                TextField("Объект", text: $site)
+                Button("Создать") { Task { await workspace.call(body: ["name": .string(name), "site": .string(site), "session_id": .string(sessionID)]); await workspace.call() } }
+                    .disabled(server.isEmpty || sessionID.isEmpty || workspace.pending)
+                Button("Обновить") { Task { await workspace.call() } }.disabled(workspace.pending)
+            }
+            HStack {
+                Picker("Проект", selection: $workspace.selected) {
+                    Text("Не выбран").tag("")
+                    ForEach(Array(workspace.projects.enumerated()), id: \.offset) { _, p in Text(p["name"].text + " · " + p["site"].text).tag(p["id"].text) }
+                }
+                Button("Проверить готовность") { Task { await workspace.call("/" + workspace.selected + "/preflight") } }
+                    .disabled(workspace.selected.isEmpty || workspace.pending)
+            }
+            ScrollView { Text(workspace.details).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 160)
+        }
+        .padding(.horizontal)
+        .task(id: server + "|" + sessionID) { workspace.configure(server, sessionID); await workspace.call() }
     }
 }

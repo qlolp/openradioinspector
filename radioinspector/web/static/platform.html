@@ -25,6 +25,7 @@
   <script src="/static/signal-list.js" defer></script>
   <script src="/static/measurement-map.js" defer></script>
   <script src="/static/audio-stream.js" defer></script>
+  <script src="/static/monitoring.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -61,6 +62,14 @@
 
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
+  <section id="monitoring-workspace" class="panel" aria-label="Рабочие режимы">
+    <label>Рабочий режим <select name="workspace"><option value="monitoring">Радиомониторинг</option><option value="research">Исследование</option></select></label>
+    <p>Просмотр истории не останавливает охрану. Приборы и архив принадлежат ядру.</p>
+    <form><input name="name" placeholder="Название проекта" required maxlength="200"><input name="site" placeholder="Объект проверки" required maxlength="200"><button>Создать из выбранного сеанса</button></form>
+    <select name="project" aria-label="Проект наблюдения"></select>
+    <button data-action="refresh">Обновить проекты</button><button data-action="preflight">Проверить готовность</button>
+    <pre aria-live="polite">Выберите двухприборный сеанс и создайте проект.</pre>
+  </section>
   <main id="workspace" class="console-grid">
     <aside class="column left-column" aria-label="Сеанс и приборы">
       <section class="panel session-panel" aria-labelledby="session-heading">
