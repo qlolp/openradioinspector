@@ -857,6 +857,8 @@ class SQLiteSessionStore:
         frequency_hz: int,
         started_at: datetime,
         limit: Optional[int] = None,
+        *,
+        mode: Optional[str] = None,
     ) -> tuple[str, ...]:
         """ID наблюдений цели; preflight может ограничить строки явным limit."""
         if limit is not None and (
@@ -868,8 +870,11 @@ class SQLiteSessionStore:
             session_id,
             stream_id,
             frequency_hz,
-            _archive_time(started_at),
         ]
+        mode_sql = " AND mode = ?" if mode is not None else ""
+        if mode is not None:
+            parameters.append(mode)
+        parameters.append(_archive_time(started_at))
         if limit is not None:
             parameters.append(limit)
         with self._lock:
@@ -881,7 +886,7 @@ class SQLiteSessionStore:
                             THEN replace(started_at, 'Z', '.000000Z')
                             ELSE started_at END AS sort_started_at
                     FROM observations
-                    WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
+                    WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?{mode_sql}
                 ) WHERE sort_started_at >= ?
                 ORDER BY sort_started_at, id {limit_sql}
                 """,

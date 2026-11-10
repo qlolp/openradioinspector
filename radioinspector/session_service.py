@@ -1390,12 +1390,14 @@ class SessionService:
                     current.target_frequency_hz,
                     current.started_at,
                     limit=limit,
+                    mode=current.mode,
                 )
             matches = [
                 item for item in self._observations
                 if item.session_id == session_id
                 and item.stream_id == current.target_stream_id
                 and item.frequency_hz == current.target_frequency_hz
+                and (current.mode is None or item.mode == current.mode)
                 and item.interval.started_at >= current.started_at
             ]
             matches.sort(key=lambda item: (item.interval.started_at, item.id))
@@ -1415,21 +1417,7 @@ class SessionService:
                 )
             if current.started_at is None:
                 raise ValueError("У активного исследования отсутствует started_at")
-            if self._store is not None:
-                observation_ids = self._store.matching_observation_ids(
-                    session_id, current.target_stream_id,
-                    current.target_frequency_hz, current.started_at,
-                )
-            else:
-                matches = [
-                    item for item in self._observations
-                    if item.session_id == session_id
-                    and item.stream_id == current.target_stream_id
-                    and item.frequency_hz == current.target_frequency_hz
-                    and item.interval.started_at >= current.started_at
-                ]
-                matches.sort(key=lambda item: (item.interval.started_at, item.id))
-                observation_ids = tuple(item.id for item in matches)
+            observation_ids = self.matching_observation_ids(session_id, investigation_id)
             if not observation_ids:
                 raise ValueError(
                     "Нет наблюдений целевого потока на выбранной частоте после начала исследования"
