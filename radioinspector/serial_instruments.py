@@ -210,16 +210,22 @@ class PosixSerialTransport(_SerialFraming):
                 self._stash.clear()
 
 
+def validate_windows_com_port(path: str) -> str:
+    """Validate a native COM name without constructing or probing a transport."""
+    if not isinstance(path, str):
+        raise WorkerError("Windows требует имя COM-порта, например COM3")
+    name = path[4:] if path.startswith("\\\\.\\") else path
+    if re.fullmatch(r"COM[1-9][0-9]*", name, re.IGNORECASE | re.ASCII) is None:
+        raise WorkerError("Windows требует имя COM-порта, например COM3")
+    return name.upper()
+
+
 class WindowsSerialTransport(_SerialFraming):
     """Bounded COM I/O through optional pySerial, owned only by the core worker."""
 
     def __init__(self, path: str, baud: int = 9600) -> None:
         # Accept only native COM names, never pySerial URL handlers or arbitrary files.
-        if not isinstance(path, str):
-            raise WorkerError("Windows требует имя COM-порта, например COM3")
-        name = path[4:] if path.startswith("\\\\.\\") else path
-        if re.fullmatch(r"COM[1-9][0-9]*", name, re.IGNORECASE | re.ASCII) is None:
-            raise WorkerError("Windows требует имя COM-порта, например COM3")
+        name = validate_windows_com_port(path)
         if type(baud) is not int or baud not in (9600, 19200, 38400, 57600, 115200):
             raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
         self.path = name.upper()

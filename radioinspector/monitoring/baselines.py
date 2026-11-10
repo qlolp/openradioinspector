@@ -1,5 +1,6 @@
 """Durable references, allowlists, detector cursors and evidence events."""
 import copy
+import statistics
 from datetime import datetime, timezone
 
 from ..contracts import format_time, parse_time, to_primitive
@@ -63,11 +64,41 @@ class BaselineOperations:
             index = next((i+1 for i,x in enumerate(items) if x.id == cursor), 0)
             return [(i+1, copy.deepcopy(s)) for i,s in enumerate(items) if index <= i < index+limit]
 
+    def detection_baseline(self, baseline):
+        """Derive legacy cadence from source metadata, leaving the version frozen."""
+        if baseline.get('sweep_period_seconds'):
+            return baseline
+        refs=baseline.get('source_refs',[])
+        if len(refs)>256:
+            raise ValueError('Слишком много источников старого эталона; соберите новый эталон')
+        ids={ref['sweep_id'] for ref in refs}
+        store=self.sessions._store
+        if store is not None:
+            with store._lock:
+                rows=store._connection.execute(
+                    'SELECT id,session_id,stream_id,started_at FROM sweeps WHERE id IN ('+
+                    ','.join('?' for _ in ids)+')',tuple(ids)).fetchall() if ids else []
+            sources={row['id']:(row['session_id'],row['stream_id'],parse_time(row['started_at'])) for row in rows}
+        else:
+            with self.sessions._lock:
+                sources={s.id:(s.session_id,s.stream_id,s.interval.started_at)
+                    for s in self.sessions._sweeps if s.id in ids}
+        previous=None;periods=[]
+        for ref in refs:
+            source=sources.get(ref['sweep_id'])
+            if source and source[:2]!=(ref['session_id'],ref['stream_id']):source=None
+            if previous and source and previous[:2]==source[:2]:
+                period=(source[2]-previous[2]).total_seconds()
+                if period>0:periods.append(period)
+            # A missing source is a boundary, not a longer acquisition period.
+            previous=source
+        return dict(baseline,sweep_period_seconds=statistics.median(periods) if periods else None)
+
     def analyze(self, identifier):
         with self.lock:
             project = self.project(identifier)
             if not project.get('baseline_id'): raise ValueError('Нужен подтверждённый эталон')
-            baseline = self.store.get('baseline', project['baseline_id'])
+            baseline = self.detection_baseline(self.store.get('baseline', project['baseline_id']))
             detector = Detector(baseline, project['parameters'], project.get('detector_state'))
             allowed = self.store.list('allowed', identifier, limit=1000)
             events = set()

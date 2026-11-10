@@ -32,7 +32,9 @@ class PreparationOperations:
             project=self.project(identifier)
             if identifier in self.preparing:
                 return dict(project=project,workers=self.workers.list_workers(project['active_session_id']))
-            if not self.preflight(identifier)['ready']:raise ValueError('Подготовка не завершена')
+            # A replacement collection must not depend on the old baseline's
+            # availability or compatibility; guard startup still checks both.
+            if not self.preflight(identifier,for_preparation=True)['ready']:raise ValueError('Подготовка не завершена')
             old_sid=project['active_session_id']
             if old_sid in self.preparing.values():raise WorkerError('Сеанс уже используется для другого сбора')
             if any(r['sid']==old_sid for r in self.runtime.values()):raise WorkerError('Сеанс занят другим проектом')
