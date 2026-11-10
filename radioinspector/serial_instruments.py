@@ -633,6 +633,11 @@ class TinySASerialAdapter(SimulatedAdapter):
 
 class ARDV1SerialAdapter(SimulatedAdapter):
     adapter_name = "ardv1-serial"
+    MONITOR_MODES = {'AUTO':'MD000', 'DSTAR':'MD010', 'YSF':'MD020',
+                     'ALINCO':'MD030', 'NXDN':'MD040', 'P25':'MD050',
+                     'DPMR':'MD060', 'DMR':'MD070', 'FM':'MD0F0', 'AM':'MD0F1'}
+    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'NXDN',
+               '5':'P25', '6':'DPMR', '7':'DMR'}
 
     def __init__(
         self,
@@ -651,8 +656,14 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._requested_frequency_hz = self.settings.get("frequency_hz", 145_500_000)
         _rf_command(self._requested_frequency_hz)
         self._requested_mode = str(self.settings.get("mode") or "FM").strip().upper()
-        if self._requested_mode not in ("FM", "AM"):
-            raise ValueError("ardv1-serial поддерживает только FM и AM в этом срезе")
+        profile = self.settings.get('receiver_profile')
+        if profile not in (None, 'ardv1-monitor-v1'):
+            raise ValueError('Неизвестный профиль AR-DV1')
+        self._monitor_profile = profile == 'ardv1-monitor-v1'
+        self._modes = self.MONITOR_MODES if self._monitor_profile else {'FM':'MD0F0','AM':'MD0F1'}
+        if self._requested_mode not in self._modes:
+            raise ValueError('Режим не поддерживается выбранным профилем AR-DV1')
+        self._firmware = None
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("ardv1-serial требует физический последовательный порт")
@@ -704,6 +715,9 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         firmware = self._transact("VR")
         if not firmware.startswith("VR") or len(firmware) <= 2:
             raise WorkerError("AR-DV1 не подтвердил VR")
+        self._firmware = firmware[2:]
+        if self._monitor_profile and self._firmware != '2504A':
+            raise WorkerError('Профиль ardv1-monitor-v1 требует подтверждённый VR2504A')
         serial = self._transact("RN")
         if not serial.startswith("RN") or len(serial) <= 2:
             raise WorkerError("AR-DV1 не подтвердил RN")
@@ -722,7 +736,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         try:
             self._prepare()
             self._acknowledge("VFA")
-            self._acknowledge("MD0F0" if mode == "FM" else "MD0F1")
+            self._acknowledge(self._modes[mode])
             self._acknowledge(rf)
         except Exception as exc:
             raise self._taint_connection(exc) from exc
@@ -738,8 +752,8 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         frequency_hz = payload.get("frequency_hz")
         _rf_command(frequency_hz)
         mode = str(payload.get("mode") or self._requested_mode).strip().upper()
-        if mode not in ("FM", "AM"):
-            raise WorkerError("ardv1-serial поддерживает только FM и AM; цифровой режим не отправлен")
+        if mode not in self._modes:
+            raise WorkerError('Режим не поддерживается профилем (старый профиль: только FM и AM); команда не отправлена')
         self._tune(frequency_hz, mode)
         return self.details()
 
@@ -752,6 +766,11 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         started_at = self._clock()
         try:
             level, squelch = _ardv1_level(self._transact("LM"))
+            mode_status = self._transact('MD') if self._monitor_profile else None
+            if mode_status is not None and not re.fullmatch(r'MD[0-7][0-7F][0-6]', mode_status):
+                raise WorkerError('Некорректный статус MD')
+            if mode_status is not None and self.MONITOR_MODES[self.mode][3:] != mode_status[3:]:
+                raise WorkerError('Прочитанный режим AR-DV1 изменился вне ядра')
         except Exception as exc:
             raise self._taint_connection(exc) from exc
         ended_at = self._clock()
@@ -765,8 +784,13 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             level=level,
             level_unit="s_meter_count",
             squelch_open=squelch != 0,
-            decoded_mode=None,
+            decoded_mode=self.DECODED.get(mode_status[2]) if mode_status else None,
             metadata={
+                'receiver_profile': self.settings.get('receiver_profile', 'legacy-fm-am'),
+                'receiver_firmware': self._firmware,
+                'raw_mode_status': mode_status,
+                'decoder_source': 'receiver_MD' if mode_status else 'unavailable',
+                'raw_squelch_status': squelch,
                 "adapter": self.adapter_name,
                 "sequence": self._sequence,
                 "tune_sequence": self._tune_sequence,

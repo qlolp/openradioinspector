@@ -1,6 +1,7 @@
 """Additive v1 resources. Viewing a workspace has no device side effects."""
 from urllib.parse import unquote
 from ..contracts import api_payload
+from ..device_workers import WorkerError
 
 
 def dispatch(handler, method, route, payload=None, query=None):
@@ -11,7 +12,26 @@ def dispatch(handler, method, route, payload=None, query=None):
     tail = [unquote(x) for x in route[len(prefix):].strip('/').split('/') if x]
     query = query or {}
     try:
-        if method == 'GET' and not tail:
+        if method == 'GET' and tail == ['audio-inputs']:
+            from ..tinysa.audio import inputs
+            handler._send_json(api_payload(inputs()))
+        elif len(tail) == 2 and tail[1] in ('arm','disarm','configure','status'):
+            if method == 'GET' and tail[1] == 'status':
+                handler._send_json(api_payload(service.guard_status(tail[0])))
+            elif method == 'POST' and tail[1] != 'status':
+                handler._send_json(api_payload(getattr(service,tail[1])(tail[0],payload)))
+            else: raise ValueError('Неверный метод управления охраной')
+        elif method == 'GET' and len(tail) == 4 and tail[1] == 'events' and tail[3] == 'audio':
+            event = service.store.get('event', tail[2])
+            if event['project_id'] != tail[0]: raise KeyError('Событие другого проекта')
+            ref = event.get('analysis',{}).get('audio')
+            if not ref: raise KeyError('Для события нет аудиозаписи')
+            item = service.sessions.get_instrument_artifact(ref['session_id'],ref['stream_id'],ref['id'])
+            handler.send_response(200); handler.send_header('Content-Type','audio/wav')
+            handler.send_header('Content-Length',str(len(item['payload'])))
+            handler.send_header('Cache-Control','no-store'); handler.end_headers()
+            handler.wfile.write(item['payload'])
+        elif method == 'GET' and not tail:
             data = service.store.list('project', limit=int(query.get('limit', ['200'])[0]), after=query.get('after', [''])[0])
             data = [{k: p[k] for k in ('id', 'name', 'site', 'state', 'active_session_id', 'baseline_id', 'autostart')} for p in data]
             handler._send_json(api_payload(dict(items=data, next_cursor=data[-1]['id'] if data else None)))
@@ -52,6 +72,8 @@ def dispatch(handler, method, route, payload=None, query=None):
             handler._send_api_error(404, 'monitoring_route_not_found', 'Маршрут проекта не найден')
     except KeyError as exc:
         handler._send_api_error(404, 'monitoring_not_found', str(exc))
+    except WorkerError as exc:
+        handler._send_api_error(409, 'monitoring_conflict', str(exc))
     except (ValueError, TypeError, StopIteration) as exc:
         handler._send_api_error(400, 'invalid_monitoring_request', str(exc))
     return True

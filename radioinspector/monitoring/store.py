@@ -64,3 +64,14 @@ class ProjectStore:
     def close(self):
         if self.owned:
             self.store.close()
+
+    def pending_receiver_events(self, project, session):
+        with self.lock:
+            rows=self.db.execute("""SELECT payload FROM monitoring_records
+                WHERE kind='event' AND project_id=?
+                AND json_extract(payload,'$.analysis.state') IS NULL
+                AND json_extract(payload,'$.source_refs[#-1].session_id')=?
+                AND json_extract(payload,'$.disposition')='unreviewed'
+                AND json_extract(payload,'$.kind') NOT IN ('broadband_change','authorized_changed')
+                ORDER BY json_extract(payload,'$.last_seen') DESC,id DESC LIMIT 1""",(project,session)).fetchall()
+        return [json.loads(row[0]) for row in rows]

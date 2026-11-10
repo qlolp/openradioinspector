@@ -507,10 +507,22 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         parent = ("from tests.run_release_checks import run_command; from pathlib import Path; import os,sys; "
                   f"run_command([sys.executable, '-c', {child!r}], name='inner', environment=dict(os.environ), "
                   f"directory=Path({str(self.directory)!r}), timeout=30)")
-        with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        # Exercise a real wait timeout after the nested session has started.
+        # The old 0.8s launch budget raced four Python/supervisor startups under
+        # load and sometimes never reached the cleanup scenario being tested.
+        original_wait = subprocess.Popen.wait
+        def wait_after_nested_start(process, timeout=None):
+            if timeout == 10:
+                deadline = time.monotonic() + 8
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(ready.exists(), 'nested child did not start')
+                return original_wait(process, timeout=0.05)
+            return original_wait(process, timeout=timeout)
+        with patch.object(subprocess.Popen, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="outer-timeout",
                                 environment=self.environment, directory=self.directory,
-                                timeout=0.8, shutdown_timeout=2)
+                                timeout=10, shutdown_timeout=2)
         self.assertTrue(ready.exists())
         time.sleep(1.5)
         self.assertFalse(leaked.exists(), "a detached nested session outlived its owner")

@@ -646,6 +646,7 @@ class DeviceWorkerManager:
         self._pending_starts: set[tuple[str, str]] = set()
         self._closed = False
         self._lock = threading.RLock()
+        self.control_authorizer = None
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -901,8 +902,10 @@ class DeviceWorkerManager:
             return self.list_workers(session_id)
 
     def tune(
-        self, session_id: str, stream_id: str, payload: dict[str, Any]
+        self, session_id: str, stream_id: str, payload: dict[str, Any], *, control_owner=None
     ) -> dict[str, Any]:
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, control_owner)
         session = self.sessions.get_session(session_id)
         stream = self._stream(session, stream_id)
         if stream.role is not DeviceRole.RECEIVER:
@@ -921,7 +924,9 @@ class DeviceWorkerManager:
         if worker.adapter.adapter_name!='tinysa-serial':raise ValueError('Instrument control requires a tinySA serial stream')
         return worker
 
-    def instrument(self,session_id,stream_id,payload,*,expected_worker=None):
+    def instrument(self,session_id,stream_id,payload,*,expected_worker=None,control_owner=None):
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, control_owner)
         worker=self.instrument_worker(session_id,stream_id)
         if expected_worker is not None and worker is not expected_worker:raise WorkerError('Instrument context changed')
         return worker.submit('instrument',payload,timeout=120)
