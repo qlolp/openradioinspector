@@ -104,6 +104,7 @@
 				<string>F8BEBE5722D63468A1C35864</string>
 				<string>EAD0B682451022F1A45E7056</string>
 				<string>A1EAD2D23E0357049F6D4522</string>
+				<string>B9043CDA07AA4D44A13C5712</string>
 				<string>2F9AFF2D513317FC8BF884A6</string>
 			</array>
 			<key>path</key>
@@ -176,6 +177,7 @@
 				<string>4480A19186ECA437B5D79971</string>
 				<string>76ABE19D7DC066F994A87AC8</string>
 				<string>8872EB9AA53A9C33110D863D</string>
+				<string>3CB2800745D34D959670D89B</string>
 				<string>5587A160A132CB4A8998D845</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
@@ -913,6 +915,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>2F9AFF2D513317FC8BF884A6</string>
+		</dict>
+		<key>B9043CDA07AA4D44A13C5712</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>SweepQualityPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>3CB2800745D34D959670D89B</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>B9043CDA07AA4D44A13C5712</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

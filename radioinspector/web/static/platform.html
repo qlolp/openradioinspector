@@ -14,6 +14,7 @@
   <script src="/static/sweep-average.js" defer></script>
   <script src="/static/sweep-three-thresholds.js" defer></script>
   <script src="/static/sweep-context.js" defer></script>
+  <script src="/static/sweep-quality.js" defer></script>
   <script src="/static/frequency-rounding.js" defer></script>
   <script src="/static/spectrum-view.js" defer></script>
 
@@ -375,6 +376,18 @@
           <p id="average-summary"></p>
           <canvas id="average-overlay" width="960" height="280" role="img" aria-label="Средняя мощность и целевой свип, dBm" hidden></canvas>
           <canvas id="average-delta" width="960" height="260" role="img" aria-label="Разность цели и усреднённого опорного, dB" hidden></canvas>
+        </section>
+        <section class="context-panel" aria-labelledby="quality-heading">
+          <h3 id="quality-heading">Качество архивного свипа</h3>
+          <p>Эвристический обзор архива: не диагностирует перегрузку или помехи, не отбрасывает и не изменяет отсчёты. Нет команд прибору.</p>
+          <label for="quality-anchor">Архивный dBm свип выбранного потока</label>
+          <select id="quality-anchor"></select>
+          <label>Край · запас dB (0 &lt; запас ≤ 200)<input id="quality-margin" type="number" min="0" max="200" step="any" value="20" required></label>
+          <label>Высокий уровень dBm (−200…100)<input id="quality-high" type="number" min="-200" max="100" step="any" value="0" required></label>
+          <button id="quality-run" class="button" type="button" disabled>Получить отчёт</button>
+          <button id="quality-clear" class="button" type="button">Очистить</button>
+          <p id="quality-status" role="status" aria-live="polite"></p>
+          <pre id="quality-summary"></pre>
         </section>
         <section class="context-panel" aria-labelledby="context-heading">
           <h3 id="context-heading">Контекст архивного свипа · N1 / N2</h3>

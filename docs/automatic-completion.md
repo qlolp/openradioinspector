@@ -21,7 +21,7 @@ curl -sS -X POST \
 
 - `enabled` — обязательный JSON boolean для включения; начальное значение `false`;
 - `interval_seconds` — период прохода, 0,1…3600;
-- `minimum_listening_seconds` — минимальное время от `started_at`, 0…86400;
+- `minimum_listening_seconds` — минимальное время прослушивания от `listening_started_at` (успешного перехода в `LISTENING`), 0…86400; при неизвестной исторической отметке положительный минимум блокирует автоматическое завершение;
 - `minimum_observations` — необходимое число подходящих наблюдений, 1…1000;
 - `receiver_stream_id` — `null` для любого receiver либо ID receiver того же сеанса.
 

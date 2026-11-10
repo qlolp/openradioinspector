@@ -374,6 +374,17 @@ class PlatformClient:
             payload, expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True, preserve_data_json=True,
         )
 
+    def sweep_quality(self, session_id: str, sweep_id: str, edge_margin_db: float = 20, high_level_dbm: float = 0) -> dict[str, Any]:
+        from .sweep_quality import validate_parameters, validate_quality
+        from .sweep_average import identity
+        from .sweep_context import scope_identity
+        if not scope_identity(session_id) or not identity(sweep_id): raise ValueError('Некорректный ID')
+        validate_parameters(edge_margin_db, high_level_dbm)
+        payload = {'sweep_id': sweep_id, 'edge_margin_db': edge_margin_db, 'high_level_dbm': high_level_dbm}
+        data = self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/sweep-quality", payload,
+                             expected_statuses=(200,), strict_json=True, timeout=8.0, exact_envelope=True)
+        return validate_quality(data, (session_id, sweep_id, edge_margin_db, high_level_dbm))
+
     def sweep_context(self, session_id: str, sweep_id: str, before: int = 2, after: int = 2) -> dict[str, Any]:
         from .sweep_average import identity
         from .sweep_context import scope_identity, validate_counts

@@ -725,6 +725,17 @@ JSON-артефакт; это не отдельный серверный мар�
 Текущие клиенты получают списки и рекомендацию раздельно; новый Python
 `get_investigation` использует однозначный путь.
 
+### Read-only quality review of an archived sweep
+
+`POST /api/v1/sessions/{session_id}/sweep-quality` accepts exactly
+`sweep_id`, `edge_margin_db` (0 < value <= 200) and `high_level_dbm`
+(-200 <= value <= 100). It reports signed endpoint jumps and the number of
+samples meeting the explicit level threshold, with preserved source provenance.
+This is not an overload or calibration diagnosis and never modifies raw data,
+acquisition state or the archive. `features.sweep_quality` advertises the route.
+The complete contract, limits, errors and client semantics are in
+[sweep-quality.md](sweep-quality.md).
+
 В ответах Investigation добавлено необязательное поле UTC `listening_started_at`: момент успешного перехода в `LISTENING`, сохраняемый при декодировании и завершении. `started_at` по-прежнему означает начало перестройки. У старых записей и при ошибке или отмене перестройки отметка прослушивания равна null. Старые payload без поля принимаются. Положительный минимум длительности автоматического завершения требует этой отметки; нулевой минимум отключает только проверку времени.
 
 

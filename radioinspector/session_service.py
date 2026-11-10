@@ -45,6 +45,7 @@ from .serial_ports import serial_port_identity
 from .frequency_raster import (
     calculate_frequency_rounding, parse_frequency_raster, validate_rounding_request as validate_raster_request,
 )
+from .sweep_quality import calculate_sweep_quality, validate_quality_request
 from .frequency_counter import (
     calculate_frequency_counter, validate_counter_request,
 )
@@ -224,6 +225,7 @@ class SessionService:
                 "measurement_results": True,
                 "measurement_methodology_catalog": True,
                 "frequency_counter": True,
+                "sweep_quality": True,
                 "dvb_t_evaluation": True,
                 "phonogram_pre_history": True,
                 "signal_list_exchange": True,
@@ -714,6 +716,17 @@ class SessionService:
                 for candidate_id in candidate_ids
             ]
             return calculate_frequency_rounding(session_id, candidates, table)
+
+    def sweep_quality(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read-only review hints; never alter samples or instrument state."""
+        request = validate_quality_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, request["sweep_id"])
+            return calculate_sweep_quality(
+                session_id, sweep, edge_margin_db=request["edge_margin_db"],
+                high_level_dbm=request["high_level_dbm"],
+            )
 
     def frequency_counter(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Measure the peak frequency of one archived sweep, without writes."""
