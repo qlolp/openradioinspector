@@ -44,11 +44,12 @@ final class MonitoringWorkspaceEventTests: XCTestCase {
             configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: baseURL, session: URLSession(configuration: configuration))
         })
-        model.configure("http://example.test", "session")
+        model.configure("https://example.test", "session")
         let first = #"{"id":"p1","name":"First","site":"Site","state":"ready"}"#
         let second = #"{"id":"p2","name":"Second","site":"Site","state":"ready"}"#
         responses.set("{\"items\":[\(first),\(second)]}")
         await model.call()
+        _ = try XCTUnwrap(responses.lastRequest, "Initial project request must reach the stub: \(model.details)")
         XCTAssertEqual(model.projects.map { $0["id"].text }, ["p1", "p2"])
         XCTAssertEqual(model.selected, "p1")
         model.selected = "p2"
