@@ -81,6 +81,8 @@ class GuardOperations:
             old_sid = project['active_session_id']
             if any(r['sid'] == old_sid for r in self.runtime.values()):
                 raise WorkerError('Этот сеанс уже принадлежит другому проекту на охране')
+            if any(owner != identifier and sid == old_sid for owner, sid in self.preparing.items()):
+                raise WorkerError('Этот сеанс принадлежит сбору эталона другого проекта')
             self.workers.stop_session(old_sid)
             self.preparing.pop(identifier,None)
             if self.sessions.get_session(old_sid).state.value == 'running':

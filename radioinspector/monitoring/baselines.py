@@ -1,5 +1,6 @@
 """Durable references, allowlists, detector cursors and evidence events."""
 import copy
+import statistics
 from datetime import datetime, timezone
 
 from ..contracts import format_time, parse_time, to_primitive
@@ -63,11 +64,37 @@ class BaselineOperations:
             index = next((i+1 for i,x in enumerate(items) if x.id == cursor), 0)
             return [(i+1, copy.deepcopy(s)) for i,s in enumerate(items) if index <= i < index+limit]
 
+    def _recover_baseline_cadence(self, baseline):
+        if baseline.get('sweep_period_seconds'):
+            return
+        store = self.sessions._store
+        if store is None:
+            return
+        # Legacy baselines retain their original, bounded source references.
+        # Use adjacent available references only: missing archive rows must not
+        # inflate a period by bridging deleted samples.
+        previous = None
+        periods = []
+        for ref in baseline.get('source_refs', []):
+            source = store.get_sweep(ref['sweep_id'], session_id=ref['session_id'])
+            if source is not None and source.stream_id != ref['stream_id']:
+                source = None
+            if previous is not None and source is not None:
+                if (previous.session_id, previous.stream_id) == (source.session_id, source.stream_id):
+                    period = (source.interval.started_at - previous.interval.started_at).total_seconds()
+                    if period > 0:
+                        periods.append(period)
+            previous = source
+        if periods:
+            baseline['sweep_period_seconds'] = statistics.median(periods)
+            self.store.put('baseline', baseline)
+
     def analyze(self, identifier):
         with self.lock:
             project = self.project(identifier)
             if not project.get('baseline_id'): raise ValueError('Нужен подтверждённый эталон')
             baseline = self.store.get('baseline', project['baseline_id'])
+            self._recover_baseline_cadence(baseline)
             detector = Detector(baseline, project['parameters'], project.get('detector_state'))
             allowed = self.store.list('allowed', identifier, limit=1000)
             events = set()

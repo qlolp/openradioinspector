@@ -66,7 +66,9 @@ class Detector:
         previous=state.get('last_started_at')
         if previous:
             gap=(sweep.interval.started_at-parse_time(previous)).total_seconds()
-            if gap>max(1.,3*(b.get('sweep_period_seconds') or 1.)) or gap<0:
+            period = b.get('sweep_period_seconds')
+            # Unknown legacy cadence cannot establish a forward data gap.
+            if gap < 0 or (period and gap > max(1., 3 * period)):
                 state['window']=[];state['recent_sources']=[]
                 state['quality_issue']=dict(kind='data_gap',gap_seconds=gap,previous_started_at=previous)
         state['last_started_at']=format_time(sweep.interval.started_at)
@@ -104,12 +106,6 @@ class Detector:
                 start_frequency_hz=b['frequencies_hz'][0], end_frequency_hz=b['frequencies_hz'][-1],
                 center_frequency_hz=b['frequencies_hz'][peak], peak_level=sweep.levels[peak],
                 peak_excess_db=excess[peak], kind='broadband_change')]
-        elif len(regions)>32:
-            count=len(regions);first=regions[0]['first_bin'];last=regions[-1]['last_bin']
-            peak=max(range(first,last+1),key=excess.__getitem__)
-            regions=[dict(first_bin=first,last_bin=last,start_frequency_hz=b['frequencies_hz'][first],
-                end_frequency_hz=b['frequencies_hz'][last],center_frequency_hz=b['frequencies_hz'][peak],
-                peak_level=sweep.levels[peak],peak_excess_db=excess[peak],kind='dense_change',component_regions_count=count)]
         result = []
         for region in regions:
             rule = next((a for a in allowed if a['start_hz'] <= region['start_frequency_hz']
@@ -117,6 +113,16 @@ class Detector:
             if rule and not rule.get('watch_changes', False): continue
             if rule: region.update(kind='authorized_changed', allowed_id=rule['id'])
             result.append(region)
+        if not broad and len(result) > 32:
+            # Suppressed components must not determine count, span or peak.
+            first, last = result[0]['first_bin'], result[-1]['last_bin']
+            peak = max(result, key=lambda r: r['peak_excess_db'])
+            result = [dict(first_bin=first, last_bin=last,
+                start_frequency_hz=b['frequencies_hz'][first],
+                end_frequency_hz=b['frequencies_hz'][last],
+                center_frequency_hz=peak['center_frequency_hz'], peak_level=peak['peak_level'],
+                peak_excess_db=peak['peak_excess_db'], kind='dense_change',
+                component_regions_count=len(result))]
         # Detect first, learn second. Changed/impulsive bins and broad changes
         # never enter the quiet model. A bounded offset cannot absorb a carrier.
         if not broad:
