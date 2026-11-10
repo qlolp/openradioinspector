@@ -1785,6 +1785,23 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var pending = false
     @Published var hasPlayback = false
     @Published var audioLoading = false
+    @Published var leases: [String: MonitoringManualLease] = [:]
+    @Published var researchPending: Set<String> = []
+    @Published var researchError = ""
+    @Published var search: MonitoringValue = .null
+    @Published var coverage = ""
+    @Published var history: [MonitoringHistoryRow] = []
+    @Published var historyNext = ""
+    @Published var historyDescription = "История ещё не загружена."
+    @Published var selectedSweepID = ""
+    @Published var rawSweep: MonitoringHistoryRow?
+    @Published var rawDetail: MonitoringValue = .null
+    @Published var baselineComparison: MonitoringValue = .null
+    @Published var sources: [MonitoringValue] = []
+    @Published var sourcesNext = ""
+    private var researchRequests: [String: UUID] = [:]
+    private var historyQuery = MonitoringHistoryQuery()
+    var selectedSweep: MonitoringHistoryRow? { rawSweep ?? history.first { $0.id == selectedSweepID } }
     private var player: AVAudioPlayer?
     private var client: PlatformClient?
     private var scope = ""
@@ -1796,8 +1813,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var project: MonitoringValue { status["project"] }
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
-    var isArmed: Bool { status["active"].bool == true || project["state"].text == "armed" }
-    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !pending }
+    var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
+    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !pending && !researchPending.contains("control") }
     var configurationDirty: Bool {
         let savedMode = project["receiver_mode"].text.isEmpty ? "AUTO" : project["receiver_mode"].text
         if savedMode != receiverMode || (project["audio"] != .null) != audioEnabled { return true }
@@ -1808,6 +1825,15 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
     var canArm: Bool { canConfigure && !configurationDirty }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
+
+    /// Capture the UI's project before an asynchronous button action can begin.
+    func perform(_ action: @escaping @MainActor () async -> Void) {
+        let generation = revision
+        Task { [weak self] in
+            guard let self, self.revision == generation else { return }
+            await action()
+        }
+    }
 
     func configure(_ server: String, _ session: String) {
         let next = server + "|" + session
@@ -1823,6 +1849,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
         status = .null; preflight = .null; events = []; selectedEvent = ""; event = .null
         receiverMode = "AUTO"; audioEnabled = false; selectedInput = ""; audioConfirmed = false
         details = "Выберите проект и обновите состояние."; error = ""; notice = ""
+        leases = [:]; researchPending = []; researchRequests = [:]; researchError = ""
+        search = .null; coverage = ""; history = []; historyNext = ""; selectedSweepID = ""; rawSweep = nil
+        rawDetail = .null; baselineComparison = .null; sources = []; sourcesNext = ""
+        historyDescription = "История ещё не загружена."
         stopAudio()
     }
 
@@ -1891,6 +1921,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         guard !selected.isEmpty else { return }
         await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
+            coverage = result["project"]["coverage"].text
             if syncConfiguration {
                 let mode = project["receiver_mode"].text
                 receiverMode = mode.isEmpty ? "AUTO" : mode
@@ -1910,24 +1941,30 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
-    func saveConfiguration() async {
-        guard canSaveConfiguration else { return }
+    var configurationBody: [String: MonitoringValue]? {
+        guard canSaveConfiguration else { return nil }
         let audio: MonitoringValue
         if audioEnabled, let device = chosenDevice {
             audio = .object(["device": device["index"], "name": device["name"], "confirm": .boolean(true)])
         } else { audio = .null }
-        await command("configure", body: ["receiver_mode": .string(receiverMode), "audio": audio],
-                      success: "Настройки приёмника сохранены.", syncConfiguration: true)
+        return ["receiver_mode": .string(receiverMode), "audio": audio]
+    }
+
+    func saveConfiguration(_ body: [String: MonitoringValue]) async {
+        guard canConfigure else { return }
+        await command("configure", body: body, success: "Настройки приёмника сохранены.", syncConfiguration: true)
     }
 
     func command(_ resource: String, body: [String: MonitoringValue] = [:], success: String,
                  syncConfiguration: Bool = false) async {
         guard !selected.isEmpty, !pending else { return }
+        if resource == "disarm" { researchRequests["control"] = nil; researchPending.remove("control") }
         let current = revision
         let succeeded = await run(request: { client, id in try await client.monitoringProject(id, resource: resource, body: body) }) { _ in
             notice = success
         }
         guard current == revision, !Task.isCancelled else { return }
+        if resource == "disarm", succeeded { leases = [:]; search = .null; coverage = "" }
         if ["arm", "disarm", "configure"].contains(resource) {
             // A failed/timeout command can still have reached the core; query its actual state.
             status = .null
@@ -1953,7 +1990,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func showEvent(_ id: String) async {
         guard !pending else { return }
-        stopAudio(); selectedEvent = id; event = .null
+        stopAudio(); selectedEvent = id; event = .null; sources = []; sourcesNext = ""
+        researchRequests["sources"] = nil; researchPending.remove("sources")
         await run(eventID: id, request: { client, project in
             try await client.monitoringEvent(projectID: project, eventID: id)
         }) { event = $0 }
@@ -1986,6 +2024,149 @@ final class MonitoringWorkspaceModel: ObservableObject {
             }
         }
     }
+    @discardableResult
+    private func researchRequest(
+        _ channel: String, eventID: String? = nil, sweepID: String? = nil,
+        request: (PlatformClient, String) async throws -> MonitoringValue,
+        apply: (MonitoringValue) throws -> Void
+    ) async -> Bool {
+        guard let client, !selected.isEmpty, !researchPending.contains(channel) else { return false }
+        let generation = revision, projectID = selected, token = UUID()
+        researchRequests[channel] = token; researchPending.insert(channel)
+        if channel != "search" { researchError = "" }
+        defer {
+            if researchRequests[channel] == token { researchRequests[channel] = nil; researchPending.remove(channel) }
+        }
+        do {
+            let result = try await request(client, projectID)
+            guard revision == generation, selected == projectID, researchRequests[channel] == token,
+                  eventID == nil || selectedEvent == eventID, sweepID == nil || selectedSweepID == sweepID,
+                  !Task.isCancelled else { return false }
+            try apply(result)
+            return true
+        } catch {
+            if revision == generation, selected == projectID, researchRequests[channel] == token,
+               eventID == nil || selectedEvent == eventID, sweepID == nil || selectedSweepID == sweepID,
+               !Task.isCancelled { researchError = error.localizedDescription }
+            return false
+        }
+    }
+
+    func manual(_ action: String, role: String) async {
+        guard !pending, ["receiver", "analyzer"].contains(role), ["acquire", "renew", "return"].contains(action) else { return }
+        let lease = leases[role]
+        guard action == "acquire" || lease != nil else { return }
+        let body: [String: MonitoringValue] = action == "acquire" ? ["role": .string(role)] : ["token": .string(lease!.token)]
+        let current = revision, requestedAt = Date()
+        let succeeded = await researchRequest("control", request: { client, id in
+            try await client.monitoringControl(projectID: id, action: "manual/" + action, body: body)
+        }) { result in
+            if action == "return" {
+                leases[role] = nil
+                notice = "Ручное управление возвращено; восстановление анализатора подтверждается состоянием ядра."
+            } else {
+                let token = action == "renew" ? lease!.token : result["token"].text
+                guard !token.isEmpty, result["role"].text == role,
+                      let seconds = result["expires_seconds"].double, seconds > 0, seconds.isFinite else {
+                    throw PlatformError.invalidResponse("Ядро не подтвердило ручное управление")
+                }
+                leases[role] = .init(token: token, expiresAt: requestedAt.addingTimeInterval(seconds))
+                notice = "Ручное управление получено. Продлевайте явно до истечения срока."
+            }
+        }
+        if current == revision, succeeded, !Task.isCancelled { await refreshSearch(); await refreshStatus() }
+    }
+
+    func tuneManually(frequency: String, mode: String) async {
+        guard !pending else { return }
+        guard let lease = leases["receiver"], lease.expiresAt > Date() else { researchError = "Нужно действующее ручное управление приёмником."; return }
+        guard let hz = Int64(frequency), hz > 0, receiverModes.contains(mode) else { researchError = "Введите целую частоту Гц и режим приёмника."; return }
+        await researchRequest("control", request: { client, id in
+            try await client.monitoringControl(projectID: id, action: "manual/tune",
+                body: ["token": .string(lease.token), "frequency_hz": .integer(hz), "mode": .string(mode)])
+        }) { _ in notice = "Команда ручной настройки передана ядру." }
+    }
+
+    func startSearch(eventID: String, span: String) async {
+        guard !pending else { return }
+        guard let lease = leases["analyzer"], lease.expiresAt > Date() else { researchError = "Нужно действующее ручное управление анализатором."; return }
+        guard !eventID.isEmpty, selectedEvent == eventID, let hz = Int64(span), hz > 0 else { researchError = "Выберите событие и целую положительную полосу Гц."; return }
+        let current = revision
+        let succeeded = await researchRequest("control", eventID: eventID, request: { client, id in
+            try await client.monitoringControl(projectID: id, action: "search/start",
+                body: ["token": .string(lease.token), "event_id": .string(eventID), "span_hz": .integer(hz)])
+        }) { _ in notice = "Поиск источника запрошен. Широкий обзор приостановлен; проверяйте покрытие." }
+        if current == revision, succeeded, !Task.isCancelled { await refreshSearch(); await refreshStatus() }
+    }
+
+    func refreshSearch() async {
+        await researchRequest("search", request: { client, id in try await client.monitoringSearchStatus(projectID: id) }) { result in
+            search = result; coverage = result["coverage"].text
+        }
+    }
+
+    func markSearch(label: String) async {
+        guard !pending else { return }
+        guard let lease = leases["analyzer"], lease.expiresAt > Date(), !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            researchError = "Нужны действующее ручное управление анализатором и подпись метки."; return
+        }
+        let current = revision
+        let succeeded = await researchRequest("control", request: { client, id in
+            try await client.monitoringControl(projectID: id, action: "search/mark", body: ["token": .string(lease.token), "label": .string(label)])
+        }) { _ in notice = "Метка сохранена ядром." }
+        if current == revision, succeeded, !Task.isCancelled { await refreshSearch() }
+    }
+
+    func loadHistory(start: String, end: String, minHz: String, maxHz: String, eventID: String?) async {
+        func optional(_ value: String) -> String? { value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let lower = optional(minHz), upper = optional(maxHz)
+        guard lower == nil || Int64(lower!) != nil, upper == nil || Int64(upper!) != nil else { researchError = "Границы истории задаются целыми Гц."; return }
+        let query = MonitoringHistoryQuery(limit: 64, start: optional(start), end: optional(end),
+            minHz: lower.flatMap(Int64.init), maxHz: upper.flatMap(Int64.init), eventID: eventID)
+        await historyPage(query: query, after: nil)
+    }
+
+    func nextHistoryPage() async { guard !historyNext.isEmpty else { return }; await historyPage(query: historyQuery, after: historyNext) }
+
+    private func historyPage(query: MonitoringHistoryQuery, after: String?) async {
+        await researchRequest("history", request: { client, id in try await client.monitoringHistory(projectID: id, query: query, after: after) }) { result in
+            let rows = try result["items"].items.map { try MonitoringHistoryRow($0) }
+            historyQuery = query; history = rows.sorted { $0.startedAt == $1.startedAt ? $0.id < $1.id : $0.startedAt < $1.startedAt }
+            historyNext = result["next_cursor"].text
+            selectSweep(history.first?.id ?? "")
+            historyDescription = "UTC \(query.start ?? "начало") — \(query.end ?? "конец") · \(query.minHz.map(String.init) ?? "min")…\(query.maxHz.map(String.init) ?? "max") Гц · \(rows.count) свипов в странице · событие: \(query.eventID ?? "все")"
+        }
+    }
+
+    func selectSweep(_ id: String) {
+        selectedSweepID = id; rawSweep = nil; rawDetail = .null; baselineComparison = .null
+        researchRequests["sweep"] = nil; researchPending.remove("sweep")
+    }
+
+    func loadSelectedSweep(sweepID: String, comparison: Bool) async {
+        guard !sweepID.isEmpty, selectedSweepID == sweepID else { return }
+        if comparison, !researchPending.contains("sweep") { baselineComparison = .null }
+        await researchRequest("sweep", sweepID: sweepID, request: { client, id in
+            try await client.monitoringHistorySweep(projectID: id, sweepID: sweepID, comparison: comparison)
+        }) { result in
+            if comparison { baselineComparison = result }
+            else { rawSweep = try MonitoringHistoryRow(result, raw: true); rawDetail = result }
+        }
+    }
+
+    func loadSources(eventID: String, next: Bool) async {
+        let after = next ? sourcesNext : nil
+        guard !eventID.isEmpty, selectedEvent == eventID, !next || after?.isEmpty == false else { return }
+        await researchRequest("sources", eventID: eventID, request: { client, id in
+            try await client.monitoringEventSources(projectID: id, eventID: eventID, limit: 64, after: after)
+        }) { result in sources = result["items"].items; sourcesNext = result["next_cursor"].text }
+    }
+
+}
+
+struct MonitoringManualLease {
+    let token: String
+    let expiresAt: Date
 }
 
 struct MonitoringWorkspacePane: View {
@@ -1999,6 +2180,17 @@ struct MonitoringWorkspacePane: View {
     @State private var allowedStart = "100000000"
     @State private var allowedEnd = "100100000"
     @State private var watchChanges = false
+    @State private var manualRole = "receiver"
+    @State private var manualFrequency = "100000000"
+    @State private var manualMode = "AUTO"
+    @State private var searchSpan = "1000000"
+    @State private var markLabel = "Точка 1"
+    @State private var searchExpanded = false
+    @State private var historyStart = ""
+    @State private var historyEnd = ""
+    @State private var historyMinHz = ""
+    @State private var historyMaxHz = ""
+    @State private var historyEventOnly = false
 
     var body: some View {
         DisclosureGroup("Проект наблюдения · охрана и события") {
@@ -2008,6 +2200,11 @@ struct MonitoringWorkspacePane: View {
                 receiverControls
                 allowedControls
                 eventControls
+                manualControls
+                searchControls
+                historyControls
+                ErrorLine(text: workspace.researchError)
+                if !workspace.researchPending.isEmpty { ProgressView("Исследование: запрос к ядру…").controlSize(.small) }
                 if workspace.pending { ProgressView("Запрос к ядру…").controlSize(.small) }
                 if !workspace.notice.isEmpty { Text(workspace.notice).font(.caption) }
                 ErrorLine(text: workspace.error)
@@ -2025,11 +2222,18 @@ struct MonitoringWorkspacePane: View {
         .task(id: server + "|" + sessionID) { workspace.configure(server, sessionID); await workspace.load() }
         .onChange(of: workspace.selected) { _ in
             confirm = false
-            Task { await workspace.refreshStatus(syncConfiguration: true) }
+            workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
         }
         .onChange(of: workspace.selectedInput) { _ in workspace.audioConfirmed = false }
         .onChange(of: workspace.audioEnabled) { _ in workspace.audioConfirmed = false }
         .onDisappear { workspace.stopAudio() }
+        .task(id: server + "|" + sessionID + "|" + workspace.selected + "|" + String(searchExpanded)) {
+            guard searchExpanded, !workspace.selected.isEmpty else { return }
+            while !Task.isCancelled {
+                await workspace.refreshSearch()
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+            }
+        }
     }
 
     private var preparation: some View {
@@ -2038,9 +2242,12 @@ struct MonitoringWorkspacePane: View {
                 HStack {
                     TextField("Название", text: $name)
                     TextField("Объект", text: $site)
-                    Button("Создать") { Task { await workspace.createProject(name: name, site: site, sessionID: sessionID) } }
+                    Button("Создать") {
+                        let projectName = name, projectSite = site, session = sessionID
+                        workspace.perform { await workspace.createProject(name: projectName, site: projectSite, sessionID: session) }
+                    }
                         .disabled(server.isEmpty || sessionID.isEmpty || workspace.pending)
-                    Button("Обновить проекты") { Task { await workspace.reloadProjects() } }
+                    Button("Обновить проекты") { workspace.perform { await workspace.reloadProjects() } }
                         .disabled(server.isEmpty || workspace.pending)
                 }
                 Picker("Проект", selection: $workspace.selected) {
@@ -2050,12 +2257,13 @@ struct MonitoringWorkspacePane: View {
                     }
                 }
                 HStack {
-                    Button("Проверить готовность") { Task { await workspace.checkPreflight() } }
+                    Button("Проверить готовность") { workspace.perform { await workspace.checkPreflight() } }
                     Toggle("Подтверждаю обычную обстановку", isOn: $confirm)
-                    Button("Зафиксировать эталон") { Task {
-                        await workspace.command("baselines", body: ["name": .string(name), "location": .string(site), "confirm": .boolean(confirm)], success: "Эталон сохранён.")
-                    } }.disabled(!confirm || workspace.isArmed)
-                    Button("Анализ новых свипов") { Task { await workspace.command("analyze", success: "Анализ новых свипов выполнен.") } }
+                    Button("Зафиксировать эталон") {
+                        let body: [String: MonitoringValue] = ["name": .string(name), "location": .string(site), "confirm": .boolean(confirm)]
+                        workspace.perform { await workspace.command("baselines", body: body, success: "Эталон сохранён.") }
+                    }.disabled(!confirm || workspace.isArmed)
+                    Button("Анализ новых свипов") { workspace.perform { await workspace.command("analyze", success: "Анализ новых свипов выполнен.") } }
                 }.disabled(workspace.selected.isEmpty || workspace.pending)
                 if workspace.preflight != .null {
                     Text(workspace.preflight["ready"].bool == true ? "Подготовка: успешно" : "Подготовка: требуется внимание")
@@ -2072,13 +2280,15 @@ struct MonitoringWorkspacePane: View {
         GroupBox("Приёмник и автономная охрана") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Button("Обновить состояние") { Task { await workspace.refreshStatus() } }
+                    Button("Обновить состояние") { workspace.perform { await workspace.refreshStatus() } }
                         .disabled(workspace.selected.isEmpty || workspace.pending)
-                    Button("Поставить на охрану") { Task { await workspace.command("arm", success: "Команда постановки на охрану выполнена.") } }
+                    Button("Поставить на охрану") { workspace.perform { await workspace.command("arm", success: "Команда постановки на охрану выполнена.") } }
                         .disabled(!workspace.canArm)
-                    Button("Снять с охраны") { Task { await workspace.command("disarm", success: "Проект снят с охраны.") } }
+                    Button("Снять с охраны") { workspace.perform { await workspace.command("disarm", success: "Проект снят с охраны.") } }
                         .disabled(workspace.selected.isEmpty || workspace.pending)
                 }
+                Text("Покрытие: " + coverageLabel(workspace.coverage))
+                    .font(.headline).foregroundStyle(workspace.coverage == "wide" ? Color.primary : Color.orange)
                 if workspace.status == .null {
                     Text("Состояние неизвестно: запросите его у ядра.").foregroundStyle(.secondary)
                 } else {
@@ -2093,7 +2303,7 @@ struct MonitoringWorkspacePane: View {
                     Picker("Режим приёмника", selection: $workspace.receiverMode) {
                         ForEach(workspace.receiverModes, id: \.self) { Text($0).tag($0) }
                     }.frame(width: 240).disabled(!workspace.canConfigure)
-                    Button("Обновить аудиовходы ядра") { Task { await workspace.loadAudioInputs() } }
+                    Button("Обновить аудиовходы ядра") { workspace.perform { await workspace.loadAudioInputs() } }
                         .disabled(server.isEmpty || workspace.pending)
                 }
                 Text("AUTO и режимы AR-DV1 задаются явно; TETRA не входит в AUTO.").font(.caption).foregroundStyle(.secondary)
@@ -2112,7 +2322,10 @@ struct MonitoringWorkspacePane: View {
                     Toggle("Подтверждаю, что выбран аналоговый выход AR-DV1", isOn: $workspace.audioConfirmed)
                         .disabled(!workspace.canConfigure || workspace.chosenDevice == nil)
                 }
-                Button("Сохранить режим и аудиовход") { Task { await workspace.saveConfiguration() } }
+                Button("Сохранить режим и аудиовход") {
+                    guard let body = workspace.configurationBody else { return }
+                    workspace.perform { await workspace.saveConfiguration(body) }
+                }
                     .disabled(!workspace.canSaveConfiguration)
                 if workspace.configurationDirty { Text("Есть несохранённые настройки; сохраните их перед постановкой на охрану.").font(.caption) }
             }
@@ -2126,25 +2339,204 @@ struct MonitoringWorkspacePane: View {
                     TextField("Название сигнала", text: $allowedName)
                     TextField("От, Гц", text: $allowedStart)
                     TextField("До, Гц", text: $allowedEnd)
-                    Button("Разрешить") { Task {
-                        await workspace.command("allowed", body: ["name": .string(allowedName), "start_hz": .integer(Int64(allowedStart) ?? -1), "end_hz": .integer(Int64(allowedEnd) ?? -1), "watch_changes": .boolean(watchChanges)], success: "Разрешённый сигнал сохранён.")
-                    } }
+                    Button("Разрешить") {
+                        let body: [String: MonitoringValue] = ["name": .string(allowedName), "start_hz": .integer(Int64(allowedStart) ?? -1), "end_hz": .integer(Int64(allowedEnd) ?? -1), "watch_changes": .boolean(watchChanges)]
+                        workspace.perform { await workspace.command("allowed", body: body, success: "Разрешённый сигнал сохранён.") }
+                    }
                 }
                 Toggle("Наблюдать изменения разрешённого сигнала", isOn: $watchChanges)
             }.disabled(workspace.selected.isEmpty || workspace.pending)
         }
     }
 
+    private var manualControls: some View {
+        DisclosureGroup("Ручное управление · право на 30 секунд") {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Прибор", selection: $manualRole) {
+                    Text("AR-DV1 · приёмник").tag("receiver")
+                    Text("tinySA · анализатор").tag("analyzer")
+                }.frame(width: 280)
+                TimelineView(.periodic(from: Date(), by: 1)) { context in
+                    let lease = workspace.leases[manualRole]
+                    let valid = lease.map { $0.expiresAt > context.date } ?? false
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(lease == nil ? "Ручное право не получено в этом окне." : valid ? "Осталось \(max(0, Int(lease!.expiresAt.timeIntervalSince(context.date)))) с" : "Срок права истёк: прибор остаётся на паузе.")
+                        HStack {
+                            Button("Взять управление") {
+                                let role = manualRole
+                                workspace.perform { await workspace.manual("acquire", role: role) }
+                            }.disabled(!workspace.isArmed || lease != nil)
+                            Button("Продлить право") {
+                                let role = manualRole
+                                workspace.perform { await workspace.manual("renew", role: role) }
+                            }.disabled(!valid)
+                            Button("Вернуть охране / восстановить обзор") {
+                                let role = manualRole
+                                workspace.perform { await workspace.manual("return", role: role) }
+                            }.disabled(lease == nil)
+                        }
+                    }
+                }
+                HStack {
+                    TextField("Частота AR-DV1, целые Гц", text: $manualFrequency)
+                    Picker("Режим настройки", selection: $manualMode) {
+                        ForEach(workspace.receiverModes, id: \.self) { Text($0).tag($0) }
+                    }.frame(width: 150)
+                    Button("Настроить вручную") {
+                        let frequency = manualFrequency, mode = manualMode
+                        workspace.perform { await workspace.tuneManually(frequency: frequency, mode: mode) }
+                    }.disabled(workspace.leases["receiver"] == nil)
+                }
+                Text("Продление и возврат выполняются явно. Истечение срока оставляет прибор на паузе и не воспроизводит прежние команды. Если право потеряно, снимите проект с охраны. Права хранятся только в памяти этого окна и очищаются при смене проекта/сервера.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.disabled(workspace.selected.isEmpty || workspace.pending || workspace.researchPending.contains("control"))
+        }
+    }
+
+    private var searchControls: some View {
+        DisclosureGroup("Поиск источника · узкая полоса", isExpanded: $searchExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    TextField("Полоса поиска, целые Гц", text: $searchSpan)
+                    Button("Искать источник выбранного события") {
+                        let id = workspace.selectedEvent, span = searchSpan
+                        workspace.perform { await workspace.startSearch(eventID: id, span: span) }
+                    }.disabled(workspace.selectedEvent.isEmpty || workspace.leases["analyzer"] == nil || workspace.pending || workspace.researchPending.contains("control"))
+                    Button("Состояние поиска") { workspace.perform { await workspace.refreshSearch() } }
+                        .disabled(workspace.selected.isEmpty || workspace.researchPending.contains("search"))
+                }
+                Text("Покрытие: \(coverageLabel(workspace.coverage))")
+                    .font(.headline).foregroundStyle(workspace.coverage == "wide" ? Color.primary : Color.orange)
+                Text("Узкий поиск приостанавливает широкий обзор. Для возврата явно верните анализатор охране и дождитесь покрытия «широкий обзор».")
+                    .font(.caption).foregroundStyle(.secondary)
+                if workspace.search != .null {
+                    ErrorLine(text: workspace.search["error"].text)
+                    Text("Событие \(workspace.search["event_id"].scalar) · центр \(workspace.search["center_frequency_hz"].scalar) Гц · полоса \(workspace.search["span_hz"].scalar) Гц").font(.caption)
+                    MonitoringCurveChart(curves: [.init(title: "Пик свипа · dBm", color: .primary, points: workspace.search["series"].items.compactMap { item in
+                        guard let time = item["started_at"].utcDate, let level = item["peak_level"].double, level.isFinite else { return nil }
+                        return PlotPoint(x: time.timeIntervalSince1970, y: level)
+                    }), .init(title: "Метки обхода", color: .red, points: workspace.search["marks"].items.compactMap { item in
+                        guard let time = item["created_at"].utcDate, let level = item["level"].double, level.isFinite else { return nil }
+                        return PlotPoint(x: time.timeIntervalSince1970, y: level)
+                    }, connectsPoints: false)], timeAxis: true)
+                    Text("Максимальный уровень по данным ядра: \(workspace.search["maximum_level"].scalar) dBm")
+                    HStack {
+                        TextField("Подпись точки обхода", text: $markLabel)
+                        Button("Поставить метку") {
+                            let label = markLabel
+                            workspace.perform { await workspace.markSearch(label: label) }
+                        }.disabled(workspace.leases["analyzer"] == nil || workspace.pending || workspace.researchPending.contains("control"))
+                    }
+                    DisclosureGroup("Метки обхода (\(workspace.search["marks"].items.count))") {
+                        ScrollView {
+                            LazyVStack(alignment: .leading) {
+                                ForEach(Array(workspace.search["marks"].items.enumerated()), id: \.offset) { _, mark in
+                                    Text("\(mark["label"].text) · UTC \(mark["created_at"].text) · \(mark["level"].scalar) dBm · \(mark["frequency_hz"].scalar) Гц").font(.caption)
+                                }
+                            }
+                        }.frame(maxHeight: 130)
+                    }
+                }
+            }
+        }
+    }
+
+    private var historyControls: some View {
+        DisclosureGroup("История · временной водопад и спектр") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    TextField("Начало UTC, ISO 8601 Z", text: $historyStart)
+                    TextField("Конец UTC, ISO 8601 Z", text: $historyEnd)
+                }
+                HStack {
+                    TextField("От, целые Гц (необязательно)", text: $historyMinHz)
+                    TextField("До, целые Гц (необязательно)", text: $historyMaxHz)
+                    Toggle("Только выбранное событие", isOn: $historyEventOnly)
+                }
+                HStack {
+                    Button("Загрузить историю") {
+                        let start = historyStart, end = historyEnd, minHz = historyMinHz, maxHz = historyMaxHz
+                        let id: String? = historyEventOnly ? workspace.selectedEvent : nil
+                        workspace.perform { await workspace.loadHistory(start: start, end: end, minHz: minHz, maxHz: maxHz, eventID: id) }
+                    }.disabled(workspace.selected.isEmpty || (historyEventOnly && workspace.selectedEvent.isEmpty))
+                    Button("Следующая страница") { workspace.perform { await workspace.nextHistoryPage() } }.disabled(workspace.historyNext.isEmpty)
+                }.disabled(workspace.researchPending.contains("history"))
+                Text(workspace.historyDescription).font(.caption)
+                if !workspace.history.isEmpty {
+                    MonitoringHistoryTimeline(rows: workspace.history, selected: workspace.selectedSweepID, select: workspace.selectSweep)
+                    Picker("Свип истории", selection: Binding(get: { workspace.selectedSweepID }, set: workspace.selectSweep)) {
+                        ForEach(workspace.history) { row in Text("\(MonitoringCurveChart.utc(row.startedAt.timeIntervalSince1970)) · \(row.id)").tag(row.id) }
+                    }
+                }
+                if let sweep = workspace.selectedSweep {
+                    Text("\(sweep.displayOnly ? "Экранные точки ядра" : "Исходный архивный свип") · \(sweep.levels.count)/\(sweep.originalPointCount) точек · \(sweep.id)")
+                    MonitoringCurveChart(curves: [.init(title: "Выбранный спектр · dBm", color: .primary,
+                        points: zip(sweep.frequenciesHz, sweep.levels).map { PlotPoint(x: Double($0.0), y: $0.1) })])
+                    HStack {
+                        Button("Исходный свип") {
+                            let id = workspace.selectedSweepID
+                            workspace.perform { await workspace.loadSelectedSweep(sweepID: id, comparison: false) }
+                        }
+                        Button("Было / сейчас · эталон") {
+                            let id = workspace.selectedSweepID
+                            workspace.perform { await workspace.loadSelectedSweep(sweepID: id, comparison: true) }
+                        }
+                    }.disabled(workspace.researchPending.contains("sweep"))
+                    if workspace.rawDetail != .null {
+                        DisclosureGroup("Настройки исходного свипа") { Text(workspace.rawDetail["settings"].pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }
+                    }
+                }
+                if workspace.baselineComparison != .null { comparisonControls }
+                Text("До 64 свипов × 320 экранных точек. Максимумы сохраняет ядро; экранные точки не заменяют исходные измерения. Вертикальная ось — фактическое UTC, пропуски оставлены пустыми. Для исходных значений загрузите отдельный свип.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var comparisonControls: some View {
+        let value = workspace.baselineComparison
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Эталон \(value["baseline_id"].scalar) · детектор \(value["detector_version"].scalar)").font(.caption)
+            if value["compatible"].bool == true {
+                MonitoringCurveChart(curves: [
+                    comparisonCurve(value, field: "baseline_p50_dbm", title: "Было · p50", color: .blue),
+                    comparisonCurve(value, field: "baseline_p95_dbm", title: "Было · p95", color: .orange),
+                    comparisonCurve(value, field: "current_dbm", title: "Сейчас · dBm", color: .primary)
+                ])
+                DisclosureGroup("Разность по данным ядра · dB") {
+                    ScrollView {
+                        LazyVStack(alignment: .leading) {
+                            ForEach(Array(value["items"].items.enumerated()), id: \.offset) { _, point in
+                                Text("\(point["frequency_hz"].scalar) Гц · Δ \(point["delta_db"].scalar) dB").font(.caption)
+                            }
+                        }
+                    }.frame(maxHeight: 140)
+                }
+            } else { Text("Сравнение недоступно: \(value["reason"].text)").foregroundStyle(.orange) }
+        }
+    }
+
+    private func comparisonCurve(_ value: MonitoringValue, field: String, title: String, color: Color) -> MonitoringCurve {
+        .init(title: title, color: color, points: value["items"].items.compactMap { point in
+            guard let frequency = point["frequency_hz"].integer, let level = point[field].double, level.isFinite else { return nil }
+            return PlotPoint(x: Double(frequency), y: level)
+        })
+    }
+
+    private func coverageLabel(_ value: String) -> String {
+        ["wide": "широкий обзор", "stopped": "остановлено", "error": "ошибка покрытия", "narrow": "узкая полоса — широкий обзор приостановлен", "restoring": "восстанавливается широкий обзор", "paused": "пауза — требуется явный возврат или снятие с охраны"][value] ?? "не подтверждено ядром"
+    }
+
     private var eventControls: some View {
         GroupBox("События и записи") {
             VStack(alignment: .leading, spacing: 8) {
-                Button("Обновить события") { Task { await workspace.loadEvents() } }
+                Button("Обновить события") { workspace.perform { await workspace.loadEvents() } }
                     .disabled(workspace.selected.isEmpty || workspace.pending)
                 if workspace.events.isEmpty { Text("Список событий пуст или ещё не загружен.").font(.caption) }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(workspace.events.enumerated()), id: \.offset) { _, item in
-                            Button { Task { await workspace.showEvent(item["id"].text) } } label: {
+                            Button { workspace.perform { await workspace.showEvent(item["id"].text) } } label: {
                                 VStack(alignment: .leading) {
                                     Text("\(label(item["kind"].text)) · \(item["center_frequency_hz"].scalar) Гц · \(label(item["state"].text))")
                                     Text("UTC \(item["last_seen"].text) · приёмник: \(label(item["analysis"]["state"].text))").font(.caption)
@@ -2179,12 +2571,25 @@ struct MonitoringWorkspacePane: View {
             if analysis["audio"] != .null {
                 Text("Архивная фонограмма WAV: \(analysis["audio"]["filename"].text)").font(.caption)
                 HStack {
-                    Button("Воспроизвести WAV") { Task { await workspace.playAudio() } }.disabled(!workspace.canPlay)
+                    Button("Воспроизвести WAV") { workspace.perform { await workspace.playAudio() } }.disabled(!workspace.canPlay)
                     Button("Стоп") { workspace.stopAudio() }.disabled(!workspace.hasPlayback && !workspace.audioLoading)
                     Text(workspace.audioNotice).font(.caption)
                 }
                 Text("Загрузка до 16 МиБ через API ядра.").font(.caption).foregroundStyle(.secondary)
             } else { Text("Записи WAV для события нет.").font(.caption) }
+            HStack {
+                Button("Источники события") {
+                    let id = workspace.selectedEvent
+                    workspace.perform { await workspace.loadSources(eventID: id, next: false) }
+                }
+                Button("Следующие источники") {
+                    let id = workspace.selectedEvent
+                    workspace.perform { await workspace.loadSources(eventID: id, next: true) }
+                }.disabled(workspace.sourcesNext.isEmpty)
+            }.disabled(workspace.researchPending.contains("sources"))
+            ForEach(Array(workspace.sources.enumerated()), id: \.offset) { _, source in
+                Text("Свип \(source["sweep_id"].text) · сеанс \(source["session_id"].text) · поток \(source["stream_id"].text)").font(.caption)
+            }
             DisclosureGroup("JSON выбранного события") {
                 ScrollView { Text(event.pretty).font(.system(.caption, design: .monospaced)).textSelection(.enabled) }.frame(maxHeight: 160)
             }
@@ -2192,12 +2597,138 @@ struct MonitoringWorkspacePane: View {
     }
 
     private func label(_ value: String) -> String {
-        ["draft": "подготовка", "ready": "готов", "armed": "на охране", "error": "ошибка",
+        ["draft": "подготовка", "ready": "готов", "armed": "на охране", "searching": "поиск источника", "error": "ошибка",
          "running": "работает", "stopped": "остановлен", "connected": "подключён",
          "persistent": "устойчивый сигнал", "impulse": "импульс", "broadband_change": "широкополосное изменение",
          "authorized_changed": "изменение разрешённого сигнала", "open": "открыто", "closed": "закрыто",
          "queued": "в очереди", "observed": "наблюдался приёмником", "not_present_at_receiver": "не обнаружен приёмником",
          "no_observations": "нет наблюдений", "expired": "исчез до перестройки", "interrupted": "прервано",
          "failed": "не выполнено"][value] ?? (value.isEmpty ? "нет данных" : value)
+    }
+}
+
+struct MonitoringCurve {
+    let title: String
+    let color: Color
+    let points: [PlotPoint]
+    var connectsPoints = true
+}
+
+/// Display geometry only. All levels, peak choices, and baseline deltas come from the core.
+struct MonitoringCurveChart: View {
+    let curves: [MonitoringCurve]
+    var timeAxis = false
+
+    private var points: [PlotPoint] { curves.flatMap(\.points).filter { $0.x.isFinite && $0.y.isFinite } }
+    private var xBounds: ClosedRange<Double> {
+        let low = points.map(\.x).min() ?? 0, high = points.map(\.x).max() ?? 1
+        return low...(high > low ? high : low + 1)
+    }
+    private var levelScale: WaterfallScale { WaterfallScale.auto(rows: curves.map { $0.points.map(\.y) }) ?? .init(low: -120, high: 0) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if points.isEmpty { Text("Нет точек для графика.").font(.caption) }
+            else {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack { Text(String(format: "%.1f", levelScale.high)); Spacer(); Text(String(format: "%.1f", levelScale.low)) }
+                        .font(.caption.monospacedDigit()).frame(width: 48, height: 150)
+                    Canvas { context, size in
+                        let xBounds = self.xBounds, levelScale = self.levelScale
+                        for curve in curves {
+                            let valid = curve.points.filter { $0.x.isFinite && $0.y.isFinite }.sorted { $0.x < $1.x }
+                            var path = Path()
+                            for (index, point) in valid.enumerated() {
+                                let location = CGPoint(x: (point.x - xBounds.lowerBound) / (xBounds.upperBound - xBounds.lowerBound) * size.width,
+                                                       y: (1 - levelScale.fraction(point.y)) * size.height)
+                                if index == 0 { path.move(to: location) } else { path.addLine(to: location) }
+                                context.fill(Path(ellipseIn: CGRect(x: location.x - 2, y: location.y - 2, width: 4, height: 4)), with: .color(curve.color))
+                            }
+                            if curve.connectsPoints { context.stroke(path, with: .color(curve.color), lineWidth: 1.3) }
+                        }
+                    }.frame(height: 150).background(Color.primary.opacity(0.04)).clipped()
+                }
+                HStack {
+                    Text(axis(xBounds.lowerBound)); Spacer(); Text(timeAxis ? "UTC" : "Гц"); Spacer(); Text(axis(xBounds.upperBound))
+                }.font(.caption.monospacedDigit())
+                HStack {
+                    ForEach(Array(curves.enumerated()), id: \.offset) { _, curve in
+                        Text("● " + curve.title).foregroundStyle(curve.color).font(.caption)
+                    }
+                }
+            }
+        }
+    }
+
+    private func axis(_ value: Double) -> String { timeAxis ? Self.utc(value) : String(format: "%.0f", value) }
+    static func utc(_ value: Double) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date(timeIntervalSince1970: value))
+    }
+}
+
+/// Actual UTC intervals on the vertical axis; each row retains its own core-selected grid.
+struct MonitoringHistoryTimeline: View {
+    let rows: [MonitoringHistoryRow]
+    let selected: String
+    let select: (String) -> Void
+    private var lowerTime: Double { rows.map { $0.startedAt.timeIntervalSince1970 }.min() ?? 0 }
+    private var upperTime: Double { max(rows.map { $0.endedAt.timeIntervalSince1970 }.max() ?? 1, lowerTime + 0.001) }
+    private var lowerFrequency: Double { Double(rows.compactMap { $0.frequenciesHz.first }.min() ?? 0) }
+    private var upperFrequency: Double { max(Double(rows.compactMap { $0.frequenciesHz.last }.max() ?? 1), lowerFrequency + 1) }
+    private var scale: WaterfallScale { WaterfallScale.auto(rows: rows.map(\.levels)) ?? .init(low: -120, high: 0) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Частота: \(String(format: "%.0f", lowerFrequency)) Гц")
+                Spacer()
+                Text("\(String(format: "%.0f", upperFrequency)) Гц")
+            }.font(.caption.monospacedDigit())
+            HStack(spacing: 6) {
+                VStack(alignment: .leading) {
+                    Text(MonitoringCurveChart.utc(lowerTime)); Spacer(); Text("UTC ↓"); Spacer(); Text(MonitoringCurveChart.utc(upperTime))
+                }.font(.caption.monospacedDigit()).frame(width: 180, height: 190)
+                Canvas { context, size in
+                    let lowerTime = self.lowerTime, upperTime = self.upperTime
+                    let lowerFrequency = self.lowerFrequency, upperFrequency = self.upperFrequency
+                    let scale = self.scale
+                    for row in rows where !row.frequenciesHz.isEmpty {
+                        let y = (row.startedAt.timeIntervalSince1970 - lowerTime) / (upperTime - lowerTime) * size.height
+                        let bottom = (row.endedAt.timeIntervalSince1970 - lowerTime) / (upperTime - lowerTime) * size.height
+                        for index in row.levels.indices {
+                            let frequency = Double(row.frequenciesHz[index])
+                            let left = index == 0 ? frequency : (Double(row.frequenciesHz[index - 1]) + frequency) / 2
+                            let right = index == row.levels.count - 1 ? frequency : (frequency + Double(row.frequenciesHz[index + 1])) / 2
+                            let x = (left - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
+                            let endX = (right - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
+                            let rgb = WaterfallPalette.color(scale.fraction(row.levels[index]))
+                            context.fill(Path(CGRect(x: x, y: y, width: max(1, endX - x), height: max(1, bottom - y))),
+                                         with: .color(Color(red: rgb.red, green: rgb.green, blue: rgb.blue)))
+                        }
+                        if row.id == selected {
+                            let startX = (Double(row.frequenciesHz.first ?? 0) - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
+                            let endX = (Double(row.frequenciesHz.last ?? 0) - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
+                            context.stroke(Path(CGRect(x: startX, y: y, width: max(2, endX - startX), height: max(2, bottom - y))),
+                                           with: .color(.yellow), lineWidth: 2)
+                        }
+                    }
+                }
+                .frame(height: 190).background(Color.primary.opacity(0.04)).clipped()
+                .overlay {
+                    GeometryReader { geometry in
+                        Color.clear.contentShape(Rectangle()).gesture(SpatialTapGesture().onEnded { value in
+                            let stamp = lowerTime + Double(value.location.y / max(1, geometry.size.height)) * (upperTime - lowerTime)
+                            if let row = rows.last(where: { $0.startedAt.timeIntervalSince1970 <= stamp && $0.endedAt.timeIntervalSince1970 >= stamp }) {
+                                select(row.id)
+                            }
+                        })
+                    }
+                }
+                .accessibilityLabel("Водопад истории по UTC. Для выбора свипа также используйте список под графиком.")
+            }
+            Text(String(format: "Цвет: %.1f…%.1f dBm · нажмите интервал свипа", scale.low, scale.high)).font(.caption)
+        }
     }
 }

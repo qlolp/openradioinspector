@@ -26,6 +26,7 @@
   <script src="/static/measurement-map.js" defer></script>
   <script src="/static/audio-stream.js" defer></script>
   <script src="/static/monitoring.js" defer></script>
+  <script src="/static/monitoring-research.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -91,6 +92,27 @@
     </details>
     <div data-role="events" aria-live="polite"></div>
     <audio controls preload="none" aria-label="Аудиозапись события"></audio>
+    <details><summary>Ручное управление и поиск источника</summary>
+      <p>Захват прибора приостанавливает его автоматизацию. Истёкшая аренда оставляет паузу; потерянный ключ сбрасывается снятием охраны.</p>
+      <select name="manual-role" aria-label="Ручной прибор"><option value="receiver">AR-DV1</option><option value="analyzer">tinySA</option></select>
+      <button data-action="manual-acquire">Взять вручную</button><button data-action="manual-renew">Продлить на 30 с</button><button data-action="manual-return">Вернуть охране</button>
+      <label>Приём, Гц<input name="manual-frequency" type="number" step="10" value="145500000"></label><button data-action="manual-tune">Перестроить AR-DV1</button>
+      <p data-role="coverage" aria-live="polite">Широкое покрытие: запросите состояние охраны.</p>
+      <label>Событие<select name="search-event"><option value="">Выберите событие</option></select></label>
+      <label>Узкая полоса, Гц<input name="search-span" type="number" value="1000000" min="1000" max="100000000"></label>
+      <button data-action="search-start">Включить узкий обзор</button><button data-action="search-status">Обновить поиск</button>
+      <label>Положение<input name="position-label" maxlength="200" placeholder="Например, дверь / антенна 1"></label><button data-action="search-mark">Отметить положение</button>
+      <canvas data-role="source-chart" width="1000" height="180" aria-label="Уровень во времени"></canvas>
+    </details>
+    <details><summary>Исследовательская история · UTC</summary>
+      <label>С<input name="history-start" placeholder="2026-11-10T00:00:00Z"></label><label>По<input name="history-end" placeholder="2026-11-10T23:59:59Z"></label>
+      <label>От, Гц<input name="history-min" type="number" min="0"></label><label>До, Гц<input name="history-max" type="number" min="0"></label>
+      <label><input name="history-event" type="checkbox"> Только выбранное событие</label>
+      <button data-action="history">Загрузить историю</button><button data-action="history-next" disabled>Следующая страница</button>
+      <canvas data-role="history-chart" width="1000" height="240" aria-label="Водопад истории по времени UTC"></canvas>
+      <label>Свип<select name="history-sweep"></select></label><button data-action="history-raw">Исходный свип</button><button data-action="history-compare">Сравнить с эталоном</button>
+      <canvas data-role="history-spectrum" width="1000" height="180" aria-label="Выбранный спектр и эталон"></canvas>
+    </details>
     <pre aria-live="polite">Выберите двухприборный сеанс и создайте проект.</pre>
   </section>
   <main id="workspace" class="console-grid">

@@ -377,3 +377,7 @@ form.editor { border-style: solid; }
 #monitoring-workspace {margin: 12px; padding: 12px;}
 #monitoring-workspace pre {max-height:220px;overflow:auto;white-space:pre-wrap;}
 body[data-workspace-mode="monitoring"] :is(.comparison-panel,.threshold-panel,.mask-panel,.average-panel,.counter-panel,.dvb-panel,.map-panel) {display:none;}
+
+#monitoring-workspace canvas { width:100%; height:auto; background:#101a27; display:block; margin:8px 0; }
+#monitoring-workspace [data-role=coverage] { font-weight:600; color:#e8b86d; }
+#monitoring-workspace details { margin:8px 0; }

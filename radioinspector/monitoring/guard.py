@@ -32,8 +32,13 @@ class GuardOperations:
     def authorize_control(self, sid, stream, owner):
         with self.lock:
             for runtime in self.runtime.values():
-                if runtime['sid'] == sid and stream in runtime['streams']:
-                    expected = runtime.get('manual', {}).get(stream, {}).get('token', runtime['token'])
+                if (sid,stream) in runtime['claims']:
+                    if runtime['stop'].is_set(): raise WorkerError('Охрана останавливается')
+                    lease=runtime.get('manual',{}).get(stream)
+                    if lease and lease['returning'] and owner==runtime['token']: return
+                    if lease and (lease['returning'] or time.monotonic()>=lease['expires']):
+                        raise WorkerError('Ручная аренда истекла/возвращается; автоматизация остаётся на паузе')
+                    expected = lease['token'] if lease else runtime['token']
                     if owner != expected:
                         raise WorkerError('Прибор принадлежит охране: сначала явно возьмите ручное управление')
 
@@ -90,6 +95,7 @@ class GuardOperations:
                 state='armed', detector_state=None, detector_cursor=None, detector_rowid=0,
                 last_error=None, coverage='wide', armed_at=format_time(utc_now()))
             runtime = dict(token=uuid4().hex, sid=session.id, streams=[s.id for s in session.streams],
+                claims={(session.id,s.id) for s in session.streams},
                 stop=threading.Event(), threads=[], manual={}, receiver_busy=False, epoch=0)
             self.runtime[identifier] = runtime
             self.store.put('project', project)
@@ -114,7 +120,8 @@ class GuardOperations:
         if runtime:
             for thread in list(runtime['threads']):
                 if thread is not threading.current_thread(): thread.join(timeout=15)
-            self.workers.stop_session(runtime['sid'])
+            for sid in {sid for sid,_ in runtime['claims']}:
+                self.workers.stop_session(sid)
         with self.lock:
             self.runtime.pop(identifier, None)
             project = self.project(identifier)
@@ -134,6 +141,7 @@ class GuardOperations:
                 analyzer = project['analyzer_stream_id']
                 if analyzer not in runtime['manual']:
                     self.analyze(identifier)
+                self._search_tick(identifier,runtime)
                 self._queue_receiver(identifier, runtime)
         except Exception as exc:
             with self.lock:
@@ -143,8 +151,9 @@ class GuardOperations:
                 except Exception: pass  # Archive failure must remain visible in runtime too.
                 runtime['error'] = str(exc)
             runtime['stop'].set()
-            try: self.workers.stop_session(runtime['sid'])
-            except Exception: pass
+            for sid in {sid for sid,_ in runtime['claims']}:
+                try: self.workers.stop_session(sid)
+                except Exception: pass
 
     def _queue_receiver(self, identifier, runtime):
         with self.lock:
@@ -238,5 +247,7 @@ class GuardOperations:
             return dict(project=project, active=bool(runtime and not runtime['stop'].is_set()),
                 receiver_busy=bool(runtime and runtime['receiver_busy']),
                 error=runtime.get('error') if runtime else project.get('last_error'),
+                manual=[dict(role=lease['role'],expired=time.monotonic()>=lease['expires'],returning=lease['returning'],
+                             expires_seconds=max(0,round(lease['expires']-time.monotonic()))) for lease in runtime['manual'].values()] if runtime else [],
                 workers=self.workers.list_workers(project['active_session_id']),
                 audio_configured=bool(project.get('audio')), hardware_validation='not_run')

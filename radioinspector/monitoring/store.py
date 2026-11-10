@@ -7,7 +7,7 @@ from ..session_store import SQLiteSessionStore
 
 
 class ProjectStore:
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self, store):
         self.owned = store is None
@@ -37,6 +37,9 @@ class ProjectStore:
             self.db.execute('''INSERT INTO monitoring_records VALUES (?,?,?,?,?)
                 ON CONFLICT(kind,id) DO UPDATE SET payload=excluded.payload''',
                 (kind, value['id'], value.get('project_id', value['id']), value['created_at'], payload))
+            if kind=='project':
+                self.db.executemany('INSERT OR IGNORE INTO monitoring_sessions VALUES (?,?)',
+                    [(value['id'],sid) for sid in value['session_ids']])
         return copy.deepcopy(value)
 
     def get(self, kind, identifier):

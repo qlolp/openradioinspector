@@ -33,6 +33,16 @@ public enum MonitoringValue: Codable, Equatable, Sendable {
     public var items: [MonitoringValue] { if case .array(let x) = self { return x }; return [] }
     public var bool: Bool? { if case .boolean(let x) = self { return x }; return nil }
     public var integer: Int64? { if case .integer(let x) = self { return x }; return nil }
+    public var double: Double? {
+        switch self { case .integer(let x): return Double(x); case .number(let x): return x; default: return nil }
+    }
+    public var utcDate: Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
     public var scalar: String {
         switch self {
         case .string(let x): return x
@@ -43,6 +53,76 @@ public enum MonitoringValue: Codable, Equatable, Sendable {
         }
     }
     public var pretty: String { let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]; return (try? String(decoding: e.encode(self), as: UTF8.self)) ?? "" }
+}
+
+public struct MonitoringHistoryQuery: Equatable, Sendable {
+    public var limit: Int
+    public var start: String?
+    public var end: String?
+    public var minHz: Int64?
+    public var maxHz: Int64?
+    public var eventID: String?
+    public init(limit: Int = 32, start: String? = nil, end: String? = nil,
+                minHz: Int64? = nil, maxHz: Int64? = nil, eventID: String? = nil) {
+        self.limit = limit; self.start = start; self.end = end
+        self.minHz = minHz; self.maxHz = maxHz; self.eventID = eventID
+    }
+    func query(after: String?) throws -> [URLQueryItem] {
+        guard (1...64).contains(limit), minHz.map({ $0 >= 0 }) ?? true,
+              maxHz.map({ $0 >= 0 }) ?? true,
+              minHz == nil || maxHz == nil || minHz! <= maxHz! else {
+            throw PlatformError.invalidCommand("История: 1…64 свипа и корректные границы Гц")
+        }
+        for text in [start, end].compactMap({ $0 }) {
+            guard (text.hasSuffix("Z") || text.hasSuffix("+00:00")), MonitoringValue.string(text).utcDate != nil else {
+                throw PlatformError.invalidCommand("Введите время UTC в формате ISO 8601 с Z")
+            }
+        }
+        if let start, let end,
+           let first = MonitoringValue.string(start).utcDate, let last = MonitoringValue.string(end).utcDate, first > last {
+            throw PlatformError.invalidCommand("Начало истории позже окончания")
+        }
+        var result = [URLQueryItem(name: "limit", value: String(limit))]
+        for (name, value) in [("after", after), ("start", start), ("end", end),
+                              ("min_hz", minHz.map(String.init)), ("max_hz", maxHz.map(String.init)), ("event_id", eventID)] {
+            if let value, !value.isEmpty { result.append(.init(name: name, value: value)) }
+        }
+        return result
+    }
+}
+
+/// Core-selected display samples, retaining each sweep's own frequency grid and UTC interval.
+public struct MonitoringHistoryRow: Equatable, Sendable, Identifiable {
+    public let id: String
+    public let sessionID: String
+    public let streamID: String
+    public let startedAt: Date
+    public let endedAt: Date
+    public let frequenciesHz: [Int64]
+    public let levels: [Double]
+    public let originalPointCount: Int
+    public let displayOnly: Bool
+    public init(_ value: MonitoringValue, raw: Bool = false) throws {
+        let frequencies = value["frequencies_hz"].items.compactMap(\.integer)
+        let levels = value["levels"].items.compactMap(\.double)
+        guard !value["id"].text.isEmpty, !value["session_id"].text.isEmpty, !value["stream_id"].text.isEmpty,
+              let started = value["interval"]["started_at"].utcDate, let ended = value["interval"]["ended_at"].utcDate,
+              ended >= started, value["level_unit"].text == "dBm", !raw || !frequencies.isEmpty,
+              frequencies.count == value["frequencies_hz"].items.count,
+              levels.count == value["levels"].items.count, levels.count == frequencies.count,
+              levels.allSatisfy(\.isFinite), frequencies.allSatisfy({ $0 >= 0 }),
+              zip(frequencies, frequencies.dropFirst()).allSatisfy({ $0.0 < $0.1 }),
+              raw || frequencies.count <= 320, raw || value["display_only"].bool == true else {
+            throw PlatformError.invalidResponse("Некорректный свип истории dBm/UTC")
+        }
+        let original = value["original_point_count"].integer ?? Int64(frequencies.count)
+        guard original >= Int64(frequencies.count), original <= Int64(Int.max) else {
+            throw PlatformError.invalidResponse("Некорректное число исходных точек")
+        }
+        id = value["id"].text; sessionID = value["session_id"].text; streamID = value["stream_id"].text
+        startedAt = started; endedAt = ended; frequenciesHz = frequencies; self.levels = levels
+        originalPointCount = Int(original); displayOnly = !raw
+    }
 }
 
 extension PlatformClient {
@@ -71,6 +151,62 @@ extension PlatformClient {
             throw PlatformError.invalidCommand("Нужны проект и событие")
         }
         return try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))")
+    }
+
+    public func monitoringControl(projectID: String, action: String, body: [String: MonitoringValue]) async throws -> MonitoringValue {
+        guard !projectID.isEmpty,
+              ["manual/acquire", "manual/renew", "manual/return", "manual/tune", "search/start", "search/mark"].contains(action) else {
+            throw PlatformError.invalidCommand("Неизвестное действие ручного управления")
+        }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/" + action, body: body, timeoutInterval: 20)
+    }
+
+    public func monitoringSearchStatus(projectID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/search/status")
+        guard result["series"].items.count <= 256 else { throw PlatformError.invalidResponse("Слишком длинный ряд поиска") }
+        return result
+    }
+
+    public func monitoringHistory(projectID: String, query: MonitoringHistoryQuery = .init(), after: String? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/history", query: query.query(after: after))
+        guard result["items"].items.count <= query.limit else { throw PlatformError.invalidResponse("Слишком большая страница истории") }
+        for row in result["items"].items { _ = try MonitoringHistoryRow(row) }
+        return result
+    }
+
+    public func monitoringHistorySweep(projectID: String, sweepID: String, comparison: Bool = false) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !sweepID.isEmpty else { throw PlatformError.invalidCommand("Выберите свип проекта") }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/history/\(Self.segment(sweepID))" + (comparison ? "/comparison" : ""))
+        if comparison {
+            guard result["sweep_id"].text == sweepID, result["compatible"].bool != nil,
+                  result["display_only"].bool == true, result["items"].items.count <= 320 else {
+                throw PlatformError.invalidResponse("Некорректное сравнение с эталоном")
+            }
+            for point in result["items"].items {
+                guard point["frequency_hz"].integer != nil,
+                      ["baseline_p50_dbm", "baseline_p95_dbm", "current_dbm", "delta_db"].allSatisfy({ point[$0].double?.isFinite == true }) else {
+                    throw PlatformError.invalidResponse("Некорректные точки сравнения")
+                }
+            }
+        } else {
+            guard try MonitoringHistoryRow(result, raw: true).id == sweepID else {
+                throw PlatformError.invalidResponse("Ядро вернуло другой свип")
+            }
+        }
+        return result
+    }
+
+    public func monitoringEventSources(projectID: String, eventID: String, limit: Int = 32, after: String? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !eventID.isEmpty, (1...64).contains(limit) else {
+            throw PlatformError.invalidCommand("Нужны событие и размер страницы 1…64")
+        }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/sources", query: query)
+        guard result["items"].items.count <= limit else { throw PlatformError.invalidResponse("Слишком большая страница источников") }
+        return result
     }
 
     /// A complete, bounded WAV artifact from the core, never a local capture device.

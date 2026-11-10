@@ -70,10 +70,19 @@
   projects.addEventListener('change', () => { generation++; root.querySelector('[data-role=events]').replaceChildren(); root.querySelector('audio').pause(); root.querySelector('audio').removeAttribute('src'); });
   function renderEvents(items) {
     const list = root.querySelector('[data-role=events]'); list.replaceChildren();
+    const eventChoice = root.querySelector('[name=search-event]'), previous = eventChoice.value;
+    eventChoice.replaceChildren(new Option('Выберите событие',''), ...items.map(e => new Option(`${e.center_frequency_hz} Гц · ${e.first_seen}`,e.id)));
+    if (items.some(e => e.id === previous)) eventChoice.value = previous;
     for (const event of items) {
       const row = document.createElement('div'), detail = document.createElement('button');
       detail.textContent = `${event.first_seen} · ${event.center_frequency_hz} Гц · ${event.peak_level} dBm · ${event.kind} · ${event.analysis?.state || 'ожидает анализа'}`;
-      detail.onclick = () => scoped('events/' + encodeURIComponent(event.id)); row.append(detail);
+      detail.onclick = () => { eventChoice.value = event.id; return scoped('events/' + encodeURIComponent(event.id)); }; row.append(detail);
+      const source = document.createElement('button'); source.textContent = 'Исходные панорамы';
+      source.onclick = () => {
+        eventChoice.value = event.id; root.querySelector('[name=history-event]').checked = true;
+        root.querySelector('[data-action=history]').onclick();
+      };
+      row.append(source);
       if (event.analysis?.audio) {
         const play = document.createElement('button'); play.textContent = 'Слушать запись';
         play.onclick = () => { const player = root.querySelector('audio'); player.src = `/api/v1/monitoring-projects/${encodeURIComponent(projects.value)}/events/${encodeURIComponent(event.id)}/audio`; player.play().catch(error => { info.textContent = error.message; }); };
