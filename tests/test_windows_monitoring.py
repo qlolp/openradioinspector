@@ -31,8 +31,8 @@ class Client:
         if isinstance(result, Exception): raise result
         return result
 
-    def instrument_artifact(self, session, stream, identifier):
-        self.calls.append((session, stream, identifier))
+    def monitoring_event_audio(self, project, identifier):
+        self.calls.append(('event-audio', project, identifier))
         buffer = io.BytesIO()
         with wave.open(buffer, 'wb') as wav:
             wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(8000)
@@ -156,6 +156,7 @@ class MonitoringTkTests(unittest.TestCase):
             with patch('tkinter.filedialog.asksaveasfilename', return_value=str(path)):
                 self.panel.save_audio()
                 self.complete()  # Download only: dialog and persistence follow a context check.
+                self.assertEqual(self.app.client.calls[-1], ('event-audio', 'p1', 'e1'))
             if self.pending: self.complete()
             with wave.open(str(path)) as wav:
                 self.assertEqual(wav.getnframes(), 80)
@@ -697,6 +698,46 @@ def history_page():
 
 
 class MonitoringClientQueryTests(unittest.TestCase):
+    def test_receiver_wav_download_is_bounded(self):
+        from radioinspector.windows.client import PlatformClient
+        response=Mock()
+        response.__enter__=Mock(return_value=response); response.__exit__=Mock(return_value=False)
+        response.read.return_value=b'x'*(8*1024*1024+1)
+        opener=Mock();opener.open.return_value=response
+        client=PlatformClient('http://example.test',opener=opener)
+        with self.assertRaisesRegex(ValueError,'too large'):client.monitoring_event_audio('p','e')
+        response.read.assert_called_once_with(8*1024*1024+1)
+        self.assertEqual(opener.open.call_args.args[0].full_url,
+                         'http://example.test/api/v1/monitoring-projects/p/events/e/audio')
+
+    def test_receiver_wav_download_uses_project_event_http_route(self):
+        import base64
+        import hashlib
+        from radioinspector.web.server import create_server
+        from radioinspector.windows.client import PlatformClient, PlatformClientError
+        from radioinspector.windows.monitoring import _download
+        from tests.test_device_workers import simulated_session_payload
+        server = create_server(host='127.0.0.1', port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            session = server.session_service.create_session(simulated_session_payload())
+            project = server.monitoring.create(dict(name='Audio', site='Fixture', session_id=session.id))
+            raw = Client().monitoring_event_audio(project['id'], 'fixture')
+            artifact = server.session_service.save_instrument_artifact(session.id, session.streams[1].id,
+                dict(kind='audio', mime_type='audio/wav', filename='fixture.wav',
+                     data_base64=base64.b64encode(raw).decode(), sha256=hashlib.sha256(raw).hexdigest(),
+                     metadata={'occurred_at':'2026-11-10T00:00:00Z', 'synthetic':True}))
+            server.monitoring.store.put('event', dict(id='receiver-event', project_id=project['id'],
+                created_at='2026-11-10T00:00:00Z', analysis={'audio':dict(id=artifact['id'], session_id=session.id,
+                    stream_id=session.streams[1].id)}))
+            client = PlatformClient(f'http://127.0.0.1:{server.server_port}')
+            self.assertEqual(_download(client, dict(project_id=project['id'], event_id='receiver-event')), raw)
+            with self.assertRaises(PlatformClientError) as error:
+                _download(client, dict(project_id='foreign-project', event_id='receiver-event'))
+            self.assertEqual(error.exception.status, 404)
+        finally:
+            server.shutdown(); server.server_close(); thread.join(3)
+
     def test_query_is_encoded_and_response_is_bounded(self):
         import json
         from urllib.parse import parse_qs, urlsplit

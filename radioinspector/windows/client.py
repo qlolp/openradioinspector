@@ -280,6 +280,16 @@ class PlatformClient:
                 return data
         except urllib.error.HTTPError as exc:raise self._decode_error(exc.read(MAX_RESPONSE_BYTES+1),exc.code) from exc
 
+    def monitoring_event_audio(self, project_id, event_id):
+        path=f"/monitoring-projects/{_segment(project_id,'project_id')}/events/{_segment(event_id,'event_id')}/audio"
+        request=urllib.request.Request(f'{self.base_url}/api/v1{path}',headers={'Accept':'audio/wav'})
+        try:
+            with self._opener.open(request,timeout=self.timeout) as response:
+                data=response.read(8*1024*1024+1)
+                if len(data)>8*1024*1024:raise ValueError('Audio recording too large')
+                return data
+        except urllib.error.HTTPError as exc:raise self._decode_error(exc.read(MAX_RESPONSE_BYTES+1),exc.code) from exc
+
     @staticmethod
     def _decode_error(raw: bytes, status: int) -> PlatformClientError:
         try:

@@ -4,6 +4,7 @@ import tempfile
 import base64
 import hashlib
 import unittest
+from contextlib import closing
 from pathlib import Path
 from tests import test_monitoring_guard as guard_tests
 from tests.test_monitoring_detector import sweep
@@ -26,7 +27,7 @@ class MonitoringBackupTests(unittest.TestCase):
         original=self.sessions._store._connection.execute('SELECT * FROM sweeps ORDER BY id').fetchall()
         with tempfile.TemporaryDirectory() as directory:
             target=Path(directory)/'portable.sqlite';backup_archive(self.sessions._store.path,target)
-            with sqlite3.connect(target) as db:
+            with closing(sqlite3.connect(target)) as db:
                 copied=db.execute('SELECT * FROM sweeps ORDER BY id').fetchall()
                 self.assertEqual(copied,[tuple(x) for x in original])
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM monitoring_webhooks').fetchone()[0],0)

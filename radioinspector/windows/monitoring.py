@@ -29,7 +29,7 @@ def _checked_wav(raw):
 
 
 def _download(client, ref):
-    return _checked_wav(client.instrument_artifact(ref['session_id'], ref['stream_id'], ref['id']))
+    return _checked_wav(client.monitoring_event_audio(ref['project_id'], ref['event_id']))
 
 
 def _play(raw):
@@ -421,7 +421,7 @@ class MonitoringPanel(TkTimerOwner):
         if not ref:
             self.event_text.set('У выбранного события нет сохранённой WAV-записи.')
             self.render({'message': 'У выбранного события нет сохранённой WAV-записи.'}); return None
-        return dict(ref)
+        return dict(project_id=self.selected(), event_id=identifier)
 
     def listen_audio(self):
         ref = self._audio_ref()
