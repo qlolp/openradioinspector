@@ -48,6 +48,8 @@ WINDOWS_SKIPPED_CLASSES = {
     "tests.test_windows_serial_transport.PendingInputPosixParityTests": "Own PTY required",
 }
 WINDOWS_SKIPPED_TESTS = {
+    "tests.test_run_tests_launcher.TestShellLauncher.test_active_environment_takes_precedence_over_local_venv": "POSIX shell launcher",
+    "tests.test_run_tests_launcher.TestShellLauncher.test_uv_installs_local_project_with_serial_and_test_extras": "POSIX shell launcher",
     "tests.test_release_v040.SerialReadCancellationTests.test_cancel_interrupts_owned_read_without_reusing_port": "POSIX serial ownership",
     "tests.test_release_v040.TaskBookPermissionTests.test_saving_never_chmods_a_replaced_temporary_path": "POSIX permissions",
     "tests.test_release_v040.TaskBookPermissionTests.test_world_writable_parent_is_rejected_before_saving": "POSIX permissions",
@@ -726,12 +728,34 @@ def validate_swift_output(output: str, name: str) -> None:
         raise ReleaseCheckError(f"{name}: no executed XCTest tests were reported")
 
 
+def _persist_release_report(directory: Path, report_dir: Path, *,
+                            failure: BaseException | None, cleanup_errors: list[str],
+                            swift: bool) -> None:
+    """Keep diagnostics, never fixture databases, home directories or build trees."""
+    report_dir.mkdir(parents=True, exist_ok=True)
+    destination = Path(tempfile.mkdtemp(prefix="run-", dir=report_dir))
+    for source in [*directory.glob("*.log"), directory / "python-results.json"]:
+        if source.is_file():
+            shutil.copy2(source, destination / source.name)
+    summary = {
+        "successful": failure is None and not cleanup_errors,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "python": sys.version,
+        "platform": sys.platform,
+        "swift_requested": swift,
+        "hardware_validation": "not_run",
+        "error": f"{type(failure).__name__}: {failure}" if failure else None,
+        "cleanup_errors": list(cleanup_errors),
+    }
+    (destination / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"Release diagnostics: {destination}", flush=True)
+
+
 def release_checks(*, swift: bool = False, startup_timeout: float = 20,
-                   command_timeout: float = 600, shutdown_timeout: float = 15) -> None:
-    if swift and sys.platform != "darwin":
-        raise ReleaseCheckError("--swift requires macOS with Xcode")
-    if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
-        raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
+                   command_timeout: float = 600, shutdown_timeout: float = 15,
+                   report_dir: Path | None = None) -> None:
     environment = child_environment()
     environment.pop("ORI_RELEASE_PROCESS_REGISTRY", None)
     children: list[Fixture] = []
@@ -751,6 +775,10 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
         child_home.mkdir()
         environment["HOME"] = str(child_home)
         try:
+            if swift and sys.platform != "darwin":
+                raise ReleaseCheckError("--swift requires macOS with Xcode")
+            if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
+                raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
             run_command([sys.executable, "-m", "tests.run_release_checks", "--_dependency-check"],
                         name="dependencies", environment=environment, directory=directory,
                         timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
@@ -799,6 +827,12 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
                     fixture.close(shutdown_timeout)
                 except BaseException as error:
                     cleanup_errors.append(str(error))
+            if report_dir is not None:
+                try:
+                    _persist_release_report(directory, Path(report_dir), failure=failure,
+                                            cleanup_errors=cleanup_errors, swift=swift)
+                except (OSError, ValueError) as error:
+                    cleanup_errors.append(f"Cannot save release diagnostics: {error}")
         if cleanup_errors:
             prefix = f"{type(failure).__name__}: {failure}\n" if failure else ""
             raise ReleaseCheckError(prefix + "Fixture cleanup failed:\n" + "\n".join(cleanup_errors)) from failure
@@ -836,6 +870,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--startup-timeout", type=positive_seconds, default=20, metavar="SECONDS")
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
+    parser.add_argument("--report-dir", type=Path, help="Preserve logs and JSON results, including failures")
     parser.add_argument("--_python-suite", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--_single-test", help=argparse.SUPPRESS)
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
@@ -862,7 +897,8 @@ def main(argv: list[str] | None = None) -> int:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, _interrupted)
         release_checks(swift=args.swift, startup_timeout=args.startup_timeout,
-                       command_timeout=args.command_timeout, shutdown_timeout=args.shutdown_timeout)
+                       command_timeout=args.command_timeout, shutdown_timeout=args.shutdown_timeout,
+                       report_dir=args.report_dir)
     except KeyboardInterrupt as error:
         print(f"Release checks interrupted: {error}", file=sys.stderr)
         return 130

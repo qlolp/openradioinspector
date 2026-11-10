@@ -47,16 +47,24 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
       - name: Run Linux release checks with hidden Tk
         if: runner.os == 'Linux'
-        run: xvfb-run -a python -m tests.run_release_checks
+        run: xvfb-run -a python -m tests.run_release_checks --report-dir release-reports
       - name: Run Windows release checks with hidden Tk
         if: runner.os == 'Windows'
-        run: python -m tests.run_release_checks
+        run: python -m tests.run_release_checks --report-dir release-reports
       - name: Run macOS Python release checks
         if: runner.os == 'macOS' && matrix.python != '3.12'
-        run: python -m tests.run_release_checks
+        run: python -m tests.run_release_checks --report-dir release-reports
       - name: Run macOS release checks, both Swift suites and unsigned Xcode build
         if: runner.os == 'macOS' && matrix.python == '3.12'
-        run: python -m tests.run_release_checks --swift
+        run: python -m tests.run_release_checks --swift --report-dir release-reports
       # Only owned synthetic servers/archives, mocked COM and own PTYs are used.
       # Real receiver/analyzer acceptance remains separate and is not implied.
-      # Windows permits only the existing POSIX PTY and permission-bit skips.
+      # Windows permits explicit POSIX PTY, permission-bit and shell-launcher skips.
+      - name: Preserve synthetic release diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-diagnostics-${{ matrix.os }}-py${{ matrix.python }}-attempt-${{ github.run_attempt }}
+          path: release-reports/
+          if-no-files-found: warn
+          retention-days: 14
