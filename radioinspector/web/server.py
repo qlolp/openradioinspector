@@ -698,6 +698,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_get(self, route: str, query: dict) -> None:
         try:
+            from ..monitoring.api import dispatch
+            if dispatch(self, "GET", route, query=query):
+                return
             from ..tinysa.api import dispatch
             if dispatch(self,'GET',route,query=query):return
             if route == "/api/v1/archive/capacity":
@@ -709,6 +712,7 @@ class Handler(BaseHTTPRequestHandler):
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
+                capabilities["features"]["monitoring_projects"] = True
                 capabilities["features"]["session_analytics"] = True
                 capabilities["features"]["session_analytics_archive_wide"] = True
                 capabilities["features"]["session_archive_export"] = True
@@ -1044,6 +1048,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_post(self, route: str, payload: dict) -> None:
         try:
+            from ..monitoring.api import dispatch
+            if dispatch(self, "POST", route, payload=payload):
+                return
             from ..tinysa.api import dispatch
             if dispatch(self,'POST',route,payload=payload):return
             if route == "/api/v1/task-scheduler":
@@ -1512,6 +1519,9 @@ def create_server(
         if workers is not None and workers.sessions is not session_service:
             raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
         worker_manager = workers or DeviceWorkerManager(session_service)
+        from ..monitoring.service import MonitoringService
+        monitoring = MonitoringService(session_service, worker_manager)
+        cleanup.callback(monitoring.close)
         from ..tinysa.api import InstrumentOperations
         instruments=InstrumentOperations(session_service,worker_manager)
         cleanup.callback(instruments.close)
@@ -1557,6 +1567,7 @@ def create_server(
                 "sessions": session_service,
                 "workers": worker_manager,
                 "instruments": instruments,
+                "monitoring": monitoring,
                 "automatic_handoff": automatic_scheduler,
                 "automatic_detection": detection_scheduler,
                 "automatic_completion": completion_scheduler,
@@ -1568,6 +1579,7 @@ def create_server(
         httpd.daemon_threads = True
         httpd.session_service = session_service
         httpd.worker_manager = worker_manager
+        httpd.monitoring = monitoring
         httpd.instrument_operations = instruments
         httpd.automatic_handoff = automatic_scheduler
         httpd.automatic_detection = detection_scheduler
@@ -1577,6 +1589,7 @@ def create_server(
         # Keep the original socket close inside ExitStack; the public close also
         # owns the resources constructed here, including private task storage.
         def close_owned_resources():
+            monitoring.close()
             if task_scheduler is None:
                 control_scheduler.close()
             if automatic_completion is None:

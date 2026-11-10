@@ -373,3 +373,7 @@ form.editor { border-style: solid; }
 .spectrum-view-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem; }
 .spectrum-view-controls input { width: 9rem; }
 #time-readout, #spectrum-view-status { overflow-wrap: anywhere; }
+
+#monitoring-workspace {margin: 12px; padding: 12px;}
+#monitoring-workspace pre {max-height:220px;overflow:auto;white-space:pre-wrap;}
+body[data-workspace-mode="monitoring"] :is(.comparison-panel,.threshold-panel,.mask-panel,.average-panel,.counter-panel,.dvb-panel,.map-panel) {display:none;}
