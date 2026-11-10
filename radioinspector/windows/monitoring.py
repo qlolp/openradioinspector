@@ -25,6 +25,18 @@ class MonitoringPanel:
         ttk.Button(buttons, text='Обновить проекты', command=self.refresh).pack(side='left')
         ttk.Button(buttons, text='Проверить готовность', command=self.preflight).pack(side='left')
         self.output = tk.Text(self.frame, height=12, state='disabled'); self.output.pack(fill='both', expand=True)
+        extra = ttk.Frame(self.frame); extra.pack(fill='x')
+        self.confirm = tk.BooleanVar(value=False)
+        ttk.Checkbutton(extra, text='Подтверждаю обычную обстановку', variable=self.confirm).pack(side='left')
+        ttk.Button(extra, text='Зафиксировать эталон', command=lambda: self.scoped('baselines', dict(name=self.name.get(),location=self.site.get(),confirm=self.confirm.get()))).pack(side='left')
+        ttk.Button(extra, text='Обработать новые свипы', command=lambda: self.scoped('analyze', {})).pack(side='left')
+        ttk.Button(extra, text='События', command=lambda: self.scoped('events')).pack(side='left')
+        allowed = ttk.Frame(self.frame); allowed.pack(fill='x')
+        self.allowed_name = tk.StringVar(value='Разрешённый сигнал')
+        self.allowed_start = tk.StringVar(value='100000000'); self.allowed_end = tk.StringVar(value='100100000')
+        for label, variable in [('Название',self.allowed_name),('От, Гц',self.allowed_start),('До, Гц',self.allowed_end)]:
+            ttk.Label(allowed,text=label).pack(side='left'); ttk.Entry(allowed,textvariable=variable,width=18).pack(side='left')
+        ttk.Button(allowed,text='Разрешить',command=self.allow_signal).pack(side='left')
         self.tabs = list(notebook.tabs())
 
     def selected(self):
@@ -52,6 +64,14 @@ class MonitoringPanel:
             self.call(payload=dict(name=self.name.get(), site=self.site.get(), session_id=self.app.session_id))
     def preflight(self):
         if self.selected(): self.call('/' + self.selected() + '/preflight')
+    def scoped(self, action, payload=None):
+        if self.selected(): self.call('/'+self.selected()+'/'+action, payload)
+    def allow_signal(self):
+        try:
+            payload = dict(name=self.allowed_name.get(), start_hz=int(self.allowed_start.get()), end_hz=int(self.allowed_end.get()))
+        except ValueError:
+            self.render({'error':'Частоты должны быть целыми Гц'}); return
+        self.scoped('allowed',payload)
     def change_mode(self):
         for tab in self.tabs:
             label = self.notebook.tab(tab, 'text')

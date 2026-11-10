@@ -68,6 +68,19 @@
     <form><input name="name" placeholder="Название проекта" required maxlength="200"><input name="site" placeholder="Объект проверки" required maxlength="200"><button>Создать из выбранного сеанса</button></form>
     <select name="project" aria-label="Проект наблюдения"></select>
     <button data-action="refresh">Обновить проекты</button><button data-action="preflight">Проверить готовность</button>
+    <details><summary>Эталон и разрешённые сигналы</summary>
+      <label>Название эталона<input name="baseline-name" value="Обычная обстановка"></label>
+      <label>Место измерения<input name="baseline-location" value="Объект"></label>
+      <label><input name="baseline-confirm" type="checkbox"> Подтверждаю пригодность эталона</label>
+      <button data-action="baseline">Зафиксировать эталон</button>
+      <label>Разрешённый сигнал<input name="allowed-name" value="Разрешённый сигнал"></label>
+      <label>От, Гц<input name="allowed-start" type="number" step="1" min="0" value="100000000"></label>
+      <label>До, Гц<input name="allowed-end" type="number" step="1" min="0" value="100100000"></label>
+      <label><input name="allowed-watch" type="checkbox"> Контролировать изменения</label>
+      <button data-action="allowed">Добавить разрешённый сигнал</button>
+    </details>
+    <button data-action="analyze">Обработать новые свипы</button>
+    <button data-action="events">События</button>
     <pre aria-live="polite">Выберите двухприборный сеанс и создайте проект.</pre>
   </section>
   <main id="workspace" class="console-grid">

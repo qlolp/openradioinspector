@@ -43,6 +43,12 @@
     const result = await request('', {name:fields.get('name'), site:fields.get('site'), session_id:session});
     if (result) await request();
   };
+  const value = name => root.querySelector(`[name=${name}]`).value;
+  function scoped(action, body) { return projects.value && request('/'+encodeURIComponent(projects.value)+'/'+action, body); }
+  root.querySelector('[data-action=baseline]').onclick = () => scoped('baselines', {name:value('baseline-name'),location:value('baseline-location'),confirm:root.querySelector('[name=baseline-confirm]').checked});
+  root.querySelector('[data-action=allowed]').onclick = () => scoped('allowed', {name:value('allowed-name'),start_hz:Number(value('allowed-start')),end_hz:Number(value('allowed-end')),watch_changes:root.querySelector('[name=allowed-watch]').checked});
+  root.querySelector('[data-action=analyze]').onclick = () => scoped('analyze', {});
+  root.querySelector('[data-action=events]').onclick = () => scoped('events');
   window.oriMonitoring = {request, selected: () => projects.value, root};
   request();
 })();

@@ -17,6 +17,33 @@ def dispatch(handler, method, route, payload=None, query=None):
             handler._send_json(api_payload(dict(items=data, next_cursor=data[-1]['id'] if data else None)))
         elif method == 'POST' and not tail:
             handler._send_json(api_payload(service.create(payload)), 201)
+        elif len(tail) == 2 and tail[1] in ('baselines', 'allowed', 'events'):
+            identifier, action = tail
+            service.project(identifier)
+            kind = {'baselines':'baseline', 'allowed':'allowed', 'events':'event'}[action]
+            if method == 'GET':
+                items = service.store.list(kind, identifier, limit=int(query.get('limit',['200'])[0]), after=query.get('after',[''])[0])
+                if kind == 'baseline':
+                    items = [{k:v for k,v in x.items() if k not in ('frequencies_hz','p50_dbm','p95_dbm','mad_db','source_refs')} | {'source_count':len(x['source_refs'])} for x in items]
+                elif kind == 'event':
+                    items = [{k:v for k,v in x.items() if k != 'source_refs'} for x in items]
+                handler._send_json(api_payload(dict(items=items, next_cursor=items[-1]['id'] if items else None)))
+            elif action == 'baselines':
+                handler._send_json(api_payload(service.create_baseline(identifier, payload)), 201)
+            elif action == 'allowed':
+                handler._send_json(api_payload(service.add_allowed(identifier, payload)), 201)
+            else:
+                raise ValueError('События создаёт только детектор')
+        elif method == 'POST' and len(tail) == 2 and tail[1] == 'analyze':
+            if payload: raise ValueError('Анализ новых свипов принимает пустой объект')
+            handler._send_json(api_payload(service.analyze(tail[0])))
+        elif method == 'POST' and len(tail) == 4 and tail[1] == 'events' and tail[3] == 'review':
+            handler._send_json(api_payload(service.review_event(tail[0], tail[2], payload)))
+        elif method == 'GET' and len(tail) == 3 and tail[1] in ('events','baselines'):
+            service.project(tail[0])
+            data = service.store.get('event' if tail[1]=='events' else 'baseline', tail[2])
+            if data['project_id'] != tail[0]: raise KeyError('Запись другого проекта')
+            handler._send_json(api_payload(data))
         elif method == 'GET' and len(tail) == 1:
             handler._send_json(api_payload(service.project(tail[0])))
         elif method == 'GET' and len(tail) == 2 and tail[1] == 'preflight':

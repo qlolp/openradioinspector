@@ -10,18 +10,11 @@ from ..tinysa_profile import validate_receive_settings
 from .store import ProjectStore
 
 
-def record(project_id=None, **fields):
-    now = format_time(utc_now())
-    return dict(id=uuid4().hex, project_id=project_id, created_at=now, **fields)
+from .models import record, text
+from .baselines import BaselineOperations
 
 
-def text(value, label, maximum=200):
-    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-        raise ValueError(f'{label}: требуется непустая строка до {maximum} символов')
-    return value.strip()
-
-
-class MonitoringService:
+class MonitoringService(BaselineOperations):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
