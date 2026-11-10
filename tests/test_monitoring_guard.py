@@ -214,18 +214,27 @@ class GuardTests(unittest.TestCase):
             return original(receiver)
         with patch('radioinspector.device_workers.ARDV1Simulator.poll',poll):
             armed=self.service.arm(project['id'],{})
-            wait_until(lambda:self.service.runtime[project['id']].get('workers_started') and
-                len(self.sessions.list_observations(armed['active_session_id']))>0,'successful receiver startup')
-            lost.set()
-            wait_until(lambda:self.service.project(project['id'])['state']=='degraded','guard receiver failure')
-            cursor=self.service.project(project['id']).get('detector_cursor')
-            wait_until(lambda:self.service.project(project['id']).get('detector_cursor')!=cursor,
-                'real analyzer processing after receiver loss')
-            status=self.service.guard_status(project['id'])
-            self.assertTrue(status['active']);self.assertIsNotNone(status['error'])
-            self.assertEqual(status['project']['state'],'degraded')
-            self.assertEqual(status['project']['coverage'],'wide')
-            self.assertTrue(next(x for x in status['workers'] if x['stream_id']==status['project']['analyzer_stream_id'])['alive'])
+            try:
+                wait_until(lambda:self.service.runtime[project['id']].get('workers_started') and
+                    len(self.sessions.list_observations(armed['active_session_id']))>0,'successful receiver startup')
+                lost.set()
+                wait_until(lambda:self.service.project(project['id'])['state']=='degraded','guard receiver failure')
+                cursor=self.service.project(project['id']).get('detector_cursor')
+                before=len(self.sessions.list_sweeps(armed['active_session_id'],stream_id=armed['analyzer_stream_id']))
+                wait_until(lambda:len(self.sessions.list_sweeps(armed['active_session_id'],stream_id=armed['analyzer_stream_id']))>=before+3,
+                    'analyzer must keep archiving after receiver loss')
+                wait_until(lambda:self.service.project(project['id']).get('detector_cursor')!=cursor,
+                    'real analyzer processing after receiver loss')
+                status=self.service.guard_status(project['id'])
+                self.assertTrue(status['active']);self.assertIsNotNone(status['error'])
+                self.assertEqual(status['project']['state'],'degraded')
+                self.assertEqual(status['project']['coverage'],'wide')
+                self.assertTrue(next(x for x in status['workers'] if x['stream_id']==status['project']['analyzer_stream_id'])['alive'])
+                receiver=next(x for x in status['workers'] if x['stream_id']==armed['receiver_stream_id'])
+                self.assertFalse(receiver['alive'])
+                self.assertIn('Lost receiver USB',receiver['last_error'])
+            finally:
+                self.service.disarm(project['id'],{})
 
     def test_receiver_dwell_does_not_stop_analyzer_and_event_is_not_replayed(self):
         session = self.sessions.create_session(simulated_session_payload(tinysa_settings={'noise_sigma_db':0,'emitters':[]}))

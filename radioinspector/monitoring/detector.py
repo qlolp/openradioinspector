@@ -58,7 +58,7 @@ class Detector:
         size = len(baseline['frequencies_hz'])
         self.state = copy.deepcopy(state) if state else dict(window=[], offsets=[0.]*size, active=[])
         self.period = baseline.get('sweep_period_seconds')
-        if not self.period:
+        if 'sweep_period_seconds' not in baseline:
             # Older immutable baselines retained the interval and source count,
             # but not cadence. Use their conservative mean interval rather than
             # silently imposing one-second acquisition on slow scan profiles.
@@ -74,7 +74,7 @@ class Detector:
         previous=state.get('last_started_at')
         if previous:
             gap=(sweep.interval.started_at-parse_time(previous)).total_seconds()
-            if gap>max(1.,3*self.period) or gap<0:
+            if gap<0 or (self.period and gap>max(1.,3*self.period)):
                 state['window']=[];state['recent_sources']=[]
                 state['quality_issue']=dict(kind='data_gap',gap_seconds=gap,previous_started_at=previous)
         state['last_started_at']=format_time(sweep.interval.started_at)

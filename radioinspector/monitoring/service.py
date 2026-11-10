@@ -1,13 +1,14 @@
 """Projects bind sessions, receive profiles and operator intent durably."""
 import json
+import os
 import statistics
 import threading
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from ..contracts import DeviceRole, format_time, to_primitive, utc_now
-from ..device_workers import WorkerError
-from ..serial_instruments import ARDV1SerialAdapter, _rf_command
+from ..device_workers import SimulatedAdapter, WorkerError
+from ..serial_instruments import ARDV1SerialAdapter, _rf_command, validate_windows_com_port
 from ..tinysa_profile import validate_receive_settings
 from .store import ProjectStore
 
@@ -56,7 +57,7 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
     def project(self, identifier):
         return self.store.get('project', identifier)
 
-    def preflight(self, identifier):
+    def preflight(self, identifier, *, for_preparation=False):
         project = self.project(identifier)
         session = self.sessions.get_session(project['active_session_id'])
         analyzer = next(s for s in session.streams if s.id == project['analyzer_stream_id'])
@@ -68,10 +69,20 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         check('adapters', adapters in (('tinysa-serial', 'ardv1-serial'), ('tinysa-sim', 'ardv1-sim')),
               'tinySA Ultra + AR-DV1; симуляторы выбираются только явно')
         for label, stream, default_baud in (('analyzer', analyzer, 9600), ('receiver', receiver, 115200)):
+            try:
+                # The base constructor only validates shared timing/retry
+                # settings; it neither constructs a transport nor starts I/O.
+                SimulatedAdapter(stream)
+                check(label+'_worker_settings',True,'Период и параметры повторов совместимы с исполнителем')
+            except (ValueError,TypeError,OverflowError) as exc:
+                check(label+'_worker_settings',False,str(exc))
             if stream.settings.get('adapter') not in ('tinysa-serial', 'ardv1-serial'):
                 continue
-            check(label + '_serial_port', isinstance(stream.port, str) and bool(stream.port.strip())
-                  and not stream.port.startswith('sim://'),
+            valid_port=isinstance(stream.port,str) and bool(stream.port.strip()) and not stream.port.startswith('sim://')
+            if valid_port and os.name=='nt':
+                try:validate_windows_com_port(stream.port)
+                except WorkerError:valid_port=False
+            check(label + '_serial_port', valid_port,
                   'Нужен явно заданный последовательный порт; доступность без открытия не проверяется')
             try:
                 baud = int(stream.settings.get('baud', default_baud))
@@ -103,12 +114,19 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
                 check('receive_profile', True, 'Консервативный профиль приёма; RF off')
             except (ValueError, TypeError) as exc:
                 check('receive_profile', False, str(exc))
-            if project.get('baseline_id'):
+            if project.get('baseline_id') and not for_preparation:
                 try:
                     self.guard_acquisition_context(project)
                     check('baseline_acquisition_context',True,'Контекст RX эталона воспроизводим; аппаратная проверка не выполнена')
                 except (ValueError,TypeError,KeyError) as exc:
                     check('baseline_acquisition_context',False,str(exc))
+        if project.get('baseline_id') and not for_preparation:
+            try:
+                baseline=self.detection_baseline(self.store.get('baseline',project['baseline_id']))
+                check('baseline_cadence',bool(baseline.get('sweep_period_seconds')),
+                    'Период эталона известен; при недоступных источниках соберите новый эталон')
+            except (ValueError,TypeError,KeyError) as exc:
+                check('baseline_cadence',False,str(exc))
         capacity = self.sessions.archive_capacity()
         check('archive', capacity.get('state') not in ('full',),
               'Полный архив; автоматическое удаление выключено')
