@@ -303,8 +303,8 @@ extension PlatformClient {
         guard !projectID.isEmpty, !eventID.isEmpty, ["unreviewed", "authorized", "false_positive", "investigate"].contains(disposition) else {
             throw PlatformError.invalidCommand("Выберите событие и решение оператора")
         }
-        return try await post("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/review",
-                             body: ["disposition": .string(disposition), "comment": .string(comment)])
+        let body: [String: MonitoringValue] = ["disposition": .string(disposition), "comment": .string(comment)]
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/review", body: body)
     }
 
     /// A complete, bounded WAV artifact from the core, never a local capture device.
