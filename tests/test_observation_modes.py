@@ -56,6 +56,28 @@ class ObservationModeTests(unittest.TestCase):
                 service.ingest_observation(replace(wrong, id='right-mode', mode='FM'))
                 self.assertEqual(scheduler.run_once(session.id).result_observation_ids, ('right-mode',))
 
+    def test_noncanonical_requested_modes_match_canonical_observations(self):
+        for sqlite in (False, True):
+            for automatic in (False, True):
+                for mode in ('fm', ' FM ', ' fM\t'):
+                    with self.subTest(sqlite=sqlite, automatic=automatic, mode=mode):
+                        service, session, candidate, investigation, wrong = self.setup_service(sqlite, mode)
+                        self.assertEqual(service.matching_observation_ids(session.id, investigation.id, limit=1), ())
+                        service.ingest_observation(replace(wrong, id='right-mode', mode='FM'))
+                        self.assertEqual(service.matching_observation_ids(session.id, investigation.id, limit=1), ('right-mode',))
+                        if automatic:
+                            scheduler = AutomaticInvestigationCompletion(service, clock=self.clock, start_background=False)
+                            self.addCleanup(scheduler.close)
+                            scheduler.configure(session.id, {'enabled': True})
+                            result = scheduler.run_once(session.id)
+                        else:
+                            result = service.complete_investigation(session.id, investigation.id)
+                        self.assertEqual(result.result_observation_ids, ('right-mode',))
+                        self.assertEqual(result.state, InvestigationState.COMPLETED)
+                        self.assertEqual(service.get_candidate(session.id, candidate.id).state, CandidateState.RESOLVED)
+                        # Matching must not rewrite the archived request.
+                        self.assertEqual(result.mode, mode)
+
     def test_unspecified_mode_remains_unrestricted(self):
         for sqlite in (False, True):
             for automatic in (False, True):
