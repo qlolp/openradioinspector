@@ -117,3 +117,15 @@ class MonitoringSerialReadinessTests(unittest.TestCase):
         for mode in ('FM', 'AM', ' fm '):
             with self.subTest(mode=mode):
                 self.assertTrue(self.preflight(lambda p: p['streams'][1]['settings'].update(mode=mode))['ready'])
+
+    def test_windows_requires_native_port_names_without_opening_them(self):
+        from unittest.mock import patch
+        from radioinspector.serial_instruments import validate_serial_connection
+        from radioinspector.device_workers import WorkerError
+        session = self.sessions.create_session(simulated_session_payload())
+        from dataclasses import replace
+        stream = session.streams[1]
+        with patch('radioinspector.serial_instruments.os.name', 'nt'):
+            with self.assertRaises(WorkerError):
+                validate_serial_connection(replace(stream, port='/dev/ttyFAKE1'), 115200)
+            self.assertEqual(validate_serial_connection(replace(stream, port='COM4'), 115200), 115200)

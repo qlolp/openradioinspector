@@ -501,7 +501,12 @@ class SerialAdapterTests(unittest.TestCase):
     def test_serial_failure_does_not_stop_other_worker(self) -> None:
         service = SessionService(history_limit=5000)
         manager = DeviceWorkerManager(service)
-        session = service.create_session(serial_session(max_errors=1))
+        payload = serial_session(max_errors=1)
+        # Valid Windows names also work with the injected transports on POSIX;
+        # configuration validation must not be bypassed by a platform-only fixture.
+        payload["streams"][0]["port"] = "COM3"
+        payload["streams"][1]["port"] = "COM4"
+        session = service.create_session(payload)
         service.start_session(session.id)
         tiny = TinySATransport.valid()
         tiny.responses["scan 100M 101M 3 3"] = ["100000000 -90 0\r\n"]
@@ -510,7 +515,7 @@ class SerialAdapterTests(unittest.TestCase):
         original_factory = __import__("radioinspector.serial_instruments", fromlist=["create_serial_transport"]).create_serial_transport
         try:
             def factory(path: str, baud: int):
-                return tiny if path == "/dev/ttyFAKE0" else receiver
+                return tiny if path == "COM3" else receiver
             import radioinspector.serial_instruments as module
             module.create_serial_transport = factory
             manager.start_session(session.id)
