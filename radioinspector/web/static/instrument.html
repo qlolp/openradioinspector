@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>tinySA Ultra · Управление прибором</title>
+<link rel="stylesheet" href="static/instrument.css"><script defer src="static/instrument.js"></script></head>
+<body><main>
+<h1>tinySA Ultra ZS405</h1>
+<p>Прибором владеет общее ядро. В monitoring экран доступен для просмотра. Lab останавливает измерения только tinySA и разрешает действия с возможной RF-генерацией.</p>
+<form id="context"><label>Сеанс <input id="session" required></label><label>Поток tinySA <input id="stream" required></label><button>Подключить панель</button></form>
+<p id="status" role="status" aria-live="polite">Выберите работающий tinySA serial-поток.</p>
+<p id="state"></p>
+<section><h2>Режим работы</h2><label><input id="rf" type="checkbox">Разрешаю возможную RF-генерацию; стенд подготовлен</label>
+<div class="buttons"><button id="acquire">Войти в lab</button><button id="resume">Вернуться в monitoring</button><button id="leave">Освободить lab без запуска измерений</button><button id="off">RF / CAL off</button><button id="cancel" disabled>Отменить текущую операцию</button></div>
+<p>Lab-аренда действует 30 с и продлевается этой открытой панелью. После потери связи физическое состояние выходов неизвестно. LO/PULSE выключайте отдельно на приборе.</p></section>
+<div class="columns"><section><h2>Экран прибора</h2><div class="buttons"><button id="capture">Обновить экран</button><button id="save-screen">Сохранить экран в архив</button><button id="home">Открыть меню</button><label><input id="auto" type="checkbox">Обновлять экран</label></div>
+<img id="screen" width="480" height="320" alt="Удалённый экран tinySA; изображение ещё не получено" draggable="false" tabindex="0">
+<p>В lab касайтесь и удерживайте экран мышью/пальцем. Координаты пересчитываются в 480×320. Для отпускания после удержания: <button id="release">Отпустить touch</button>.</p>
+<form id="keypad"><label>Число для открытой клавиатуры <input id="keypad-text" placeholder="100M" maxlength="24"></label><button>Ввести</button></form>
+<label>Найти пункт меню <input id="menu-search" type="search"></label><select id="menu" size="8" aria-label="Каталог меню Ultra"></select><p id="menu-path"></p>
+<p>Каталог wiki включает новые прошивки и Ultra+. Наличие пункта проверяйте на живом ZS405. VBW, multiband, встроенные MEASURE, waterfall, LISTEN, calibration и expert управляются экраном.</p></section>
+<section><h2>Настройки приёма и генератора</h2><form id="settings"><label>Настройка <select id="setting-name"></select></label><div id="setting-value"></div><button>Применить</button></form>
+<h2>Измерения, SD и лаборатория</h2><form id="operation"><label>Операция <select id="operation-name"></select></label><div id="operation-fields"></div><button>Выполнить</button></form>
+<p>Основной typed generator: sine 100 кГц–800 МГц, −115…−19 dBm. Расширенные варианты — через lab-экран. Нет одновременного analyzer/generator. Включение Ultra не подтверждает калиброванную точность расширенного диапазона.</p>
+<h2>Результат</h2><pre id="result" tabindex="0"></pre><details><summary>Подробности операции</summary><pre id="result-details"></pre></details><audio id="audio" controls hidden></audio>
+<h2>Артефакты</h2><button id="artifacts-refresh">Обновить список</button><button id="artifacts-prev" disabled>Новее</button><button id="artifacts-next" disabled>Старее</button><ul id="artifacts"></ul></section></div>
+<p>ACK подтверждает выполнение команды протоколом, а не физическое состояние или аппаратную приёмку. Неизвестные настройки после ручного меню остаются отмечены в provenance. Исходные dBm, processed trace, zero-span, SD и WAV сохраняются раздельно.</p>
+</main></body></html>

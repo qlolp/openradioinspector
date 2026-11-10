@@ -791,6 +791,7 @@ public final class PlatformClient {
             port: spectrumPort, capabilities: ["sweep", "waterfall"],
             settings: [
                 "adapter": .string("tinysa-serial"),
+                "receive_profile": .string("tinysa-ultra-zs405-receive-v1"),
                 "start_hz": .integer(88_000_000),
                 "stop_hz": .integer(108_000_000),
                 "points": .integer(201),

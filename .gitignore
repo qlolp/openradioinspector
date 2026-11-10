@@ -22,9 +22,13 @@ out/
 *.cef
 *.sigmf-meta
 *.csv
+!docs/ardv1/command-matrix.csv
 
 # Инструменты ОС
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+# Owned synthetic release diagnostics (CI artifacts only)
+release-reports/
