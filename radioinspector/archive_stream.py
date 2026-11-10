@@ -17,6 +17,9 @@ from .archive_ingest import (
     ArchiveIngestError,
     _ensure_finite_numbers,
     _server_batch_size,
+    _server_batch_max_request_bytes,
+    _batch_item_bytes,
+    BATCH_ENVELOPE_BYTES,
 )
 from .contracts import ReceiverObservation, Sweep, to_primitive
 
@@ -135,7 +138,7 @@ def _stream_map(session: Any, session_id: str) -> dict[str, dict[str, Any]]:
     return {item["id"]: item for item in streams if isinstance(item, dict) and item.get("id")}
 
 
-def _scan(path: Path, session_id: str, streams: dict[str, dict[str, Any]]) -> StreamScan:
+def _scan(path: Path, session_id: str, streams: dict[str, dict[str, Any]], maximum_bytes: Optional[int] = None) -> StreamScan:
     digest = hashlib.sha256()
     counts = {"sweep": 0, "observation": 0}
     seen = {"sweep": set(), "observation": set()}
@@ -150,6 +153,8 @@ def _scan(path: Path, session_id: str, streams: dict[str, dict[str, Any]]) -> St
             raise _error(f"поток {measurement.stream_id} не принадлежит сеансу", "foreign_stream", line)
         if stream.get("level_unit") != measurement.level_unit:
             raise _error("исходная единица не совпадает с потоком; преобразование запрещено", "unit_mismatch", line)
+        if maximum_bytes is not None:
+            _batch_item_bytes(measurement, maximum_bytes)
         counts[kind] += 1
     return StreamScan(digest.hexdigest(), counts["sweep"], counts["observation"], last_line)
 
@@ -214,8 +219,9 @@ def _import_stream_snapshot(
     destination = client.base_url
     capabilities = client.capabilities()
     effective_batch_size = _server_batch_size(capabilities, batch_size)
+    maximum_bytes = _server_batch_max_request_bytes(capabilities)
     session = client.get_session(session_id)
-    scan = _scan(source, session_id, _stream_map(session, session_id))
+    scan = _scan(source, session_id, _stream_map(session, session_id), maximum_bytes)
 
     checkpoint: Optional[Checkpoint] = None
     if checkpoint_file is not None and checkpoint_file.exists():
@@ -255,9 +261,10 @@ def _import_stream_snapshot(
     new_batches = 0
     current_kind: Optional[str] = None
     chunk: list[tuple[int, Any, str]] = []
+    chunk_bytes = BATCH_ENVELOPE_BYTES
 
     def flush() -> None:
-        nonlocal total_sweeps, total_observations, batches, new_batches, next_line, chunk
+        nonlocal total_sweeps, total_observations, batches, new_batches, next_line, chunk, chunk_bytes
         if not chunk:
             return
         kind = current_kind
@@ -281,13 +288,16 @@ def _import_stream_snapshot(
                 Checkpoint(session_id, destination, scan.sha256, next_line, total_sweeps, total_observations, batches, False),
             )
         chunk = []
+        chunk_bytes = BATCH_ENVELOPE_BYTES
 
     for line, kind, measurement, measurement_id in _records(source, session_id):
         if line < next_line:
             continue
-        if current_kind is not None and kind != current_kind:
+        item_bytes = _batch_item_bytes(measurement, maximum_bytes)
+        if chunk and (kind != current_kind or chunk_bytes + 2 + item_bytes > maximum_bytes):
             flush()
         current_kind = kind
+        chunk_bytes += item_bytes + (2 if chunk else 0)
         chunk.append((line, measurement, measurement_id))
         if len(chunk) >= effective_batch_size:
             flush()
