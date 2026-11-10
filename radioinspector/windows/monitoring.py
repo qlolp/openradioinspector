@@ -43,8 +43,8 @@ class MonitoringPanel:
         index = self.choice.current()
         return self.items[index]['id'] if 0 <= index < len(self.items) else None
 
-    def render(self, data):
-        if isinstance(data.get('items'), list):
+    def render(self, data, *, project_list=False):
+        if project_list and isinstance(data.get('items'), list):
             previous = self.selected()
             self.items = data['items']
             self.choice.configure(values=[f"{x['name']} · {x['site']} · {x['state']}" for x in self.items])
@@ -56,7 +56,8 @@ class MonitoringPanel:
     def call(self, path='', payload=None):
         if self.app.client:
             operation = partial(self.app.client.monitoring, path, payload)
-            self.app._submit_action('Проект наблюдения', operation, self.render)
+            render = partial(self.render, project_list=path == '' and payload is None)
+            self.app._submit_action('Проект наблюдения', operation, render)
 
     def refresh(self): self.call()
     def create(self):

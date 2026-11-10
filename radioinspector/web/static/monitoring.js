@@ -18,7 +18,7 @@
       if (!response.ok) throw Error(envelope.error?.message || `HTTP ${response.status}`);
       if (current !== generation) return;
       const data = envelope.data;
-      if (Array.isArray(data.items)) {
+      if (path === '' && body === undefined && Array.isArray(data.items)) {
         const previous = projects.value;
         projects.replaceChildren(...data.items.map(p => new Option(`${p.name} · ${p.site} · ${p.state}`, p.id)));
         if ([...projects.options].some(o => o.value === previous)) projects.value = previous;

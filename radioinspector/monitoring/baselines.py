@@ -60,6 +60,22 @@ class BaselineOperations:
             index = next((i+1 for i,x in enumerate(items) if x.id == cursor), 0)
             return [(i+1, copy.deepcopy(s)) for i,s in enumerate(items) if index <= i < index+limit]
 
+    def _open_events(self, identifier, baseline_id):
+        """Keep historical evidence, but never interpret its bins on a new grid."""
+        active, after = [], ''
+        with self.store.transaction():
+            while True:
+                page = self.store.list('event', identifier, limit=1000, after=after, state='open')
+                for event in page:
+                    if event['baseline_id'] == baseline_id:
+                        active.append(event)
+                    else:
+                        event.update(state='superseded', superseded_by_baseline_id=baseline_id)
+                        self.store.put('event', event)
+                if len(page) < 1000:
+                    return active
+                after = page[-1]['id']
+
     def analyze(self, identifier):
         with self.lock:
             project = self.project(identifier)
@@ -71,10 +87,10 @@ class BaselineOperations:
             processed = 0
             for rowid, sweep in self._pending_sweeps(project):
                 regions, excess, thresholds = detector.step(sweep, allowed)
-                opens = self.store.list('event', identifier, limit=1000, state='open')
                 with self.store.transaction():
+                    opens = self._open_events(identifier, baseline['id'])
                     touched = set()
-                    for region in regions[:32]:
+                    for region in regions:
                         event = next((x for x in opens if x['start_frequency_hz'] <= region['end_frequency_hz']
                             and x['end_frequency_hz'] >= region['start_frequency_hz']
                             and (x['kind']=='broadband_change') == (region['kind']=='broadband_change')), None)
@@ -93,8 +109,9 @@ class BaselineOperations:
                                 self.store.put('event-source', dict(id=event['id']+'.'+prior['sweep_id'], project_id=identifier,
                                     created_at=event['created_at'], event_id=event['id'], **ref))
                                 event['source_refs'].append(ref); event['source_count'] += 1
-                        event['source_count'] += 1
-                        event['source_refs'] = (event['source_refs'] + [source])[-100:]
+                        if event['id'] not in touched:
+                            event['source_count'] += 1
+                            event['source_refs'] = (event['source_refs'] + [source])[-100:]
                         self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
                             created_at=event['created_at'], event_id=event['id'], **source))
                         self.store.put('event', event); touched.add(event['id']); events.add(event['id'])

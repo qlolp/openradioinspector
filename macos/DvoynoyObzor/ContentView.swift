@@ -1766,14 +1766,18 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var selected = ""
     @Published var details = "Выберите подготовленный сеанс."
     @Published var pending = false
+    private let makeClient: (String) throws -> PlatformClient
     private var client: PlatformClient?
     private var scope = ""
     private var revision = 0
+    init(makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) }) {
+        self.makeClient = makeClient
+    }
     func configure(_ server: String, _ session: String) {
         let next = server + "|" + session
         if next != scope {
             revision += 1; scope = next; selected = ""; projects = []
-            client = server.isEmpty ? nil : try? PlatformClient(baseURL: server)
+            client = server.isEmpty ? nil : try? makeClient(server)
         }
     }
     func call(_ path: String = "", body: [String: MonitoringValue]? = nil) async {
@@ -1783,7 +1787,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         do {
             let result = try await client.monitoring(path, body: body)
             guard current == revision, !Task.isCancelled else { return }
-            if case .array(let values) = result["items"] {
+            if path.isEmpty, body == nil, case .array(let values) = result["items"] {
                 projects = values
                 if !values.contains(where: { $0["id"].text == selected }) { selected = values.first?["id"].text ?? "" }
             }

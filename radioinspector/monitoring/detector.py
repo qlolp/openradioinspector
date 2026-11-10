@@ -71,8 +71,15 @@ class Detector:
             started_at=sweep.interval.started_at.isoformat())])[-p['window_sweeps']:]
         active = [(above[i] and sum(row[i] for row in window) >= p['confirmations']) or impulses[i]
                   for i in range(len(above))]
-        # A broad scene change is one event, never hundreds of isolated peaks.
-        broad = sum(above) >= max(2, math.ceil(.5*len(above)))
+        # Suppress individual allowed bins before aggregating alarm regions.
+        # Keep raw flags separately for adaptation and historical evidence.
+        suppressed = [any(a['start_hz'] <= frequency <= a['end_hz']
+                          and not a.get('watch_changes', False) for a in allowed)
+                      for frequency in b['frequencies_hz']]
+        active = [flag and not suppressed[i] for i, flag in enumerate(active)]
+        raw_broad = sum(above) >= max(2, math.ceil(.5*len(above)))
+        alarm_above = [flag and not suppressed[i] for i, flag in enumerate(above)]
+        broad = sum(alarm_above) >= max(2, math.ceil(.5*len(above)))
         regions = []
         start = None
         for i, flag in enumerate(active + [False]):
@@ -88,7 +95,7 @@ class Detector:
                     kind='impulse' if any(impulses[start:i]) else 'persistent'))
                 start = None
         if broad:
-            peak = max(range(len(excess)), key=excess.__getitem__)
+            peak = max((i for i, flag in enumerate(alarm_above) if flag), key=excess.__getitem__)
             regions = [dict(first_bin=0, last_bin=len(excess)-1,
                 start_frequency_hz=b['frequencies_hz'][0], end_frequency_hz=b['frequencies_hz'][-1],
                 center_frequency_hz=b['frequencies_hz'][peak], peak_level=sweep.levels[peak],
@@ -102,7 +109,7 @@ class Detector:
             result.append(region)
         # Detect first, learn second. Changed/impulsive bins and broad changes
         # never enter the quiet model. A bounded offset cannot absorb a carrier.
-        if not broad:
+        if not raw_broad:
             duration = max(.01, (sweep.interval.ended_at-sweep.interval.started_at).total_seconds())
             alpha = -math.expm1(-min(duration, 30)/30)
             for i, changed in enumerate(above):
