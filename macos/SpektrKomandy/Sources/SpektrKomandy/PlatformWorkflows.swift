@@ -51,13 +51,14 @@ public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
     public let mode: String?
     public let createdAt: String
     public let startedAt: String?
+    public let listeningStartedAt: String?
     public let endedAt: String?
     public let resultObservationIds: [String]
     public let error: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, candidateId, targetStreamId, targetFrequencyHz, state, priority, mode
-        case createdAt, startedAt, endedAt, resultObservationIds, error
+        case createdAt, startedAt, listeningStartedAt, endedAt, resultObservationIds, error
     }
 
     public init(from decoder: Decoder) throws {
@@ -71,6 +72,7 @@ public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
         mode = try container.decodeIfPresent(String.self, forKey: .mode)
         createdAt = try container.decode(String.self, forKey: .createdAt)
         startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+        listeningStartedAt = try container.decodeIfPresent(String.self, forKey: .listeningStartedAt)
         endedAt = try container.decodeIfPresent(String.self, forKey: .endedAt)
         resultObservationIds = try container.decodeIfPresent([String].self, forKey: .resultObservationIds) ?? []
         error = try container.decodeIfPresent(String.self, forKey: .error)

@@ -433,6 +433,7 @@ class Investigation:
     ended_at: Optional[datetime] = None
     result_observation_ids: tuple[str, ...] = ()
     error: Optional[str] = None
+    listening_started_at: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         self.candidate_id = _required_text(self.candidate_id, "candidate_id")
@@ -446,6 +447,8 @@ class Investigation:
             self.started_at = ensure_utc(self.started_at, "started_at")
         if self.ended_at is not None:
             self.ended_at = ensure_utc(self.ended_at, "ended_at")
+        if self.listening_started_at is not None:
+            self.listening_started_at = ensure_utc(self.listening_started_at, "listening_started_at")
         self.result_observation_ids = tuple(str(item) for item in self.result_observation_ids)
 
     @classmethod
@@ -469,6 +472,8 @@ class Investigation:
             else None,
             result_observation_ids=tuple(payload.get("result_observation_ids") or ()),
             error=payload.get("error"),
+            listening_started_at=parse_time(payload["listening_started_at"], "listening_started_at")
+            if payload.get("listening_started_at") else None,
         )
 
 

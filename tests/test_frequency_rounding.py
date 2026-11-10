@@ -476,9 +476,9 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         finally:
             connection.close()
 
-    def raw_headers(self, headers, body=b"", *, shutdown=False):
+    def raw_headers(self, headers, body=b"", *, shutdown=False, path=None):
         with socket.create_connection(self.server.server_address, timeout=5) as connection:
-            connection.sendall((f"POST {self.root} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n" + headers + "\r\n").encode() + body)
+            connection.sendall((f"POST {path or self.root} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n" + headers + "\r\n").encode() + body)
             if shutdown:
                 connection.shutdown(socket.SHUT_WR)
             response = http.client.HTTPResponse(connection)
@@ -542,9 +542,12 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         service = self.server.session_service
         before = (service.health(), service.events(), service.archive_capacity())
         for suffix in ("?", "?x=1", "?x=", "?&", "?candidate_id=candidate-1"):
-            status, response = self.request(path=self.root + suffix)
+            # Advertise a body but do not send it: query rejection must happen
+            # before body reads. Sending it after headers races the server's
+            # close and can reset the connection on Windows (WinError 10053).
+            status, response = self.raw_headers("Content-Length: 100\r\n", path=self.root + suffix)
             self.assertEqual((status, response["error"]["code"]), (400, "invalid_request"))
-        self.assertEqual(self.request(method="GET")[0], 404)
+        self.assertEqual(self.request(method="GET", raw=b"")[0], 404)
         for identifier, expected, code in (("missing", 404, "candidate_not_found"),
                                             ("foreign", 404, "candidate_not_found"),
                                             ("bad", 409, "frequency_rounding_incompatible")):

@@ -105,6 +105,7 @@
 				<string>EAD0B682451022F1A45E7056</string>
 				<string>A1EAD2D23E0357049F6D4522</string>
 				<string>B9043CDA07AA4D44A13C5712</string>
+				<string>2F9AFF2D513317FC8BF884A6</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -177,6 +178,7 @@
 				<string>76ABE19D7DC066F994A87AC8</string>
 				<string>8872EB9AA53A9C33110D863D</string>
 				<string>3CB2800745D34D959670D89B</string>
+				<string>5587A160A132CB4A8998D845</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -376,6 +378,8 @@
 				<string>5.0</string>
 				<key>ENABLE_TESTABILITY</key>
 				<string>YES</string>
+				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
+				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>
 			<key>name</key>
 			<string>Debug</string>
@@ -428,6 +432,8 @@
 				<string>minimal</string>
 				<key>SWIFT_VERSION</key>
 				<string>5.0</string>
+				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
+				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>
 			<key>name</key>
 			<string>Release</string>
@@ -891,6 +897,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>A1EAD2D23E0357049F6D4522</string>
+		</dict>
+		<key>2F9AFF2D513317FC8BF884A6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>TinySAControlPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>5587A160A132CB4A8998D845</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>2F9AFF2D513317FC8BF884A6</string>
 		</dict>
 		<key>B9043CDA07AA4D44A13C5712</key>
 		<dict>

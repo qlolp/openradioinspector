@@ -142,13 +142,13 @@ class Trace:
             return Trace(self.frequencies.copy(), self.levels.copy(), self.unit)
 
         bucket = int(np.ceil(self.size / target_points))
-        usable = (self.size // bucket) * bucket
-        trimmed_levels = self.levels[:usable].reshape(-1, bucket)
-        trimmed_freqs = self.frequencies[:usable].reshape(-1, bucket)
-
-        max_idx = np.argmax(trimmed_levels, axis=1)
-        levels = trimmed_levels[np.arange(trimmed_levels.shape[0]), max_idx]
-        freqs = trimmed_freqs[np.arange(trimmed_freqs.shape[0]), max_idx]
+        # Every source bin belongs to a bucket, including the partial tail.
+        indices = np.array([
+            start + int(np.argmax(self.levels[start : start + bucket]))
+            for start in range(0, self.size, bucket)
+        ])
+        levels = self.levels[indices]
+        freqs = self.frequencies[indices]
         return Trace(freqs, levels, self.unit)
 
     def resample_to(self, frequencies: Sequence[float]) -> "Trace":

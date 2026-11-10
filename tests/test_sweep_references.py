@@ -380,13 +380,14 @@ class ReferenceMigrationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.path = str(Path(temporary.name) / "archive.sqlite")
-        # Build the exact pre-catalog schema using the unchanged v2 DDL.
-        with patch.object(SQLiteSessionStore, "_create_reference_schema"):
-            service = SessionService(store=SQLiteSessionStore(self.path))
+        # Reconstruct the owned pre-catalog fixture by removing later additions.
+        service = SessionService(store=SQLiteSessionStore(self.path))
         self.session = create_session(service)
         service.ingest_sweep(measurement(self.session.id, self.session.streams[0].id))
         self.before = (service.list_sessions(), service.list_sweeps(self.session.id), service.events())
-        service._store._connection.execute("PRAGMA user_version = 2")
+        with service._store._connection:
+            for statement in ("DROP TABLE sweep_ingestion", "DROP TABLE measurement_results", "DROP TABLE sweep_references", "DROP INDEX sweeps_reference_owner", "ALTER TABLE investigations DROP COLUMN listening_started_at", "PRAGMA user_version = 2"):
+                service._store._connection.execute(statement)
         service.close()
 
     def test_additive_upgrade_preserves_measurements_events_and_can_create_reference(self):

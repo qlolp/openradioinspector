@@ -323,7 +323,7 @@ class AutomaticDetectionBackgroundTests(unittest.TestCase):
 
     def test_blocked_archive_read_does_not_serialize_another_session(self) -> None:
         service = SessionService(history_limit=5000)
-        original = service.list_sweeps
+        original = service.sweeps_after_ingestion
         entered = threading.Event()
         release = threading.Event()
         first = second = None
@@ -336,7 +336,7 @@ class AutomaticDetectionBackgroundTests(unittest.TestCase):
                     raise RuntimeError("Стенд: не дождался разблокировки архива")
             return original(session_id, **kwargs)
 
-        service.list_sweeps = list_sweeps
+        service.sweeps_after_ingestion = list_sweeps
         detector = AutomaticCandidateDetector(service)
         try:
             first = service.create_session(simulated_session_payload())

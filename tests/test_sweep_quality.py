@@ -5,6 +5,7 @@ import copy
 from contextlib import closing
 import http.client
 import json
+import socket
 import sqlite3
 import tempfile
 import threading
@@ -153,6 +154,42 @@ class QualityDumpOwnershipTests(unittest.TestCase):
 
 
 class QualityPersistenceTests(unittest.TestCase):
+    def test_exact_archive_read_with_empty_cache_is_read_only_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'archive.sqlite')
+            service = SessionService(store=SQLiteSessionStore(path), history_limit=1)
+            try:
+                session = create_session(service)
+                for index in range(3):
+                    service.ingest_sweep(measurement(session.id, session.streams[0].id, index))
+            finally:
+                service.close()
+            store = SQLiteSessionStore(path)
+            service = SessionService(store=store, history_limit=1)
+            try:
+                self.assertEqual(service._sweeps, [])
+                before_events = service.events()
+                def files():
+                    return {p.name: p.read_bytes() for p in Path(directory).iterdir()
+                            if p.name == 'archive.sqlite' or p.name.endswith('-wal')}
+                before_files = files()
+                before_changes = store._connection.total_changes
+                statements = []
+                store._connection.set_trace_callback(statements.append)
+                with patch.object(store, 'list_sweeps', side_effect=AssertionError('archive scan')), \
+                     patch.object(store, 'get_sweep', wraps=store.get_sweep) as lookup:
+                    result = service.sweep_quality(session.id, request())
+                    lookup.assert_called_once_with('sweep-0', session_id=session.id)
+                self.assertEqual(result['sweep']['id'], 'sweep-0')
+                self.assertEqual(service._sweeps, [])
+                self.assertEqual(store._connection.total_changes, before_changes)
+                self.assertEqual(files(), before_files)
+                self.assertEqual(service.events(), before_events)
+                self.assertTrue(statements)
+                self.assertTrue(all(sql.lstrip().upper().startswith('SELECT') for sql in statements), statements)
+            finally:
+                service.close()
+
     def test_read_only_restart_logical_archive_and_events(self):
         with tempfile.TemporaryDirectory() as directory:
             path = str(Path(directory) / 'archive.sqlite')
@@ -235,3 +272,26 @@ class QualityHTTPTests(unittest.TestCase):
         self.assertEqual(self.post(request(), headers={'Content-Type': 'text/plain'})[0], 415)
         self.assertEqual(self.post(request(), headers={'Content-Type': 'application/json',
                                                        'Origin': 'https://example.invalid'})[0], 403)
+
+    def test_quality_uses_exact_budget_and_shared_framing_reader(self):
+        body = json.dumps(request()).encode()
+        self.assertEqual(self.post(body + b' ' * (8192 - len(body)), raw=True)[0], 200)
+        self.assertEqual(self.post(body + b' ' * (8193 - len(body)), raw=True)[0], 413)
+        before = self.server.session_service.events()
+        cases = ((b'Content-Length: 2\r\nContent-Length: 2\r\n', b'{}', False, 400),
+                 (b'Transfer-Encoding: chunked\r\n', b'', False, 400),
+                 (b'Content-Length: 0\r\n', b'', False, 400),
+                 (b'Content-Length: 20\r\n', b'{}', True, 400),
+                 (b'Content-Length: 8193\r\n', b'', False, 413))
+        for headers, payload, shutdown, status in cases:
+            with self.subTest(headers=headers):
+                with socket.create_connection(self.server.server_address, timeout=3) as connection:
+                    connection.sendall(b'POST ' + self.root.encode() + b' HTTP/1.0\r\nHost: localhost\r\n'
+                                       b'Content-Type: application/json\r\n' + headers + b'\r\n' + payload)
+                    if shutdown:
+                        connection.shutdown(socket.SHUT_WR)
+                    response = http.client.HTTPResponse(connection)
+                    response.begin()
+                    self.assertEqual(response.status, status)
+                    response.read()
+        self.assertEqual(self.server.session_service.events(), before)

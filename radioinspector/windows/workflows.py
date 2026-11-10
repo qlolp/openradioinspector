@@ -6,6 +6,7 @@ import math
 from typing import Any, Optional
 
 from ..serial_ports import serial_port_identity
+from ..tinysa_profile import PROFILE_ID, validate_receive_settings
 
 
 def required_text(value: Any, label: str) -> str:
@@ -121,7 +122,8 @@ def session_payload(
             {"adapter": "ardv1-sim", "period_s": 0.25, "seed": 17}
         )
     elif serial:
-        spectrum_settings.update({"adapter": "tinysa-serial", "period_s": 0.25})
+        validate_receive_settings(spectrum_settings)
+        spectrum_settings.update({"adapter": "tinysa-serial", "period_s": 0.25, "receive_profile": PROFILE_ID})
         receiver_settings.update({"adapter": "ardv1-serial", "period_s": 0.25})
     return {
         "name": selected_name,

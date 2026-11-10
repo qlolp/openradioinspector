@@ -4,6 +4,73 @@ import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class SweepQualityModelTests: XCTestCase {
+    final class Stub: URLProtocol {
+        static var handler: ((Stub) -> Void)?
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() { Self.handler?(self) }
+        override func stopLoading() {}
+        func respond(_ object: Any, status: Int = 200) {
+            let payload: [String: Any] = status == 200
+                ? ["contract": "openradioinspector-platform", "contract_version": 1, "data": object]
+                : ["error": ["code": "not_found", "message": "Synthetic unavailable endpoint"]]
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
+                httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: payload))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+    final class Responses {
+        private let lock = NSLock()
+        private let report: [String: Any]
+        private var sweepID = "w"
+        private var snapshotFails = false
+        private var holdQuality = false
+        private var pending: [(Stub, [String: Any])] = []
+        private var qualityRequests = 0
+        init(report: [String: Any]) { self.report = report }
+        var pendingCount: Int { lock.withLock { pending.count } }
+        var qualityRequestCount: Int { lock.withLock { qualityRequests } }
+        func configure(sweepID: String = "w", snapshotFails: Bool = false, holdQuality: Bool = false) {
+            lock.withLock {
+                self.sweepID = sweepID; self.snapshotFails = snapshotFails; self.holdQuality = holdQuality
+            }
+        }
+        func release() {
+            let held = lock.withLock { let held = pending; pending = []; return held }
+            for (stub, response) in held { stub.respond(response) }
+        }
+        func handle(_ stub: Stub) {
+            let state = lock.withLock { (sweepID, snapshotFails) }
+            let session: [String: Any] = ["id": "s", "name": "Synthetic", "state": "running", "streams": [
+                ["id": "tiny", "device": "tinySA Ultra", "role": "spectrum_analyzer", "level_unit": "dBm",
+                 "state": "connected", "capabilities": ["sweep"]]]]
+            switch stub.request.url!.path {
+            case "/api/v1/sessions": stub.respond([session])
+            case "/api/v1/sessions/s":
+                if state.1 { stub.client?.urlProtocol(stub, didFailWithError: URLError(.notConnectedToInternet)) }
+                else { stub.respond(session) }
+            case "/api/v1/sessions/s/sweeps":
+                var sweep = report["sweep"] as! [String: Any]
+                sweep["id"] = state.0; sweep["session_id"] = "s"; sweep["stream_id"] = "tiny"
+                sweep["frequencies_hz"] = [100, 200, 300]; sweep["levels"] = [0, -20, -30]
+                stub.respond([sweep])
+            case "/api/v1/sessions/s/workers": stub.respond([])
+            case "/api/v1/sessions/s/sweep-quality":
+                let response: [String: Any]? = lock.withLock {
+                    qualityRequests += 1
+                    var value = report, sweep = report["sweep"] as! [String: Any]
+                    sweep["id"] = sweepID; value["sweep"] = sweep
+                    if holdQuality { pending.append((stub, value)); return nil }
+                    return value
+                }
+                if let response { stub.respond(response) }
+            default: stub.respond([:], status: 404)
+            }
+        }
+    }
+    override func tearDown() { Stub.handler = nil; super.tearDown() }
+
     func fixture() -> [String: Any] {
         ["session_id": "s", "stream_id": "tiny", "sweep": ["id": "w",
             "interval": ["started_at": "2026-11-09T01:00:00Z", "ended_at": "2026-11-09T01:00:01Z"],
@@ -73,5 +140,51 @@ final class SweepQualityModelTests: XCTestCase {
             deferred.release(try decode(fixture(), as: PlatformSweepQuality.self))
             try await Task.sleep(nanoseconds: 20_000_000); XCTAssertNil(model.result)
         }
+    }
+    @MainActor func testRemoteSnapshotFailureInvalidatesRetainedAndPendingQualityAndRecoversFreshSource() async throws {
+        let responses = Responses(report: fixture())
+        Stub.handler = { responses.handle($0) }
+        let remote = RemoteDualModel(makeClient: { baseURL in
+            let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [Stub.self]
+            return try PlatformClient(baseURL: baseURL, session: URLSession(configuration: config))
+        })
+        remote.connect(startPolling: false); defer { remote.disconnect() }
+        let model = remote.sweepQuality
+        try await waitFor { model.source != nil }
+        XCTAssertEqual(model.source?.id, "w"); XCTAssertTrue(model.canAnalyze)
+        model.analyze(); try await waitFor { model.result != nil }
+        XCTAssertEqual(model.result?.sweep.id, "w")
+
+        responses.configure(snapshotFails: true)
+        await remote.refresh()
+        XCTAssertNotNil(remote.errorText)
+        XCTAssertNil(model.result); XCTAssertNil(model.source); XCTAssertTrue(model.choices.isEmpty)
+        XCTAssertFalse(model.canAnalyze); XCTAssertFalse(model.pending)
+
+        responses.configure(sweepID: "fresh")
+        await remote.refresh()
+        XCTAssertEqual(model.source?.id, "fresh"); XCTAssertEqual(model.choices.map(\.id), ["fresh"])
+        XCTAssertTrue(model.canAnalyze); XCTAssertNil(model.result)
+        responses.configure(sweepID: "fresh", holdQuality: true)
+        model.analyze(); try await waitFor { responses.pendingCount == 1 }
+        XCTAssertTrue(model.pending)
+
+        responses.configure(sweepID: "fresh", snapshotFails: true)
+        await remote.refresh()
+        XCTAssertNil(model.result); XCTAssertNil(model.source); XCTAssertTrue(model.choices.isEmpty)
+        XCTAssertFalse(model.canAnalyze); XCTAssertFalse(model.pending)
+        let requests = responses.qualityRequestCount
+        model.analyze(); await Task.yield()
+        XCTAssertEqual(responses.qualityRequestCount, requests)
+
+        responses.configure(sweepID: "newest")
+        await remote.refresh()
+        XCTAssertEqual(model.source?.id, "newest"); XCTAssertEqual(model.choices.map(\.id), ["newest"])
+        XCTAssertTrue(model.canAnalyze); XCTAssertNil(model.result)
+        // Deliver the old response after recovery, even if its transport was cancelled.
+        responses.release()
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertNil(model.result); XCTAssertNil(model.errorText); XCTAssertFalse(model.pending)
+        XCTAssertEqual(model.source?.id, "newest"); XCTAssertTrue(model.canAnalyze)
     }
 }

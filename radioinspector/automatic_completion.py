@@ -229,9 +229,13 @@ class AutomaticInvestigationCompletion:
                     continue
                 if investigation.started_at is None:
                     continue
-                elapsed = (self._clock() - investigation.started_at).total_seconds()
-                if elapsed < policy["minimum_listening_seconds"]:
-                    continue
+                minimum = policy["minimum_listening_seconds"]
+                if minimum > 0:
+                    # Legacy records have no reliable listening origin. Never
+                    # count setup/tuning time or invent a historical timestamp.
+                    origin = investigation.listening_started_at
+                    if origin is None or (self._clock() - origin).total_seconds() < minimum:
+                        continue
                 observation_ids = self.sessions.matching_observation_ids(
                     session_id,
                     investigation.id,
