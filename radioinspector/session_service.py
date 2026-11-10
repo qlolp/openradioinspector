@@ -1405,6 +1405,9 @@ class SessionService:
             current = self._get_investigation_locked(session_id, investigation_id)
             if current.started_at is None:
                 return ()
+            # Match the receiver adapters' normalization, including requests
+            # already persisted before mode-aware completion was introduced.
+            mode = str(current.mode).strip().upper() if current.mode is not None else None
             if self._store is not None:
                 return self._store.matching_observation_ids(
                     session_id,
@@ -1412,14 +1415,14 @@ class SessionService:
                     current.target_frequency_hz,
                     current.started_at,
                     limit=limit,
-                    mode=current.mode,
+                    mode=mode,
                 )
             matches = [
                 item for item in self._observations
                 if item.session_id == session_id
                 and item.stream_id == current.target_stream_id
                 and item.frequency_hz == current.target_frequency_hz
-                and (current.mode is None or item.mode == current.mode)
+                and (mode is None or item.mode == mode)
                 and item.interval.started_at >= current.started_at
             ]
             matches.sort(key=lambda item: (item.interval.started_at, item.id))
