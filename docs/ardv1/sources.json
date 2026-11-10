@@ -1,0 +1,71 @@
+{
+  "checked_on": "2026-11-09",
+  "baseline": "aa23f1a83e98586936d06f2a41940f7de0d66fa9",
+  "documents": [
+    {
+      "url": "https://www.aorja.com/support/manuals/AR-DV1_MANUAL.pdf",
+      "file": "AR-DV1_MANUAL.pdf",
+      "bytes": 7133131,
+      "sha256": "5461fa5d9b8206f4b052f1d6aa2972f0c939db70363601fff5b52487cbbcb126",
+      "pages": 72
+    },
+    {
+      "url": "https://www.aorja.com/support/manuals/AR-DV1_manual_addendum.pdf",
+      "file": "AR-DV1_manual_addendum.pdf",
+      "bytes": 1152942,
+      "sha256": "1882a003b6196f86109318cd93ff1ed2b8cbdc1facf323bfe74321e67b2d96e7",
+      "pages": 6
+    },
+    {
+      "url": "https://www.aorja.com/support/manuals/AR-DV1_COMMAND_LIST.pdf",
+      "file": "AR-DV1_COMMAND_LIST.pdf",
+      "bytes": 271163,
+      "sha256": "fa5e59abb9cf2b16fc1f4d79c96d6b46637aec208c85c1ecf0698885fb6b5d57",
+      "pages": 46
+    },
+    {
+      "url": "https://www.aorja.com/support/manuals/AR-DV1_COMMAND_LIST_additions.pdf",
+      "file": "AR-DV1_COMMAND_LIST_additions.pdf",
+      "bytes": 33955,
+      "sha256": "5f9dc8cc77243f5cb4b63f3560022357db4416e0c7beea149e525e524121ee81",
+      "pages": 2
+    },
+    {
+      "url": "https://www.aorja.com/support/manuals/AR-DV10_AND_AR-DV1_COMMAND_LIST_SUMMARY.pdf",
+      "file": "AR-DV10_AND_AR-DV1_COMMAND_LIST_SUMMARY.pdf",
+      "bytes": 74863,
+      "sha256": "ba2d4666a5eb7b88518fd7c731e33288ffe4ea1319e66fd44e739c91cb5c928a",
+      "pages": 3
+    },
+    {
+      "url": "https://www.aorja.com/support/manuals2/GSSI_commands_AR-DV1_DV10.pdf",
+      "file": "GSSI_commands_AR-DV1_DV10.pdf",
+      "bytes": 71240,
+      "sha256": "ae71fb043a14377d2d52e056e95366fe6875547ecd13818cd7475fb39f718688",
+      "pages": 5
+    },
+    {
+      "url": "https://www.aorja.com/support/firmware/AR-DV1_firmware_update_procedures.pdf",
+      "file": "AR-DV1_firmware_update_procedures.pdf",
+      "bytes": 127787,
+      "sha256": "37e6a56ff32e9734658e0a2f641649e5b87eb75549eaf988622bf002936cf9e5",
+      "pages": 1
+    },
+    {
+      "url": "https://www.aorja.com/udoc/AR-DV1_undocumented_features.pdf",
+      "file": "AR-DV1_undocumented_features.pdf",
+      "bytes": 40082,
+      "sha256": "83ccfcb48e6fab9c8470abb7d9ac0fd88ec14f68cdc3db3532a15b76774ef7d1",
+      "pages": 1
+    }
+  ],
+  "note": "PDFs were read privately and are not distributed by this repository. Page citations C use printed page numbers.",
+  "web_snapshots": [
+    {
+      "url": "https://www.aorja.com/support/firmware.html",
+      "sha256": "4f5a8ef8343a1ca896a6112ff195ab995c11a772b59834e00ef45325e16a9b6f",
+      "latest_ardv1_version": "2504A",
+      "release_date": "2025-12-02"
+    }
+  ]
+}

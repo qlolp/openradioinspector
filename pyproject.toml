@@ -38,12 +38,14 @@ test = ["tomli>=2; python_version < '3.11'"]
 plot = ["matplotlib>=3.5"]
 # Аппаратные драйверы.
 serial = ["pyserial>=3.5,<4"]
+audio = ["sounddevice>=0.4,<1"]
 soapy = ["SoapySDR>=0.8"]
 rtl = ["pyrtlsdr>=0.1"]
 # Разбор кадров 802.11.
 wifi = ["scapy>=2.5"]
 # Всё необязательное сразу.
 all = [
+    "sounddevice>=0.4,<1",
     "pyserial>=3.5,<4",
     "matplotlib>=3.5",
     "SoapySDR>=0.8",
@@ -71,4 +73,5 @@ Issues = "https://github.com/qlolp/openradioinspector/issues"
 include = ["radioinspector*"]
 
 [tool.setuptools.package-data]
+"radioinspector.tinysa" = ["*.json"]
 "radioinspector.web" = ["static/*"]

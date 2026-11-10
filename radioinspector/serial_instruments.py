@@ -22,9 +22,11 @@ from .contracts import (
     ReceiverObservation,
     Sweep,
     TimeInterval,
+    format_time,
     utc_now,
 )
 from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adapter
+from .tinysa_profile import PROFILE_ID, matches_identity, profile_description, validate_receive_settings
 
 
 HARDWARE_VALIDATION_NOT_RUN = "not_run"
@@ -40,6 +42,9 @@ class _SerialFraming:
     def _check_cancelled(self) -> None:
         if self._cancelled.is_set():
             raise WorkerError(f"Операция на {self.path} остановлена; требуется новое соединение")
+        check = getattr(self, '_ownership_check', None)
+        if check is not None:
+            check()
 
     def _require_clean_input(self) -> None:
         # There are no transaction IDs: pending bytes belong to an earlier
@@ -52,6 +57,8 @@ class _SerialFraming:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             self._check_cancelled()
+            if len(self._stash) > 1024 * 1024:
+                raise WorkerError(f"Превышен размер текстового ответа: {label}")
             newline = self._stash.find(b"\n")
             if newline >= 0:
                 raw = bytes(self._stash[:newline]).rstrip(b"\r")
@@ -70,6 +77,8 @@ class _SerialFraming:
             remaining = deadline - time.monotonic()
             chunk = self._read_once(min(quiet, max(0.0, remaining)), label)
             if chunk:
+                if len(self._stash) > 1024 * 1024:
+                    raise WorkerError(f"Превышен размер текстового ответа: {label}")
                 text = self._stash.decode("utf-8", errors="replace")
                 if text.strip().endswith("ch>"):
                     self._stash.clear()
@@ -427,12 +436,13 @@ class TinySASerialAdapter(SimulatedAdapter):
         if stream.level_unit != "dBm":
             raise ValueError("tinysa-serial выдаёт только исходную единицу dBm")
         self._clock = clock
-        self.start_hz = self._frequency_setting("start_hz", 88_000_000)
-        self.stop_hz = self._frequency_setting("stop_hz", 108_000_000)
-        if self.stop_hz <= self.start_hz:
-            raise ValueError("stop_hz должно быть больше start_hz")
-        self.points = self._frequency_setting("points", 201, maximum=4096)
-        self.rbw_hz = self._frequency_setting("rbw_hz", 10_000, maximum=1_000_000_000)
+        requested = validate_receive_settings(self.settings)
+        self.start_hz = requested["start_hz"]
+        self.stop_hz = requested["stop_hz"]
+        self.points = requested["points"]
+        self.rbw_hz = requested["rbw_hz"]
+        self._identity: dict[str, str] = {}
+        self._instrument = None
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("tinysa-serial требует физический последовательный порт")
@@ -443,12 +453,6 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._sequence = 0
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
-
-    def _frequency_setting(self, name: str, default: int, *, maximum: int = 20_000_000_000) -> int:
-        value = self.settings.get(name, default)
-        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
-            raise ValueError(f"{name} должно быть целым в диапазоне 1…{maximum}")
-        return value
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:
@@ -502,8 +506,12 @@ class TinySASerialAdapter(SimulatedAdapter):
         info = self._transact("info", 3.0)
         version = self._transact("version", 3.0)
         identity = self._transact("deviceid", 3.0)
-        if "tinysa ultra" not in info.lower() or "tinySA4_" not in version or not identity.strip():
-            raise WorkerError("Ответ не похож на tinySA Ultra; scan не отправлен")
+        self._identity = {"info": info, "firmware": version}
+        if not matches_identity(info, version) or not identity.strip():
+            raise WorkerError(
+                f"tinySA Ultra: модель/firmware не поддержаны профилем {PROFILE_ID}; "
+                "setup и scan не отправлены"
+            )
         rbw_khz = self.rbw_hz / 1000
         rbw_text = str(round(rbw_khz, 6)).rstrip("0").rstrip(".")
         for command in (
@@ -514,8 +522,28 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._ready = True
         self._generator_output_source = "command_acknowledged"
 
+    def execute(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if command != 'instrument':
+            return super().execute(command,payload)
+        if self._instrument is None:
+            from .tinysa.controller import Controller
+            self._instrument=Controller(self)
+        return self._instrument.execute(payload)
+
+    def instrument_idle(self) -> bool:
+        return self._instrument is not None and not self._instrument.before_poll()
+
     def poll(self) -> Sweep:
         self._ensure_usable()
+        if self.settings.get('monitoring_instrument_context')=='inspect' and self._instrument is None:
+            # Re-establish the controller's acknowledged conservative receive
+            # context instead of copying old provenance or claiming RF readback.
+            self.execute('instrument',{'operation':'inspect'})
+        if self._instrument is not None and self.start_hz==self.stop_hz:
+            from .tinysa.artifacts import InstrumentSample
+            started=self._clock()
+            item=self._instrument._raw({},zero_span=True)['artifact']
+            return InstrumentSample(TimeInterval(started,self._clock()),item)
         try:
             self._prepare()
             started_at = self._clock()
@@ -526,10 +554,20 @@ class TinySASerialAdapter(SimulatedAdapter):
             frequencies, levels = parse_tinysa_scan(
                 self._transact(command, 90.0, allow_leading_prompt=True), command, self.points
             )
+            if frequencies[0] != self.start_hz or frequencies[-1] != self.stop_hz:
+                raise WorkerError("tinySA: границы scan не соответствуют запрошенному диапазону")
         except Exception as exc:
             raise self._taint_connection(exc) from exc
         ended_at = self._clock()
         self._sequence += 1
+        if self._instrument is not None and (self._instrument._trace_processed or self._instrument.settings.get('calculation','off')!='off' or self._instrument.settings.get('trace_unit','dBm')!='dBm'):
+            import json
+            from .tinysa.artifacts import InstrumentSample
+            data=json.dumps(dict(frequencies_hz=frequencies,levels=levels,
+                level_unit=self._instrument.settings.get('trace_unit','dBm'),
+                started_at=format_time(started_at),ended_at=format_time(ended_at)),allow_nan=False).encode()
+            item=self._instrument._artifact('processed_trace',data,'application/json','tinysa-trace.json',started_at=format_time(started_at),ended_at=format_time(ended_at),timing_source='host_usb_interval')['artifact']
+            return InstrumentSample(TimeInterval(started_at,ended_at),item)
         return Sweep(
             session_id=self.stream.session_id,
             stream_id=self.stream.id,
@@ -539,21 +577,35 @@ class TinySASerialAdapter(SimulatedAdapter):
             level_unit="dBm",
             settings={
                 "adapter": self.adapter_name,
-                "rbw_hz": self.rbw_hz,
+                "rbw_hz": self.rbw_hz,  # Legacy field: requested, not measured.
+                "receive_profile": PROFILE_ID,
+                "device_identity": dict(self._identity),
+                "rbw_requested_hz": self.rbw_hz,
+                "rbw_applied_state": "unknown",
+                "settings_source": "command_acknowledged",
+                "settings_readback": False,
                 "sequence": self._sequence,
                 "simulated": False,
                 "generator_output": "off",
                 "generator_output_source": self._generator_output_source,
                 "generator_output_readback": False,
                 "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
+                **({'instrument':self._instrument.provenance(),'receive_profile':self._instrument.status()['profile'],
+                    'generator_output':'unknown','generator_output_source':'no_physical_readback'} if self._instrument is not None else {}),
             },
         )
 
     def details(self) -> dict[str, Any]:
-        return {
+        result = {
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,
+            "receive_profile": profile_description(),
+            "device_identity": dict(self._identity),
+            "rbw_requested_hz": self.rbw_hz,
+            "rbw_applied_hz": None,
+            "settings_source": "command_acknowledged" if self._ready else "unknown",
+            "settings_readback": False,
             "generator_output": "off" if self._ready else "unknown",
             "generator_output_source": self._generator_output_source,
             "generator_output_readback": False,
@@ -561,14 +613,22 @@ class TinySASerialAdapter(SimulatedAdapter):
             "simulated": False,
             "hardware_validation": HARDWARE_VALIDATION_NOT_RUN,
         }
+        if self._instrument is not None:
+            result['instrument']=self._instrument.status()
+            result['generator_output']='unknown'
+            result['settings_source']=result['instrument']['settings_source']
+        return result
 
     def request_stop(self) -> None:
+        if self._instrument is not None and not self._instrument.request_stop():
+            return  # idle lab: owning worker can perform orderly off in close
         cancel = getattr(self.transport, "cancel", None)
         if cancel is not None:
             cancel()
 
     def close(self) -> None:
         if not self._closed:
+            if self._instrument is not None:self._instrument.shutdown()
             self._closed = True
             self._ready = False
             self._generator_output_source = "unknown"
@@ -577,6 +637,11 @@ class TinySASerialAdapter(SimulatedAdapter):
 
 class ARDV1SerialAdapter(SimulatedAdapter):
     adapter_name = "ardv1-serial"
+    MONITOR_MODES = {'AUTO':'MD000', 'DSTAR':'MD010', 'YSF':'MD020',
+                     'ALINCO':'MD030', 'NXDN':'MD040', 'P25':'MD050',
+                     'DPMR':'MD060', 'DMR':'MD070', 'FM':'MD0F0', 'AM':'MD0F1'}
+    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'DCR/NXDN',
+               '5':'P25', '6':'DPMR', '7':'DMR'}
 
     def __init__(
         self,
@@ -595,8 +660,14 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._requested_frequency_hz = self.settings.get("frequency_hz", 145_500_000)
         _rf_command(self._requested_frequency_hz)
         self._requested_mode = str(self.settings.get("mode") or "FM").strip().upper()
-        if self._requested_mode not in ("FM", "AM"):
-            raise ValueError("ardv1-serial поддерживает только FM и AM в этом срезе")
+        profile = self.settings.get('receiver_profile')
+        if profile not in (None, 'ardv1-monitor-v1'):
+            raise ValueError('Неизвестный профиль AR-DV1')
+        self._monitor_profile = profile == 'ardv1-monitor-v1'
+        self._modes = self.MONITOR_MODES if self._monitor_profile else {'FM':'MD0F0','AM':'MD0F1'}
+        if self._requested_mode not in self._modes:
+            raise ValueError('Режим не поддерживается выбранным профилем AR-DV1')
+        self._firmware = None
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("ardv1-serial требует физический последовательный порт")
@@ -648,6 +719,9 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         firmware = self._transact("VR")
         if not firmware.startswith("VR") or len(firmware) <= 2:
             raise WorkerError("AR-DV1 не подтвердил VR")
+        self._firmware = firmware[2:]
+        if self._monitor_profile and self._firmware != '2504A':
+            raise WorkerError('Профиль ardv1-monitor-v1 требует подтверждённый VR2504A')
         serial = self._transact("RN")
         if not serial.startswith("RN") or len(serial) <= 2:
             raise WorkerError("AR-DV1 не подтвердил RN")
@@ -666,7 +740,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         try:
             self._prepare()
             self._acknowledge("VFA")
-            self._acknowledge("MD0F0" if mode == "FM" else "MD0F1")
+            self._acknowledge(self._modes[mode])
             self._acknowledge(rf)
         except Exception as exc:
             raise self._taint_connection(exc) from exc
@@ -682,8 +756,8 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         frequency_hz = payload.get("frequency_hz")
         _rf_command(frequency_hz)
         mode = str(payload.get("mode") or self._requested_mode).strip().upper()
-        if mode not in ("FM", "AM"):
-            raise WorkerError("ardv1-serial поддерживает только FM и AM; цифровой режим не отправлен")
+        if mode not in self._modes:
+            raise WorkerError('Режим не поддерживается профилем (старый профиль: только FM и AM); команда не отправлена')
         self._tune(frequency_hz, mode)
         return self.details()
 
@@ -696,6 +770,11 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         started_at = self._clock()
         try:
             level, squelch = _ardv1_level(self._transact("LM"))
+            mode_status = self._transact('MD') if self._monitor_profile else None
+            if mode_status is not None and not re.fullmatch(r'MD[0-7][0-7F][0-6]', mode_status):
+                raise WorkerError('Некорректный статус MD')
+            if mode_status is not None and self.MONITOR_MODES[self.mode][3:] != mode_status[3:]:
+                raise WorkerError('Прочитанный режим AR-DV1 изменился вне ядра')
         except Exception as exc:
             raise self._taint_connection(exc) from exc
         ended_at = self._clock()
@@ -709,8 +788,13 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             level=level,
             level_unit="s_meter_count",
             squelch_open=squelch != 0,
-            decoded_mode=None,
+            decoded_mode=self.DECODED.get(mode_status[2]) if mode_status else None,
             metadata={
+                'receiver_profile': self.settings.get('receiver_profile', 'legacy-fm-am'),
+                'receiver_firmware': self._firmware,
+                'raw_mode_status': mode_status,
+                'decoder_source': 'receiver_MD' if mode_status else 'unavailable',
+                'raw_squelch_status': squelch,
                 "adapter": self.adapter_name,
                 "sequence": self._sequence,
                 "tune_sequence": self._tune_sequence,

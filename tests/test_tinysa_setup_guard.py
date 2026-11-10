@@ -20,7 +20,7 @@ SCAN_COMMAND = "scan 100M 101M 3 3"
 SCAN_REPLY = "100000000 -90 0\r\n100500000 -42.5 0\r\n101000000 -80 0\r\nch> "
 IDENTITY_REPLIES = {
     "info": "tinySA Ultra ZS405\r\nch> ",
-    "version": "tinySA4_v1.4-synthetic\r\nch> ",
+    "version": "tinySA4_v1.4-235-gea71dfd\r\nch> ",
     "deviceid": "synthetic-id\r\nch> ",
 }
 

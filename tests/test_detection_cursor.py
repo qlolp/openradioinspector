@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -331,7 +331,7 @@ class IngestionLedgerTests(unittest.TestCase):
 
             with patch.object(SQLiteSessionStore, "_create_ingestion_schema", fail_after_backfill), self.assertRaisesRegex(RuntimeError, "migration failure"):
                 SQLiteSessionStore(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
                 self.assertIsNone(connection.execute("SELECT name FROM sqlite_master WHERE name='sweep_ingestion'").fetchone())
                 self.assertEqual(connection.execute("SELECT id, levels_json FROM sweeps ORDER BY id").fetchall(), raw_before)
@@ -371,7 +371,7 @@ class CursorSixMigrationTests(unittest.TestCase):
                 path = Path(tmp) / "synthetic-v4.sqlite"
                 legacy = ListeningMigrationTests()
                 legacy.legacy(path)
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection:
                     before = legacy.archive_fixture_values(connection)
                 if staged:
                     # Exercise the actual v5 listening migration without the v6
@@ -406,7 +406,7 @@ class CursorSixMigrationTests(unittest.TestCase):
                 path = Path(tmp) / "synthetic-rollback.sqlite"
                 legacy = ListeningMigrationTests()
                 legacy.legacy(path)
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection:
                     before = legacy.archive_fixture_values(connection)
                 original = getattr(SQLiteSessionStore, stage)
 
@@ -416,10 +416,207 @@ class CursorSixMigrationTests(unittest.TestCase):
 
                 with patch.object(SQLiteSessionStore, stage, fail), self.assertRaisesRegex(RuntimeError, "stage failure"):
                     SQLiteSessionStore(str(path))
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection:
                     self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
                     self.assertEqual(legacy.archive_fixture_values(connection), before)
                     self.assertNotIn("listening_started_at", [r[1] for r in connection.execute("PRAGMA table_info(investigations)")])
                     self.assertIsNone(connection.execute(
                         "SELECT name FROM sqlite_master WHERE name = 'sweep_ingestion'"
                     ).fetchone())
+
+
+class CursorConnectionLifetimeTests(unittest.TestCase):
+    def test_cursor_migrations_close_connections_before_directory_cleanup(self):
+        original_connect = sqlite3.connect
+        original_directory = tempfile.TemporaryDirectory
+        cases = (
+            (IngestionLedgerTests, 'test_populated_v5_migration_preserves_raw_rows_rollback_and_reopen'),
+            (CursorSixMigrationTests, 'test_direct_and_staged_upgrade_preserve_current_main_data'),
+            (CursorSixMigrationTests, 'test_direct_upgrade_rolls_back_both_stages'),
+            (CurrentArchiveIngestionTests, 'test_staged_v5_failure_and_v6_recovery_keep_full_metadata_and_origin'),
+        )
+        for case_type, method in cases:
+            with self.subTest(method=method):
+                connections = []  # Keep strong refs: GC cannot mask Windows handle leaks.
+                cleanup_checked = []
+
+                def connect(*args, connections=connections, **kwargs):
+                    connection = original_connect(*args, **kwargs)
+                    connections.append(connection)
+                    return connection
+
+                @contextmanager
+                def directory(*args, connections=connections, cleanup_checked=cleanup_checked, **kwargs):
+                    with original_directory(*args, **kwargs) as path:
+                        try:
+                            yield path
+                            self.assertTrue(connections)
+                            for connection in connections:
+                                with self.assertRaises(sqlite3.ProgrammingError):
+                                    connection.execute('SELECT 1')
+                            cleanup_checked.append(True)
+                        finally:
+                            for connection in connections:
+                                connection.close()
+                    self.assertFalse(Path(path).exists())
+
+                with (
+                    patch.object(sqlite3, 'connect', side_effect=connect),
+                    patch.object(tempfile, 'TemporaryDirectory', side_effect=directory),
+                ):
+                    getattr(case_type(method), method)()
+                self.assertTrue(cleanup_checked)
+
+
+class CurrentArchiveIngestionTests(unittest.TestCase):
+    def test_each_selected_arrival_is_analyzed_once_in_bounded_pages(self):
+        from radioinspector.automatic_detection import detect_regions
+
+        for sqlite in (False, True):
+            with self.subTest(sqlite=sqlite), fixture(sqlite) as f:
+                service, _, session, detector = f
+                detector.configure(session.id, {'enabled': True, 'stream_id': session.streams[0].id})
+                expected = []
+                for number in range(1001):
+                    item = sweep(session, number, signal=number == 0)
+                    service.ingest_sweep(item)
+                    expected.append(item['id'])
+                # An unrelated stream and a late UTC sweep cannot displace the first signal.
+                service.ingest_sweep(sweep(session, 1001, stream=1, timestamp=9000))
+                late = sweep(session, 1002, timestamp=-1)
+                service.ingest_sweep(late)
+                expected.append(late['id'])
+                analyzed = []
+
+                def analyze(item, **kwargs):
+                    analyzed.append(item.id)
+                    return detect_regions(item, **kwargs)
+
+                with patch('radioinspector.automatic_detection.detect_regions', side_effect=analyze):
+                    self.assertEqual(len(detector.run_once(session.id)), 1)
+                    self.assertEqual(len(analyzed), 1000)
+                    detector.run_once(session.id)
+                    detector.run_once(session.id)
+                self.assertEqual(analyzed, expected)
+                self.assertEqual(len(set(analyzed)), len(expected))
+                self.assertEqual(detector.status(session.id)['runtime']['sweeps_processed'], 1002)
+                self.assertIsInstance(detector._cursor[session.id], int)
+                self.assertEqual(len(detector._cursor), 1)
+                boundary = service.sweep_ingestion_boundary(session.id)
+                raw = [to_primitive(item) for item in service.list_sweeps(session.id, limit=None)]
+                changed = sweep(session, 0)
+                changed['levels'][0] = 42
+                with self.assertRaises(ValueError):
+                    service.ingest_sweep(changed)
+                self.assertEqual(service.sweep_ingestion_boundary(session.id), boundary)
+                self.assertEqual([to_primitive(item) for item in service.list_sweeps(session.id, limit=None)], raw)
+                self.assertEqual(detector.run_once(session.id), [])
+
+    @staticmethod
+    def transaction_rows(store):
+        return {table: [tuple(row) for row in store._connection.execute(f'SELECT * FROM {table} ORDER BY 1')]
+                for table in ('sweeps', 'sweep_ingestion', 'monitoring_sweep_index', 'events', 'sqlite_sequence')}
+
+    def test_failures_at_each_insert_roll_back_raw_ledger_index_events_and_sequence(self):
+        with fixture(True) as f:
+            service, store, session, _ = f
+            service.ingest_sweep(sweep(session, 0))
+            for table in ('monitoring_sweep_index', 'sweep_ingestion', 'events'):
+                with self.subTest(failing_table=table):
+                    before = self.transaction_rows(store)
+                    store._connection.execute(f'''CREATE TEMP TRIGGER synthetic_failure BEFORE INSERT ON {table}
+                        BEGIN SELECT RAISE(ABORT, 'synthetic insertion failure'); END''')
+                    try:
+                        with self.assertRaises(ValueError):
+                            service.ingest_sweeps([sweep(session, 1), sweep(session, 2)])
+                        self.assertEqual(self.transaction_rows(store), before)
+                    finally:
+                        store._connection.execute('DROP TRIGGER synthetic_failure')
+            service.ingest_sweeps([sweep(session, 1), sweep(session, 2)])
+            expected = ['sweep-00000', 'sweep-00001', 'sweep-00002']
+            self.assertEqual([item.id for _, item in service.sweeps_after_ingestion(session.id, after=0)], expected)
+            self.assertEqual([row[0] for row in store._connection.execute('SELECT sweep_id FROM monitoring_sweep_index ORDER BY sweep_id')], expected)
+
+    def test_read_analysis_is_query_only_and_monitoring_cursor_stays_independent(self):
+        from radioinspector.monitoring.baselines import BaselineOperations
+
+        with fixture(True) as f:
+            service, store, session, detector = f
+            detector.configure(session.id, {'enabled': True})
+            for number in range(3):
+                service.ingest_sweep(sweep(session, number, timestamp=3-number))
+            before = self.transaction_rows(store)
+            changes = store._connection.total_changes
+            store._connection.execute('PRAGMA query_only = ON')
+            try:
+                service.list_sweeps(session.id)
+                store.get_sweep('sweep-00001', session_id=session.id)
+                service.compare_sweeps(session.id, reference_id='sweep-00000', target_id='sweep-00001')
+                service.sweep_context(session.id, dict(sweep_id='sweep-00001', before=1, after=1))
+                service.sweep_ingestion_boundary(session.id)
+                service.sweeps_after_ingestion(session.id, after=0, limit=1)
+                monitoring = BaselineOperations()
+                monitoring.sessions = service
+                pending = monitoring._pending_sweeps(dict(active_session_id=session.id,
+                    analyzer_stream_id=session.streams[0].id, detector_rowid=1))
+                self.assertEqual([item.id for _, item in pending], ['sweep-00001', 'sweep-00002'])
+            finally:
+                store._connection.execute('PRAGMA query_only = OFF')
+            self.assertEqual(store._connection.total_changes, changes)
+            self.assertEqual(self.transaction_rows(store), before)
+            detector.run_once(session.id)
+            self.assertEqual(detector.status(session.id)['runtime']['sweeps_processed'], 3)
+            self.assertEqual([item.id for _, item in monitoring._pending_sweeps(dict(
+                active_session_id=session.id, analyzer_stream_id=session.streams[0].id,
+                detector_rowid=1))], ['sweep-00001', 'sweep-00002'])
+
+    def test_staged_v5_failure_and_v6_recovery_keep_full_metadata_and_origin(self):
+        from radioinspector.contracts import InvestigationState
+        from tests.test_listening_duration import ListeningMigrationTests
+        from tests.test_platform import BASE
+        from datetime import timedelta
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'synthetic-staged-recovery.sqlite'
+            legacy = ListeningMigrationTests()
+            legacy.legacy(path)
+            with patch('radioinspector.session_store.SCHEMA_VERSION', 5), patch.object(
+                SQLiteSessionStore, '_create_ingestion_schema'
+            ), SQLiteSessionStore(str(path)) as store:
+                origin = BASE + timedelta(seconds=3, microseconds=123456)
+                with store._connection:
+                    store._connection.execute('''UPDATE investigations SET state='listening', ended_at=NULL,
+                        listening_started_at=? WHERE id='investigation-active' ''', (to_primitive(origin),))
+                before = legacy.archive_fixture_values(store._connection)
+                self.assertEqual(store.get_investigation('investigation-active')[1].listening_started_at, origin)
+            original = SQLiteSessionStore._create_ingestion_schema
+
+            def fail_after_backfill(store, **kwargs):
+                original(store, **kwargs)
+                raise RuntimeError('synthetic v5 to v6 failure')
+
+            with patch.object(SQLiteSessionStore, '_create_ingestion_schema', fail_after_backfill), self.assertRaisesRegex(RuntimeError, 'v5 to v6'):
+                SQLiteSessionStore(str(path))
+            with closing(sqlite3.connect(path)) as connection:
+                self.assertEqual(connection.execute('PRAGMA user_version').fetchone()[0], 5)
+                self.assertEqual(legacy.archive_fixture_values(connection), before)
+                self.assertEqual(connection.execute("SELECT listening_started_at FROM investigations WHERE id='investigation-active'").fetchone()[0], to_primitive(origin))
+                self.assertIsNone(connection.execute("SELECT name FROM sqlite_master WHERE name='sweep_ingestion'").fetchone())
+            with SQLiteSessionStore(str(path)) as store:
+                self.assertEqual(legacy.archive_fixture_values(store._connection), before)
+                self.assertEqual(store._connection.execute('PRAGMA user_version').fetchone()[0], 6)
+                service = SessionService(store=store)
+                try:
+                    current = service.get_investigation(store.load_investigations()[0][0], 'investigation-active')
+                    self.assertEqual(current.state, InvestigationState.FAILED)
+                    self.assertEqual(current.listening_started_at, origin)
+                    after = legacy.archive_fixture_values(store._connection)
+                    for key in before.keys() - {'events', 'investigation'}:
+                        self.assertEqual(after[key], before[key], key)
+                    ledger = [tuple(row) for row in store._connection.execute('SELECT * FROM sweep_ingestion ORDER BY sequence')]
+                    self.assertEqual(store._connection.execute('PRAGMA foreign_key_check').fetchall(), [])
+                finally:
+                    service.close()
+            with SQLiteSessionStore(str(path)) as store:
+                self.assertEqual(store.get_investigation('investigation-active')[1].listening_started_at, origin)
+                self.assertEqual([tuple(row) for row in store._connection.execute('SELECT * FROM sweep_ingestion ORDER BY sequence')], ledger)

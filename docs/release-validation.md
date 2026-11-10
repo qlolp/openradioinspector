@@ -10,14 +10,14 @@ macOS SwiftUI в одном изолированном запуске. Он не
 Для Tk нужен доступный desktop; Linux CI использует Xvfb.
 
 ```sh
-python -m pip install '.[serial]'
-python -m tests.run_release_checks
+python -m pip install '.[serial,test]'
+python -m tests.run_release_checks --report-dir release-reports
 ```
 
 На macOS с Xcode:
 
 ```sh
-python -m tests.run_release_checks --swift
+python -m tests.run_release_checks --swift --report-dir release-reports
 ```
 
 С `--swift` дополнительно выполняются оба Swift package test suites и
@@ -255,3 +255,21 @@ bounded join, настоящий Python thread и ошибка close, котор
 
 Ruff fatal checks (`E9,F63,F7,F82`) пройдены. Полная существующая конфигурация
 Ruff содержит прежние замечания в этих файлах; новых замечаний delta не добавляет.
+
+## Сохраняемые отчёты и уровни проверки
+
+--report-dir PATH сохраняет новый подкаталог run-* после cleanup даже при
+ошибке подготовки, тестов или прерывании с выполненным cleanup. В нём
+summary.json с исходной ошибкой/ошибками очистки, python-results.json
+(если suite запускался) с причинами skips и журналы собственных процессов.
+SQLite fixtures, их HOME и build-каталоги не копируются. Старые запуски
+не перезаписываются. Ошибка сохранения отчёта делает gate неуспешным.
+CI выгружает отчёты через always(), со сроком хранения 14 дней.
+
+Быстрый unittest discovery и ./run_tests.sh могут пропускать opt-in
+сценарии и не заменяют этот gate. На Windows дополнительно разрешены
+ровно две конкретные проверки POSIX shell launcher с причиной
+POSIX shell launcher; причина сама по себе не разрешает другие skips.
+Исправления аудита, команды подготовки и отдельный протокол аппаратной
+приёмки: [надёжность по аудиту](audit-reliability.md). Синтетический
+результат никогда не маркирует hardware_validation как passed.

@@ -25,6 +25,9 @@
   <script src="/static/signal-list.js" defer></script>
   <script src="/static/measurement-map.js" defer></script>
   <script src="/static/audio-stream.js" defer></script>
+  <script src="/static/monitoring.js" defer></script>
+  <script src="/static/monitoring-research.js" defer></script>
+  <script src="/static/monitoring-operations.js" defer></script>
   <script src="/static/platform.js" defer></script>
   <script src="/static/serial-session.js" defer></script>
   <script src="/static/analytics.js" defer></script>
@@ -50,6 +53,7 @@
     </div>
     <nav class="topnav" aria-label="Основная навигация">
       <a href="/">Архив панорам</a>
+      <a id="tinysa-control-link" href="/instrument" target="_blank" rel="noopener">Управление tinySA</a>
       <a href="/api/v1/capabilities">Capabilities</a>
     </nav>
     <div class="connection-cluster">
@@ -60,6 +64,93 @@
 
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
+  <section id="monitoring-workspace" class="panel" aria-label="Рабочие режимы">
+    <label>Рабочий режим <select name="workspace"><option value="monitoring">Радиомониторинг</option><option value="research">Исследование</option></select></label>
+    <p>Просмотр истории не останавливает охрану. Приборы и архив принадлежат ядру.</p>
+    <p data-role="guard-live-status" aria-live="polite">Состояние охраны не запрошено.</p>
+    <form><input name="name" placeholder="Название проекта" required maxlength="200"><input name="site" placeholder="Объект проверки" required maxlength="200"><button>Создать из выбранного сеанса</button></form>
+    <select name="project" aria-label="Проект наблюдения"></select>
+    <button data-action="projects-previous" disabled>Предыдущие проекты</button><button data-action="projects-next" disabled>Следующие проекты</button>
+    <span data-role="projects-page" aria-live="polite">Проекты загружаются</span>
+    <button data-action="refresh">Обновить проекты</button><button data-action="preflight">Проверить готовность</button>
+    <details><summary>Мастер подготовки · только приём</summary>
+      <p>1. Выберите проект и подтвердите антенну, приёмный тракт и место. Генератор не включается. Подтверждения команд не являются физическим RF readback.</p>
+      <input name="antenna-notes" maxlength="1000" placeholder="Антенна, кабель, место измерения">
+      <label><input name="receive-path-confirmed" type="checkbox"> Подтверждаю приёмный тракт</label><label><input name="location-confirmed" type="checkbox"> Подтверждаю место</label>
+      <button data-action="preparation-load">Загрузить подготовку</button><button data-action="preparation-save">Сохранить подтверждения</button>
+      <p>2. Запустите накопление исходников. Для эталона нужны минимум 60 секунд и 20 полных совместимых свипов.</p>
+      <button data-action="preparation-start">Начать приём для эталона</button><button data-action="preparation-stop">Остановить сбор</button><button data-action="preparation-progress">Проверить прогресс</button>
+      <p data-role="preparation-status" aria-live="polite"></p><p>3. Подтвердите обычную обстановку и зафиксируйте эталон в следующем разделе.</p>
+    </details>
+    <details><summary>Эталон и разрешённые сигналы</summary>
+      <label>Название эталона<input name="baseline-name" value="Обычная обстановка"></label>
+      <label>Место измерения<input name="baseline-location" value="Объект"></label>
+      <label><input name="baseline-confirm" type="checkbox"> Подтверждаю пригодность эталона</label>
+      <button data-action="baseline">Зафиксировать эталон</button>
+      <label>Разрешённый сигнал<input name="allowed-name" value="Разрешённый сигнал"></label>
+      <label>От, Гц<input name="allowed-start" type="number" step="1" min="0" value="100000000"></label>
+      <label>До, Гц<input name="allowed-end" type="number" step="1" min="0" value="100100000"></label>
+      <label><input name="allowed-watch" type="checkbox"> Контролировать изменения</label>
+      <button data-action="allowed">Добавить разрешённый сигнал</button>
+    </details>
+    <button data-action="analyze">Обработать новые свипы</button>
+    <button data-action="events">События</button>
+    <button data-action="arm">Поставить на охрану</button><button data-action="disarm">Снять с охраны</button>
+    <button data-action="guard-status">Состояние охраны</button>
+    <details><summary>Приёмник и аналоговое аудио</summary>
+      <label>Режим AR-DV1<select name="receiver-mode"><option>AUTO</option><option>FM</option><option>AM</option><option>DMR</option><option>DPMR</option><option>NXDN</option><option>P25</option><option>DSTAR</option><option>YSF</option><option>ALINCO</option></select></label>
+      <button data-action="receiver-config">Сохранить режим</button>
+      <button data-action="audio-inputs">Аудиовходы ядра</button><select name="audio-input" aria-label="Аудиовход"><option value="">Не выбран</option></select>
+      <label><input name="audio-confirm" type="checkbox"> Это аналоговый выход AR-DV1</label><button data-action="audio-config">Подключить аудио</button><button data-action="audio-disable">Отключить аудио</button>
+    </details>
+    <div data-role="events" aria-live="polite"></div>
+    <audio controls preload="none" aria-label="Аудиозапись события"></audio>
+    <details><summary>Настройки охраны и архива</summary>
+      <button data-action="settings-load">Загрузить настройки</button>
+      <label><input name="autostart" type="checkbox"> Разрешаю восстановление охраны после перезапуска ядра</label>
+      <label>Резерв места, МиБ<input name="archive-reserve" type="number" min="1" value="256"></label>
+      <label>Минимальный срок хранения, с<input name="archive-retention" type="number" min="60" value="3600"></label>
+      <label><input name="webhook-enabled" type="checkbox"> Доставлять webhook</label><label>Адрес<input name="webhook-url" type="url"></label>
+      <label>Новый секрет<input name="webhook-secret" type="password" autocomplete="new-password" placeholder="Пустое поле сохраняет прежний секрет"></label>
+      <button data-action="settings-save">Сохранить явно</button><button data-action="storage-refresh">Проверить архив</button>
+      <p data-role="settings-status" aria-live="polite"></p><p data-role="storage-status" aria-live="polite"></p>
+      <fieldset><legend>Детектор robust-city-v1 · инженерные значения, аппаратная приёмка не выполнена</legend>
+        <label>Превышение, dB<input name="detector-margin" type="number" value="6" min="1" max="60"></label><label>Импульс, dB<input name="detector-impulse" type="number" value="12" min="1" max="120"></label>
+        <label>Гистерезис, dB<input name="detector-hysteresis" type="number" value="3" min="0" max="20"></label><label>Подтверждений<input name="detector-confirmations" type="number" value="3" min="1" max="15" step="1"></label>
+        <label>Окно, свипов<input name="detector-window" type="number" value="5" min="1" max="15" step="1"></label><label>AR-DV1, с<input name="detector-dwell" type="number" value="10" min="1" max="30"></label>
+        <button data-action="detector-load">Загрузить параметры</button><button data-action="detector-balanced">Заполнить «Сбалансированный»</button><button data-action="detector-save">Сохранить детектор после снятия охраны</button>
+      </fieldset>
+    </details>
+    <details><summary>Журнал тревог и операторский вердикт</summary>
+      <label><input name="alarm-sound" type="checkbox"> Звук новых тревог в этом клиенте</label>
+      <button data-action="alerts-refresh">Обновить тревоги</button><button data-action="alerts-next" disabled>Следующая страница тревог</button>
+      <p data-role="alerts-status" aria-live="polite"></p><div data-role="alerts"></div>
+      <label>Вердикт выбранному событию<select name="event-disposition"><option value="unreviewed">Неизвестный</option><option value="authorized">Разрешён оператором</option><option value="false_positive">Ложное срабатывание</option><option value="investigate">Требует исследования</option></select></label>
+      <input name="event-comment" maxlength="1000" placeholder="Комментарий"><button data-action="event-review">Записать вердикт</button>
+    </details>
+    <details><summary>Ручное управление и поиск источника</summary>
+      <p>Захват прибора приостанавливает его автоматизацию. Истёкшая аренда оставляет паузу; потерянный ключ сбрасывается снятием охраны.</p>
+      <select name="manual-role" aria-label="Ручной прибор"><option value="receiver">AR-DV1</option><option value="analyzer">tinySA</option></select>
+      <button data-action="manual-acquire">Взять вручную</button><button data-action="manual-renew">Продлить на 30 с</button><button data-action="manual-return">Вернуть охране</button>
+      <label>Приём, Гц<input name="manual-frequency" type="number" step="10" value="145500000"></label><button data-action="manual-tune">Перестроить AR-DV1</button>
+      <p data-role="coverage" aria-live="polite">Широкое покрытие: запросите состояние охраны.</p>
+      <label>Событие<select name="search-event"><option value="">Выберите событие</option></select></label>
+      <label>Узкая полоса, Гц<input name="search-span" type="number" value="1000000" min="1000" max="100000000"></label>
+      <button data-action="search-start">Включить узкий обзор</button><button data-action="search-status">Обновить поиск</button>
+      <label>Положение<input name="position-label" maxlength="200" placeholder="Например, дверь / антенна 1"></label><button data-action="search-mark">Отметить положение</button>
+      <canvas data-role="source-chart" width="1000" height="180" aria-label="Уровень во времени"></canvas>
+    </details>
+    <details><summary>Исследовательская история · UTC</summary>
+      <label>С<input name="history-start" placeholder="2026-11-10T00:00:00Z"></label><label>По<input name="history-end" placeholder="2026-11-10T23:59:59Z"></label>
+      <label>От, Гц<input name="history-min" type="number" min="0"></label><label>До, Гц<input name="history-max" type="number" min="0"></label>
+      <label><input name="history-event" type="checkbox"> Только выбранное событие</label>
+      <button data-action="history">Загрузить историю</button><button data-action="history-next" disabled>Следующая страница</button>
+      <canvas data-role="history-chart" width="1000" height="240" aria-label="Водопад истории по времени UTC"></canvas>
+      <label>Свип<select name="history-sweep"></select></label><button data-action="history-raw">Исходный свип</button><button data-action="history-compare">Сравнить с эталоном</button>
+      <canvas data-role="history-spectrum" width="1000" height="180" aria-label="Выбранный спектр и эталон"></canvas>
+    </details>
+    <pre aria-live="polite">Выберите двухприборный сеанс и создайте проект.</pre>
+  </section>
   <main id="workspace" class="console-grid">
     <aside class="column left-column" aria-label="Сеанс и приборы">
       <section class="panel session-panel" aria-labelledby="session-heading">

@@ -36,6 +36,12 @@ class WorkerError(RuntimeError):
     """Ошибка запуска, команды или остановки исполнителя."""
 
 
+class WorkerCommandTimeout(WorkerError):
+    def __init__(self,message,*,uncertain):
+        super().__init__(message)
+        self.uncertain=uncertain
+
+
 class UnsupportedAdapterError(WorkerError):
     """Для потока не указан поддерживаемый программный адаптер."""
 
@@ -417,7 +423,7 @@ class DeviceWorker:
                 raise WorkerError(f"Исполнитель не остановился за {timeout} с: {self.stream_id}")
 
     def submit(
-        self, command: str, payload: Optional[dict[str, Any]] = None, *, timeout: float = 5.0
+        self, command: str, payload: Optional[dict[str, Any]] = None, *, timeout: float = 5.0, authorize=None
     ) -> dict[str, Any]:
         request: dict[str, Any] = {
             "command": command,
@@ -425,18 +431,25 @@ class DeviceWorker:
             "done": threading.Event(),
             "result": None,
             "error": None,
+            "authorize": authorize,
         }
         with self._lock:
             if not self.alive or self._stop_event.is_set():
                 raise WorkerError(f"Исполнитель не запущен: {self.stream_id}")
             self._commands.put(request)
         if not request["done"].wait(timeout):
+            expired=False;active=False
             with self._lock:
                 if not request["done"].is_set():
-                    # Уже начатый I/O не прерываем; ожидающий запрос больше
-                    # не должен исполниться после ошибки таймаута у клиента.
                     request["cancelled"] = True
-                    raise WorkerError(f"Команда {command!r} не выполнена за {timeout} с")
+                    expired=True;active=bool(request.get('started'))
+            if expired:
+                if command=='instrument' and active:
+                    # Queue wait can consume the deadline after I/O starts.
+                    # Stop its sole owner; do not leave an untracked mutation.
+                    try:self.stop(timeout=5)
+                    except WorkerError:pass
+                raise WorkerCommandTimeout(f"Команда {command!r} не выполнена за {timeout} с",uncertain=command=='instrument' and active)
         if request["error"] is not None:
             raise WorkerError(str(request["error"]))
         return dict(request["result"] or {})
@@ -475,9 +488,16 @@ class DeviceWorker:
                 self._drain_commands()
                 if self._stop_event.is_set():
                     break
+                idle=getattr(self.adapter,'instrument_idle',None)
+                if idle is not None and idle():
+                    self._stop_event.wait(0.05)
+                    continue
                 try:
                     measurement = self.adapter.poll()
-                    if isinstance(measurement, Sweep):
+                    from .tinysa.artifacts import InstrumentSample
+                    if isinstance(measurement, InstrumentSample):
+                        self.sessions.save_instrument_artifact(self.session_id,self.stream_id,measurement.artifact)
+                    elif isinstance(measurement, Sweep):
                         self.sessions.ingest_sweep(measurement)
                     else:
                         self.sessions.ingest_observation(measurement)
@@ -582,6 +602,8 @@ class DeviceWorker:
             with self._lock:
                 if self._stop_event.is_set() or request.get("cancelled"):
                     raise WorkerError(f"Команда {command!r} отменена: {self.stream_id}")
+                request['started']=True
+            if request.get('authorize'): request['authorize']()
             result = self.adapter.execute(command, dict(request.get("payload") or {}))
             self._commands_completed += 1
             if command == "tune":
@@ -626,6 +648,7 @@ class DeviceWorkerManager:
         self._pending_starts: set[tuple[str, str]] = set()
         self._closed = False
         self._lock = threading.RLock()
+        self.control_authorizer = None
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -881,8 +904,10 @@ class DeviceWorkerManager:
             return self.list_workers(session_id)
 
     def tune(
-        self, session_id: str, stream_id: str, payload: dict[str, Any]
+        self, session_id: str, stream_id: str, payload: dict[str, Any], *, control_owner=None
     ) -> dict[str, Any]:
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, control_owner)
         session = self.sessions.get_session(session_id)
         stream = self._stream(session, stream_id)
         if stream.role is not DeviceRole.RECEIVER:
@@ -891,8 +916,24 @@ class DeviceWorkerManager:
             worker = self._workers.get((session_id, stream_id))
         if worker is None:
             raise WorkerError(f"Исполнитель не запущен: {stream_id}")
-        tuned = worker.submit("tune", payload)
+        authorizer=self.control_authorizer
+        tuned = worker.submit("tune", payload, authorize=(lambda:authorizer(session_id,stream_id,control_owner)) if authorizer else None)
         return {"tuned": tuned, "worker": worker.status()}
+
+    def instrument_worker(self,session_id,stream_id):
+        self.sessions.instrument_context(session_id,stream_id)
+        with self._lock:worker=self._workers.get((session_id,stream_id))
+        if worker is None or not worker.alive:raise WorkerError('Instrument worker is not running')
+        if worker.adapter.adapter_name!='tinysa-serial':raise ValueError('Instrument control requires a tinySA serial stream')
+        return worker
+
+    def instrument(self,session_id,stream_id,payload,*,expected_worker=None,control_owner=None):
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, control_owner)
+        worker=self.instrument_worker(session_id,stream_id)
+        if expected_worker is not None and worker is not expected_worker:raise WorkerError('Instrument context changed')
+        authorizer=self.control_authorizer
+        return worker.submit('instrument',payload,timeout=120,authorize=(lambda:authorizer(session_id,stream_id,control_owner)) if authorizer else None)
 
     def list_workers(self, session_id: Optional[str] = None) -> list[dict[str, Any]]:
         sessions = (

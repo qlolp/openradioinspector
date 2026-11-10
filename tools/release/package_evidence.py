@@ -2,7 +2,7 @@
 """Record package checksums and build-runtime notices; not a complete SBOM."""
 import argparse
 import hashlib
-from importlib.metadata import distribution
+from importlib.metadata import distribution, PackageNotFoundError
 import json
 from pathlib import Path
 import platform
@@ -32,8 +32,11 @@ def main():
     for notice in (repository/'third_party').glob('pyserial-3.5-*'):
         (directory/notice.name).write_bytes(notice.read_bytes())
     components = []
-    for name in ('openradioinspector', 'numpy', 'pyserial'):
-        package = distribution(name)
+    for name in ('openradioinspector', 'numpy', 'pyserial', 'sounddevice', 'cffi', 'pycparser'):
+        try:package = distribution(name)
+        except PackageNotFoundError:
+            if name in ('sounddevice','cffi','pycparser'):continue
+            raise
         notices = []
         for item in package.files or ():
             if '.dist-info/' in str(item) and any(part in item.name.lower() for part in ('license', 'copying', 'notice')):

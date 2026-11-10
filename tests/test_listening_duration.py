@@ -2,6 +2,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +18,7 @@ from radioinspector.session_store import SCHEMA_VERSION, SQLiteSessionStore
 from tests.test_automatic_completion import CompletionSetup
 from tests.test_persistence import observation_payload
 from tests.test_platform import BASE
+from tests.archive_migration_fixture import add_current_metadata, current_metadata_values
 
 
 class ListeningDurationTests(CompletionSetup, unittest.TestCase):
@@ -56,6 +58,10 @@ class ListeningDurationTests(CompletionSetup, unittest.TestCase):
         investigation = self.slow_active()
         # No public decoding transition currently exists; exercise its active-state contract.
         self.service._investigations[investigation.id].state = InvestigationState.DECODING
+        if self.service._store is not None:
+            with self.service._store._connection as connection:
+                connection.execute("UPDATE investigations SET state = ? WHERE id = ?",
+                                   (InvestigationState.DECODING.value, investigation.id))
         self.assertIsNone(self.scheduler.run_once(self.session.id))
         self.now = BASE + timedelta(seconds=5)
         result = self.scheduler.run_once(self.session.id)
@@ -64,6 +70,10 @@ class ListeningDurationTests(CompletionSetup, unittest.TestCase):
     def test_legacy_positive_minimum_closed_zero_minimum_allowed(self):
         investigation = self.slow_active()
         self.service._investigations[investigation.id].listening_started_at = None
+        if self.service._store is not None:
+            with self.service._store._connection as connection:
+                connection.execute("UPDATE investigations SET listening_started_at = NULL WHERE id = ?",
+                                   (investigation.id,))
         self.now += timedelta(days=1)
         self.assertIsNone(self.scheduler.run_once(self.session.id))
         self.scheduler.configure(self.session.id, {"minimum_listening_seconds": 0})
@@ -142,6 +152,20 @@ class SQLiteListeningDurationTests(ListeningDurationTests):
         self.assertEqual(saved, current)
         self.assertFalse(any(e.event_type == "investigation.listening" for e in self.service.events()))
 
+    def test_exact_timestamp_survives_every_current_read_path(self):
+        self.now = BASE + timedelta(microseconds=123456)
+        investigation = self.slow_active()
+        store = self.service._store
+        expected = investigation.listening_started_at
+        self.assertEqual(expected, BASE + timedelta(seconds=3, microseconds=123456))
+        for name, read in (
+            ("by-id", lambda: store.get_investigation(investigation.id)[1]),
+            ("history", lambda: store.load_investigations()[0][1]),
+            ("recovery", lambda: store.load_open_investigations()[0][1]),
+        ):
+            with self.subTest(path=name):
+                self.assertEqual(read().listening_started_at, expected)
+
     def test_store_roundtrip_and_restart(self):
         investigation = self.slow_active()
         store = self.service._store
@@ -170,6 +194,7 @@ class ListeningMigrationTests(unittest.TestCase):
         fixture.service.save_measurement_result(fixture.session.id, payload(stream_id=fixture.spectrum_id))
         fixture.service.ingest_sweep(measurement(fixture.session.id, fixture.spectrum_id))
         fixture.service.create_sweep_reference(fixture.session.id, {"name": "migration baseline", "sweep_id": "sweep-0"})
+        add_current_metadata(fixture.service, fixture.session.id, fixture.spectrum_id)
         fixture.scheduler.close()
         # Owned synthetic database only: reconstruct the previous nullable-column schema.
         store._connection.execute("DROP TABLE sweep_ingestion")
@@ -182,14 +207,14 @@ class ListeningMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "owned.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 before = self.archive_fixture_values(connection)
             with (
                 patch.object(SQLiteSessionStore, "_create_reference_schema", side_effect=RuntimeError("synthetic migration failure")),
                 self.assertRaisesRegex(RuntimeError, "synthetic migration"),
             ):
                 SQLiteSessionStore(str(path))
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(self.archive_fixture_values(connection), before)
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 4)
                 self.assertNotIn("listening_started_at", [r[1] for r in connection.execute("PRAGMA table_info(investigations)")])
@@ -220,13 +245,15 @@ class ListeningMigrationTests(unittest.TestCase):
             "events": "SELECT sequence, event_type, occurred_at, payload_json FROM events ORDER BY sequence",
             "indices": "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name != 'sweep_ingestion' ORDER BY name",
         }
-        return {key: [tuple(row) for row in connection.execute(query)] for key, query in queries.items()}
+        values = {key: [tuple(row) for row in connection.execute(query)] for key, query in queries.items()}
+        values.update(current_metadata_values(connection))
+        return values
 
     def test_migration_preserves_explicit_archive_fixture_values(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "owned-preservation.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 before = self.archive_fixture_values(connection)
             with SQLiteSessionStore(str(path)) as store:
                 self.assertEqual(self.archive_fixture_values(store._connection), before)
@@ -235,21 +262,106 @@ class ListeningMigrationTests(unittest.TestCase):
                     0,
                 )
 
+    def test_file_reopen_and_recovery_preserve_exact_origin_and_raw_rows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "owned-listening-recovery.sqlite3"
+            self.legacy(path)
+            with SQLiteSessionStore(str(path)) as store:
+                fixture = CompletionSetup()
+                fixture.make_service = lambda: SessionService(store=store, clock=lambda: fixture.now)
+                fixture.now = BASE + timedelta(seconds=7, microseconds=123456)
+                fixture.setup_scheduler()
+                try:
+                    investigation = fixture.active("precise-recovery")
+                    expected = investigation.listening_started_at
+                    before = self.archive_fixture_values(store._connection)
+                finally:
+                    fixture.close()
+            with SQLiteSessionStore(str(path)) as store:
+                self.assertEqual(self.archive_fixture_values(store._connection), before)
+                self.assertEqual(store.get_investigation(investigation.id)[1].listening_started_at, expected)
+                restored = SessionService(store=store, clock=lambda: BASE + timedelta(seconds=20))
+                try:
+                    current = restored.get_investigation(fixture.session.id, investigation.id)
+                    self.assertEqual(current.state, InvestigationState.FAILED)
+                    self.assertEqual(current.listening_started_at, expected)
+                    # Recovery may append lifecycle events, but must never rewrite raw rows.
+                    after = self.archive_fixture_values(store._connection)
+                    for key in ("sweep_samples", "sweep_time", "observation", "result_values",
+                                "result_time", "result_owner", "instrument_artifacts",
+                                "monitoring_records", "monitoring_notifications", "monitoring_webhooks",
+                                "monitoring_sessions", "monitoring_sweep_index", "indices"):
+                        self.assertEqual(after[key], before[key], key)
+                finally:
+                    restored.close()
+            with SQLiteSessionStore(str(path)) as store:
+                self.assertEqual(store.get_investigation(investigation.id)[1].listening_started_at, expected)
+
     def test_future_schema_rejected_without_change(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "future.sqlite3"
             self.legacy(path)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("PRAGMA journal_mode = DELETE")
                 connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
                 before = self.archive_fixture_values(connection)
-            connection.close()
             before_bytes = path.read_bytes()
             with self.assertRaises(ValueError):
                 SQLiteSessionStore(str(path))
             self.assertEqual(path.read_bytes(), before_bytes)
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection:
                 self.assertEqual(connection.execute("PRAGMA journal_mode").fetchone()[0], "delete")
                 self.assertEqual(self.archive_fixture_values(connection), before)
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION + 1)
                 self.assertNotIn("listening_started_at", [row[1] for row in connection.execute("PRAGMA table_info(investigations)")])
+
+
+class MigrationConnectionLifetimeTests(unittest.TestCase):
+    def test_migrations_close_connections_before_directory_cleanup(self):
+        from contextlib import contextmanager
+
+        original_connect = sqlite3.connect
+        original_directory = tempfile.TemporaryDirectory
+        methods = (
+            "test_migration_and_rollback",
+            "test_migration_preserves_explicit_archive_fixture_values",
+            "test_future_schema_rejected_without_change",
+            "test_file_reopen_and_recovery_preserve_exact_origin_and_raw_rows",
+        )
+        for method in methods:
+            with self.subTest(method=method):
+                connections = []  # Strong references prevent GC from hiding leaks.
+                cleanup_checked = []
+
+                def connect(*args, connections=connections, **kwargs):
+                    connection = original_connect(*args, **kwargs)
+                    connections.append(connection)
+                    return connection
+
+                def assert_closed(connections=connections):
+                    self.assertTrue(connections)
+                    for connection in connections:
+                        with self.assertRaises(sqlite3.ProgrammingError):
+                            connection.execute("SELECT 1")
+
+                @contextmanager
+                def directory(*args, connections=connections, cleanup_checked=cleanup_checked, assert_closed=assert_closed, **kwargs):
+                    with original_directory(*args, **kwargs) as path:
+                        try:
+                            yield path
+                            assert_closed()  # Must precede filesystem cleanup on Windows.
+                            cleanup_checked.append(True)
+                        finally:
+                            # Keep the regression itself safe when exercising broken code.
+                            for connection in connections:
+                                connection.close()
+                    self.assertFalse(Path(path).exists())
+                    assert_closed()
+
+                with (
+                    patch.object(sqlite3, "connect", side_effect=connect),
+                    patch.object(tempfile, "TemporaryDirectory", side_effect=directory),
+                ):
+                    case = ListeningMigrationTests(method)
+                    getattr(case, method)()
+                self.assertEqual(cleanup_checked, [True])
