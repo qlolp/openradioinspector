@@ -38,6 +38,7 @@ from .frequency_rounding import (
     FrequencyRoundingIncompatibleError, calculate_candidate_frequency_rounding,
     validate_rounding_request,
 )
+from .request_limits import MAX_MEASUREMENT_REQUEST_BYTES
 from .serial_ports import serial_port_identity
 
 from .frequency_raster import (
@@ -236,6 +237,7 @@ class SessionService:
                 "measurement_batch_ingest": True,
                 "measurement_batch_atomic": True,
                 "measurement_batch_limit": MAX_MEASUREMENT_BATCH,
+                "measurement_batch_max_request_bytes": MAX_MEASUREMENT_REQUEST_BYTES,
                 "candidate_investigations": True,
                 "candidate_frequency_rounding": True,
                 "manual_investigation_handoff": True,

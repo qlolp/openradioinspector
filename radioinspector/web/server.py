@@ -70,6 +70,9 @@ from ..sweep_three_thresholds import MAX_THREE_THRESHOLDS_REQUEST_BYTES, ThreeTh
 from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflictError
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
+from ..request_limits import (
+    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, REQUEST_BODY_TIMEOUT_SECONDS,
+)
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
@@ -412,44 +415,49 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-    def _read_json(self, *, strict: bool = False) -> dict:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
-            return {}
-        raw = self.rfile.read(length)
+    def _read_json(self, *, strict: bool = True) -> dict:
+        # Kept as a bounded compatibility helper for callers of the handler.
+        return self._read_bounded_analysis_request(MAX_CONTROL_REQUEST_BYTES, allow_empty=True)
 
-        def unique_fields(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    raise ValueError("Поля JSON не должны повторяться")
-                result[key] = value
-            return result
-
-        try:
-            return json.loads(raw.decode("utf-8"), object_pairs_hook=unique_fields if strict else None)
-        except json.JSONDecodeError:
-            if strict:
-                raise ValueError("Некорректный JSON") from None
-            return {}
-
-    def _read_bounded_analysis_request(self, max_bytes: int) -> dict:
-        """Bound opt-in analysis routes before reading any request bytes."""
+    def _read_bounded_analysis_request(self, max_bytes: int, *, allow_empty: bool = False) -> dict:
+        """Validate framing before allocation; bound the entire body read in time."""
         lengths = self.headers.get_all("Content-Length", [])
-        if (self.headers.get_all("Transfer-Encoding") or len(lengths) != 1
-                or not re.fullmatch(r"[0-9]+", lengths[0])):
-            raise ValueError("Нужен один корректный Content-Length без Transfer-Encoding")
-        # Compare decimal strings first, so even enormous header integers are
-        # rejected without int conversion limits or allocation of a body.
-        digits = lengths[0].lstrip("0") or "0"
+        if (self.headers.get_all("Transfer-Encoding") or len(lengths) > 1
+                or (lengths and not re.fullmatch(r"[0-9]+", lengths[0]))
+                or (not lengths and not allow_empty)):
+            raise RequestError("Нужен один корректный Content-Length без Transfer-Encoding")
+        digits = (lengths[0].lstrip("0") or "0") if lengths else "0"
         maximum = str(max_bytes)
         if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
-            raise OverflowError(f"Тело запроса превышает {max_bytes} байт")
+            raise RequestError(f"Тело запроса превышает {max_bytes} байт", 413)
         length = int(digits)
-        raw = self.rfile.read(length)
-        if len(raw) != length:
-            raise ValueError("Неполное тело запроса")
-        return strict_json_loads(raw.decode("utf-8", errors="strict"))
+        if length == 0 and allow_empty:
+            return {}
+        previous_timeout = self.connection.gettimeout()
+        deadline = time.monotonic() + REQUEST_BODY_TIMEOUT_SECONDS
+        raw = bytearray()
+        try:
+            while len(raw) < length:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RequestError("Истёк срок чтения тела запроса", 408)
+                self.connection.settimeout(remaining)
+                block = self.rfile.read1(min(length - len(raw), 65_536))
+                if not block:
+                    raise RequestError("Неполное тело запроса")
+                raw.extend(block)
+            if time.monotonic() > deadline:
+                raise RequestError("Истёк срок чтения тела запроса", 408)
+        except TimeoutError as exc:
+            raise RequestError("Истёк срок чтения тела запроса", 408) from exc
+        except ConnectionError as exc:
+            raise RequestError("Неполное тело запроса") from exc
+        finally:
+            self.connection.settimeout(previous_timeout)
+        result = strict_json_loads(raw.decode("utf-8", errors="strict"))
+        if not isinstance(result, dict):
+            raise RequestError("Ожидается объект JSON")
+        return result
 
     # -- маршруты ----------------------------------------------------------
 
@@ -580,7 +588,7 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             status = getattr(exc, "status", 400)
             if urlparse(self.path).path.startswith("/api/v1/"):
-                self._send_api_error(status, "invalid_request", str(exc))
+                self._send_api_error(status, {413: "request_too_large", 408: "request_timeout"}.get(status, "invalid_request"), str(exc))
             else:
                 self._send_json({"ok": False, "error": str(exc)}, status)
 
@@ -596,71 +604,44 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         if origin and origin not in ("http://" + host, "https://" + host):
             raise RequestError("Чужой Origin запрещён", 403)
-        if len(parts)>=7 and parts[:3]==['api','v1','sessions'] and parts[4]=='streams' and parts[6]=='instrument':
-            payload=self._read_bounded_analysis_request(65536)
-            self._api_v1_post(route,payload)
-            return
+        maximum = MAX_CONTROL_REQUEST_BYTES
+        allow_empty = True
         if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
-                    "sweep-average-change-detection",
-                    "sweep-context", "sweep-occupancy", "candidate-frequency-rounding",
-                    "frequency-rounding", "frequency-counter", "dvb-evaluation", "measurement-map",
+                    "sweep-average-change-detection", "sweep-context", "sweep-occupancy",
+                    "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
+                    "dvb-evaluation", "measurement-map",
                 )):
-            try:
-                if "?" in self.path:
-                    raise ValueError("Анализ не принимает параметры запроса")
-                maximum = {
-                    "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
-                    "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
-                    "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
-                    "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
-                    "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
-                    "sweep-occupancy": MAX_CONTEXT_REQUEST_BYTES,
-                    "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
-
-                    "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
-                    "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
-                    "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
-                    "measurement-map": MAX_MAP_REQUEST_BYTES,
-                }[parts[4]]
-                payload = self._read_bounded_analysis_request(maximum)
-            except OverflowError as exc:
-                self.close_connection = True
-                self._send_api_error(413, "request_too_large", str(exc))
-                return
-            except (ValueError, UnicodeError) as exc:
-                self.close_connection = True
-                self._send_api_error(400, "invalid_request", str(exc))
-                return
+            if "?" in self.path:
+                raise RequestError("Анализ не принимает параметры запроса")
+            maximum = {
+                "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
+                "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
+                "sweep-mask-analysis": MAX_MASK_REQUEST_BYTES,
+                "sweep-three-thresholds": MAX_THREE_THRESHOLDS_REQUEST_BYTES,
+                "sweep-context": MAX_CONTEXT_REQUEST_BYTES,
+                "sweep-occupancy": MAX_CONTEXT_REQUEST_BYTES,
+                "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
+                "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
+                "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
+                "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
+                "measurement-map": MAX_MAP_REQUEST_BYTES,
+            }[parts[4]]
+            allow_empty = False
         elif (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
-              and parts[4:] == ["signal-list", "import"]):
-            try:
-                payload = self._read_bounded_analysis_request(MAX_IMPORT_REQUEST_BYTES)
-            except OverflowError as exc:
-                self.close_connection = True
-                self._send_api_error(413, "request_too_large", str(exc))
-                return
-            except (ValueError, UnicodeError) as exc:
-                self.close_connection = True
-                self._send_api_error(400, "invalid_request", str(exc))
-                return
-        elif route.startswith("/api/v1/sessions/") and route.rstrip("/").endswith("/sweep-references"):
-            try:
-                payload = self._read_json(strict=True)
-            except (ValueError, UnicodeError) as exc:
-                self._send_api_error(400, "invalid_request", str(exc))
-                return
+                and parts[4:] == ["signal-list", "import"]):
+            maximum = MAX_IMPORT_REQUEST_BYTES
+            allow_empty = False
+        elif (parts[:3] == ["api", "v1", "sessions"] and (
+                (len(parts) == 5 and parts[4] in ("sweeps", "observations"))
+                or (len(parts) == 6 and parts[4] in ("sweeps", "observations") and parts[5] == "batch")
+                or (len(parts) == 6 and parts[4:] == ["phonogram", "frames"]))):
+            maximum = MAX_MEASUREMENT_REQUEST_BYTES
+            allow_empty = False
         elif not route.startswith("/api/v1/"):
-            self.connection.settimeout(10)
-            try:
-                payload = self._read_bounded_analysis_request(65536)
-            except OverflowError as exc:
-                raise RequestError(str(exc), 413) from exc
-            if not isinstance(payload, dict):
-                raise ValueError("Ожидается объект JSON")
-        else:
-            payload = self._read_json()
+            allow_empty = False
+        payload = self._read_bounded_analysis_request(maximum, allow_empty=allow_empty)
 
         if route.startswith("/api/v1/"):
             self._api_v1_post(route, payload)
