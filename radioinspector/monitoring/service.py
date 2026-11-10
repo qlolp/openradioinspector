@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from ..contracts import DeviceRole, format_time, to_primitive, utc_now
-from ..tinysa_profile import validate_receive_settings
+from ..serial_instruments import TinySASerialAdapter, ARDV1SerialAdapter
+from ..device_workers import WorkerError
 from .store import ProjectStore
 
 
@@ -65,12 +66,14 @@ class MonitoringService:
         adapters = (analyzer.settings.get('adapter'), receiver.settings.get('adapter'))
         check('adapters', adapters in (('tinysa-serial', 'ardv1-serial'), ('tinysa-sim', 'ardv1-sim')),
               'tinySA Ultra + AR-DV1; симуляторы выбираются только явно')
-        if adapters[0] == 'tinysa-serial':
-            try:
-                validate_receive_settings(analyzer.settings)
-                check('receive_profile', True, 'Консервативный профиль приёма; RF off')
-            except (ValueError, TypeError) as exc:
-                check('receive_profile', False, str(exc))
+        for stream, adapter, name in ((analyzer, TinySASerialAdapter, 'receive_profile'),
+                                      (receiver, ARDV1SerialAdapter, 'receiver_profile')):
+            if stream.settings.get('adapter') == adapter.adapter_name:
+                try:
+                    adapter.validate_configuration(stream)
+                    check(name, True, 'Конфигурация проверена без открытия порта')
+                except (ValueError, TypeError, WorkerError, OverflowError) as exc:
+                    check(name, False, str(exc))
         capacity = self.sessions.archive_capacity()
         check('archive', capacity.get('state') not in ('full',),
               'Полный архив; автоматическое удаление выключено')

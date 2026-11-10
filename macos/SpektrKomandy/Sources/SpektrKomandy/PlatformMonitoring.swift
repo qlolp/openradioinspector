@@ -35,6 +35,29 @@ extension PlatformClient {
     public func monitoring(_ path: String = "", body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
         guard path.isEmpty || (path.hasPrefix("/") && !path.contains("?") && !path.contains("..")) else { throw PlatformError.connection("Некорректный путь проекта") }
         if let body { return try await post("/monitoring-projects" + path, body: body) }
-        return try await get("/monitoring-projects" + path)
+        if !path.isEmpty { return try await get("/monitoring-projects" + path) }
+        // Do not replace the selector with a partial list if a later page fails.
+        var items: [MonitoringValue] = []
+        var seen: Set<String> = []
+        var cursor: String? = nil
+        while true {
+            try Task.checkCancellation()
+            let query = cursor.map { [URLQueryItem(name: "after", value: $0)] } ?? []
+            let page: MonitoringValue = try await get("/monitoring-projects", query: query)
+            guard case .object(var fields) = page, case .array(let values) = page["items"] else {
+                throw PlatformError.connection("Некорректная страница проектов")
+            }
+            items.append(contentsOf: values)
+            let next = page["next_cursor"]
+            if next == .null || next == .string("") {
+                fields["items"] = .array(items)
+                fields["next_cursor"] = .null
+                return .object(fields)
+            }
+            guard case .string(let value) = next, seen.insert(value).inserted else {
+                throw PlatformError.connection("Некорректный курсор проектов")
+            }
+            cursor = value
+        }
     }
 }

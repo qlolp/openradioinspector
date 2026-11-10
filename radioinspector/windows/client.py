@@ -253,7 +253,22 @@ class PlatformClient:
     def monitoring(self, path='', payload=None):
         if path and (not path.startswith('/') or '..' in path or '?' in path):
             raise ValueError('Некорректный путь проекта')
-        return self._request('GET' if payload is None else 'POST', '/monitoring-projects' + path, payload)
+        if path or payload is not None:
+            return self._request('GET' if payload is None else 'POST', '/monitoring-projects' + path, payload)
+        # Publish a complete list to the UI only after every page succeeds.
+        items, seen, cursor = [], set(), None
+        while True:
+            query = '?' + urlencode({'after': cursor}) if cursor else ''
+            page = self._request('GET', '/monitoring-projects' + query, None)
+            if not isinstance(page, dict) or not isinstance(page.get('items'), list):
+                raise PlatformClientError('Некорректная страница проектов', code='invalid_monitoring_page')
+            items.extend(page['items'])
+            cursor = page.get('next_cursor')
+            if cursor is None or cursor == '':
+                return dict(page, items=items, next_cursor=None)
+            if not isinstance(cursor, str) or cursor in seen:
+                raise PlatformClientError('Некорректный курсор проектов', code='invalid_monitoring_cursor')
+            seen.add(cursor)
 
     def instrument(self,session_id,stream_id,resource,payload=None,*,client_key=None,offset=0):
         allowed=resource in {'capabilities','settings','operations','artifacts'}

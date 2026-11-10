@@ -716,6 +716,80 @@ if stdin_errors:
         XCTAssertEqual(requests.count, 1, "Запрос должен быть только первый, отменённый во flight")
     }
 
+    func testMonitoringLoadsProjectsBeyond200UsingCursorQuery() async throws {
+        var count = 0
+        let first = (0..<200).map { "{\"id\":\"\($0)\"}" }.joined(separator: ",")
+        let client = try client { request in
+            count += 1
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(request.url?.path, "/root/api/v1/monitoring-projects")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            let body: String
+            switch count {
+            case 1:
+                XCTAssertTrue(query?.isEmpty ?? true)
+                body = "{\"items\":[\(first)],\"next_cursor\":\"cursor +/&?\"}"
+            case 2:
+                XCTAssertEqual(query, [URLQueryItem(name: "after", value: "cursor +/&?")])
+                body = "{\"items\":[{\"id\":\"new-project\"}],\"next_cursor\":\"new-project\"}"
+            default:
+                XCTAssertEqual(count, 3)
+                XCTAssertEqual(query, [URLQueryItem(name: "after", value: "new-project")])
+                body = "{\"items\":[],\"next_cursor\":null}"
+            }
+            return (self.response(request.url!), self.envelope(body))
+        }
+        let result = try await client.monitoring()
+        XCTAssertEqual(result["items"].items.count, 201)
+        XCTAssertEqual(result["items"].items.last?["id"], .string("new-project"))
+        XCTAssertEqual(result["next_cursor"], .null)
+        XCTAssertEqual(count, 3)
+    }
+
+    func testMonitoringRejectsRepeatedCursorAndLaterPageFailures() async throws {
+        for failure in ["cycle", "http", "items", "cursor"] {
+            var count = 0
+            let client = try client { request in
+                count += 1
+                if count == 1 {
+                    return (self.response(request.url!), self.envelope("{\"items\":[{\"id\":\"first\"}],\"next_cursor\":\"repeat\"}"))
+                }
+                XCTAssertEqual(count, 2)
+                let body: String
+                switch failure {
+                case "http":
+                    return (self.response(request.url!, status: 503), self.envelope("{}"))
+                case "items": body = "{\"items\":null,\"next_cursor\":null}"
+                case "cursor": body = "{\"items\":[],\"next_cursor\":42}"
+                default: body = "{\"items\":[],\"next_cursor\":\"repeat\"}"
+                }
+                return (self.response(request.url!), self.envelope(body))
+            }
+            await XCTAssertThrowsPlatformError(try await client.monitoring())
+            XCTAssertEqual(count, 2)
+        }
+    }
+
+    func testMonitoringDetailsAndCreateRemainSingleRequests() async throws {
+        var count = 0
+        let client = try client { request in
+            count += 1
+            if count == 1 {
+                XCTAssertEqual(request.httpMethod, "POST")
+                XCTAssertEqual(request.url?.path, "/root/api/v1/monitoring-projects")
+            } else {
+                XCTAssertEqual(request.httpMethod, "GET")
+                XCTAssertEqual(request.url?.path, "/root/api/v1/monitoring-projects/one/preflight")
+            }
+            return (self.response(request.url!), self.envelope("{\"id\":\"one\"}"))
+        }
+        let created = try await client.monitoring(body: ["name": .string("New")])
+        let detail = try await client.monitoring("/one/preflight")
+        XCTAssertEqual(created["id"], .string("one"))
+        XCTAssertEqual(detail["id"], .string("one"))
+        XCTAssertEqual(count, 2)
+    }
+
     private func XCTAssertThrowsPlatformError<T>(
         _ expression: @autoclosure () async throws -> T,
         file: StaticString = #filePath, line: UInt = #line

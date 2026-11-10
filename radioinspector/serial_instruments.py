@@ -419,6 +419,20 @@ def _rf_command(frequency_hz: int) -> str:
     return f"RF{units // 100_000:04d}.{units % 100_000:05d}"
 
 
+def validate_serial_connection(stream: DeviceStream, default_baud: int) -> int:
+    """Validate configuration only; never probe or open a device."""
+    if not isinstance(stream.port, str) or not stream.port.strip() or stream.port.startswith("sim://"):
+        raise WorkerError("Требуется физический последовательный порт")
+    baud = int(stream.settings.get("baud", default_baud))
+    if baud not in (9600, 19200, 38400, 57600, 115200):
+        raise WorkerError(f"Неподдерживаемая скорость порта: {baud}")
+    if os.name == "nt":
+        name = stream.port[4:] if stream.port.startswith("\\\\.\\") else stream.port
+        if re.fullmatch(r"COM[1-9][0-9]*", name, re.IGNORECASE | re.ASCII) is None:
+            raise WorkerError("Windows требует имя COM-порта, например COM3")
+    return baud
+
+
 class TinySASerialAdapter(SimulatedAdapter):
     adapter_name = "tinysa-serial"
 
@@ -431,12 +445,8 @@ class TinySASerialAdapter(SimulatedAdapter):
         transport_factory: Callable[..., Any] = create_serial_transport,
     ) -> None:
         super().__init__(stream)
-        if stream.role is not DeviceRole.SPECTRUM_ANALYZER:
-            raise ValueError("tinysa-serial требует роль spectrum_analyzer")
-        if stream.level_unit != "dBm":
-            raise ValueError("tinysa-serial выдаёт только исходную единицу dBm")
+        requested = self.validate_configuration(stream, require_port=transport is None)
         self._clock = clock
-        requested = validate_receive_settings(self.settings)
         self.start_hz = requested["start_hz"]
         self.stop_hz = requested["stop_hz"]
         self.points = requested["points"]
@@ -444,15 +454,25 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._identity: dict[str, str] = {}
         self._instrument = None
         if transport is None:
-            if not stream.port or stream.port.startswith("sim://"):
-                raise WorkerError("tinysa-serial требует физический последовательный порт")
-            transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)))
+            transport = transport_factory(stream.port, validate_serial_connection(stream, 9600))
         self.transport = transport
         self._ready = False
         self._closed = False
         self._sequence = 0
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
+
+    @staticmethod
+    def validate_configuration(stream: DeviceStream, *, require_port: bool = True) -> dict:
+        SimulatedAdapter(stream)  # Shared worker timing/retry configuration, no I/O.
+        if stream.role is not DeviceRole.SPECTRUM_ANALYZER:
+            raise ValueError("tinysa-serial требует роль spectrum_analyzer")
+        if stream.level_unit != "dBm":
+            raise ValueError("tinysa-serial выдаёт только исходную единицу dBm")
+        requested = validate_receive_settings(stream.settings)
+        if require_port:
+            validate_serial_connection(stream, 9600)
+        return requested
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:
@@ -643,20 +663,11 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         transport_factory: Callable[..., Any] = create_serial_transport,
     ) -> None:
         super().__init__(stream)
-        if stream.role is not DeviceRole.RECEIVER:
-            raise ValueError("ardv1-serial требует роль receiver")
-        if stream.level_unit != "s_meter_count":
-            raise ValueError("ardv1-serial выдаёт только исходную единицу s_meter_count")
+        self._requested_frequency_hz, self._requested_mode = self.validate_configuration(
+            stream, require_port=transport is None)
         self._clock = clock
-        self._requested_frequency_hz = self.settings.get("frequency_hz", 145_500_000)
-        _rf_command(self._requested_frequency_hz)
-        self._requested_mode = str(self.settings.get("mode") or "FM").strip().upper()
-        if self._requested_mode not in ("FM", "AM"):
-            raise ValueError("ardv1-serial поддерживает только FM и AM в этом срезе")
         if transport is None:
-            if not stream.port or stream.port.startswith("sim://"):
-                raise WorkerError("ardv1-serial требует физический последовательный порт")
-            transport = transport_factory(stream.port, int(self.settings.get("baud", 115200)))
+            transport = transport_factory(stream.port, validate_serial_connection(stream, 115200))
         self.transport = transport
         self._ready = False
         self._closed = False
@@ -666,6 +677,22 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self.mode: Optional[str] = None
         self._frequency_source = "unconfirmed"
         self._restart_required = False
+
+    @staticmethod
+    def validate_configuration(stream: DeviceStream, *, require_port: bool = True) -> tuple:
+        SimulatedAdapter(stream)
+        if stream.role is not DeviceRole.RECEIVER:
+            raise ValueError("ardv1-serial требует роль receiver")
+        if stream.level_unit != "s_meter_count":
+            raise ValueError("ardv1-serial выдаёт только исходную единицу s_meter_count")
+        frequency = stream.settings.get("frequency_hz", 145_500_000)
+        _rf_command(frequency)
+        mode = str(stream.settings.get("mode") or "FM").strip().upper()
+        if mode not in ("FM", "AM"):
+            raise ValueError("ardv1-serial поддерживает только FM и AM в этом срезе")
+        if require_port:
+            validate_serial_connection(stream, 115200)
+        return frequency, mode
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:

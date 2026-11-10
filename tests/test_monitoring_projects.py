@@ -64,3 +64,56 @@ class MonitoringProjectTests(unittest.TestCase):
             self.assertEqual(server.worker_manager.active_count, 0)
         finally:
             server.shutdown(); server.server_close(); thread.join()
+
+
+class MonitoringSerialReadinessTests(unittest.TestCase):
+    def setUp(self):
+        self.sessions = SessionService()
+        self.workers = DeviceWorkerManager(self.sessions)
+        self.service = MonitoringService(self.sessions, self.workers)
+        self.addCleanup(self.sessions.close)
+        self.addCleanup(self.workers.close)
+        self.addCleanup(self.service.close)
+
+    def preflight(self, change=lambda payload: None):
+        from unittest.mock import patch
+        payload = simulated_session_payload()
+        for stream, adapter, port in zip(payload['streams'],
+                                        ('tinysa-serial', 'ardv1-serial'), ('COM3', 'COM4')):
+            stream['settings']['adapter'] = adapter
+            stream['port'] = port
+        change(payload)
+        session = self.sessions.create_session(payload)
+        with patch('radioinspector.serial_instruments.PosixSerialTransport',
+                   side_effect=AssertionError('must not create a transport')), \
+             patch('radioinspector.serial_instruments.WindowsSerialTransport',
+                   side_effect=AssertionError('must not create a transport')), \
+             patch('radioinspector.serial_instruments.create_serial_transport',
+                   side_effect=AssertionError('must not open ports')), \
+             patch('radioinspector.serial_instruments.os.open',
+                   side_effect=AssertionError('must not access devices')):
+            project = self.service.create(dict(name='Readiness', site='Lab', session_id=session.id))
+            result = self.service.preflight(project['id'])
+        self.assertEqual(self.workers.active_count, 0)
+        self.assertEqual(self.sessions.list_sweeps(session.id), [])
+        self.assertEqual(result['hardware_validation'], 'not_run')
+        return result
+
+    def test_serial_ports_are_required_for_both_streams(self):
+        for index in (0, 1):
+            for port in (None, '', '   ', 'sim://device'):
+                with self.subTest(index=index, port=port):
+                    result = self.preflight(lambda p: p['streams'][index].update(port=port))
+                    self.assertFalse(result['ready'])
+                    self.assertFalse(next(c for c in result['checks'] if c['name'] ==
+                                          ('receive_profile', 'receiver_profile')[index])['ok'])
+
+    def test_unsupported_receiver_mode_and_frequency_fail_without_io(self):
+        for settings in ({'mode': 'DMR'}, {'frequency_hz': 1}, {'baud': 12345}, {'period_s': -1}):
+            with self.subTest(settings=settings):
+                self.assertFalse(self.preflight(lambda p: p['streams'][1]['settings'].update(settings))['ready'])
+
+    def test_valid_serial_configuration_is_not_a_hardware_acceptance(self):
+        for mode in ('FM', 'AM', ' fm '):
+            with self.subTest(mode=mode):
+                self.assertTrue(self.preflight(lambda p: p['streams'][1]['settings'].update(mode=mode))['ready'])
