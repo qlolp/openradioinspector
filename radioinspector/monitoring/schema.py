@@ -12,3 +12,4 @@ def install_schema(db):
         ON monitoring_records(kind,project_id,created_at,id)''')
     if not version:
         db.execute('INSERT INTO monitoring_schema VALUES (?)', (1,))
+    db.execute("CREATE INDEX IF NOT EXISTS monitoring_state ON monitoring_records(kind,project_id,json_extract(payload,'$.state'),id)")

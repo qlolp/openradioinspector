@@ -1798,6 +1798,10 @@ struct MonitoringWorkspacePane: View {
     @StateObject private var workspace = MonitoringWorkspaceModel()
     @State private var name = "Наблюдение"
     @State private var site = "Объект"
+    @State private var confirm = false
+    @State private var allowedName = "Разрешённый сигнал"
+    @State private var allowedStart = "100000000"
+    @State private var allowedEnd = "100100000"
     var body: some View {
         DisclosureGroup("Проект наблюдения · подготовка") {
             HStack {
@@ -1814,6 +1818,18 @@ struct MonitoringWorkspacePane: View {
                 }
                 Button("Проверить готовность") { Task { await workspace.call("/" + workspace.selected + "/preflight") } }
                     .disabled(workspace.selected.isEmpty || workspace.pending)
+            }
+            HStack {
+                Toggle("Подтверждаю обычную обстановку", isOn: $confirm)
+                Button("Зафиксировать эталон") { Task { await workspace.call("/" + workspace.selected + "/baselines", body: ["name": .string(name), "location": .string(site), "confirm": .boolean(confirm)]) } }.disabled(workspace.selected.isEmpty || !confirm)
+                Button("Новые свипы") { Task { await workspace.call("/" + workspace.selected + "/analyze", body: [:]) } }.disabled(workspace.selected.isEmpty)
+                Button("События") { Task { await workspace.call("/" + workspace.selected + "/events") } }.disabled(workspace.selected.isEmpty)
+            }
+            HStack {
+                TextField("Разрешённый сигнал", text: $allowedName)
+                TextField("От, Гц", text: $allowedStart)
+                TextField("До, Гц", text: $allowedEnd)
+                Button("Разрешить") { Task { await workspace.call("/" + workspace.selected + "/allowed", body: ["name": .string(allowedName), "start_hz": .integer(Int64(allowedStart) ?? -1), "end_hz": .integer(Int64(allowedEnd) ?? -1)]) } }.disabled(workspace.selected.isEmpty)
             }
             ScrollView { Text(workspace.details).font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 160)
         }
