@@ -273,3 +273,17 @@ POSIX shell launcher; причина сама по себе не разреша�
 Исправления аудита, команды подготовки и отдельный протокол аппаратной
 приёмки: [надёжность по аудиту](audit-reliability.md). Синтетический
 результат никогда не маркирует hardware_validation как passed.
+
+### Receiver-failure monitoring regression
+
+`tests.test_monitoring_guard.GuardTests.test_later_receiver_failure_is_visible_and_analyzer_keeps_recording`
+uses a baseline produced by the same `TinySASimulator` profile as the running
+analyzer. It leaves the real detector enabled, injects only the receiver poll
+failure, and waits for at least three additional archived analyzer sweeps after
+degradation. It also checks detector progress, live analyzer ownership and the
+receiver's explicit error. The guard is disarmed and joined before fault
+injection is removed, even if an assertion fails. Do not replace this baseline
+with the generic nine-bin detector fixture or restore an `analyze` mock while
+the guard thread is still running: either makes an unrelated grid mismatch race
+the health assertions. This is synthetic lifecycle coverage, not physical USB
+acceptance.

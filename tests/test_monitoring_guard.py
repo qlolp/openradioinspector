@@ -200,17 +200,40 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(self.service.guard_status(old['id'])['project']['state'],'armed')
 
     def test_later_receiver_failure_is_visible_and_analyzer_keeps_recording(self):
-        with patch('radioinspector.device_workers.ARDV1Simulator.poll',side_effect=WorkerError('Lost receiver USB')):
-            # Matching synthetic baseline; avoid conflating detector quality with USB failure.
-            for i in range(20):self.sessions.ingest_sweep(sweep(i,session=self.session.id,stream=self.session.streams[0].id))
-            self.service.create_baseline(self.project['id'],dict(name='Quiet',location='Room',confirm=True))
-            with patch.object(self.service,'analyze',return_value={}):
-                self.service.arm(self.project['id'],{})
-                wait_until(lambda:self.service.project(self.project['id'])['state']=='degraded','guard receiver failure')
-            status=self.service.guard_status(self.project['id'])
-            self.assertTrue(status['active']);self.assertIsNotNone(status['error'])
-            self.assertEqual(status['project']['coverage'],'wide')
-            self.assertTrue(next(x for x in status['workers'] if x['stream_id']==status['project']['analyzer_stream_id'])['alive'])
+        # Exercise the real detector: the generic nine-bin sweep fixture does not
+        # match the running analyzer and used to stop guard after analyze's mock
+        # was removed, racing the assertions below on slower CI runners.
+        adapter = TinySASimulator(self.session.streams[0])
+        now = utc_now()
+        for i in range(20):
+            item = adapter.poll()
+            started = now - timedelta(seconds=80 - 4*i)
+            item.interval = TimeInterval(started, started + timedelta(seconds=1))
+            self.sessions.ingest_sweep(item)
+        self.service.create_baseline(self.project['id'], dict(name='Quiet', location='Room', confirm=True))
+        with patch('radioinspector.device_workers.ARDV1Simulator.poll', side_effect=WorkerError('Lost receiver USB')):
+            armed = self.service.arm(self.project['id'], {})
+            try:
+                wait_until(lambda: self.service.project(self.project['id'])['state'] == 'degraded',
+                           'guard receiver failure')
+                sid, stream = armed['active_session_id'], armed['analyzer_stream_id']
+                before = len(self.sessions.list_sweeps(sid, stream_id=stream))
+                wait_until(lambda: len(self.sessions.list_sweeps(sid, stream_id=stream)) >= before + 3,
+                           'analyzer must keep archiving after receiver failure')
+                wait_until(lambda: bool(self.service.project(self.project['id']).get('detector_cursor')),
+                           'real detector must process the compatible analyzer sweeps')
+                status = self.service.guard_status(self.project['id'])
+                self.assertTrue(status['active'], status['error'])
+                self.assertIsNotNone(status['error'])
+                self.assertEqual(status['project']['state'], 'degraded')
+                self.assertEqual(status['project']['coverage'], 'wide')
+                self.assertTrue(next(x for x in status['workers'] if x['stream_id'] == stream)['alive'])
+                receiver = next(x for x in status['workers'] if x['stream_id'] == armed['receiver_stream_id'])
+                self.assertFalse(receiver['alive'])
+                self.assertIn('Lost receiver USB', receiver['last_error'])
+            finally:
+                # Join guard before restoring fault injection, including failures.
+                self.service.disarm(self.project['id'], {})
 
     def test_receiver_dwell_does_not_stop_analyzer_and_event_is_not_replayed(self):
         session = self.sessions.create_session(simulated_session_payload(tinysa_settings={'noise_sigma_db':0,'emitters':[]}))
