@@ -3,6 +3,7 @@ import copy
 import os
 import unittest
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from radioinspector.contracts import TimeInterval
@@ -11,7 +12,7 @@ from radioinspector.monitoring.service import MonitoringService
 from radioinspector.session_service import SessionService
 from tests import test_monitoring_guard as guard_tests
 from tests.test_monitoring_detector import sweep
-from tests.test_serial_instruments import serial_session
+from tests.monitoring_serial_fixture import monitoring_serial_session
 
 
 class ReadinessCompatibilityTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class ReadinessCompatibilityTests(unittest.TestCase):
         project=service.create(dict(name='Config',site='Synthetic',session_id=session.id))
         service.save_preparation(project['id'],dict(antenna_notes='Fixture',receive_path_confirmed=True,location_confirmed=True))
         with patch('radioinspector.serial_instruments.create_serial_transport') as transport:
-            with patch('os.name','nt' if windows else os.name):
+            with patch('radioinspector.monitoring.service.os',SimpleNamespace(name='nt' if windows else os.name)):
                 result=service.preflight(project['id'])
             transport.assert_not_called()
         self.assertEqual(workers.active_count,0)
@@ -37,18 +38,20 @@ class ReadinessCompatibilityTests(unittest.TestCase):
                                 ('max_consecutive_errors',0),('max_consecutive_errors',101),
                                 ('failures_remaining',-1)):
                 with self.subTest(role=role,field=field,value=value):
-                    payload=serial_session();payload['streams'][role]['settings'][field]=value
-                    self.assertFalse(self.preflight(payload)['ready'])
+                    payload=monitoring_serial_session();payload['streams'][role]['settings'][field]=value
+                    result=self.preflight(payload)
+                    self.assertFalse(result['ready'])
+                    name=('analyzer' if role==0 else 'receiver')+'_worker_settings'
+                    self.assertTrue(any(c['name']==name and not c['ok'] for c in result['checks']))
 
     def test_windows_preflight_uses_native_com_rules_without_opening_ports(self):
         for role in (0,1):
             for port in ('/dev/ttyFAKE','COM0','socket://fixture'):
                 with self.subTest(role=role,port=port):
-                    payload=serial_session()
-                    payload['streams'][0]['port']='COM3';payload['streams'][1]['port']='COM4'
+                    payload=monitoring_serial_session()
                     payload['streams'][role]['port']=port
                     self.assertFalse(self.preflight(payload,windows=True)['ready'])
-        payload=serial_session();payload['streams'][0]['port']='COM3';payload['streams'][1]['port']='\\\\.\\COM4'
+        payload=monitoring_serial_session();payload['streams'][1]['port']='\\\\.\\COM4'
         self.assertTrue(self.preflight(payload,windows=True)['ready'])
 
 

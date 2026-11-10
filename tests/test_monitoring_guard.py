@@ -11,6 +11,7 @@ from radioinspector.serial_instruments import ARDV1SerialAdapter
 from radioinspector.monitoring.service import MonitoringService
 from tests.test_device_workers import simulated_session_payload
 from tests.test_serial_instruments import ScriptedTransport
+from tests.monitoring_serial_fixture import monitoring_serial_session
 from tests.test_monitoring_detector import sweep
 from tests.test_device_workers import wait_until
 from datetime import timedelta
@@ -75,10 +76,10 @@ class GuardTests(unittest.TestCase):
         finally:self.service.disarm(other['id'],{});self.service.stop_preparation(self.project['id'],{})
 
     def test_inspected_serial_baseline_survives_fresh_guard_acquisition_context(self):
-        from tests.test_serial_instruments import serial_session,TinySATransport
+        from tests.test_serial_instruments import TinySATransport
         from radioinspector.serial_instruments import TinySASerialAdapter
         from radioinspector.device_workers import ARDV1Simulator
-        session=self.sessions.create_session(serial_session())
+        session=self.sessions.create_session(monitoring_serial_session())
         project=self.service.create(dict(name='Inspected',site='Fixture',session_id=session.id))
         self.service.save_preparation(project['id'],dict(antenna_notes='Fixture',receive_path_confirmed=True,location_confirmed=True))
         def transport():
@@ -106,9 +107,9 @@ class GuardTests(unittest.TestCase):
             finally:self.service.disarm(project['id'],{})
 
     def test_modified_serial_baseline_context_fails_preflight_before_stopping_workers(self):
-        from tests.test_serial_instruments import serial_session,TinySATransport
+        from tests.test_serial_instruments import TinySATransport
         from radioinspector.serial_instruments import TinySASerialAdapter
-        session=self.sessions.create_session(serial_session())
+        session=self.sessions.create_session(monitoring_serial_session())
         project=self.service.create(dict(name='Modified RX',site='Fixture',session_id=session.id))
         self.service.save_preparation(project['id'],dict(antenna_notes='Fixture',receive_path_confirmed=True,location_confirmed=True))
         transport=TinySATransport.valid();transport.responses['help']=['info version deviceid output mode lna attenuate rbw calc scan help\r\nch>']
@@ -125,7 +126,9 @@ class GuardTests(unittest.TestCase):
             item.interval=TimeInterval(started,started+timedelta(seconds=1));self.sessions.ingest_sweep(item)
         adapter.close()
         self.service.create_baseline(project['id'],dict(name='Changed RX',location='Fixture',confirm=True))
-        self.assertFalse(self.service.preflight(project['id'])['ready'])
+        result=self.service.preflight(project['id'])
+        self.assertFalse(result['ready'])
+        self.assertTrue(any(c['name']=='baseline_acquisition_context' and not c['ok'] for c in result['checks']))
         before=self.sessions.get_session(session.id).state
         with self.assertRaises(ValueError):self.service.arm(project['id'],{})
         self.assertEqual(self.sessions.get_session(session.id).state,before)
