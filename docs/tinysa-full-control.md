@@ -147,3 +147,19 @@ python tests/check_tinysa_full_hardware.py --port /dev/ttyACM0 \
 [MenuTree](https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree), официальные
 исходники firmware на commit `ea71dfd9e53d6dec95256ac70914659cf260d48d`.
 Исходники производителя и приватные wire-логи в репозиторий не добавлялись.
+
+## RF off и подтверждение режима приёма
+
+RF/CAL off и mode input — разные переходы. Контроллер отдельно хранит
+device_mode=input/output/unknown; monitoring/lab остаётся режимом управления
+клиента. device_mode_readback=false: это подтверждение команды, не физическое
+измерение. Выключение RF не делает output/unknown приёмным режимом.
+acquire.raw и acquire.zero требуют подтверждённого input и отвергаются до
+zero/scanraw при output/unknown. Для возврата используется monitor.resume.
+
+Успешная подготовка, monitor.resume и импорт приёмного JSON-пресета
+подтверждают input. Ручное меню, аппаратный preset.load, self-test и
+неопределённый обмен сбрасывают сведения о режиме в unknown. Ошибка
+переключения оставляет соединение tainted и не разрешает acquisition.
+Аренда, явное разрешение RF и отсутствие автоматических повторов сохранены.
+Проверено по синтетическому протоколу; физический RF-стенд не проводился.

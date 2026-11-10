@@ -1381,6 +1381,15 @@
   window.addEventListener("beforeunload", () => {
     if (state.eventSource) state.eventSource.close();
   });
+  window.addEventListener('ori-monitoring-session', event => {
+    const id = event.detail?.sessionId;
+    if (typeof id !== 'string' || !id || id === state.sessionId) return;
+    if (![...dom.sessionSelect.options].some(option => option.value === id)) {
+      dom.sessionSelect.add(new Option('Сеанс проекта наблюдения', id));
+    }
+    dom.sessionSelect.value = id;
+    changeSession();
+  });
 
   async function initialize() {
     renderAll();

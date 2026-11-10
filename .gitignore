@@ -29,3 +29,6 @@ out/
 Thumbs.db
 .idea/
 .vscode/
+
+# Owned synthetic release diagnostics (CI artifacts only)
+release-reports/

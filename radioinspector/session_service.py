@@ -111,6 +111,7 @@ OPEN_INVESTIGATION_STATES = frozenset(
 )
 RUNTIME_INVESTIGATION_STATES = OPEN_INVESTIGATION_STATES - {InvestigationState.QUEUED}
 MAX_MEASUREMENT_BATCH = 100
+SQLITE_REGISTRY_TAIL = 128
 
 
 class SessionService:
@@ -148,26 +149,19 @@ class SessionService:
         self._subscriber_sequence = 0
         self._lock = threading.RLock()
         if store is not None:
-            restored = store.load_sessions()
-            for session in restored:
-                runtime_state_changed = False
-                for stream in session.streams:
-                    if stream.state is not DeviceState.DISCONNECTED:
-                        # Потоки ОС не переживают перезапуск процесса. Сеанс и
-                        # измерения восстанавливаются, но исполнители не запускаются
-                        # автоматически и не должны выглядеть работающими.
-                        stream.state = DeviceState.DISCONNECTED
-                        runtime_state_changed = True
-                if runtime_state_changed:
-                    store.save_session(session)
-            self._sessions = {item.id: item for item in restored}
-            self._candidates = {item.id: item for item in store.load_candidates()}
-            for session_id, investigation in store.load_investigations():
-                candidate = self._candidates.get(investigation.candidate_id)
+            store.reset_runtime_stream_states()
+            for session_id, investigation in store.load_open_investigations():
+                candidate = store.get_candidate(investigation.candidate_id)
                 if candidate is None or candidate.session_id != session_id:
                     raise ValueError(
                         f"Архив исследования {investigation.id} нарушает связь с кандидатом"
                     )
+                if session_id not in self._sessions:
+                    session = store.get_session(session_id)
+                    if session is None:
+                        raise ValueError(f"Архив исследования {investigation.id} не содержит сеанса")
+                    self._sessions[session_id] = session
+                self._candidates[candidate.id] = candidate
                 self._investigations[investigation.id] = investigation
                 self._investigation_sessions[investigation.id] = session_id
             events = store.load_events(limit=history_limit)
@@ -274,6 +268,7 @@ class SessionService:
             running = sum(
                 item.state.value == "running" for item in self._sessions.values()
             )
+            counts = self._store.registry_counts() if self._store is not None else None
             return {
                 "status": "ok",
                 "api_version": API_VERSION,
@@ -290,6 +285,7 @@ class SessionService:
                     for item in self._investigations.values()
                 ),
                 "last_event_id": self._sequence,
+                **(counts or {}),
             }
 
     def create_session(self, payload: dict[str, Any]) -> MonitoringSession:
@@ -316,13 +312,17 @@ class SessionService:
                 raise ValueError("Один последовательный порт нельзя назначить двум serial-потокам")
             serial_ports.add(identity)
         with self._lock:
-            if session.id in self._sessions:
+            if session.id in self._sessions or (
+                self._store is not None and self._store.get_session(session.id) is not None
+            ):
                 raise ValueError(f"Сеанс уже существует: {session.id}")
             existing_ids = {
                 stream.id for item in self._sessions.values() for stream in item.streams
             }
             for stream in session.streams:
-                if stream.id in existing_ids:
+                if stream.id in existing_ids or (
+                    self._store is not None and self._store.stream_exists(stream.id)
+                ):
                     raise ValueError(f"Поток уже принадлежит другому сеансу: {stream.id}")
             event = self._make_event_locked(
                 "session.created",
@@ -338,7 +338,8 @@ class SessionService:
     def list_sessions(self) -> list[MonitoringSession]:
         with self._lock:
             items = sorted(
-                self._sessions.values(), key=lambda item: (item.created_at, item.id)
+                self._store.load_sessions() if self._store is not None else self._sessions.values(),
+                key=lambda item: (item.created_at, item.id),
             )
             return copy.deepcopy(items)
 
@@ -816,7 +817,10 @@ class SessionService:
             if stream_id is not None and not any(stream.id == stream_id for stream in session.streams):
                 raise ValueError(f"Поток не принадлежит сеансу: {stream_id}")
             candidates = [
-                item for item in self._candidates.values()
+                item for item in (
+                    self._store.load_candidates(session_id=session_id)
+                    if self._store is not None else self._candidates.values()
+                )
                 if item.session_id == session_id and (stream_id is None or item.source_stream_id == stream_id)
             ]
             candidates.sort(key=lambda item: (item.interval.started_at, item.id))
@@ -851,7 +855,11 @@ class SessionService:
             candidates = [Candidate.from_dict(dict(item, session_id=session_id, state="new"))
                           for item in payloads]
             created = [candidate.id for candidate in candidates]
-            if len(set(created)) != len(created) or any(identifier in self._candidates for identifier in created):
+            if len(set(created)) != len(created) or any(
+                identifier in self._candidates or (
+                    self._store is not None and self._store.get_candidate(identifier) is not None
+                ) for identifier in created
+            ):
                 raise ValueError("Повторяющийся ID кандидата")
             events = []
             for index, candidate in enumerate(candidates, 1):
@@ -1095,7 +1103,9 @@ class SessionService:
                 expected_owner = {(session_id, candidate.source_stream_id)}
                 if any(owners[identifier] != expected_owner for identifier in references):
                     raise ValueError("Исходное измерение отсутствует или принадлежит другому сеансу/потоку")
-            if candidate.id in self._candidates:
+            if candidate.id in self._candidates or (
+                self._store is not None and self._store.get_candidate(candidate.id) is not None
+            ):
                 raise ValueError(f"Кандидат уже существует: {candidate.id}")
             event = self._make_event_locked(
                 "candidate.created",
@@ -1120,7 +1130,11 @@ class SessionService:
         with self._lock:
             self._get_locked(session_id)
             items = [
-                item for item in self._candidates.values()
+                item for item in (
+                    self._store.load_candidates(
+                        session_id=session_id, state=selected_state.value if selected_state else None,
+                    ) if self._store is not None else self._candidates.values()
+                )
                 if item.session_id == session_id
                 and (selected_state is None or item.state is selected_state)
             ]
@@ -1202,7 +1216,9 @@ class SessionService:
                 mode=payload.get("mode"),
                 created_at=self._clock(),
             )
-            if investigation.id in self._investigations:
+            if investigation.id in self._investigations or (
+                self._store is not None and self._store.get_investigation(investigation.id) is not None
+            ):
                 raise ValueError(f"Исследование уже существует: {investigation.id}")
             candidate = copy.deepcopy(current)
             candidate.state = CandidateState.QUEUED
@@ -1220,6 +1236,7 @@ class SessionService:
                 raise ValueError(
                     f"Исследование уже существует или нарушает связи: {investigation.id}"
                 ) from exc
+            self._sessions[session_id] = session
             self._investigations[investigation.id] = investigation
             self._investigation_sessions[investigation.id] = session_id
             self._candidates[candidate.id] = candidate
@@ -1232,11 +1249,16 @@ class SessionService:
         selected_state = InvestigationState(state) if state is not None else None
         with self._lock:
             self._get_locked(session_id)
-            items = [
-                item for item in self._investigations.values()
-                if self._investigation_sessions[item.id] == session_id
-                and (selected_state is None or item.state is selected_state)
-            ]
+            if self._store is not None:
+                items = [item for _, item in self._store.load_investigations(
+                    session_id=session_id, state=selected_state.value if selected_state else None,
+                )]
+            else:
+                items = [
+                    item for item in self._investigations.values()
+                    if self._investigation_sessions[item.id] == session_id
+                    and (selected_state is None or item.state is selected_state)
+                ]
             items.sort(
                 key=lambda item: (
                     item.state is not InvestigationState.QUEUED,
@@ -1479,6 +1501,8 @@ class SessionService:
     def _get_candidate_locked(self, session_id: str, candidate_id: str) -> Candidate:
         self._get_locked(session_id)
         candidate = self._candidates.get(candidate_id)
+        if candidate is None and self._store is not None:
+            candidate = self._store.get_candidate(candidate_id)
         if candidate is None or candidate.session_id != session_id:
             raise CandidateNotFoundError(candidate_id)
         return candidate
@@ -1488,10 +1512,12 @@ class SessionService:
     ) -> Investigation:
         self._get_locked(session_id)
         investigation = self._investigations.get(investigation_id)
-        if (
-            investigation is None
-            or self._investigation_sessions.get(investigation_id) != session_id
-        ):
+        owner = self._investigation_sessions.get(investigation_id)
+        if investigation is None and self._store is not None:
+            archived = self._store.get_investigation(investigation_id)
+            if archived is not None:
+                owner, investigation = archived
+        if investigation is None or owner != session_id:
             raise InvestigationNotFoundError(investigation_id)
         return investigation
 
@@ -1627,10 +1653,45 @@ class SessionService:
                 self._store.close()
 
     def _get_locked(self, session_id: str) -> MonitoringSession:
-        try:
-            return self._sessions[session_id]
-        except KeyError as exc:
-            raise SessionNotFoundError(session_id) from exc
+        session = self._sessions.get(session_id)
+        if session is None and self._store is not None:
+            session = self._store.get_session(session_id)
+        if session is None:
+            raise SessionNotFoundError(session_id)
+        return session
+
+    def _trim_registry_cache_locked(self) -> None:
+        """Pin open job graphs; SQLite owns all other history beyond a short tail.
+
+        Exact-ID archive reads never insert entries here. No parallel cache of
+        historical IDs can grow after the corresponding objects are evicted.
+        """
+        if self._store is None:
+            return
+        open_ids = {
+            identifier for identifier, item in self._investigations.items()
+            if item.state in OPEN_INVESTIGATION_STATES
+        }
+        candidate_ids = {self._investigations[identifier].candidate_id for identifier in open_ids}
+        session_ids = {self._investigation_sessions[identifier] for identifier in open_ids}
+
+        def trim(items: dict, pinned: set[str]) -> None:
+            excess = len(items) - len(pinned) - SQLITE_REGISTRY_TAIL
+            if excess <= 0:
+                return
+            for identifier in list(items):
+                if identifier not in pinned:
+                    del items[identifier]
+                    excess -= 1
+                    if excess <= 0:
+                        break
+
+        trim(self._investigations, open_ids)
+        for identifier in list(self._investigation_sessions):
+            if identifier not in self._investigations:
+                del self._investigation_sessions[identifier]
+        trim(self._candidates, candidate_ids)
+        trim(self._sessions, session_ids)
 
     def _append_event_locked(
         self,
@@ -1665,6 +1726,8 @@ class SessionService:
         """Обновляет replay и подписчиков только после успешного commit архива."""
         self._sequence = event.sequence
         self._events.append(event)
+        if event.event_type.startswith(("session.", "candidate.", "investigation.", "device.")):
+            self._trim_registry_cache_locked()
         for subscriber in self._subscribers.values():
             self._offer(subscriber, event)
         return copy.deepcopy(event)
