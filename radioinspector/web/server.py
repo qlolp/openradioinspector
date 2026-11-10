@@ -606,7 +606,10 @@ class Handler(BaseHTTPRequestHandler):
             raise RequestError("Чужой Origin запрещён", 403)
         maximum = MAX_CONTROL_REQUEST_BYTES
         allow_empty = True
-        if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
+        if (len(parts) >= 7 and parts[:3] == ["api", "v1", "sessions"]
+                and parts[4] == "streams" and parts[6] == "instrument"):
+            allow_empty = False
+        elif (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] in (
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection", "sweep-context", "sweep-occupancy",

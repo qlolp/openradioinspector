@@ -87,6 +87,21 @@ class RequestLimitsTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 408)
         self.assertEqual(handler.connection.settimeout.call_args.args, (None,))
 
+    def test_instrument_empty_body_is_rejected_before_dispatch(self):
+        for resource in ('operations', 'control-lease', 'operations/job/cancel'):
+            handler = server.Handler.__new__(server.Handler)
+            handler.path = '/api/v1/sessions/session/streams/stream/instrument/' + resource
+            handler.headers = Message()
+            handler.headers['Content-Type'] = 'application/json'
+            handler.headers['Content-Length'] = '0'
+            handler.connection = Mock()
+            handler.connection.gettimeout.return_value = None
+            handler.rfile = io.BytesIO()
+            handler._api_v1_post = Mock()
+            with self.subTest(resource=resource), self.assertRaises(ValueError):
+                handler._post()
+            handler._api_v1_post.assert_not_called()
+
     def test_data_routes_use_measurement_budget(self):
         session = self.server.session_service.create_session({'name': 'data'})
         # Shape validation may fail, but the control-body budget must not reject it.
