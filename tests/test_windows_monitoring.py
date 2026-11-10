@@ -97,6 +97,68 @@ class MonitoringTkTests(unittest.TestCase):
         self.assertEqual(len(self.panel.events), 1)
         self.assertIn('100000000', str(self.panel.event_tree.item('e1', 'values')))
 
+    def test_project_pages_preserve_selected_scope_and_use_cached_previous_cursors(self):
+        self.panel.refresh()
+        self.complete(dict(PROJECTS, next_cursor='page-one-last-id'))
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200}))
+        self.assertFalse(self.panel.project_previous.instate(['!disabled']))
+        self.assertTrue(self.panel.project_next.instate(['!disabled']))
+        generation = self.panel.generation
+        self.panel.next_projects()
+        self.complete({'items': [dict(id='p201', name='Later', site='Roof', state='ready')],
+                       'next_cursor': 'page-two-last-id'})
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200, 'after': 'page-one-last-id'}))
+        self.assertEqual(self.panel.selected(), 'p1')
+        self.assertEqual(self.panel.generation, generation)
+        self.assertIn('Later', str(self.panel.choice['values']))
+        self.panel.next_projects()
+        self.complete({'items': [], 'next_cursor': None})
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200, 'after': 'page-two-last-id'}))
+        self.assertEqual(self.panel.selected(), 'p1')
+        self.assertTrue(self.panel.project_next.instate(['disabled']))
+        self.panel.previous_projects()
+        self.complete({'items': [dict(id='p201', name='Later', site='Roof', state='ready')], 'next_cursor': 'page-two-last-id'})
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200, 'after': 'page-one-last-id'}))
+        self.panel.choice.current(next(i for i, project in enumerate(self.panel.items) if project['id'] == 'p201'))
+        self.panel.project_changed()
+        self.panel.arm(); self.complete({'state': 'armed'})
+        self.assertEqual(self.app.client.calls[-1], ('/p201/arm', {}))
+        self.panel.previous_projects(); self.complete(dict(PROJECTS, next_cursor='page-one-last-id'))
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200}))
+        self.assertEqual(self.panel.selected(), 'p201')
+
+    def test_project_page_reply_cannot_restore_previous_endpoint_or_selection(self):
+        self.panel.refresh(); self.complete(dict(PROJECTS, next_cursor='old-endpoint-cursor'))
+        self.panel.next_projects()
+        self.app.client = Client()
+        self.panel.arm()
+        self.complete({'items': [dict(id='old', name='Old endpoint', site='Roof', state='ready')], 'next_cursor': 'stale'})
+        self.assertIsNone(self.panel.selected())
+        self.assertEqual(self.pending, [])
+        self.panel.refresh(); self.complete({'items': [], 'next_cursor': None})
+        self.assertEqual(self.app.client.calls[-1], ('', None, {'limit': 200}))
+        self.assertTrue(self.panel.project_previous.instate(['disabled']))
+        self.assertTrue(self.panel.project_next.instate(['disabled']))
+
+    def test_new_project_is_selected_without_assuming_it_appears_on_first_page(self):
+        self.panel.create()
+        self.complete(dict(id='random-uuid-outside-first-page', name='Created', site='Office', state='ready'))
+        self.assertEqual(self.panel.selected(), 'random-uuid-outside-first-page')
+        self.panel.refresh(); self.complete(dict(PROJECTS, next_cursor='more'))
+        self.assertEqual(self.panel.selected(), 'random-uuid-outside-first-page')
+        self.assertIn('Created', str(self.panel.choice['values']))
+        self.panel.arm(); self.complete({'state': 'armed'})
+        self.assertEqual(self.app.client.calls[-1], ('/random-uuid-outside-first-page/arm', {}))
+
+    def test_project_paging_does_not_choose_a_project_after_selection_is_cleared(self):
+        self.panel.refresh(); self.complete(dict(PROJECTS, next_cursor='more'))
+        self.panel.choice.set(''); self.panel.project_changed()
+        self.panel.next_projects()
+        self.complete({'items': [dict(id='p201', name='Unselected', site='Roof', state='ready')], 'next_cursor': None})
+        self.assertIsNone(self.panel.selected())
+        self.panel.arm()
+        self.assertEqual(self.pending, [])
+
     def test_late_project_and_endpoint_callbacks_do_not_render(self):
         self.panel.scoped('events')
         self.panel.choice.current(1); self.panel.project_changed()

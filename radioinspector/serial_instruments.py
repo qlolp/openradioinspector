@@ -535,6 +535,10 @@ class TinySASerialAdapter(SimulatedAdapter):
 
     def poll(self) -> Sweep:
         self._ensure_usable()
+        if self.settings.get('monitoring_instrument_context')=='inspect' and self._instrument is None:
+            # Re-establish the controller's acknowledged conservative receive
+            # context instead of copying old provenance or claiming RF readback.
+            self.execute('instrument',{'operation':'inspect'})
         if self._instrument is not None and self.start_hz==self.stop_hz:
             from .tinysa.artifacts import InstrumentSample
             started=self._clock()

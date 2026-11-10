@@ -44,6 +44,10 @@ class ResearchOperations:
         if set(payload) != {'role'} or payload['role'] not in ('analyzer','receiver'): raise ValueError('Выберите роль analyzer/receiver')
         role=payload['role']
         with self.lock:
+            runtime=self.runtime.get(identifier)
+            if not runtime or runtime['stop'].is_set():raise WorkerError('Нужна работающая охрана')
+        self._start_guard_workers(identifier,runtime)
+        with self.lock:
             project=self.project(identifier); runtime=self.runtime.get(identifier)
             if not runtime or runtime['stop'].is_set(): raise WorkerError('Нужна работающая охрана')
             stream=project[role+'_stream_id']
@@ -284,7 +288,11 @@ class ResearchOperations:
         else:
             with self.sessions._lock:sweeps=copy.deepcopy([s for s in self.sessions._sweeps if s.session_id in project['session_ids']])
             if event_id:
-                refs={x['sweep_id'] for x in self.store.list('event-source',identifier,limit=1000) if x['event_id']==event_id}
+                with self.store.lock:
+                    rows=self.store.db.execute("""SELECT json_extract(payload,'$.sweep_id') FROM monitoring_records
+                        WHERE kind='event-source' AND project_id=? AND json_extract(payload,'$.event_id')=?""",
+                        (identifier,event_id)).fetchall()
+                refs={row[0] for row in rows}
             sweeps=[s for s in sweeps if start<=_archive_time(s.interval.started_at)<=end and
                     (_archive_time(s.interval.started_at),s.id)<tuple(previous) and s.frequencies_hz[-1]>=minimum and s.frequencies_hz[0]<=maximum and (refs is None or s.id in refs)]
             sweeps.sort(key=lambda s:(s.interval.started_at,s.id),reverse=True);sweeps=sweeps[:limit+1]

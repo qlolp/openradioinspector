@@ -58,6 +58,84 @@ class DetectorTests(unittest.TestCase):
         source = sweep(20); source.settings['rbw_hz'] = 30000
         with self.assertRaises(ValueError): Detector(self.baseline,self.parameters).step(source)
 
+    def test_allowed_bins_are_suppressed_before_broad_aggregation(self):
+        allowed=[dict(id='local',start_hz=100000000,end_hz=100040000,watch_changes=False)]
+        levels=[-85.]*5+[-100.]*4
+        result=Detector(self.baseline,self.parameters).step(sweep(20,levels),allowed)[0]
+        self.assertEqual(result,[])
+        levels[8]=-85.
+        result=Detector(self.baseline,self.parameters).step(sweep(20,levels),allowed)[0]
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['center_frequency_hz'],100080000)
+        self.assertEqual(result[0]['kind'],'impulse')
+
+    def test_dense_summary_peak_excludes_suppressed_components(self):
+        quiet=[]
+        for i in range(20):
+            item=sweep(i);item.frequencies_hz=tuple(100000000+j*10000 for j in range(401))
+            item.levels=tuple([-100.]*401);quiet.append(item)
+        baseline=build_baseline(quiet)
+        item=copy.deepcopy(quiet[-1]);item.id='dense';item.interval=sweep(20).interval
+        levels=list(item.levels)
+        for i in range(0,396,12):levels[i]=-85.
+        levels[6]=-20.;item.levels=tuple(levels)
+        allowed=[dict(id='strong-local',start_hz=100060000,end_hz=100060000,watch_changes=False)]
+        result=Detector(baseline,self.parameters).step(item,allowed)[0]
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['kind'],'dense_change')
+        self.assertEqual(result[0]['component_regions_count'],33)
+        self.assertEqual(result[0]['center_frequency_hz'],100000000)
+        self.assertEqual(result[0]['peak_level'],-85.)
+
+    def test_allowed_components_are_suppressed_before_dense_aggregation(self):
+        quiet=[]
+        for i in range(20):
+            item=sweep(i);item.frequencies_hz=tuple(100000000+j*10000 for j in range(401))
+            item.levels=tuple([-100.]*401);quiet.append(item)
+        baseline=build_baseline(quiet)
+        item=copy.deepcopy(quiet[-1]);item.id='dense';item.interval=sweep(20).interval
+        levels=list(item.levels);allowed=[]
+        for i in range(0,396,12):
+            levels[i]=-85.;frequency=item.frequencies_hz[i]
+            allowed.append(dict(id=str(i),start_hz=frequency,end_hz=frequency,watch_changes=False))
+        item.levels=tuple(levels)
+        self.assertEqual(Detector(baseline,self.parameters).step(item,allowed)[0],[])
+        allowed.pop()
+        result=Detector(baseline,self.parameters).step(item,allowed)[0]
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['center_frequency_hz'],103840000)
+        self.assertEqual(result[0]['kind'],'impulse')
+
+    def test_legacy_baseline_keeps_confirmation_for_uninterrupted_slow_sweeps(self):
+        legacy=copy.deepcopy(self.baseline);legacy.pop('sweep_period_seconds')
+        detector=Detector(legacy,self.parameters)
+        levels=[-100.]*9;levels[4]=-92.
+        for i in (20,21):
+            self.assertEqual(detector.step(sweep(i,levels))[0],[])
+            self.assertNotIn('quality_issue',detector.state)
+        result=detector.step(sweep(22,levels))[0]
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['kind'],'persistent')
+        self.assertNotIn('sweep_period_seconds',legacy)
+
+    def test_split_regions_count_one_source_sweep_per_existing_event(self):
+        directory=tempfile.TemporaryDirectory();self.addCleanup(directory.cleanup)
+        sessions=SessionService(store=SQLiteSessionStore(str(Path(directory.name)/'archive.sqlite')))
+        workers=DeviceWorkerManager(sessions);service=MonitoringService(sessions,workers)
+        self.addCleanup(sessions.close);self.addCleanup(workers.close);self.addCleanup(service.close)
+        session=sessions.create_session(simulated_session_payload());stream=session.streams[0].id
+        for i in range(20):sessions.ingest_sweep(sweep(i,session=session.id,stream=stream))
+        project=service.create(dict(name='Room',site='City',session_id=session.id))
+        service.create_baseline(project['id'],dict(name='Quiet',location='Room',confirm=True))
+        contiguous=[-100.]*9;contiguous[2:5]=[-85.]*3
+        split=[-100.]*9;split[2]=split[4]=-85.
+        sessions.ingest_sweep(sweep(20,contiguous,session.id,stream));service.analyze(project['id'])
+        sessions.ingest_sweep(sweep(21,split,session.id,stream));service.analyze(project['id'])
+        events=service.store.list('event',project['id']);self.assertEqual(len(events),1)
+        self.assertEqual(events[0]['source_count'],2)
+        self.assertEqual([x['sweep_id'] for x in events[0]['source_refs']],['sweep-20','sweep-21'])
+        self.assertEqual(len(service.store.list('event-source',project['id'])),2)
+
     def test_durable_cursor_replay_and_evidence_preserve_raw_archive(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

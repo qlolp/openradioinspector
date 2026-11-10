@@ -68,6 +68,75 @@ final class MonitoringTests: XCTestCase {
         XCTAssertFalse(value.pretty.isEmpty)
     }
 
+    func testProjectListRequestsBoundedPagesAndEncodesCursor() async throws {
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertNil(request.httpBody)
+            XCTAssertTrue(request.url!.path.hasSuffix("/monitoring-projects"))
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            XCTAssertEqual(query.first { $0.name == "limit" }?.value, "200")
+            XCTAssertEqual(query.first { $0.name == "after" }?.value, "last/id+cursor==")
+            return (self.response(request), self.envelope(#"{"items":[{"id":"later-project"}],"next_cursor":"next-page-id"}"#))
+        }
+        let result = try await client.monitoringProjects(after: "last/id+cursor==")
+        XCTAssertEqual(result["items"].items.first?["id"].text, "later-project")
+        XCTAssertEqual(result["next_cursor"].text, "next-page-id")
+    }
+
+    func testProjectListRejectsInvalidLimitsAndOversizedPages() async throws {
+        let client = try makeClient { request in
+            let value: MonitoringValue = .object(["items": .array(Array(repeating: .object(["id": .string("p")]), count: 201))])
+            return (self.response(request), try self.valueEnvelope(value))
+        }
+        for limit in [0, 201] {
+            do { _ = try await client.monitoringProjects(limit: limit); XCTFail("Invalid limit must fail") }
+            catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected error") } }
+        }
+        do { _ = try await client.monitoringProjects(); XCTFail("Oversized page must fail") }
+        catch let error as PlatformError { if case .invalidResponse = error {} else { XCTFail("Unexpected error") } }
+    }
+
+    func testProjectPagesKeepSelectedScopeAndCacheCursorsForPreviousNavigation() {
+        func page(_ id: String, next: String? = nil) -> MonitoringValue {
+            .object(["items": .array([.object(["id": .string(id)])]), "next_cursor": next.map(MonitoringValue.string) ?? .null])
+        }
+        var pages = MonitoringProjectPageState()
+        pages.apply(page("p1", next: "first-last-id"), page: 0)
+        XCTAssertEqual(pages.selectedID, "p1")
+        XCTAssertEqual(pages.cursor(for: 1), "first-last-id")
+        pages.apply(page("p201", next: "second-last-id"), page: 1)
+        XCTAssertEqual(pages.selectedID, "p1")
+        XCTAssertEqual(pages.items.map { $0["id"].text }, ["p1", "p201"])
+        pages.select("p201")
+        pages.apply(page("p401"), page: 2)
+        XCTAssertEqual(pages.selectedID, "p201")
+        XCTAssertEqual(pages.cursor(for: 1), "first-last-id")
+        XCTAssertEqual(pages.cursor(for: 2), "second-last-id")
+        XCTAssertNil(pages.cursor(for: 0))
+        XCTAssertEqual(pages.nextCursor, "")
+        pages.apply(page("p201", next: "second-last-id"), page: 1)
+        XCTAssertEqual(pages.pageIndex, 1)
+        XCTAssertEqual(pages.selectedID, "p201")
+        pages.select("")
+        pages.apply(page("p401"), page: 2)
+        XCTAssertEqual(pages.selectedID, "", "Paging cannot choose an unselected project")
+    }
+
+    func testCreatedProjectRemainsSelectedOutsideFirstPageAndEndpointResetDropsCursors() {
+        var pages = MonitoringProjectPageState()
+        pages.apply(.object(["items": .array([.object(["id": .string("p1")])]), "next_cursor": .string("old-endpoint")]), page: 0)
+        pages.created(.object(["id": .string("random-id-beyond-first-page")]))
+        pages.apply(.object(["items": .array([.object(["id": .string("p1")])])]), page: 0)
+        XCTAssertEqual(pages.selectedID, "random-id-beyond-first-page")
+        XCTAssertEqual(pages.items.map { $0["id"].text }, ["random-id-beyond-first-page", "p1"])
+        pages = MonitoringProjectPageState()
+        XCTAssertEqual(pages.pageIndex, 0)
+        XCTAssertEqual(pages.selectedID, "")
+        XCTAssertEqual(pages.nextCursor, "")
+        XCTAssertTrue(pages.items.isEmpty)
+        XCTAssertNil(pages.cursor(for: 1))
+    }
+
     func testProjectAndEventReadsUseTheirOwnResourcesAndPreserveSnakeCaseFields() async throws {
         let client = try makeClient { request in
             XCTAssertEqual(request.httpMethod, "GET")

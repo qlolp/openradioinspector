@@ -4,6 +4,8 @@
   const root = document.getElementById('monitoring-workspace');
   if (!root) return;
   const projects = root.querySelector('[name=project]'), info = root.querySelector('pre');
+  const previousPage=root.querySelector('[data-action=projects-previous]'),nextPage=root.querySelector('[data-action=projects-next]');
+  let pageAfter='',pageHistory=[],nextCursor=null,pageBusy=false;
   let generation=0,activeRequests=0,foregroundCount=0,foregroundTail=Promise.resolve(),writeEpoch=0,followedSession='';
   function request(path='',body,options={}) {
     const current=generation;
@@ -46,11 +48,6 @@
         followedSession = scope;
         window.dispatchEvent(new CustomEvent('ori-monitoring-session', {detail:{sessionId:project.active_session_id}}));
       }
-      if (path === '' && Array.isArray(data.items)) {
-        const previous = projects.value;
-        projects.replaceChildren(...data.items.map(p => new Option(`${p.name} · ${p.site} · ${p.state}`, p.id)));
-        if ([...projects.options].some(o => o.value === previous)) projects.value = previous;
-      }
       if (path.endsWith('/events') && Array.isArray(data.items)) renderEvents(data.items);
       if (path === '/audio-inputs') {
         const select = root.querySelector('[name=audio-input]');
@@ -63,20 +60,44 @@
     } catch (error) { if (current === generation && !options.quiet) info.textContent = error.message; }
     finally { activeRequests--;window.clearTimeout(timeout); }
   }
+  function pager(){
+    previousPage.disabled=pageBusy||!pageHistory.length;nextPage.disabled=pageBusy||!nextCursor;
+    root.querySelector('[data-action=refresh]').disabled=pageBusy;
+  }
+  async function loadProjects(after='',history=[],selected){
+    if(pageBusy)return;
+    pageBusy=true;pager();
+    try {
+      const data=await request('?'+new URLSearchParams({limit:'200',...(after?{after}:{})}));
+      if(!data || !Array.isArray(data.items))return;
+      const previous=selected?.id||projects.value;
+      const retained=selected?new Option(`${selected.name} · ${selected.site} · ${selected.state}`,selected.id):[...projects.options].find(o=>o.value===previous);
+      const items=data.items.slice(0,200),pinned=retained&&!items.some(p=>p.id===previous);
+      const before=projects.value;
+      projects.replaceChildren(...(pinned?[retained]:[]),...items.map(p=>new Option(`${p.name} · ${p.site} · ${p.state}`,p.id)));
+      if([...projects.options].some(o=>o.value===previous))projects.value=previous;
+      pageAfter=after;pageHistory=history;nextCursor=items.length===200?(data.next_cursor||null):null;
+      root.querySelector('[data-role=projects-page]').textContent=`Страница ${history.length+1} · ${items.length} проектов${pinned?' · выбранный проект вне страницы':''}`;
+      if(before!==projects.value)projects.dispatchEvent(new Event('change'));
+    } finally {pageBusy=false;pager();}
+  }
+  previousPage.onclick=()=>pageHistory.length&&loadProjects(pageHistory.at(-1),pageHistory.slice(0,-1));
+  nextPage.onclick=()=>nextCursor&&loadProjects(nextCursor,[...pageHistory,pageAfter]);
   root.querySelector('[name=workspace]').addEventListener('change', event => {
     document.body.dataset.workspaceMode = event.target.value;
-    localStorage.setItem('ori-workspace-mode', event.target.value);
+    try { localStorage.setItem('ori-workspace-mode', event.target.value); } catch {}
   });
-  const mode = localStorage.getItem('ori-workspace-mode') || 'research';
+  let mode = 'research';
+  try { if (localStorage.getItem('ori-workspace-mode') === 'monitoring') mode = 'monitoring'; } catch {}
   root.querySelector('[name=workspace]').value = mode;
   document.body.dataset.workspaceMode = mode;
-  root.querySelector('[data-action=refresh]').onclick = () => request();
+  root.querySelector('[data-action=refresh]').onclick = () => loadProjects();
   root.querySelector('[data-action=preflight]').onclick = () => projects.value && request('/' + encodeURIComponent(projects.value) + '/preflight');
   root.querySelector('form').onsubmit = async event => {
     event.preventDefault();
     const fields = new FormData(event.target), session = document.getElementById('session-select').value;
     const result = await request('', {name:fields.get('name'), site:fields.get('site'), session_id:session});
-    if (result) await request();
+    if (result) await loadProjects('',[],result);
   };
   const value = name => root.querySelector(`[name=${name}]`).value;
   function scoped(action, body) { return projects.value && request('/'+encodeURIComponent(projects.value)+'/'+action, body); }
@@ -120,5 +141,5 @@
     }
   }
   window.oriMonitoring = {request, selected: () => projects.value, root};
-  request();
+  loadProjects();
 })();

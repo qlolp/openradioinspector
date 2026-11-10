@@ -35,7 +35,11 @@
   bind('manual-return', async () => {
     const role = value('manual-role'), owner = lease(role,true); if (!owner) return;
     const data = await call('manual/return', {token:owner.token});
-    if (data) { delete leases[role]; if(role==='analyzer')coverage(data.state === 'restoring' ? 'restoring' : 'wide'); }
+    if (data) {
+      delete leases[role];
+      const status = await call('search/status');
+      if (status) renderSearch(status);
+    }
   });
   bind('manual-tune', () => {
     const owner = lease('receiver'); if (!owner) return;

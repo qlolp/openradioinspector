@@ -1770,8 +1770,9 @@ import AppKit
 @MainActor
 final class MonitoringWorkspaceModel: ObservableObject {
     @Published var projects: [MonitoringValue] = []
+    @Published private(set) var projectPages = MonitoringProjectPageState()
     @Published var selected = "" {
-        didSet { if oldValue != selected { invalidateProject() } }
+        didSet { if oldValue != selected { projectPages.select(selected); invalidateProject() } }
     }
     @Published var status: MonitoringValue = .null
     @Published var preflight: MonitoringValue = .null
@@ -1894,7 +1895,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func configure(_ server: String) {
         let next = server
         guard next != scope else { return }
-        scope = next; selected = ""; projects = []; audioInputs = .null
+        scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
         do { client = server.isEmpty ? nil : try PlatformClient(baseURL: server) }
         catch { client = nil; self.error = error.localizedDescription }
@@ -1961,21 +1962,38 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func reloadProjects() async {
-        let loaded = await run(request: { client, _ in try await client.monitoring() }) { result in
-            // Only the collection root is allowed to replace the project selector.
-            projects = result["items"].items
-            if !projects.contains(where: { $0["id"].text == selected }) {
-                selected = projects.first?["id"].text ?? ""
-            }
+        await loadProjectPage(0, refreshSelection: true)
+    }
+
+    func nextProjects() async {
+        guard !projectPages.nextCursor.isEmpty else { return }
+        await loadProjectPage(projectPages.pageIndex + 1)
+    }
+
+    func previousProjects() async {
+        guard projectPages.pageIndex > 0 else { return }
+        await loadProjectPage(projectPages.pageIndex - 1)
+    }
+
+    private func loadProjectPage(_ page: Int, refreshSelection: Bool = false) async {
+        let after = projectPages.cursor(for: page)
+        guard page == 0 || after != nil else { return }
+        let previous = selected
+        let loaded = await run(request: { client, _ in try await client.monitoringProjects(after: after) }) { result in
+            projectPages.apply(result, page: page)
+            projects = projectPages.items
+            selected = projectPages.selectedID
         }
-        if loaded, !selected.isEmpty, !Task.isCancelled { await refreshStatus(syncConfiguration: true) }
+        if loaded, !selected.isEmpty, (refreshSelection || previous != selected), !Task.isCancelled {
+            await refreshStatus(syncConfiguration: true)
+        }
     }
 
     func createProject(name: String, site: String, sessionID: String) async {
         let created = await run(request: { client, _ in
             try await client.monitoring(body: ["name": .string(name), "site": .string(site), "session_id": .string(sessionID)])
         }) { result in
-            projects.insert(result, at: 0); selected = result["id"].text
+            projectPages.created(result); projects = projectPages.items; selected = projectPages.selectedID
             notice = "Проект создан. Приборы запускаются только кнопкой постановки на охрану."
         }
         if created, !Task.isCancelled { await refreshStatus(syncConfiguration: true) }
@@ -2585,6 +2603,15 @@ struct MonitoringWorkspacePane: View {
                         Text(p["name"].text + " · " + p["site"].text).tag(p["id"].text)
                     }
                 }
+                HStack {
+                    Button("Предыдущие проекты") { workspace.perform { await workspace.previousProjects() } }
+                        .disabled(server.isEmpty || workspace.pending || workspace.projectPages.pageIndex == 0)
+                    Text("Страница проектов \(workspace.projectPages.pageIndex + 1)")
+                    Button("Следующие проекты") { workspace.perform { await workspace.nextProjects() } }
+                        .disabled(server.isEmpty || workspace.pending || workspace.projectPages.nextCursor.isEmpty)
+                }
+                Text("До 200 проектов на странице; выбранный проект сохраняется при переходе.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Text("2. Опишите антенну и подтвердите обстановку").font(.headline)
                 TextField("Антенна, тракт приёма, расположение · 1…1000 символов", text: $workspace.antennaNotes, axis: .vertical)
                     .lineLimit(2...4).disabled(!workspace.canEditPreparation)

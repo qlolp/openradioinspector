@@ -3,21 +3,30 @@
   'use strict';
   const api=window.oriMonitoring;if(!api)return;
   const root=api.root,node=name=>root.querySelector(`[name=${name}]`),status=role=>root.querySelector(`[data-role=${role}]`);
-  let revision=0,cursor=null,pageAfter='',timer=null,closed=false,seen=null,audio=null,ticks=0;
+  let revision=0,cursor=null,pageAfter='',timer=null,closed=false,seen=null,audio=null,ticks=0,settingsProject='';
   const bind=(name,fn)=>{root.querySelector(`[data-action=${name}]`).onclick=fn;};
   async function call(resource,body,query){
     const project=api.selected(),current=revision;if(!project)return;
     const data=await api.request('/'+encodeURIComponent(project)+'/'+resource+(query?'?'+new URLSearchParams(query):''),body,{quiet:true});
     return current===revision && project===api.selected()?data:undefined;
   }
+  function resetSettings(){
+    settingsProject='';root.querySelector('[data-action=settings-save]').disabled=true;
+    for(const name of ['webhook-url','webhook-secret','archive-reserve','archive-retention'])node(name).value='';
+    node('autostart').checked=false;node('webhook-enabled').checked=false;
+    status('settings-status').textContent='Загрузите настройки выбранного проекта перед сохранением';
+  }
   function settings(data){
+    settingsProject=api.selected();root.querySelector('[data-action=settings-save]').disabled=false;
     node('autostart').checked=data.autostart===true;node('archive-reserve').value=data.archive.minimum_free_bytes/1048576;
     node('archive-retention').value=data.archive.minimum_retention_seconds;node('webhook-enabled').checked=data.webhook.enabled===true;
     node('webhook-url').value=data.webhook.url;node('webhook-secret').value='';
     status('settings-status').textContent='Настройки загружены · секрет '+(data.webhook.secret_configured?'сохранён':'не настроен');
   }
-  bind('settings-load',async()=>{const data=await call('settings');if(data)settings(data);else status('settings-status').textContent='Настройки недоступны';});
+  resetSettings();
+  bind('settings-load',async()=>{const current=revision;resetSettings();const data=await call('settings');if(data)settings(data);else if(current===revision)status('settings-status').textContent='Настройки недоступны';});
   bind('settings-save',async()=>{
+    if(!settingsProject || settingsProject!==api.selected())return;
     const webhook={enabled:node('webhook-enabled').checked,url:node('webhook-url').value};
     const secret=node('webhook-secret').value;if(secret)webhook.secret=secret;node('webhook-secret').value='';
     const body={autostart:node('autostart').checked,archive:{minimum_free_bytes:Number(node('archive-reserve').value)*1048576,minimum_retention_seconds:Number(node('archive-retention').value)},webhook};
@@ -64,7 +73,7 @@
   bind('alerts-refresh',()=>alerts());bind('alerts-next',()=>alerts(true));
   bind('event-review',async()=>{const event=node('search-event').value;if(!event){status('alerts-status').textContent='Выберите событие';return;}
     if(await call('events/'+encodeURIComponent(event)+'/review',{disposition:node('event-disposition').value,comment:node('event-comment').value}))status('alerts-status').textContent='Вердикт записан отдельно от технического результата';});
-  node('project').addEventListener('change',()=>{revision++;seen=null;cursor=null;pageAfter='';node('webhook-secret').value='';status('alerts').replaceChildren();});
+  node('project').addEventListener('change',()=>{revision++;seen=null;cursor=null;pageAfter='';resetSettings();status('alerts').replaceChildren();});
   async function poll(){if(closed)return;try{if(api.selected()){await alerts(false,true);const snapshot=await call('status');if(snapshot?.project)window.oriMonitoringResearch?.coverage(snapshot.project.coverage);if(root.dataset.searchActive==='true'||root.dataset.searchCoverage==='restoring'){const search=await call('search/status');if(search)window.oriMonitoringResearch?.renderSearch(search);}if(ticks++%6===0)await storage();}}finally{if(!closed)timer=window.setTimeout(poll,5000);}}
   window.addEventListener('beforeunload',()=>{closed=true;revision++;window.clearTimeout(timer);node('webhook-secret').value='';if(audio)audio.close();});
   timer=window.setTimeout(poll,5000);

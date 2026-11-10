@@ -68,6 +68,28 @@ class GuardOperations:
         with self._project_lifecycle(identifier):
             return self._arm(identifier,payload)
 
+    def guard_acquisition_context(self, project):
+        """Recreate inspected conservative RX, never replay arbitrary RF state."""
+        if not project.get('baseline_id') or project['profile']['analyzer']['settings'].get('adapter')!='tinysa-serial':
+            return None
+        baseline=self.store.get('baseline',project['baseline_id'])
+        source=baseline['source_refs'][0]
+        settings=self.history_original(project['id'],source['sweep_id'])['settings']
+        if 'instrument' not in settings:return None
+        from ..tinysa_profile import validate_receive_settings
+        from ..tinysa.commands import CONTROL_PROFILE
+        from .detector import stable
+        requested=validate_receive_settings(project['profile']['analyzer']['settings'])
+        expected=dict(profile=CONTROL_PROFILE,
+            settings=dict(requested,attenuation_db='auto',lna=False,ultra=False,calculation='off'),
+            device_mode='input',device_mode_readback=False,settings_source='command_acknowledged',
+            settings_readback=False,settings_complete=False,hardware_validation='not_run')
+        if (stable(settings['instrument'])!=expected or settings.get('receive_profile')!=CONTROL_PROFILE
+                or settings.get('generator_output')!='unknown'
+                or settings.get('generator_output_source')!='no_physical_readback'):
+            raise ValueError('RX-настройки эталона нельзя воспроизвести консервативным запуском; соберите новый эталон')
+        return 'inspect'
+
     def _arm(self, identifier, payload):
         if payload: raise ValueError('Постановка на охрану принимает пустой объект')
         with self.lock:
@@ -78,9 +100,12 @@ class GuardOperations:
                 raise ValueError('Требуются подтверждённый эталон и успешная подготовка')
             if self.sessions._store is None or not self.sessions._store.persistent:
                 raise ValueError('Автономная охрана требует сохраняемый SQLite-архив')
+            acquisition_context=self.guard_acquisition_context(project)
             old_sid = project['active_session_id']
             if any(r['sid'] == old_sid for r in self.runtime.values()):
                 raise WorkerError('Этот сеанс уже принадлежит другому проекту на охране')
+            if any(owner!=identifier and sid==old_sid for owner,sid in self.preparing.items()):
+                raise WorkerError('Этот сеанс принадлежит сбору эталона другого проекта')
             self.workers.stop_session(old_sid)
             self.preparing.pop(identifier,None)
             if self.sessions.get_session(old_sid).state.value == 'running':
@@ -91,6 +116,8 @@ class GuardOperations:
                 for key in ('id', 'session_id', 'state'): stream.pop(key, None)
                 if role == 'receiver':
                     stream['settings'].update(receiver_profile='ardv1-monitor-v1', mode=project.get('receiver_mode', 'AUTO'))
+                elif acquisition_context:
+                    stream['settings']['monitoring_instrument_context']=acquisition_context
                 streams.append(stream)
             session = self.sessions.create_session(dict(name=project['name'], streams=streams, metadata={'monitoring_project_id':identifier}))
             self.sessions.start_session(session.id)
@@ -133,11 +160,23 @@ class GuardOperations:
             project.update(state='ready', coverage='stopped', resume_requested=False)
             return self.store.put('project', project)
 
-    def _guard_loop(self, identifier, runtime):
+    def _start_guard_workers(self, identifier, runtime):
+        # Manual admission and initial startup share the project lifecycle,
+        # while workers remain free to call the global control authorizer.
+        lifecycle=self._project_lifecycle(identifier)
+        while not lifecycle.acquire(timeout=.1):
+            if runtime['stop'].is_set():return
         try:
+            if runtime['stop'].is_set() or runtime.get('workers_started'):return
             statuses = self.workers.start_session(runtime['sid'])
             if any(x['state'] == 'error' for x in statuses):
                 raise WorkerError('Не удалось запустить оба прибора; проверьте журнал исполнителей')
+            runtime['workers_started']=True
+        finally:lifecycle.release()
+
+    def _guard_loop(self, identifier, runtime):
+        try:
+            self._start_guard_workers(identifier,runtime)
             storage_checked=0.
             while not runtime['stop'].wait(.2):
                 project = self.project(identifier)

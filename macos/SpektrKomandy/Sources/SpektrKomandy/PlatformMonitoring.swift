@@ -55,6 +55,48 @@ public enum MonitoringValue: Codable, Equatable, Sendable {
     public var pretty: String { let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]; return (try? String(decoding: e.encode(self), as: UTF8.self)) ?? "" }
 }
 
+/// Explicit project pages retain the selected scope, including a project outside the visible page.
+public struct MonitoringProjectPageState: Sendable {
+    public private(set) var items: [MonitoringValue] = []
+    public private(set) var selectedID = ""
+    public private(set) var pageIndex = 0
+    public private(set) var nextCursor = ""
+    private var cursors: [String?] = [nil]
+    private var pageItems: [MonitoringValue] = []
+    private var loaded = false
+    public init() {}
+
+    public func cursor(for page: Int) -> String? {
+        cursors.indices.contains(page) ? cursors[page] : nil
+    }
+    public mutating func select(_ id: String) {
+        guard id.isEmpty || items.contains(where: { $0["id"].text == id }) else { return }
+        selectedID = id
+    }
+    public mutating func apply(_ result: MonitoringValue, page: Int) {
+        guard cursors.indices.contains(page) else { return }
+        let selection = items.first { $0["id"].text == selectedID }
+        pageIndex = page
+        cursors = Array(cursors.prefix(page + 1))
+        nextCursor = result["next_cursor"].text
+        if !nextCursor.isEmpty { cursors.append(nextCursor) }
+        pageItems = Array(result["items"].items.prefix(200))
+        items = pageItems
+        if let selection, !items.contains(where: { $0["id"].text == selectedID }) {
+            items.insert(selection, at: 0)
+        }
+        if !loaded && selectedID.isEmpty { selectedID = items.first?["id"].text ?? "" }
+        loaded = true
+    }
+    public mutating func created(_ project: MonitoringValue) {
+        guard !project["id"].text.isEmpty else { return }
+        selectedID = project["id"].text
+        items = pageItems.filter { $0["id"].text != selectedID }
+        items.insert(project, at: 0)
+        loaded = true
+    }
+}
+
 public struct MonitoringHistoryQuery: Equatable, Sendable {
     public var limit: Int
     public var start: String?
@@ -190,6 +232,19 @@ public struct MonitoringDetectorSettings: Equatable, Sendable {
 }
 
 extension PlatformClient {
+    public func monitoringProjects(after: String? = nil, limit: Int = 200) async throws -> MonitoringValue {
+        guard (1...200).contains(limit) else {
+            throw PlatformError.invalidCommand("Список проектов: 1…200 проектов на странице")
+        }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let result: MonitoringValue = try await get("/monitoring-projects", query: query)
+        guard result["items"].items.count <= limit else {
+            throw PlatformError.invalidResponse("Ядро вернуло слишком много проектов на странице")
+        }
+        return result
+    }
+
     public func monitoring(_ path: String = "", body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
         guard path.isEmpty || (path.hasPrefix("/") && !path.contains("?") && !path.contains("..")) else { throw PlatformError.connection("Некорректный путь проекта") }
         if let body { return try await post("/monitoring-projects" + path, body: body) }

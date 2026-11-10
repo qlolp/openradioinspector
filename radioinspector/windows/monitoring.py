@@ -97,6 +97,10 @@ class MonitoringPanel(TkTimerOwner):
         self._followed_runs, self._following_runs = set(), set()
         self.generation = 0
         self.items, self.events, self.devices = [], [], []
+        self._project_page_items = []
+        self._project_page, self._project_cursors, self._project_next = 0, [None], None
+        self._project_page_busy = False
+        self._projects_loaded = False
         self.event = None
         self.active = None
         tk, ttk = app.tk, app.ttk
@@ -127,6 +131,13 @@ class MonitoringPanel(TkTimerOwner):
         ttk.Button(modes, text='Обновить проекты', command=self.refresh).pack(side='right')
         self.choice = ttk.Combobox(self.content, state='readonly'); self.choice.pack(fill='x')
         self.choice.bind('<<ComboboxSelected>>', self.project_changed)
+        project_pages = ttk.Frame(self.content); project_pages.pack(fill='x')
+        self.project_previous = ttk.Button(project_pages, text='Предыдущие проекты', command=self.previous_projects, state='disabled')
+        self.project_previous.pack(side='left')
+        self.project_next = ttk.Button(project_pages, text='Следующие проекты', command=self.next_projects, state='disabled')
+        self.project_next.pack(side='left')
+        self.project_page_text = tk.StringVar(value='Страница проектов 1')
+        ttk.Label(project_pages, textvariable=self.project_page_text).pack(side='left')
         buttons = ttk.Frame(self.content); buttons.pack(fill='x')
         for title, command in [('Проверить готовность', self.preflight), ('На охрану', self.arm),
                                ('Снять с охраны', self.disarm), ('Статус', self.status)]:
@@ -208,6 +219,9 @@ class MonitoringPanel(TkTimerOwner):
         self._client = self.app.client
         self._followed_runs, self._following_runs = set(), set()
         self.items, self.devices = [], []
+        self._project_page_items = []
+        self._project_page, self._project_cursors, self._project_next = 0, [None], None
+        self._projects_loaded = False
         self.choice.configure(values=[]); self.choice.set('')
         self.audio_choice.configure(values=[]); self.audio_choice.set('')
         self.audio_confirm.set(False)
@@ -219,6 +233,8 @@ class MonitoringPanel(TkTimerOwner):
 
     def project_changed(self, _event=None):
         self.generation += 1
+        self._project_page_busy = False
+        self._update_project_pages()
         self._background_token=None
         self._operator_epoch+=1
         self._operator_actions.clear()
@@ -297,13 +313,9 @@ class MonitoringPanel(TkTimerOwner):
 
     def receive(self, path, payload, data):
         if path == '' and payload is None:
-            previous = self.selected()
-            self.items = data.get('items', [])[:200]
-            self.choice.configure(values=[f"{x['name']} · {x['site']} · {x['state']}" for x in self.items])
-            if self.items:
-                self.choice.current(next((i for i, x in enumerate(self.items) if x['id'] == previous), 0))
-            else: self.choice.set('')
-            if self.selected() != previous: self.project_changed()
+            self._receive_project_page(0, data)
+        elif path == '' and payload is not None and data.get('id'):
+            self._set_project_items(self._project_page_items, selected_project=data)
         elif path == '/audio-inputs':
             self.devices = data.get('devices', [])[:200] if data.get('available') else []
             self.audio_choice.configure(values=[f"{d['index']} · {d['name']}" for d in self.devices])
@@ -334,7 +346,62 @@ class MonitoringPanel(TkTimerOwner):
         self.render(data)
         if path.endswith('/arm'): self._maybe_follow(data)
 
-    def refresh(self): self.call()
+    def _update_project_pages(self):
+        self.project_previous.configure(state='normal' if self._project_page > 0 and not self._project_page_busy else 'disabled')
+        self.project_next.configure(state='normal' if self._project_next and not self._project_page_busy else 'disabled')
+        self.project_page_text.set(f'Страница проектов {self._project_page + 1} · до 200 проектов; выбранный проект сохраняется')
+
+    def _set_project_items(self, page_items, *, selected_project=None):
+        previous = self.selected()
+        selected_project = selected_project or next((item for item in self.items if item['id'] == previous), None)
+        self.items = list(page_items)
+        if selected_project and not any(item['id'] == selected_project['id'] for item in self.items):
+            self.items.insert(0, selected_project)
+        identifier = selected_project['id'] if selected_project else None
+        self.choice.configure(values=[f"{item['name']} · {item['site']} · {item['state']}" for item in self.items])
+        if self.items and (identifier is not None or not self._projects_loaded):
+            self.choice.current(next((i for i, item in enumerate(self.items) if item['id'] == identifier), 0))
+        else:
+            self.choice.set('')
+        if self.selected() != previous:
+            self.project_changed()
+
+    def _receive_project_page(self, page, data):
+        self._project_page_busy = False
+        if not data.get('error'):
+            self._project_page = page
+            self._project_cursors = self._project_cursors[:page + 1]
+            self._project_next = data.get('next_cursor') or None
+            if self._project_next:
+                self._project_cursors.append(self._project_next)
+            self._project_page_items = data.get('items', [])[:200]
+            self._set_project_items(self._project_page_items)
+            self._projects_loaded = True
+        self._update_project_pages()
+        self.render(data)
+
+    def _load_project_page(self, page):
+        self._sync_context()
+        if self._project_page_busy or not self.app.client or not 0 <= page < len(self._project_cursors):
+            return
+        cursor = self._project_cursors[page]
+        query = {'limit': 200}
+        if cursor: query['after'] = cursor
+        self._project_page_busy = True
+        self._update_project_pages()
+        if not self._submit(partial(self.app.client.monitoring, query=query), partial(self._receive_project_page, page)):
+            self._project_page_busy = False
+            self._update_project_pages()
+
+    def refresh(self): self._load_project_page(0)
+
+    def next_projects(self):
+        self._sync_context()
+        if self._project_next: self._load_project_page(self._project_page + 1)
+
+    def previous_projects(self):
+        self._sync_context()
+        if self._project_page > 0: self._load_project_page(self._project_page - 1)
 
     def create(self):
         self._sync_context()

@@ -110,10 +110,11 @@ class BaselineOperations:
                                 self.store.put('event-source', dict(id=event['id']+'.'+prior['sweep_id'], project_id=identifier,
                                     created_at=event['created_at'], event_id=event['id'], **ref))
                                 event['source_refs'].append(ref); event['source_count'] += 1
-                        event['source_count'] += 1
-                        event['source_refs'] = (event['source_refs'] + [source])[-100:]
-                        self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
-                            created_at=event['created_at'], event_id=event['id'], **source))
+                        if event['id'] not in touched:
+                            event['source_count'] += 1
+                            event['source_refs'] = (event['source_refs'] + [source])[-100:]
+                            self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
+                                created_at=event['created_at'], event_id=event['id'], **source))
                         self.store.put('event', event); touched.add(event['id']); events.add(event['id'])
                         if project['state'] in ('armed','searching','degraded'):
                             self.notify_event(project,event)
