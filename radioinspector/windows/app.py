@@ -483,13 +483,14 @@ class WindowsApp(TkTimerOwner):
         description: str,
         operation: Callable[[], Any],
         on_success: Optional[Callable[[Any], None]] = None,
-        *, project_scoped: bool = False,
+        *, project_scoped: bool = False, background: bool = False,
     ) -> None:
-        if self.client is None or self._action_running or self._closed:
+        if self.client is None or (self._action_running and not background) or self._closed:
             return
-        self._action_running = True
-        self.action_var.set(f"{description}…")
-        self._render_controls()
+        if not background:
+            self._action_running = True
+            self.action_var.set(f"{description}…")
+            self._render_controls()
         revision = self._revision
         future = self._executor.submit(operation)
         if project_scoped:
@@ -497,12 +498,15 @@ class WindowsApp(TkTimerOwner):
         if on_success is not None:
             self._action_callbacks[future] = on_success
         future.add_done_callback(
-            self._completion_callback("action", revision, description)
+            self._completion_callback("project_read" if background else "action", revision, description)
         )
 
     def _submit_project_action(self, description, operation, on_success=None) -> None:
         # Project context follows a connected core, independently of research session selection.
         self._submit_action(description, operation, on_success, project_scoped=True)
+
+    def _submit_project_read(self,description,operation,on_success=None) -> None:
+        self._submit_action(description,operation,on_success,project_scoped=True,background=True)
 
     def _drain_messages(self) -> None:
         if self._closed:
@@ -512,6 +516,13 @@ class WindowsApp(TkTimerOwner):
                 kind, future, revision, description = self._messages.get_nowait()
                 project_client = getattr(self, '_project_action_clients', {}).pop(future, None)
                 same_project_core = project_client is not None and project_client is self.client
+                if kind=='project_read':
+                    callback=self._action_callbacks.pop(future,None)
+                    if revision!=self._revision and not same_project_core:continue
+                    try:result=future.result()
+                    except Exception:continue
+                    if callback is not None:callback(result)
+                    continue
                 if revision != self._revision and not same_project_core:
                     if kind == "snapshot":
                         self._refresh_running = False

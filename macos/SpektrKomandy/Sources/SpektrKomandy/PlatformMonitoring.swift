@@ -55,6 +55,48 @@ public enum MonitoringValue: Codable, Equatable, Sendable {
     public var pretty: String { let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]; return (try? String(decoding: e.encode(self), as: UTF8.self)) ?? "" }
 }
 
+/// Explicit project pages retain the selected scope, including a project outside the visible page.
+public struct MonitoringProjectPageState: Sendable {
+    public private(set) var items: [MonitoringValue] = []
+    public private(set) var selectedID = ""
+    public private(set) var pageIndex = 0
+    public private(set) var nextCursor = ""
+    private var cursors: [String?] = [nil]
+    private var pageItems: [MonitoringValue] = []
+    private var loaded = false
+    public init() {}
+
+    public func cursor(for page: Int) -> String? {
+        cursors.indices.contains(page) ? cursors[page] : nil
+    }
+    public mutating func select(_ id: String) {
+        guard id.isEmpty || items.contains(where: { $0["id"].text == id }) else { return }
+        selectedID = id
+    }
+    public mutating func apply(_ result: MonitoringValue, page: Int) {
+        guard cursors.indices.contains(page) else { return }
+        let selection = items.first { $0["id"].text == selectedID }
+        pageIndex = page
+        cursors = Array(cursors.prefix(page + 1))
+        nextCursor = result["next_cursor"].text
+        if !nextCursor.isEmpty { cursors.append(nextCursor) }
+        pageItems = Array(result["items"].items.prefix(200))
+        items = pageItems
+        if let selection, !items.contains(where: { $0["id"].text == selectedID }) {
+            items.insert(selection, at: 0)
+        }
+        if !loaded && selectedID.isEmpty { selectedID = items.first?["id"].text ?? "" }
+        loaded = true
+    }
+    public mutating func created(_ project: MonitoringValue) {
+        guard !project["id"].text.isEmpty else { return }
+        selectedID = project["id"].text
+        items = pageItems.filter { $0["id"].text != selectedID }
+        items.insert(project, at: 0)
+        loaded = true
+    }
+}
+
 public struct MonitoringHistoryQuery: Equatable, Sendable {
     public var limit: Int
     public var start: String?
@@ -153,7 +195,56 @@ public struct MonitoringProjectSessionFollowState: Sendable {
     }
 }
 
+/// Engineering starting values, not a hardware calibration or a detection guarantee.
+public struct MonitoringDetectorSettings: Equatable, Sendable {
+    public let marginDB: Double
+    public let impulseDB: Double
+    public let hysteresisDB: Double
+    public let confirmations: Int64
+    public let windowSweeps: Int64
+    public let dwellSeconds: Double
+    public init() {
+        marginDB = 6; impulseDB = 12; hysteresisDB = 3; confirmations = 3; windowSweeps = 5; dwellSeconds = 10
+    }
+    public init(marginDB: Double, impulseDB: Double, hysteresisDB: Double, confirmations: Int64, windowSweeps: Int64, dwellSeconds: Double) throws {
+        guard [marginDB, impulseDB, hysteresisDB, dwellSeconds].allSatisfy(\.isFinite),
+              (1...60).contains(marginDB), (1...120).contains(impulseDB), impulseDB >= marginDB,
+              (0...20).contains(hysteresisDB), hysteresisDB <= marginDB, (1...30).contains(dwellSeconds),
+              (1...15).contains(windowSweeps), confirmations >= 1, confirmations <= windowSweeps else {
+            throw PlatformError.invalidCommand("Детектор: порог 1…60 dB; импульс 1…120 dB и ≥ порога; гистерезис 0…20 dB и ≤ порога; 1 ≤ подтверждения ≤ окно ≤ 15; прослушивание 1…30 с.")
+        }
+        self.marginDB = marginDB; self.impulseDB = impulseDB; self.hysteresisDB = hysteresisDB
+        self.confirmations = confirmations; self.windowSweeps = windowSweeps; self.dwellSeconds = dwellSeconds
+    }
+    public init(_ value: MonitoringValue) throws {
+        guard let margin = value["margin_db"].double, let impulse = value["impulse_db"].double,
+              let hysteresis = value["hysteresis_db"].double, let confirmations = value["confirmations"].integer,
+              let window = value["window_sweeps"].integer, let dwell = value["dwell_seconds"].double else {
+            throw PlatformError.invalidResponse("Ядро не предоставило полный набор параметров детектора с целыми счётчиками")
+        }
+        try self.init(marginDB: margin, impulseDB: impulse, hysteresisDB: hysteresis,
+                      confirmations: confirmations, windowSweeps: window, dwellSeconds: dwell)
+    }
+    public var body: [String: MonitoringValue] {
+        ["margin_db": .number(marginDB), "impulse_db": .number(impulseDB), "hysteresis_db": .number(hysteresisDB),
+         "confirmations": .integer(confirmations), "window_sweeps": .integer(windowSweeps), "dwell_seconds": .number(dwellSeconds)]
+    }
+}
+
 extension PlatformClient {
+    public func monitoringProjects(after: String? = nil, limit: Int = 200) async throws -> MonitoringValue {
+        guard (1...200).contains(limit) else {
+            throw PlatformError.invalidCommand("Список проектов: 1…200 проектов на странице")
+        }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let result: MonitoringValue = try await get("/monitoring-projects", query: query)
+        guard result["items"].items.count <= limit else {
+            throw PlatformError.invalidResponse("Ядро вернуло слишком много проектов на странице")
+        }
+        return result
+    }
+
     public func monitoring(_ path: String = "", body: [String: MonitoringValue]? = nil) async throws -> MonitoringValue {
         guard path.isEmpty || (path.hasPrefix("/") && !path.contains("?") && !path.contains("..")) else { throw PlatformError.connection("Некорректный путь проекта") }
         if let body { return try await post("/monitoring-projects" + path, body: body) }
@@ -257,7 +348,9 @@ extension PlatformClient {
             }
             let detectorKeys = ["margin_db", "impulse_db", "hysteresis_db", "confirmations", "window_sweeps", "dwell_seconds"]
             let detector = Dictionary(uniqueKeysWithValues: detectorKeys.compactMap { key -> (String, MonitoringValue)? in
-                result["detector"][key].double == nil ? nil : (key, result["detector"][key])
+                let value = result["detector"][key]
+                if ["confirmations", "window_sweeps"].contains(key), value.integer == nil { return nil }
+                return value.double?.isFinite == true ? (key, value) : nil
             })
             // The API contract returns only public webhook configuration, never the credential.
             return .object(["autostart": result["autostart"],
@@ -280,6 +373,27 @@ extension PlatformClient {
     public func monitoringStorage(projectID: String) async throws -> MonitoringValue {
         guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
         return try await get("/monitoring-projects/\(Self.segment(projectID))/storage")
+    }
+
+    public func monitoringSavePreparation(projectID: String, antennaNotes: String, receivePathConfirmed: Bool, locationConfirmed: Bool) async throws -> MonitoringValue {
+        let notes = antennaNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectID.isEmpty, !notes.isEmpty, notes.unicodeScalars.count <= 1000 else {
+            throw PlatformError.invalidCommand("Выберите проект и опишите антенну/тракт: 1…1000 символов")
+        }
+        let body: [String: MonitoringValue] = [
+            "antenna_notes": .string(notes), "receive_path_confirmed": .boolean(receivePathConfirmed),
+            "location_confirmed": .boolean(locationConfirmed)]
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/preparation", body: body)
+    }
+
+    public func monitoringStartPreparation(projectID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/preparation/start", body: [String: MonitoringValue](), timeoutInterval: 20)
+    }
+
+    public func monitoringStopPreparation(projectID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty else { throw PlatformError.invalidCommand("Выберите проект") }
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/preparation/stop", body: [String: MonitoringValue](), timeoutInterval: 45)
     }
 
     public func monitoringAlerts(projectID: String, limit: Int = 100, after: String? = nil) async throws -> MonitoringValue {

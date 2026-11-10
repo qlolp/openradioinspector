@@ -4,30 +4,49 @@
   const root = document.getElementById('monitoring-workspace');
   if (!root) return;
   const projects = root.querySelector('[name=project]'), info = root.querySelector('pre');
-  let generation = 0, busy = false, followedSession = '';
-  async function request(path = '', body, options = {}) {
-    if (busy) return;
-    busy = true; const current = generation;
+  const previousPage=root.querySelector('[data-action=projects-previous]'),nextPage=root.querySelector('[data-action=projects-next]');
+  let pageAfter='',pageHistory=[],nextCursor=null,pageBusy=false;
+  let generation=0,activeRequests=0,foregroundCount=0,foregroundTail=Promise.resolve(),writeEpoch=0,followedSession='';
+  function request(path='',body,options={}) {
+    const current=generation;
+    const invoke=()=>current===generation?performRequest(path,body,options):Promise.resolve();
+    if(options.quiet && body===undefined){
+      if(activeRequests || foregroundCount)return Promise.resolve();
+      return invoke();
+    }
+    if(foregroundCount>=32){info.textContent='Очередь действий клиента заполнена; дождитесь ответа';return Promise.resolve();}
+    const result=foregroundCount?foregroundTail.then(invoke):invoke();
+    foregroundCount++;
+    const tracked=result.finally(()=>{foregroundCount--;});
+    foregroundTail=tracked.catch(()=>{});
+    return tracked;
+  }
+  async function performRequest(path,body,options) {
+    activeRequests++;const current=generation;
+    if(body!==undefined)writeEpoch++;
+    const epoch=writeEpoch,controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),path.endsWith('/disarm')?45000:10000);
     try {
-      const response = await fetch('/api/v1/monitoring-projects' + path, body === undefined ? {} : {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      const response = await fetch('/api/v1/monitoring-projects' + path, body === undefined ? {signal:controller.signal} : {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),signal:controller.signal
       });
       const raw = await response.text();
       if (raw.length > 2000000) throw Error('Ответ проекта превышает предел');
       const envelope = JSON.parse(raw);
       if (!response.ok) throw Error(envelope.error?.message || `HTTP ${response.status}`);
-      if (current !== generation) return;
+      if (current !== generation || options.quiet && body===undefined && epoch!==writeEpoch) return;
       const data = envelope.data;
       const project = data.project || (data.active_session_id ? data : null);
+      if(project){
+        const states={armed:'на охране',degraded:'неполная связка приборов',error:'ошибка',collecting:'сбор эталона',ready:'готов, охрана выключена',draft:'подготовка',interrupted:'прерван, требуется подготовка'};
+        const manual=(data.manual||[]).map(x=>`${x.role}: ручное управление${x.expired?' (аренда истекла)':''}`).join(' · ');
+        root.querySelector('[data-role=guard-live-status]').textContent=`Охрана: ${states[project.state]||project.state} · ${manual} ${data.error||project.last_error||''}`;
+        if(window.oriMonitoringResearch)window.oriMonitoringResearch.coverage(project.coverage||'stopped');
+      }
       const scope = project ? `${project.id}|${project.active_session_id}` : '';
       if (scope && scope !== followedSession) {
         followedSession = scope;
         window.dispatchEvent(new CustomEvent('ori-monitoring-session', {detail:{sessionId:project.active_session_id}}));
-      }
-      if (path === '' && Array.isArray(data.items)) {
-        const previous = projects.value;
-        projects.replaceChildren(...data.items.map(p => new Option(`${p.name} · ${p.site} · ${p.state}`, p.id)));
-        if ([...projects.options].some(o => o.value === previous)) projects.value = previous;
       }
       if (path.endsWith('/events') && Array.isArray(data.items)) renderEvents(data.items);
       if (path === '/audio-inputs') {
@@ -39,22 +58,46 @@
       if (!options.quiet) info.textContent = JSON.stringify(data, null, 2);
       return data;
     } catch (error) { if (current === generation && !options.quiet) info.textContent = error.message; }
-    finally { busy = false; }
+    finally { activeRequests--;window.clearTimeout(timeout); }
   }
+  function pager(){
+    previousPage.disabled=pageBusy||!pageHistory.length;nextPage.disabled=pageBusy||!nextCursor;
+    root.querySelector('[data-action=refresh]').disabled=pageBusy;
+  }
+  async function loadProjects(after='',history=[],selected){
+    if(pageBusy)return;
+    pageBusy=true;pager();
+    try {
+      const data=await request('?'+new URLSearchParams({limit:'200',...(after?{after}:{})}));
+      if(!data || !Array.isArray(data.items))return;
+      const previous=selected?.id||projects.value;
+      const retained=selected?new Option(`${selected.name} · ${selected.site} · ${selected.state}`,selected.id):[...projects.options].find(o=>o.value===previous);
+      const items=data.items.slice(0,200),pinned=retained&&!items.some(p=>p.id===previous);
+      const before=projects.value;
+      projects.replaceChildren(...(pinned?[retained]:[]),...items.map(p=>new Option(`${p.name} · ${p.site} · ${p.state}`,p.id)));
+      if([...projects.options].some(o=>o.value===previous))projects.value=previous;
+      pageAfter=after;pageHistory=history;nextCursor=items.length===200?(data.next_cursor||null):null;
+      root.querySelector('[data-role=projects-page]').textContent=`Страница ${history.length+1} · ${items.length} проектов${pinned?' · выбранный проект вне страницы':''}`;
+      if(before!==projects.value)projects.dispatchEvent(new Event('change'));
+    } finally {pageBusy=false;pager();}
+  }
+  previousPage.onclick=()=>pageHistory.length&&loadProjects(pageHistory.at(-1),pageHistory.slice(0,-1));
+  nextPage.onclick=()=>nextCursor&&loadProjects(nextCursor,[...pageHistory,pageAfter]);
   root.querySelector('[name=workspace]').addEventListener('change', event => {
     document.body.dataset.workspaceMode = event.target.value;
-    localStorage.setItem('ori-workspace-mode', event.target.value);
+    try { localStorage.setItem('ori-workspace-mode', event.target.value); } catch {}
   });
-  const mode = localStorage.getItem('ori-workspace-mode') || 'research';
+  let mode = 'research';
+  try { if (localStorage.getItem('ori-workspace-mode') === 'monitoring') mode = 'monitoring'; } catch {}
   root.querySelector('[name=workspace]').value = mode;
   document.body.dataset.workspaceMode = mode;
-  root.querySelector('[data-action=refresh]').onclick = () => request();
+  root.querySelector('[data-action=refresh]').onclick = () => loadProjects();
   root.querySelector('[data-action=preflight]').onclick = () => projects.value && request('/' + encodeURIComponent(projects.value) + '/preflight');
   root.querySelector('form').onsubmit = async event => {
     event.preventDefault();
     const fields = new FormData(event.target), session = document.getElementById('session-select').value;
     const result = await request('', {name:fields.get('name'), site:fields.get('site'), session_id:session});
-    if (result) await request();
+    if (result) await loadProjects('',[],result);
   };
   const value = name => root.querySelector(`[name=${name}]`).value;
   function scoped(action, body) { return projects.value && request('/'+encodeURIComponent(projects.value)+'/'+action, body); }
@@ -98,5 +141,5 @@
     }
   }
   window.oriMonitoring = {request, selected: () => projects.value, root};
-  request();
+  loadProjects();
 })();

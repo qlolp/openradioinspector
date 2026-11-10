@@ -40,6 +40,8 @@ RInspectorWiFi и описание IQ_ProcessPRO.
 
 Актуальные [состояние выпуска](docs/release/status.md),
 [ревизия репозитория и следующий план](docs/repository-audit.md).
+Два рабочих режима: [радиомониторинг и исследование](docs/monitoring-modes.md);
+[синтетическая и аппаратная приёмка](docs/monitoring-hardware-acceptance.md).
 
 ## Возможности
 

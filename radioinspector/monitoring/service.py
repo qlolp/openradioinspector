@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from ..contracts import DeviceRole, format_time, to_primitive, utc_now
+from ..device_workers import WorkerError
+from ..serial_instruments import ARDV1SerialAdapter, _rf_command
 from ..tinysa_profile import validate_receive_settings
 from .store import ProjectStore
 
@@ -15,14 +17,16 @@ from .baselines import BaselineOperations
 from .guard import GuardOperations
 from .research import ResearchOperations
 from .operations import OperationalMonitoring
+from .preparation import PreparationOperations
 
 
-class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations, OperationalMonitoring):
+class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations, OperationalMonitoring, PreparationOperations):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
         self.lock = threading.RLock()
         self._closed = False
+        self.preparing={}
         self.initialize_runtime()
         self.initialize_operations()
 
@@ -63,12 +67,48 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         adapters = (analyzer.settings.get('adapter'), receiver.settings.get('adapter'))
         check('adapters', adapters in (('tinysa-serial', 'ardv1-serial'), ('tinysa-sim', 'ardv1-sim')),
               'tinySA Ultra + AR-DV1; симуляторы выбираются только явно')
+        for label, stream, default_baud in (('analyzer', analyzer, 9600), ('receiver', receiver, 115200)):
+            if stream.settings.get('adapter') not in ('tinysa-serial', 'ardv1-serial'):
+                continue
+            check(label + '_serial_port', isinstance(stream.port, str) and bool(stream.port.strip())
+                  and not stream.port.startswith('sim://'),
+                  'Нужен явно заданный последовательный порт; доступность без открытия не проверяется')
+            try:
+                baud = int(stream.settings.get('baud', default_baud))
+                valid_baud = baud in (9600, 19200, 38400, 57600, 115200)
+            except (ValueError, TypeError, OverflowError):
+                valid_baud = False
+            check(label + '_serial_baud', valid_baud, 'Скорости порта: 9600, 19200, 38400, 57600, 115200')
+        if adapters[1] == 'ardv1-serial':
+            try:
+                # Share the adapter's command validation without constructing a
+                # transport or claiming the connected receiver has been verified.
+                _rf_command(receiver.settings.get('frequency_hz', 145_500_000))
+                profile = receiver.settings.get('receiver_profile')
+                if profile not in (None, 'ardv1-monitor-v1'):
+                    raise ValueError('Неизвестный профиль AR-DV1')
+                modes = ARDV1SerialAdapter.MONITOR_MODES if profile == 'ardv1-monitor-v1' else ('FM', 'AM')
+                mode = str(receiver.settings.get('mode') or 'FM').strip().upper()
+                if mode not in modes:
+                    raise ValueError('Режим не поддерживается выбранным профилем AR-DV1')
+                check('receiver_profile', True, 'Конфигурация AR-DV1 совместима с профилем; аппаратная проверка не выполнена')
+            except (ValueError, TypeError, WorkerError) as exc:
+                check('receiver_profile', False, str(exc))
         if adapters[0] == 'tinysa-serial':
+            declared=project.get('preparation',{})
+            check('operator_receive_path',declared.get('receive_path_confirmed') is True and declared.get('location_confirmed') is True,
+                'Оператор подтверждает антенну, тракт и место; RF readback не заявлен')
             try:
                 validate_receive_settings(analyzer.settings)
                 check('receive_profile', True, 'Консервативный профиль приёма; RF off')
             except (ValueError, TypeError) as exc:
                 check('receive_profile', False, str(exc))
+            if project.get('baseline_id'):
+                try:
+                    self.guard_acquisition_context(project)
+                    check('baseline_acquisition_context',True,'Контекст RX эталона воспроизводим; аппаратная проверка не выполнена')
+                except (ValueError,TypeError,KeyError) as exc:
+                    check('baseline_acquisition_context',False,str(exc))
         capacity = self.sessions.archive_capacity()
         check('archive', capacity.get('state') not in ('full',),
               'Полный архив; автоматическое удаление выключено')
@@ -79,6 +119,7 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         storage = self.storage_report(identifier,probe=True) if self.sessions._store and self.sessions._store.persistent else None
         if storage:check('storage_budget',storage['ready'],'Свободное место, запись и прогноз хранения без автоудаления')
         return dict(project_id=identifier, ready=all(c['ok'] for c in checks), checks=checks,storage=storage,
+                    baseline_collection=self.baseline_collection(project),
                     capacity=capacity, performance=performance,
                     workers=self.workers.list_workers(session.id), hardware_validation='not_run',
                     baseline_ready=project['baseline_id'] is not None)
@@ -99,5 +140,6 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
                 self.disarm(identifier, {})
                 if resume:
                     project=self.project(identifier);project['resume_requested']=True;self.store.put('project',project)
+        for identifier in list(self.preparing):self.stop_preparation(identifier,{})
         self.workers.control_authorizer = None
         self.store.close()

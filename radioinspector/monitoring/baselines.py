@@ -13,14 +13,15 @@ class BaselineOperations:
             raise ValueError('Подтвердите пригодность эталона обычной обстановки')
         with self.lock:
             project = self.project(identifier)
-            if project['state'] in ('armed', 'searching'):
+            if identifier in self.runtime or project['state'] in ('armed', 'searching','degraded'):
                 raise ValueError('Снимите проект с охраны перед заменой эталона')
-            sweeps = self.sessions.list_sweeps(project['active_session_id'],
-                stream_id=project['analyzer_stream_id'], limit=256)
+            sweeps,period = self.baseline_samples(project)
             baseline = record(identifier, name=text(payload.get('name'), 'Название эталона'),
                               location=text(payload.get('location'), 'Место'), **build_baseline(sweeps))
             baseline['confirmed'] = True
-            self.store.put('baseline', baseline)
+            baseline['sweep_period_seconds']=period
+            baseline['sample_strategy']='uniform_window_plus_latest_twenty'
+            baseline['preparation']=copy.deepcopy(project.get('preparation',{}))
             project.update(baseline_id=baseline['id'], state='ready', detector_state=None,
                            detector_cursor=sweeps[-1].id)
             store = self.sessions._store
@@ -29,7 +30,9 @@ class BaselineOperations:
                     project['detector_rowid'] = store._connection.execute(
                         'SELECT MAX(rowid) FROM sweeps WHERE id IN (' + ','.join('?' for _ in sweeps) + ')',
                         [s.id for s in sweeps]).fetchone()[0] or 0
-            self.store.put('project', project)
+            with self.store.transaction():
+                self.store.put('baseline',baseline)
+                self.store.put('project', project)
             return baseline
 
     def add_allowed(self, identifier, payload):
@@ -69,19 +72,32 @@ class BaselineOperations:
             allowed = self.store.list('allowed', identifier, limit=1000)
             events = set()
             processed = 0
+            quality_issues=0
             for rowid, sweep in self._pending_sweeps(project):
                 regions, excess, thresholds = detector.step(sweep, allowed)
-                opens = self.store.list('event', identifier, limit=1000, state='open')
+                opens = self.store.open_events(identifier,sweep.session_id,baseline['id'])
                 with self.store.transaction():
+                    quality=detector.state.pop('quality_issue',None)
+                    if quality:
+                        self.store.put('quality',record(identifier,sweep_id=sweep.id,session_id=sweep.session_id,
+                            stream_id=sweep.stream_id,**quality))
+                        quality_issues+=1
+                        for interrupted in opens:
+                            interrupted.update(state='interrupted',end_reason='data_gap')
+                            self.store.put('event',interrupted)
+                        opens=[]
+                        if project['state'] in ('armed','searching','degraded'):
+                            self._notify(project,sweep.id,'data_gap','warning','Разрыв измерений; подтверждение 3/5 начато заново',None)
                     touched = set()
-                    for region in regions[:32]:
+                    for region in regions:
                         event = next((x for x in opens if x['start_frequency_hz'] <= region['end_frequency_hz']
                             and x['end_frequency_hz'] >= region['start_frequency_hz']
-                            and (x['kind']=='broadband_change') == (region['kind']=='broadband_change')), None)
+                            and (x['kind'] in ('broadband_change','dense_change')) == (region['kind'] in ('broadband_change','dense_change'))), None)
                         if event is None:
                             evidence = [x for x,row in zip(detector.state['recent_sources'], detector.state['window'])
                                         if any(row[region['first_bin']:region['last_bin']+1])]
                             event = record(identifier, state='open', disposition='unreviewed',
+                                run_session_id=sweep.session_id,
                                 first_seen=evidence[0]['started_at'] if evidence else format_time(sweep.interval.started_at), source_count=0,
                                 source_refs=[], baseline_id=baseline['id'], detector_version=VERSION, **region)
                             event['detector_parameters']=copy.deepcopy(project['parameters'])
@@ -94,12 +110,13 @@ class BaselineOperations:
                                 self.store.put('event-source', dict(id=event['id']+'.'+prior['sweep_id'], project_id=identifier,
                                     created_at=event['created_at'], event_id=event['id'], **ref))
                                 event['source_refs'].append(ref); event['source_count'] += 1
-                        event['source_count'] += 1
-                        event['source_refs'] = (event['source_refs'] + [source])[-100:]
-                        self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
-                            created_at=event['created_at'], event_id=event['id'], **source))
+                        if event['id'] not in touched:
+                            event['source_count'] += 1
+                            event['source_refs'] = (event['source_refs'] + [source])[-100:]
+                            self.store.put('event-source', dict(id=event['id']+'.'+sweep.id, project_id=identifier,
+                                created_at=event['created_at'], event_id=event['id'], **source))
                         self.store.put('event', event); touched.add(event['id']); events.add(event['id'])
-                        if project['state'] in ('armed','searching'):
+                        if project['state'] in ('armed','searching','degraded'):
                             self.notify_event(project,event)
                     for event in opens:
                         if event['id'] in touched: continue
@@ -114,7 +131,7 @@ class BaselineOperations:
                     self.store.put('project', project)
                 processed += 1
             return dict(project_id=identifier, event_ids=sorted(events)[:100], events_updated=len(events),
-                        processed_sweeps=processed, cursor=project.get('detector_cursor'))
+                        processed_sweeps=processed, quality_issues=quality_issues,cursor=project.get('detector_cursor'))
 
     def review_event(self, identifier, event_id, payload):
         with self.lock:

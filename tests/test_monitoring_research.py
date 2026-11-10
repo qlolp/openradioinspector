@@ -38,6 +38,30 @@ class ResearchTests(unittest.TestCase):
         self.sessions.ingest_sweep(sweep(40,session=foreign.id,stream=foreign.streams[0].id))
         with self.assertRaises(KeyError):self.service.history_original(self.project['id'],'sweep-40')
 
+    def test_memory_history_event_filter_finds_sources_after_unrelated_thousand(self):
+        from radioinspector.session_service import SessionService
+        from radioinspector.device_workers import DeviceWorkerManager
+        from radioinspector.monitoring.service import MonitoringService
+        sessions=SessionService();workers=DeviceWorkerManager(sessions);service=MonitoringService(sessions,workers)
+        self.addCleanup(sessions.close);self.addCleanup(workers.close);self.addCleanup(service.close)
+        session=sessions.create_session(simulated_session_payload())
+        project=service.create(dict(name='Memory',site='Fixture',session_id=session.id));identifier=project['id']
+        for i in range(3):sessions.ingest_sweep(sweep(i,session=session.id,stream=session.streams[0].id))
+        now=utc_now().isoformat()
+        service.store.put('event',dict(id='selected',project_id=identifier,created_at=now))
+        with service.store.transaction():
+            for i in range(1000):
+                service.store.put('event-source',dict(id=f'{i:032x}',project_id=identifier,created_at=now,
+                    event_id='unrelated',sweep_id='sweep-0'))
+            for i in (1,2):
+                service.store.put('event-source',dict(id='z'+str(i),project_id=identifier,created_at=now,
+                    event_id='selected',sweep_id='sweep-'+str(i)))
+        first=service.history(identifier,{'event_id':['selected'],'limit':['1']})
+        self.assertEqual([x['id'] for x in first['items']],['sweep-2'])
+        second=service.history(identifier,{'event_id':['selected'],'limit':['1'],'after':[first['next_cursor']]})
+        self.assertEqual([x['id'] for x in second['items']],['sweep-1'])
+        self.assertIsNone(second['next_cursor'])
+
     def test_manual_receiver_pauses_queue_requires_token_and_returns_profile(self):
         project=self.prepare(); lease=self.service.manual_acquire(project['id'],{'role':'receiver'})
         with self.assertRaises(WorkerError): self.workers.tune(project['active_session_id'],project['receiver_stream_id'],{'frequency_hz':100000000})
@@ -62,6 +86,7 @@ class ResearchTests(unittest.TestCase):
         self.assertTrue(next(x for x in self.workers.list_workers(sid) if x['stream_id']==project['receiver_stream_id'])['alive'])
         self.service.manual_return(project['id'],{'token':lease['token']})
         wait_until(lambda:self.service.search_status(project['id'])['coverage']=='wide','validated broad coverage')
+        self.assertEqual(len(self.service.runtime[project['id']]['claims']),2,'completed searches must leave only the active device pair')
         self.service.disarm(project['id'],{})
 
     def test_expired_manual_owner_cannot_execute_queued_tune_but_can_return(self):

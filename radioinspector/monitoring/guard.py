@@ -31,6 +31,7 @@ class GuardOperations:
 
     def authorize_control(self, sid, stream, owner):
         with self.lock:
+            if sid in self.preparing.values():raise WorkerError('Сбор эталона владеет приборами; сначала остановите сбор')
             for runtime in self.runtime.values():
                 if (sid,stream) in runtime['claims']:
                     if runtime['stop'].is_set(): raise WorkerError('Охрана останавливается')
@@ -67,6 +68,28 @@ class GuardOperations:
         with self._project_lifecycle(identifier):
             return self._arm(identifier,payload)
 
+    def guard_acquisition_context(self, project):
+        """Recreate inspected conservative RX, never replay arbitrary RF state."""
+        if not project.get('baseline_id') or project['profile']['analyzer']['settings'].get('adapter')!='tinysa-serial':
+            return None
+        baseline=self.store.get('baseline',project['baseline_id'])
+        source=baseline['source_refs'][0]
+        settings=self.history_original(project['id'],source['sweep_id'])['settings']
+        if 'instrument' not in settings:return None
+        from ..tinysa_profile import validate_receive_settings
+        from ..tinysa.commands import CONTROL_PROFILE
+        from .detector import stable
+        requested=validate_receive_settings(project['profile']['analyzer']['settings'])
+        expected=dict(profile=CONTROL_PROFILE,
+            settings=dict(requested,attenuation_db='auto',lna=False,ultra=False,calculation='off'),
+            device_mode='input',device_mode_readback=False,settings_source='command_acknowledged',
+            settings_readback=False,settings_complete=False,hardware_validation='not_run')
+        if (stable(settings['instrument'])!=expected or settings.get('receive_profile')!=CONTROL_PROFILE
+                or settings.get('generator_output')!='unknown'
+                or settings.get('generator_output_source')!='no_physical_readback'):
+            raise ValueError('RX-настройки эталона нельзя воспроизвести консервативным запуском; соберите новый эталон')
+        return 'inspect'
+
     def _arm(self, identifier, payload):
         if payload: raise ValueError('Постановка на охрану принимает пустой объект')
         with self.lock:
@@ -77,10 +100,14 @@ class GuardOperations:
                 raise ValueError('Требуются подтверждённый эталон и успешная подготовка')
             if self.sessions._store is None or not self.sessions._store.persistent:
                 raise ValueError('Автономная охрана требует сохраняемый SQLite-архив')
+            acquisition_context=self.guard_acquisition_context(project)
             old_sid = project['active_session_id']
             if any(r['sid'] == old_sid for r in self.runtime.values()):
                 raise WorkerError('Этот сеанс уже принадлежит другому проекту на охране')
+            if any(owner!=identifier and sid==old_sid for owner,sid in self.preparing.items()):
+                raise WorkerError('Этот сеанс принадлежит сбору эталона другого проекта')
             self.workers.stop_session(old_sid)
+            self.preparing.pop(identifier,None)
             if self.sessions.get_session(old_sid).state.value == 'running':
                 self.sessions.stop_session(old_sid)
             streams = []
@@ -89,10 +116,12 @@ class GuardOperations:
                 for key in ('id', 'session_id', 'state'): stream.pop(key, None)
                 if role == 'receiver':
                     stream['settings'].update(receiver_profile='ardv1-monitor-v1', mode=project.get('receiver_mode', 'AUTO'))
+                elif acquisition_context:
+                    stream['settings']['monitoring_instrument_context']=acquisition_context
                 streams.append(stream)
             session = self.sessions.create_session(dict(name=project['name'], streams=streams, metadata={'monitoring_project_id':identifier}))
             self.sessions.start_session(session.id)
-            project.update(active_session_id=session.id, session_ids=project['session_ids']+[session.id],
+            project.update(active_session_id=session.id, session_ids=(project['session_ids']+[session.id])[-128:],
                 analyzer_stream_id=session.streams[0].id, receiver_stream_id=session.streams[1].id,
                 state='armed', detector_state=None, detector_cursor=None, detector_rowid=0,
                 last_error=None, coverage='wide', armed_at=format_time(utc_now()))
@@ -115,6 +144,7 @@ class GuardOperations:
 
     def _disarm(self, identifier, payload):
         if payload: raise ValueError('Снятие с охраны принимает пустой объект')
+        if identifier in self.preparing:self.stop_preparation(identifier,{})
         with self.lock:
             runtime = self.runtime.get(identifier)
             if runtime: runtime['stop'].set(); runtime['epoch'] += 1
@@ -130,11 +160,23 @@ class GuardOperations:
             project.update(state='ready', coverage='stopped', resume_requested=False)
             return self.store.put('project', project)
 
-    def _guard_loop(self, identifier, runtime):
+    def _start_guard_workers(self, identifier, runtime):
+        # Manual admission and initial startup share the project lifecycle,
+        # while workers remain free to call the global control authorizer.
+        lifecycle=self._project_lifecycle(identifier)
+        while not lifecycle.acquire(timeout=.1):
+            if runtime['stop'].is_set():return
         try:
+            if runtime['stop'].is_set() or runtime.get('workers_started'):return
             statuses = self.workers.start_session(runtime['sid'])
             if any(x['state'] == 'error' for x in statuses):
                 raise WorkerError('Не удалось запустить оба прибора; проверьте журнал исполнителей')
+            runtime['workers_started']=True
+        finally:lifecycle.release()
+
+    def _guard_loop(self, identifier, runtime):
+        try:
+            self._start_guard_workers(identifier,runtime)
             storage_checked=0.
             while not runtime['stop'].wait(.2):
                 project = self.project(identifier)
@@ -143,8 +185,8 @@ class GuardOperations:
                         raise WorkerError('Архив не обеспечивает резерв места/запись/заданный срок хранения')
                     storage_checked=time.monotonic()
                 statuses=self.workers.list_workers(runtime['sid'])
-                if any(not x['alive'] and x['stream_id'] not in runtime['manual'] for x in statuses):
-                    raise WorkerError('Исполнитель прибора остановился; охрана не обеспечивает полное покрытие')
+                self._device_health(identifier,runtime,statuses)
+                project=self.project(identifier)
                 analyzer = project['analyzer_stream_id']
                 if analyzer not in runtime['manual']:
                     self.analyze(identifier)
@@ -166,10 +208,33 @@ class GuardOperations:
                 try: self.workers.stop_session(sid)
                 except Exception: pass
 
+    def _device_health(self,identifier,runtime,statuses):
+        with self.lock:
+            failed=[x for x in statuses if not x['alive'] and x['stream_id'] not in runtime['manual']]
+            previous=runtime.get('device_faults',{})
+            faults={x['stream_id']:x.get('started_at') for x in failed}
+            project=self.project(identifier)
+            if failed:
+                runtime['warning']='Часть приборов недоступна; исправный прибор продолжает регистрацию'
+                analyzer_ok=not any(x['stream_id']==project['analyzer_stream_id'] for x in failed)
+                project.update(state='degraded',last_error=runtime['warning'])
+                if not analyzer_ok:project['coverage']='unavailable'
+                for worker in failed:
+                    if worker['stream_id'] not in previous or previous[worker['stream_id']]!=worker.get('started_at'):
+                        self._notify(project,worker['stream_id']+':'+str(worker.get('started_at')),'device_unavailable',
+                            'critical','Прибор недоступен: '+worker['device'],None)
+            elif previous:
+                runtime.pop('warning',None)
+                project.update(state='searching' if runtime.get('search') else 'armed',last_error=None)
+                if project.get('coverage')=='unavailable':project['coverage']='wide'
+            if faults!=previous:
+                runtime['device_faults']=faults;self.store.put('project',project)
+
     def _queue_receiver(self, identifier, runtime):
         with self.lock:
             project = self.project(identifier)
             if runtime['receiver_busy'] or project['receiver_stream_id'] in runtime['manual']: return
+            if project['receiver_stream_id'] in runtime.get('device_faults',{}):return
             events = self.store.pending_receiver_events(identifier, runtime['sid'])
             if not events: return
             event = max(events, key=lambda x:(x['last_seen'], x['id']))
@@ -259,7 +324,7 @@ class GuardOperations:
                 project.update(state='error',coverage='error',last_error=runtime['error'])
             return dict(project=project, active=bool(runtime and not runtime['stop'].is_set()),
                 receiver_busy=bool(runtime and runtime['receiver_busy']),
-                error=runtime.get('error') if runtime else project.get('last_error'),
+                error=(runtime.get('error') or runtime.get('warning')) if runtime else project.get('last_error'),
                 manual=[dict(role=lease['role'],expired=time.monotonic()>=lease['expires'],returning=lease['returning'],
                              expires_seconds=max(0,round(lease['expires']-time.monotonic()))) for lease in runtime['manual'].values()] if runtime else [],
                 workers=self.workers.list_workers(project['active_session_id']),

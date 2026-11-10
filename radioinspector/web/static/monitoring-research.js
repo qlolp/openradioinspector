@@ -35,7 +35,11 @@
   bind('manual-return', async () => {
     const role = value('manual-role'), owner = lease(role,true); if (!owner) return;
     const data = await call('manual/return', {token:owner.token});
-    if (data) { delete leases[role]; coverage(data.state === 'restoring' ? 'restoring' : 'wide'); }
+    if (data) {
+      delete leases[role];
+      const status = await call('search/status');
+      if (status) renderSearch(status);
+    }
   });
   bind('manual-tune', () => {
     const owner = lease('receiver'); if (!owner) return;
@@ -53,7 +57,8 @@
     if (data) { const status = await call('search/status'); if (status) renderSearch(status); }
   });
   function coverage(state) {
-    const labels = {narrow:'Узкий обзор: ШИРОКОЕ ПОКРЫТИЕ ПРИОСТАНОВЛЕНО',paused:'Широкое покрытие на паузе',restoring:'Проверяется возврат широкого покрытия',wide:'Широкое покрытие восстановлено',stopped:'Охрана остановлена',error:'Ошибка покрытия'};
+    root.dataset.searchCoverage=state;
+    const labels = {narrow:'Узкий обзор: ШИРОКОЕ ПОКРЫТИЕ ПРИОСТАНОВЛЕНО',paused:'Широкое покрытие на паузе',restoring:'Проверяется возврат широкого покрытия',wide:'Широкое покрытие восстановлено',unavailable:'Широкое покрытие недоступно: прибор потерян',preparation:'Идёт приём для эталона',stopped:'Охрана остановлена',error:'Ошибка покрытия'};
     root.querySelector('[data-role=coverage]').textContent = labels[state] || state;
   }
   function canvas(role) {
@@ -73,7 +78,7 @@
     }
   }
   function renderSearch(data) {
-    coverage(data.coverage);
+    root.dataset.searchActive=String(data.active===true);coverage(data.coverage);
     const series = data.series || [];
     drawLines('source-chart',[{color:'#63d8bb',points:series.map(p => [Date.parse(p.started_at),p.peak_level])}],
       [Date.parse(series[0]?.started_at || 0),Date.parse(series.at(-1)?.ended_at || 0)],[-130,0],
@@ -122,8 +127,9 @@
     ctx.fillStyle = '#cbd8e8'; ctx.fillText(`${low} → ${high} Гц`,70,h-23);ctx.fillText(`${new Date(first).toISOString()} → ${new Date(last).toISOString()} UTC`,70,h-7);
     ctx.fillText('UTC ↓',2,20);
   }
+  window.oriMonitoringResearch={renderSearch,coverage};
   node('project').addEventListener('change', () => {
-    revision++; leases = {}; cursor = null; sweeps = [];
+    revision++; leases = {}; cursor = null; sweeps = []; root.dataset.searchActive='false';
     node('history-sweep').replaceChildren(); node('search-event').replaceChildren(new Option('Выберите событие',''));
     for (const role of ['source-chart','history-chart','history-spectrum']) canvas(role);
     coverage('paused');

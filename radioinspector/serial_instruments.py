@@ -535,6 +535,10 @@ class TinySASerialAdapter(SimulatedAdapter):
 
     def poll(self) -> Sweep:
         self._ensure_usable()
+        if self.settings.get('monitoring_instrument_context')=='inspect' and self._instrument is None:
+            # Re-establish the controller's acknowledged conservative receive
+            # context instead of copying old provenance or claiming RF readback.
+            self.execute('instrument',{'operation':'inspect'})
         if self._instrument is not None and self.start_hz==self.stop_hz:
             from .tinysa.artifacts import InstrumentSample
             started=self._clock()
@@ -636,7 +640,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
     MONITOR_MODES = {'AUTO':'MD000', 'DSTAR':'MD010', 'YSF':'MD020',
                      'ALINCO':'MD030', 'NXDN':'MD040', 'P25':'MD050',
                      'DPMR':'MD060', 'DMR':'MD070', 'FM':'MD0F0', 'AM':'MD0F1'}
-    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'NXDN',
+    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'DCR/NXDN',
                '5':'P25', '6':'DPMR', '7':'DMR'}
 
     def __init__(

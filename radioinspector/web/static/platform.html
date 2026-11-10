@@ -67,9 +67,21 @@
   <section id="monitoring-workspace" class="panel" aria-label="Рабочие режимы">
     <label>Рабочий режим <select name="workspace"><option value="monitoring">Радиомониторинг</option><option value="research">Исследование</option></select></label>
     <p>Просмотр истории не останавливает охрану. Приборы и архив принадлежат ядру.</p>
+    <p data-role="guard-live-status" aria-live="polite">Состояние охраны не запрошено.</p>
     <form><input name="name" placeholder="Название проекта" required maxlength="200"><input name="site" placeholder="Объект проверки" required maxlength="200"><button>Создать из выбранного сеанса</button></form>
     <select name="project" aria-label="Проект наблюдения"></select>
+    <button data-action="projects-previous" disabled>Предыдущие проекты</button><button data-action="projects-next" disabled>Следующие проекты</button>
+    <span data-role="projects-page" aria-live="polite">Проекты загружаются</span>
     <button data-action="refresh">Обновить проекты</button><button data-action="preflight">Проверить готовность</button>
+    <details><summary>Мастер подготовки · только приём</summary>
+      <p>1. Выберите проект и подтвердите антенну, приёмный тракт и место. Генератор не включается. Подтверждения команд не являются физическим RF readback.</p>
+      <input name="antenna-notes" maxlength="1000" placeholder="Антенна, кабель, место измерения">
+      <label><input name="receive-path-confirmed" type="checkbox"> Подтверждаю приёмный тракт</label><label><input name="location-confirmed" type="checkbox"> Подтверждаю место</label>
+      <button data-action="preparation-load">Загрузить подготовку</button><button data-action="preparation-save">Сохранить подтверждения</button>
+      <p>2. Запустите накопление исходников. Для эталона нужны минимум 60 секунд и 20 полных совместимых свипов.</p>
+      <button data-action="preparation-start">Начать приём для эталона</button><button data-action="preparation-stop">Остановить сбор</button><button data-action="preparation-progress">Проверить прогресс</button>
+      <p data-role="preparation-status" aria-live="polite"></p><p>3. Подтвердите обычную обстановку и зафиксируйте эталон в следующем разделе.</p>
+    </details>
     <details><summary>Эталон и разрешённые сигналы</summary>
       <label>Название эталона<input name="baseline-name" value="Обычная обстановка"></label>
       <label>Место измерения<input name="baseline-location" value="Объект"></label>
@@ -102,6 +114,12 @@
       <label>Новый секрет<input name="webhook-secret" type="password" autocomplete="new-password" placeholder="Пустое поле сохраняет прежний секрет"></label>
       <button data-action="settings-save">Сохранить явно</button><button data-action="storage-refresh">Проверить архив</button>
       <p data-role="settings-status" aria-live="polite"></p><p data-role="storage-status" aria-live="polite"></p>
+      <fieldset><legend>Детектор robust-city-v1 · инженерные значения, аппаратная приёмка не выполнена</legend>
+        <label>Превышение, dB<input name="detector-margin" type="number" value="6" min="1" max="60"></label><label>Импульс, dB<input name="detector-impulse" type="number" value="12" min="1" max="120"></label>
+        <label>Гистерезис, dB<input name="detector-hysteresis" type="number" value="3" min="0" max="20"></label><label>Подтверждений<input name="detector-confirmations" type="number" value="3" min="1" max="15" step="1"></label>
+        <label>Окно, свипов<input name="detector-window" type="number" value="5" min="1" max="15" step="1"></label><label>AR-DV1, с<input name="detector-dwell" type="number" value="10" min="1" max="30"></label>
+        <button data-action="detector-load">Загрузить параметры</button><button data-action="detector-balanced">Заполнить «Сбалансированный»</button><button data-action="detector-save">Сохранить детектор после снятия охраны</button>
+      </fieldset>
     </details>
     <details><summary>Журнал тревог и операторский вердикт</summary>
       <label><input name="alarm-sound" type="checkbox"> Звук новых тревог в этом клиенте</label>
