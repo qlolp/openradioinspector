@@ -12,14 +12,16 @@ from .store import ProjectStore
 
 from .models import record, text
 from .baselines import BaselineOperations
+from .guard import GuardOperations
 
 
-class MonitoringService(BaselineOperations):
+class MonitoringService(BaselineOperations, GuardOperations):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
         self.lock = threading.RLock()
         self._closed = False
+        self.initialize_runtime()
 
     def create(self, payload):
         if set(payload) - {'name', 'site', 'session_id'}:
@@ -77,6 +79,11 @@ class MonitoringService(BaselineOperations):
                     baseline_ready=project['baseline_id'] is not None)
 
     def close(self):
-        if not self._closed:
+        with self.lock:
+            if self._closed: return
             self._closed = True
-            self.store.close()
+            identifiers=list(self.runtime)
+        for identifier in identifiers:
+            self.disarm(identifier, {})
+        self.workers.control_authorizer = None
+        self.store.close()

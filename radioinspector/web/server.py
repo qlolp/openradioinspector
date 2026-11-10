@@ -713,6 +713,8 @@ class Handler(BaseHTTPRequestHandler):
                 capabilities = self.sessions.capabilities()
                 capabilities["features"].update(self.workers.capabilities())
                 capabilities["features"]["monitoring_projects"] = True
+                capabilities["features"]["monitoring_guard"] = True
+                capabilities["features"]["monitoring_receiver_profile"] = "ardv1-monitor-v1"
                 capabilities["features"]["session_analytics"] = True
                 capabilities["features"]["session_analytics_archive_wide"] = True
                 capabilities["features"]["session_archive_export"] = True

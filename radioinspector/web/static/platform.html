@@ -81,6 +81,16 @@
     </details>
     <button data-action="analyze">Обработать новые свипы</button>
     <button data-action="events">События</button>
+    <button data-action="arm">Поставить на охрану</button><button data-action="disarm">Снять с охраны</button>
+    <button data-action="guard-status">Состояние охраны</button>
+    <details><summary>Приёмник и аналоговое аудио</summary>
+      <label>Режим AR-DV1<select name="receiver-mode"><option>AUTO</option><option>FM</option><option>AM</option><option>DMR</option><option>DPMR</option><option>NXDN</option><option>P25</option><option>DSTAR</option><option>YSF</option><option>ALINCO</option></select></label>
+      <button data-action="receiver-config">Сохранить режим</button>
+      <button data-action="audio-inputs">Аудиовходы ядра</button><select name="audio-input" aria-label="Аудиовход"><option value="">Не выбран</option></select>
+      <label><input name="audio-confirm" type="checkbox"> Это аналоговый выход AR-DV1</label><button data-action="audio-config">Подключить аудио</button><button data-action="audio-disable">Отключить аудио</button>
+    </details>
+    <div data-role="events" aria-live="polite"></div>
+    <audio controls preload="none" aria-label="Аудиозапись события"></audio>
     <pre aria-live="polite">Выберите двухприборный сеанс и создайте проект.</pre>
   </section>
   <main id="workspace" class="console-grid">
