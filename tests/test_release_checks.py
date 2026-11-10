@@ -507,10 +507,22 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         parent = ("from tests.run_release_checks import run_command; from pathlib import Path; import os,sys; "
                   f"run_command([sys.executable, '-c', {child!r}], name='inner', environment=dict(os.environ), "
                   f"directory=Path({str(self.directory)!r}), timeout=30)")
-        with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        # Exercise a real wait timeout after the nested session has started.
+        # The old 0.8s launch budget raced four Python/supervisor startups under
+        # load and sometimes never reached the cleanup scenario being tested.
+        original_wait = subprocess.Popen.wait
+        def wait_after_nested_start(process, timeout=None):
+            if timeout == 10:
+                deadline = time.monotonic() + 8
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                self.assertTrue(ready.exists(), 'nested child did not start')
+                return original_wait(process, timeout=0.05)
+            return original_wait(process, timeout=timeout)
+        with patch.object(subprocess.Popen, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="outer-timeout",
                                 environment=self.environment, directory=self.directory,
-                                timeout=0.8, shutdown_timeout=2)
+                                timeout=10, shutdown_timeout=2)
         self.assertTrue(ready.exists())
         time.sleep(1.5)
         self.assertFalse(leaked.exists(), "a detached nested session outlived its owner")
@@ -814,6 +826,11 @@ class OrchestrationTests(unittest.TestCase):
                     raise failure
                 Path(command[-1]).write_text(json.dumps({"tests_run": 100, "successful": True,
                                                        "skipped": [], "unexpected_skips": []}), encoding="utf-8")
+            if 'tests.monitoring_endurance' in command:
+                Path(command[command.index('--report')+1]).write_text(json.dumps(dict(
+                    logical_elapsed_seconds=604800,raw_sweeps=10045,raw_verified=10045,
+                    bounded_working_registry=True,restart_no_duplicate_events=True,
+                    active_workers=0,hardware_validation='not_run',comparison={'comparable_weak_recall':True})),encoding='utf-8')
             return "Executed 10 tests, with 0 failures\n"
 
         return fixtures, environments, commands, fixture_factory, command
@@ -830,6 +847,14 @@ class OrchestrationTests(unittest.TestCase):
         self.assertFalse(Path(test_environment["TMPDIR"]).exists())
         for fixture in fixtures:
             fixture.close.assert_called_once()
+
+    def test_seven_day_acceptance_runs_inside_owned_release_environment(self):
+        fixtures,environments,commands,factory,command=self.make_runner()
+        with patch.object(release,'Fixture',side_effect=factory),patch.object(release,'run_command',side_effect=command),redirect_stdout(io.StringIO()):
+            release.release_checks()
+        endurance=[cmd for cmd,_ in commands if 'tests.monitoring_endurance' in cmd]
+        self.assertEqual(len(endurance),1)
+        self.assertIn('--report',endurance[0]);self.assertNotIn('--archive',endurance[0])
 
     def test_entrypoint_never_trusts_registry_from_callers_environment(self):
         _, environments, commands, factory, command = self.make_runner()

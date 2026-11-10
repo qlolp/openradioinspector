@@ -32,7 +32,7 @@ class Controller:
         self._expires=0.0
         self._source='unknown'
         self._trace_processed=False
-        self._generator=False
+        self._device_mode='unknown'
         self._output_confirmed=set()
         self._stop_requested=threading.Event()
         self._io_lock=threading.Lock()
@@ -46,6 +46,7 @@ class Controller:
                           profile_verified=self._verified,settings=dict(self.settings),
                           settings_source=self._source,settings_readback=False,
                           lease_active=self._lease is not None,lease_seconds=max(0,self._expires-self.monotonic()),
+                          device_mode=self._device_mode,device_mode_readback=False,
                           generator_output_readback=False,hardware_validation='not_run')
 
     def status(self):
@@ -58,6 +59,7 @@ class Controller:
     def provenance(self):
         return dict(profile=CONTROL_PROFILE,revision=self.revision,settings=dict(self.settings),
                     connection_id=self.connection_id,segment_id=f'{self.connection_id}:{self.revision}',
+                    device_mode=self._device_mode,device_mode_readback=False,
                     settings_source=self._source,settings_readback=False,settings_complete=False,
                     hardware_validation='not_run')
 
@@ -78,7 +80,7 @@ class Controller:
         try:
             result=function()
         except Exception as exc:
-            self._source='unknown';self._publish()
+            self._device_mode='unknown';self._source='unknown';self._publish()
             raise self.adapter._taint_connection(exc) from exc
         finally:
             self.adapter.transport._ownership_check=None
@@ -94,7 +96,10 @@ class Controller:
     def _ack(self, command):
         if command.split()[0] not in self.commands:
             raise ValueError('Команда отсутствует в help проверенного профиля')
-        return self._io(lambda:self.adapter._acknowledge(command),mutates=True)
+        result=self._io(lambda:self.adapter._acknowledge(command),mutates=True)
+        if command in {'mode input','mode output'}:
+            self._device_mode=command.split()[1];self._publish()
+        return result
 
     def _text(self, command, timeout=30):
         if command.split()[0] not in self.commands:
@@ -105,6 +110,7 @@ class Controller:
         self.adapter._ensure_usable()
         if self._verified:return
         self._io(self.adapter._prepare,mutates=True)
+        self._device_mode='input'
         identity=self.adapter._identity
         if not matches_identity(identity.get('info',''),identity.get('firmware','')):
             raise ValueError('Модель/прошивка не подтверждены профилем управления')
@@ -129,7 +135,6 @@ class Controller:
         for command in ['output off','caloutput off','release']:
             if command.split()[0] in self.commands:self._ack(command)
         self.settings={**self.settings,'output_enabled':False,'caloutput_mhz':'off'}
-        self._generator=False
         self._output_confirmed.clear()
 
     def before_poll(self):
@@ -225,7 +230,7 @@ class Controller:
                     raise ValueError('Keypad поддерживает числовой ввод; имена вводятся экранной клавиатурой')
                 wire='text '+text
             else:wire='release' if op=='release' else 'menu'
-            self._ack(wire);self._trace_processed=True;self._output_confirmed.clear();self._source='unknown';self.revision+=1;self._publish();return self.status()
+            self._ack(wire);self._device_mode='unknown';self._trace_processed=True;self._output_confirmed.clear();self._source='unknown';self.revision+=1;self._publish();return self.status()
         if op=='setting':
             name,value=params.get('name'),params.get('value')
             command=setting_command(name,value)
@@ -254,8 +259,8 @@ class Controller:
             if name=='output_enabled' and value and not {'output_hz','output_dbm'}<=self._output_confirmed:
                 raise ValueError('Сначала явно задайте частоту и уровень генератора')
             if (name.startswith('output_') and not (name=='output_enabled' and value is False)) or name in {'modulation','modulation_hz','am_depth_percent','fm_deviation_hz'}:
-                if not self._generator:
-                    self._ack('output off');self._ack('mode output');self._ack('output off');self._generator=True
+                if self._device_mode!='output':
+                    self._ack('output off');self._ack('mode output');self._ack('output off')
             if name=='points':
                 self._ack(f"sweep {updated['start_hz']} {updated['stop_hz']} {value}")
                 self.adapter.points=value
@@ -286,13 +291,11 @@ class Controller:
             if type(slot) is not int or not 0<=slot<=4 or params.get('confirm') is not True:
                 raise ValueError('Слот 0–4 и явное подтверждение обязательны')
             self._ack(('save' if op=='preset.save' else 'recall')+f' {slot}')
-            if op=='preset.load':self._trace_processed=True
+            if op=='preset.load':self._device_mode='unknown';self._trace_processed=True
             self._output_confirmed.clear();self._source='unknown';self.revision+=1;self._publish();return self.status()
         if op in {'acquire.raw','acquire.zero'}:
             if self.mode=='lab':
                 self._require_lease(payload)
-                if self._generator or self._source=='unknown':
-                    raise ValueError('Верните прибор в monitoring перед приёмным измерением')
             return self._raw(params,zero_span=op=='acquire.zero')
         if op in {'trace','marker'}:
             return self._trace_marker(op,params,payload)
@@ -314,6 +317,7 @@ class Controller:
         if op=='selftest.start':
             if params['confirm'] is not True:raise ValueError('Подтвердите подключение стенда')
             self._safe_off();self._ack('selftest '+str(params['test']))
+            self._device_mode='unknown'
             self._source='unknown';self.revision+=1;self._publish()
             return dict(completion='inspect_live_screen',hardware_validation='not_run')
         if op=='generator.sweep':return self._generator_sweep(params)
@@ -395,10 +399,12 @@ class Controller:
         self._safe_off();self._ack('mode output');self._ack('output off')
         for command in [f"sweep {p['start_hz']} {p['stop_hz']} {p['points']}",f"level {p['level_dbm']:g}",f"levelchange {p['delta_db']:g}",f"sweeptime {p['seconds']:g}",'output on','sweep go','resume']:
             self._ack(command)
-        self._generator=True;self.settings.update(output_enabled=True,generator_sweep=p)
+        self.settings.update(output_enabled=True,generator_sweep=p)
         self.revision+=1;self._publish();return self.status()
 
     def _raw(self,params,*,zero_span=False):
+        if self._device_mode!='input':
+            raise ValueError('Верните прибор в monitoring: приём требует подтверждённого mode input')
         start=params.get('start_hz',self.adapter.start_hz)
         stop=start if zero_span else params.get('stop_hz',self.adapter.stop_hz)
         points=params.get('points',self.adapter.points)

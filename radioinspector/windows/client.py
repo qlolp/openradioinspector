@@ -250,6 +250,15 @@ class PlatformClient:
             return AverageChangeResult(envelope["data"], _data_json(raw.decode("utf-8")))
         return envelope["data"]
 
+    def monitoring(self, path='', payload=None, *, query=None):
+        if path and (not path.startswith('/') or '..' in path or '?' in path):
+            raise ValueError('Некорректный путь проекта')
+        if query is not None:
+            if payload is not None or not isinstance(query, dict):
+                raise ValueError('Фильтры проекта допустимы только для GET')
+            path += ('?' + urlencode(query)) if query else ''
+        return self._request('GET' if payload is None else 'POST', '/monitoring-projects' + path, payload)
+
     def instrument(self,session_id,stream_id,resource,payload=None,*,client_key=None,offset=0):
         allowed=resource in {'capabilities','settings','operations','artifacts'}
         parts=resource.split('/')
@@ -268,6 +277,16 @@ class PlatformClient:
             with self._opener.open(request,timeout=self.timeout) as response:
                 data=response.read(8*1024*1024+1)
                 if len(data)>8*1024*1024:raise ValueError('Artifact too large')
+                return data
+        except urllib.error.HTTPError as exc:raise self._decode_error(exc.read(MAX_RESPONSE_BYTES+1),exc.code) from exc
+
+    def monitoring_event_audio(self, project_id, event_id):
+        path=f"/monitoring-projects/{_segment(project_id,'project_id')}/events/{_segment(event_id,'event_id')}/audio"
+        request=urllib.request.Request(f'{self.base_url}/api/v1{path}',headers={'Accept':'audio/wav'})
+        try:
+            with self._opener.open(request,timeout=self.timeout) as response:
+                data=response.read(8*1024*1024+1)
+                if len(data)>8*1024*1024:raise ValueError('Audio recording too large')
                 return data
         except urllib.error.HTTPError as exc:raise self._decode_error(exc.read(MAX_RESPONSE_BYTES+1),exc.code) from exc
 

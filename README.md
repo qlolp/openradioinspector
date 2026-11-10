@@ -40,6 +40,8 @@ RInspectorWiFi и описание IQ_ProcessPRO.
 
 Актуальные [состояние выпуска](docs/release/status.md),
 [ревизия репозитория и следующий план](docs/repository-audit.md).
+Два рабочих режима: [радиомониторинг и исследование](docs/monitoring-modes.md);
+[синтетическая и аппаратная приёмка](docs/monitoring-hardware-acceptance.md).
 
 ## Возможности
 
@@ -444,10 +446,10 @@ python3 -m unittest discover -s tests -t .
 NumPy, pySerial, Node и работающий Tk desktop (на Linux возможен Xvfb):
 
 ```bash
-python3 -m pip install '.[serial]'
-python3 -m tests.run_release_checks
+python3 -m pip install '.[serial,test]'
+python3 -m tests.run_release_checks --report-dir release-reports
 # На macOS с Xcode: также Swift SDK, native-тесты и unsigned build
-python3 -m tests.run_release_checks --swift
+python3 -m tests.run_release_checks --swift --report-dir release-reports
 ```
 
 Runner создаёт собственные временные архивы и локальные HTTP fixtures,
@@ -483,3 +485,12 @@ Fit или ручного изменения границ. Pause view замор
 как порядок свипов/бинов, а не точная временная/частотная сетка.
 Контракт, проверки и оставшиеся GUI-срезы:
 [закреплённый вид спектра](docs/spectrum-presentation.md).
+
+## Исправления надёжности и диагностика проверок
+
+Пределы HTTP, упаковка импортируемых пакетов по байтам, отбор наблюдений
+по режиму receiver, отдельное состояние input/output tinySA и сохранение
+пика при децимации описаны в [результате аудита](docs/audit-reliability.md).
+Там разделены быстрый прогон, полный синтетический gate и отдельный
+протокол аппаратной приёмки. --report-dir сохраняет журналы и JSON-результаты
+после успеха и неуспеха; текущая CI-матрица публикует их как artifacts.

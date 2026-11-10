@@ -29,7 +29,7 @@ from .contracts import (
 from .sweep_references import check_reference_creation
 from .sweep_context import ContextIncompatibleError, validate_context_request
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 ARCHIVE_WARNING_THRESHOLD = 0.9
 
 
@@ -168,6 +168,8 @@ class SQLiteSessionStore:
             self._check_capacity_locked(before_write=False)
 
     def _create_schema(self) -> None:
+        from .monitoring.schema import install_schema
+        install_schema(self._connection)
         # Independent additive artifact schema; does not compete with the
         # listening/ingestion migrations of the core measurement tables.
         self._connection.execute('''CREATE TABLE IF NOT EXISTS instrument_artifacts (
@@ -301,8 +303,13 @@ class SQLiteSessionStore:
         for statement in schema.split(";"):
             if statement.strip():
                 self._connection.execute(statement)
+        columns = {row[1] for row in self._connection.execute("PRAGMA table_info(investigations)")}
+        if "listening_started_at" not in columns:
+            self._connection.execute("ALTER TABLE investigations ADD COLUMN listening_started_at TEXT")
         self._create_reference_schema()
         self._create_measurement_schema()
+        from .monitoring.schema import install_sweep_index
+        install_sweep_index(self._connection)
 
     def _create_measurement_schema(self) -> None:
         # Measurement results keep the methodology explicit and the verdict
@@ -507,46 +514,79 @@ class SQLiteSessionStore:
         with self._lock, self._connection:
             self._write_session(session, event=event)
 
+    def _session(self, row: sqlite3.Row) -> MonitoringSession:
+        streams = self._connection.execute(
+            "SELECT * FROM streams WHERE session_id = ? ORDER BY rowid", (row["id"],)
+        ).fetchall()
+        payload = {
+            "id": row["id"],
+            "contract_version": row["contract_version"],
+            "name": row["name"],
+            "state": row["state"],
+            "created_at": row["created_at"],
+            "started_at": row["started_at"],
+            "ended_at": row["ended_at"],
+            "metadata": _object(row["metadata_json"]),
+            "streams": [
+                {
+                    "id": stream["id"],
+                    "session_id": stream["session_id"],
+                    "device": stream["device"],
+                    "role": stream["role"],
+                    "level_unit": stream["level_unit"],
+                    "label": stream["label"],
+                    "port": stream["port"],
+                    "model": stream["model"],
+                    "serial_number": stream["serial_number"],
+                    "firmware": stream["firmware"],
+                    "state": stream["state"],
+                    "capabilities": json.loads(stream["capabilities_json"]),
+                    "settings": _object(stream["settings_json"]),
+                }
+                for stream in streams
+            ],
+        }
+        return MonitoringSession.from_dict(payload)
+
     def load_sessions(self) -> list[MonitoringSession]:
+        """Materialize legacy session history only on an explicit list request."""
         with self._lock:
             rows = self._connection.execute(
                 "SELECT * FROM sessions ORDER BY created_at, id"
             ).fetchall()
-            sessions = []
-            for row in rows:
-                streams = self._connection.execute(
-                    "SELECT * FROM streams WHERE session_id = ? ORDER BY rowid", (row["id"],)
-                ).fetchall()
-                payload = {
-                    "id": row["id"],
-                    "contract_version": row["contract_version"],
-                    "name": row["name"],
-                    "state": row["state"],
-                    "created_at": row["created_at"],
-                    "started_at": row["started_at"],
-                    "ended_at": row["ended_at"],
-                    "metadata": _object(row["metadata_json"]),
-                    "streams": [
-                        {
-                            "id": stream["id"],
-                            "session_id": stream["session_id"],
-                            "device": stream["device"],
-                            "role": stream["role"],
-                            "level_unit": stream["level_unit"],
-                            "label": stream["label"],
-                            "port": stream["port"],
-                            "model": stream["model"],
-                            "serial_number": stream["serial_number"],
-                            "firmware": stream["firmware"],
-                            "state": stream["state"],
-                            "capabilities": json.loads(stream["capabilities_json"]),
-                            "settings": _object(stream["settings_json"]),
-                        }
-                        for stream in streams
-                    ],
-                }
-                sessions.append(MonitoringSession.from_dict(payload))
-            return sessions
+            return [self._session(row) for row in rows]
+
+    def get_session(self, session_id: str) -> Optional[MonitoringSession]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            return self._session(row) if row is not None else None
+
+    def stream_exists(self, stream_id: str) -> bool:
+        with self._lock:
+            return self._connection.execute(
+                "SELECT 1 FROM streams WHERE id = ?", (stream_id,)
+            ).fetchone() is not None
+
+    def reset_runtime_stream_states(self) -> None:
+        """OS workers never survive restart; reset without loading their history."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE streams SET state = 'disconnected' WHERE state != 'disconnected'"
+            )
+
+    def registry_counts(self) -> dict[str, int]:
+        """Archive totals, independent of the bounded service working registry."""
+        with self._lock:
+            row = self._connection.execute("""
+                SELECT (SELECT count(*) FROM sessions) AS sessions,
+                    (SELECT count(*) FROM sessions WHERE state = 'running') AS running_sessions,
+                    (SELECT count(*) FROM candidates) AS candidates,
+                    (SELECT count(*) FROM investigations WHERE state = 'queued') AS queued_investigations,
+                    (SELECT count(*) FROM investigations WHERE state IN ('tuning','listening','decoding')) AS active_investigations
+            """).fetchone()
+            return dict(row)
 
     def append_event(self, event: SessionEvent) -> None:
         with self._lock, self._connection:
@@ -636,6 +676,9 @@ class SQLiteSessionStore:
                 data["level_unit"], _json(data["settings"]),
             ),
         )
+        self._connection.execute('INSERT INTO monitoring_sweep_index VALUES (?,?,?,?,?,?)',
+            (sweep.id,sweep.session_id,_archive_time(sweep.interval.started_at),_archive_time(sweep.interval.ended_at),
+             min(sweep.frequencies_hz),max(sweep.frequencies_hz)))
 
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None
@@ -857,6 +900,8 @@ class SQLiteSessionStore:
         frequency_hz: int,
         started_at: datetime,
         limit: Optional[int] = None,
+        *,
+        mode: Optional[str] = None,
     ) -> tuple[str, ...]:
         """ID наблюдений цели; preflight может ограничить строки явным limit."""
         if limit is not None and (
@@ -868,8 +913,11 @@ class SQLiteSessionStore:
             session_id,
             stream_id,
             frequency_hz,
-            _archive_time(started_at),
         ]
+        mode_sql = " AND mode = ?" if mode is not None else ""
+        if mode is not None:
+            parameters.append(mode)
+        parameters.append(_archive_time(started_at))
         if limit is not None:
             parameters.append(limit)
         with self._lock:
@@ -881,7 +929,7 @@ class SQLiteSessionStore:
                             THEN replace(started_at, 'Z', '.000000Z')
                             ELSE started_at END AS sort_started_at
                     FROM observations
-                    WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?
+                    WHERE session_id = ? AND stream_id = ? AND frequency_hz = ?{mode_sql}
                 ) WHERE sort_started_at >= ?
                 ORDER BY sort_started_at, id {limit_sql}
                 """,
@@ -965,8 +1013,8 @@ class SQLiteSessionStore:
             INSERT INTO investigations (
                 id, session_id, candidate_id, target_stream_id,
                 target_frequency_hz, state, priority, mode, created_at,
-                started_at, ended_at, result_observation_ids_json, error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                started_at, ended_at, result_observation_ids_json, error, listening_started_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 target_frequency_hz = excluded.target_frequency_hz,
                 state = excluded.state,
@@ -975,7 +1023,8 @@ class SQLiteSessionStore:
                 started_at = excluded.started_at,
                 ended_at = excluded.ended_at,
                 result_observation_ids_json = excluded.result_observation_ids_json,
-                error = excluded.error
+                error = excluded.error,
+                listening_started_at = excluded.listening_started_at
             """,
             (
                 data["id"], candidate.session_id, data["candidate_id"],
@@ -986,6 +1035,8 @@ class SQLiteSessionStore:
                 _archive_time(investigation.ended_at)
                 if investigation.ended_at is not None else None,
                 _json(data["result_observation_ids"]), data["error"],
+                _archive_time(investigation.listening_started_at)
+                if investigation.listening_started_at is not None else None,
             ),
         )
         if event is not None:
@@ -1027,10 +1078,27 @@ class SQLiteSessionStore:
             }
         )
 
-    def load_candidates(self) -> list[Candidate]:
+    def get_candidate(self, candidate_id: str) -> Optional[Candidate]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM candidates WHERE id = ?", (candidate_id,)
+            ).fetchone()
+            return self._candidate(row) if row is not None else None
+
+    def load_candidates(
+        self, *, session_id: Optional[str] = None, state: Optional[str] = None,
+    ) -> list[Candidate]:
+        clauses, parameters = [], []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            parameters.append(session_id)
+        if state is not None:
+            clauses.append("state = ?")
+            parameters.append(state)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM candidates ORDER BY started_at, id"
+                "SELECT * FROM candidates" + where + " ORDER BY started_at, id", parameters,
             ).fetchall()
             return [self._candidate(row) for row in rows]
 
@@ -1098,36 +1166,54 @@ class SQLiteSessionStore:
             ).fetchall()
             return [self._measurement_result(row) for row in rows]
 
-    def load_investigations(self) -> list[tuple[str, Investigation]]:
-        """Возвращает ``(session_id, investigation)``: модель не дублирует session_id."""
+    @staticmethod
+    def _investigation(row: sqlite3.Row) -> Investigation:
+        return Investigation.from_dict({
+            "id": row["id"], "candidate_id": row["candidate_id"],
+            "target_stream_id": row["target_stream_id"],
+            "target_frequency_hz": row["target_frequency_hz"],
+            "state": row["state"], "priority": row["priority"], "mode": row["mode"],
+            "created_at": row["created_at"], "started_at": row["started_at"],
+            "listening_started_at": row["listening_started_at"],
+            "ended_at": row["ended_at"],
+            "result_observation_ids": json.loads(row["result_observation_ids_json"]),
+            "error": row["error"],
+        })
+
+    def get_investigation(self, investigation_id: str) -> Optional[tuple[str, Investigation]]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM investigations WHERE id = ?", (investigation_id,)
+            ).fetchone()
+            return (row["session_id"], self._investigation(row)) if row is not None else None
+
+    def load_open_investigations(self) -> list[tuple[str, Investigation]]:
+        """Recovery loads pending work, never the growing terminal history."""
+        with self._lock:
+            rows = self._connection.execute("""
+                SELECT * FROM investigations
+                WHERE state IN ('queued','tuning','listening','decoding')
+                ORDER BY created_at, id
+            """).fetchall()
+            return [(row["session_id"], self._investigation(row)) for row in rows]
+
+    def load_investigations(
+        self, *, session_id: Optional[str] = None, state: Optional[str] = None,
+    ) -> list[tuple[str, Investigation]]:
+        """Return legacy history, optionally scoped before materializing it."""
+        clauses, parameters = [], []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            parameters.append(session_id)
+        if state is not None:
+            clauses.append("state = ?")
+            parameters.append(state)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM investigations ORDER BY created_at, id"
+                "SELECT * FROM investigations" + where + " ORDER BY created_at, id", parameters,
             ).fetchall()
-            return [
-                (
-                    row["session_id"],
-                    Investigation.from_dict(
-                        {
-                            "id": row["id"],
-                            "candidate_id": row["candidate_id"],
-                            "target_stream_id": row["target_stream_id"],
-                            "target_frequency_hz": row["target_frequency_hz"],
-                            "state": row["state"],
-                            "priority": row["priority"],
-                            "mode": row["mode"],
-                            "created_at": row["created_at"],
-                            "started_at": row["started_at"],
-                            "ended_at": row["ended_at"],
-                            "result_observation_ids": json.loads(
-                                row["result_observation_ids_json"]
-                            ),
-                            "error": row["error"],
-                        }
-                    ),
-                )
-                for row in rows
-            ]
+            return [(row["session_id"], self._investigation(row)) for row in rows]
 
     def close(self) -> None:
         with self._lock:

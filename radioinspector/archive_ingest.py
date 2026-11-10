@@ -26,8 +26,11 @@ from .contracts import (
     to_primitive,
 )
 
+from .request_limits import MAX_MEASUREMENT_REQUEST_BYTES
+
 ARCHIVE_FORMAT = "openradioinspector-archive"
 ARCHIVE_FORMAT_VERSION = 1
+
 MAX_RESPONSE_BYTES = 32_000_000
 MAX_SERVER_BATCH_LIMIT = 1000
 
@@ -206,7 +209,7 @@ class ArchiveIngestClient:
         body = None
         headers = {"Accept": "application/json"}
         if payload is not None:
-            body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            body = _encode_request(payload)
             headers["Content-Type"] = "application/json; charset=utf-8"
         request = urllib.request.Request(
             f"{self.base_url}/api/v1{path}", data=body, headers=headers, method=method
@@ -351,9 +354,48 @@ def _preflight_session(session: Any, document: ArchiveDocument, session_id: str)
                 )
 
 
-def _chunks(items: tuple[Any, ...], size: int):
-    for offset in range(0, len(items), size):
-        yield items[offset : offset + size]
+def _encode_request(payload: Any) -> bytes:
+    """Exactly the serialization sent by ArchiveIngestClient._request."""
+    return json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+
+
+BATCH_ENVELOPE_BYTES = len(_encode_request({"items": []}))
+
+
+def _server_batch_max_request_bytes(capabilities: dict) -> int:
+    limit = capabilities["features"].get(
+        "measurement_batch_max_request_bytes", MAX_MEASUREMENT_REQUEST_BYTES
+    )
+    if type(limit) is not int or limit < BATCH_ENVELOPE_BYTES:
+        raise ArchiveIngestError("Некорректный measurement_batch_max_request_bytes", code="invalid_capabilities")
+    return min(limit, MAX_MEASUREMENT_REQUEST_BYTES)
+
+
+def _batch_item_bytes(item: Any, maximum: int) -> int:
+    size = len(_encode_request(to_primitive(item)))
+    if BATCH_ENVELOPE_BYTES + size > maximum:
+        raise ArchiveIngestError(
+            f"Измерение {item.id} превышает предел тела пакета {maximum} байт",
+            code="measurement_too_large",
+        )
+    return size
+
+
+def _chunks(items: tuple[Any, ...], size: int, maximum_bytes: int):
+    chunk = []
+    used = BATCH_ENVELOPE_BYTES
+    for item in items:
+        item_bytes = _batch_item_bytes(item, maximum_bytes)
+        separator = 2 if chunk else 0
+        if chunk and (len(chunk) >= size or used + separator + item_bytes > maximum_bytes):
+            yield chunk
+            chunk = []
+            used = BATCH_ENVELOPE_BYTES
+            separator = 0
+        chunk.append(item)
+        used += separator + item_bytes
+    if chunk:
+        yield chunk
 
 
 def import_archive(
@@ -367,10 +409,14 @@ def import_archive(
     """Выполняет preflight и импорт; при dry-run не отправляет ни одного POST."""
     capabilities = client.capabilities()
     effective_batch_size = _server_batch_size(capabilities, batch_size)
+    maximum_bytes = _server_batch_max_request_bytes(capabilities)
     _preflight_session(client.get_session(session_id), document, session_id)
+    # Validate every single record before the first POST, including dry runs.
+    for item in (*document.sweeps, *document.observations):
+        _batch_item_bytes(item, maximum_bytes)
     batches = 0
     for kind, measurements in (("sweeps", document.sweeps), ("observations", document.observations)):
-        for chunk in _chunks(measurements, effective_batch_size):
+        for chunk in _chunks(measurements, effective_batch_size, maximum_bytes):
             batches += 1
             if dry_run:
                 continue
