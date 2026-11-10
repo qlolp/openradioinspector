@@ -62,6 +62,7 @@ class ResearchTests(unittest.TestCase):
         self.assertTrue(next(x for x in self.workers.list_workers(sid) if x['stream_id']==project['receiver_stream_id'])['alive'])
         self.service.manual_return(project['id'],{'token':lease['token']})
         wait_until(lambda:self.service.search_status(project['id'])['coverage']=='wide','validated broad coverage')
+        self.assertEqual(len(self.service.runtime[project['id']]['claims']),2,'completed searches must leave only the active device pair')
         self.service.disarm(project['id'],{})
 
     def test_expired_manual_owner_cannot_execute_queued_tune_but_can_return(self):

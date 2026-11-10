@@ -100,16 +100,18 @@ class GuardTests(unittest.TestCase):
             self.assertNotEqual(result[0]['active_session_id'],old['active_session_id'])
             self.assertEqual(self.service.guard_status(old['id'])['project']['state'],'armed')
 
-    def test_later_receiver_failure_makes_guard_error(self):
+    def test_later_receiver_failure_is_visible_and_analyzer_keeps_recording(self):
         with patch('radioinspector.device_workers.ARDV1Simulator.poll',side_effect=WorkerError('Lost receiver USB')):
             # Matching synthetic baseline; avoid conflating detector quality with USB failure.
             for i in range(20):self.sessions.ingest_sweep(sweep(i,session=self.session.id,stream=self.session.streams[0].id))
             self.service.create_baseline(self.project['id'],dict(name='Quiet',location='Room',confirm=True))
             with patch.object(self.service,'analyze',return_value={}):
                 self.service.arm(self.project['id'],{})
-                wait_until(lambda:self.service.project(self.project['id'])['state']=='error','guard receiver failure')
+                wait_until(lambda:self.service.project(self.project['id'])['state']=='degraded','guard receiver failure')
             status=self.service.guard_status(self.project['id'])
-            self.assertFalse(status['active']);self.assertIsNotNone(status['error'])
+            self.assertTrue(status['active']);self.assertIsNotNone(status['error'])
+            self.assertEqual(status['project']['coverage'],'wide')
+            self.assertTrue(next(x for x in status['workers'] if x['stream_id']==status['project']['analyzer_stream_id'])['alive'])
 
     def test_receiver_dwell_does_not_stop_analyzer_and_event_is_not_replayed(self):
         session = self.sessions.create_session(simulated_session_payload(tinysa_settings={'noise_sigma_db':0,'emitters':[]}))
@@ -135,3 +137,22 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(result['classifications'],[])
         self.service.disarm(project['id'],{})
         self.assertEqual(len(self.sessions.list_candidates(armed['active_session_id'])),1)
+
+    def test_new_run_cannot_reuse_prior_receiver_result_or_audio(self):
+        for i in range(20):self.sessions.ingest_sweep(sweep(i,session=self.session.id,stream=self.session.streams[0].id))
+        self.service.create_baseline(self.project['id'],dict(name='Quiet',location='Room',confirm=True))
+        levels=[-100.]*9;levels[4]=-92
+        for i in range(20,23):self.sessions.ingest_sweep(sweep(i,levels,self.session.id,self.session.streams[0].id))
+        self.service.analyze(self.project['id'])
+        old=self.service.store.list('event',self.project['id'])[0]
+        old['analysis']={'state':'observed','audio':{'id':'prior-audio','session_id':self.session.id}}
+        self.service.store.put('event',old)
+        with patch.object(self.service,'_launch_guard'):new=self.service.arm(self.project['id'],{})
+        for i in range(40,43):self.sessions.ingest_sweep(sweep(i,levels,new['active_session_id'],new['analyzer_stream_id']))
+        self.service.analyze(new['id'])
+        events=self.service.store.list('event',new['id'])
+        self.assertEqual(len(events),2)
+        pending=self.service.store.pending_receiver_events(new['id'],new['active_session_id'])
+        self.assertEqual(len(pending),1);self.assertNotEqual(pending[0]['id'],old['id'])
+        self.assertNotIn('analysis',pending[0]);self.assertEqual(self.service.store.get('event',old['id']),old)
+        self.service.disarm(new['id'],{})

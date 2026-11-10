@@ -734,7 +734,7 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     """Keep diagnostics, never fixture databases, home directories or build trees."""
     report_dir.mkdir(parents=True, exist_ok=True)
     destination = Path(tempfile.mkdtemp(prefix="run-", dir=report_dir))
-    for source in [*directory.glob("*.log"), directory / "python-results.json"]:
+    for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json']:
         if source.is_file():
             shutil.copy2(source, destination / source.name)
     summary = {
@@ -800,6 +800,17 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
                     report.get("unexpected_skips") or unexpected_skips(report.get("skipped", []))):
                 raise ReleaseCheckError("Python suite report did not pass the release gate")
             print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
+            endurance_path=directory/'monitoring-endurance.json'
+            run_command([sys.executable,'-m','tests.monitoring_endurance','--report',str(endurance_path)],
+                name='monitoring-seven-day',environment=environment,directory=directory,
+                timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+            endurance=json.loads(endurance_path.read_text(encoding='utf-8'))
+            if not (endurance.get('logical_elapsed_seconds',0)>=604800 and endurance.get('raw_sweeps',0)>0
+                    and endurance.get('raw_sweeps')==endurance.get('raw_verified')
+                    and endurance.get('bounded_working_registry') and endurance.get('restart_no_duplicate_events')
+                    and endurance.get('active_workers')==0 and endurance.get('hardware_validation')=='not_run'
+                    and endurance.get('comparison',{}).get('comparable_weak_recall')):
+                raise ReleaseCheckError('Seven-day synthetic monitoring acceptance did not pass')
             if swift:
                 for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
                     command = ["swift", "test", "--package-path", package,

@@ -4,21 +4,43 @@
   const root = document.getElementById('monitoring-workspace');
   if (!root) return;
   const projects = root.querySelector('[name=project]'), info = root.querySelector('pre');
-  let generation = 0, busy = false, followedSession = '';
-  async function request(path = '', body, options = {}) {
-    if (busy) return;
-    busy = true; const current = generation;
+  let generation=0,activeRequests=0,foregroundCount=0,foregroundTail=Promise.resolve(),writeEpoch=0,followedSession='';
+  function request(path='',body,options={}) {
+    const current=generation;
+    const invoke=()=>current===generation?performRequest(path,body,options):Promise.resolve();
+    if(options.quiet && body===undefined){
+      if(activeRequests || foregroundCount)return Promise.resolve();
+      return invoke();
+    }
+    if(foregroundCount>=32){info.textContent='Очередь действий клиента заполнена; дождитесь ответа';return Promise.resolve();}
+    const result=foregroundCount?foregroundTail.then(invoke):invoke();
+    foregroundCount++;
+    const tracked=result.finally(()=>{foregroundCount--;});
+    foregroundTail=tracked.catch(()=>{});
+    return tracked;
+  }
+  async function performRequest(path,body,options) {
+    activeRequests++;const current=generation;
+    if(body!==undefined)writeEpoch++;
+    const epoch=writeEpoch,controller=new AbortController();
+    const timeout=window.setTimeout(()=>controller.abort(),path.endsWith('/disarm')?45000:10000);
     try {
-      const response = await fetch('/api/v1/monitoring-projects' + path, body === undefined ? {} : {
-        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+      const response = await fetch('/api/v1/monitoring-projects' + path, body === undefined ? {signal:controller.signal} : {
+        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),signal:controller.signal
       });
       const raw = await response.text();
       if (raw.length > 2000000) throw Error('Ответ проекта превышает предел');
       const envelope = JSON.parse(raw);
       if (!response.ok) throw Error(envelope.error?.message || `HTTP ${response.status}`);
-      if (current !== generation) return;
+      if (current !== generation || options.quiet && body===undefined && epoch!==writeEpoch) return;
       const data = envelope.data;
       const project = data.project || (data.active_session_id ? data : null);
+      if(project){
+        const states={armed:'на охране',degraded:'неполная связка приборов',error:'ошибка',collecting:'сбор эталона',ready:'готов, охрана выключена',draft:'подготовка',interrupted:'прерван, требуется подготовка'};
+        const manual=(data.manual||[]).map(x=>`${x.role}: ручное управление${x.expired?' (аренда истекла)':''}`).join(' · ');
+        root.querySelector('[data-role=guard-live-status]').textContent=`Охрана: ${states[project.state]||project.state} · ${manual} ${data.error||project.last_error||''}`;
+        if(window.oriMonitoringResearch)window.oriMonitoringResearch.coverage(project.coverage||'stopped');
+      }
       const scope = project ? `${project.id}|${project.active_session_id}` : '';
       if (scope && scope !== followedSession) {
         followedSession = scope;
@@ -39,7 +61,7 @@
       if (!options.quiet) info.textContent = JSON.stringify(data, null, 2);
       return data;
     } catch (error) { if (current === generation && !options.quiet) info.textContent = error.message; }
-    finally { busy = false; }
+    finally { activeRequests--;window.clearTimeout(timeout); }
   }
   root.querySelector('[name=workspace]').addEventListener('change', event => {
     document.body.dataset.workspaceMode = event.target.value;

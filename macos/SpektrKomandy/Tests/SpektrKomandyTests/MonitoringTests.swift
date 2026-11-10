@@ -351,6 +351,8 @@ final class MonitoringTests: XCTestCase {
 
     func testSearchStatusAndSourcePaginationStayScopedAndBounded() async throws {
         let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "GET", "Search-series polling must remain read-only")
+            XCTAssertNil(request.httpBody)
             if request.url!.path.hasSuffix("/search/status") {
                 return (self.response(request), self.envelope("{\"active\":false,\"coverage\":\"paused\",\"series\":[],\"marks\":[],\"maximum_level\":null,\"error\":\"worker stopped\"}"))
             }
@@ -557,6 +559,114 @@ final class MonitoringTests: XCTestCase {
         } catch {
             XCTAssertFalse(error.localizedDescription.contains(credential))
         }
+    }
+
+    func testPreparationSavesScopedOperatorDeclarationsIncludingFalseFlags() async throws {
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/monitoring-projects/p%2F1/preparation"))
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            XCTAssertEqual(body, .object(["antenna_notes": .string("Антенна на крыше, тракт A"),
+                "receive_path_confirmed": .boolean(true), "location_confirmed": .boolean(false)]))
+            return (self.response(request), self.envelope("{}"))
+        }
+        _ = try await client.monitoringSavePreparation(projectID: "p/1", antennaNotes: "Антенна на крыше, тракт A", receivePathConfirmed: true, locationConfirmed: false)
+    }
+
+    func testPreparationStartStopAreExplicitEmptyPostsAndPreflightIsReadOnly() async throws {
+        var posts = 0
+        let client = try makeClient { request in
+            if request.url!.path.hasSuffix("/preflight") {
+                XCTAssertEqual(request.httpMethod, "GET"); XCTAssertNil(request.httpBody)
+                return (self.response(request), self.envelope(#"{"baseline_collection":{"sweeps":700,"elapsed_seconds":60.5,"minimum_sweeps":20,"minimum_seconds":60,"ready":true},"hardware_validation":"not_run"}"#))
+            }
+            posts += 1
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url!.absoluteString.hasSuffix("/p%2F1/preparation/start") || request.url!.absoluteString.hasSuffix("/p%2F1/preparation/stop"))
+            XCTAssertEqual(try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody)), .object([:]))
+            return (self.response(request), self.envelope(#"{"project":{"active_session_id":"collection-new","state":"collecting"},"workers":[]}"#))
+        }
+        let started = try await client.monitoringStartPreparation(projectID: "p/1")
+        XCTAssertEqual(started["project"]["active_session_id"].text, "collection-new")
+        let preflight = try await client.monitoringProject("p/1", resource: "preflight")
+        XCTAssertEqual(preflight["baseline_collection"]["sweeps"].integer, 700)
+        XCTAssertEqual(preflight["baseline_collection"]["elapsed_seconds"].double, 60.5)
+        XCTAssertEqual(preflight["baseline_collection"]["ready"].bool, true)
+        XCTAssertEqual(preflight["hardware_validation"].text, "not_run")
+        XCTAssertEqual(posts, 1, "Progress reading cannot start workers")
+        _ = try await client.monitoringStopPreparation(projectID: "p/1")
+        XCTAssertEqual(posts, 2)
+    }
+
+    func testInvalidPreparationNotesAndMissingProjectFailBeforeNetwork() async throws {
+        let client = try makeClient { _ in XCTFail("No network expected"); throw CancellationError() }
+        for notes in ["", " \n\t", String(repeating: "я", count: 1001)] {
+            do {
+                _ = try await client.monitoringSavePreparation(projectID: "p", antennaNotes: notes, receivePathConfirmed: false, locationConfirmed: false)
+                XCTFail("Invalid notes must fail")
+            } catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected failure") } }
+        }
+        do { _ = try await client.monitoringStartPreparation(projectID: ""); XCTFail("Project is required") }
+        catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected failure") } }
+        do { _ = try await client.monitoringStopPreparation(projectID: ""); XCTFail("Project is required") }
+        catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected failure") } }
+    }
+
+    func testBalancedDetectorDefaultsHaveIntegerCountsAndRoundTrip() throws {
+        let defaults = MonitoringDetectorSettings()
+        XCTAssertEqual(defaults.marginDB, 6); XCTAssertEqual(defaults.impulseDB, 12)
+        XCTAssertEqual(defaults.hysteresisDB, 3); XCTAssertEqual(defaults.dwellSeconds, 10)
+        XCTAssertEqual(defaults.body["confirmations"], .integer(3))
+        XCTAssertEqual(defaults.body["window_sweeps"], .integer(5))
+        let value = try JSONDecoder().decode(MonitoringValue.self, from: JSONEncoder().encode(MonitoringValue.object(defaults.body)))
+        XCTAssertEqual(try MonitoringDetectorSettings(value), defaults)
+    }
+
+    func testDetectorRejectsNonfiniteRangesAndInconsistentRelationships() {
+        func draft(margin: Double = 6, impulse: Double = 12, hysteresis: Double = 3,
+                   confirmations: Int64 = 3, window: Int64 = 5, dwell: Double = 10) throws -> MonitoringDetectorSettings {
+            try .init(marginDB: margin, impulseDB: impulse, hysteresisDB: hysteresis,
+                confirmations: confirmations, windowSweeps: window, dwellSeconds: dwell)
+        }
+        XCTAssertThrowsError(try draft(margin: .nan))
+        XCTAssertThrowsError(try draft(impulse: .infinity))
+        XCTAssertThrowsError(try draft(margin: 0))
+        XCTAssertThrowsError(try draft(margin: 61, impulse: 70))
+        XCTAssertThrowsError(try draft(impulse: 121))
+        XCTAssertThrowsError(try draft(impulse: 5))
+        XCTAssertThrowsError(try draft(hysteresis: -1))
+        XCTAssertThrowsError(try draft(hysteresis: 7))
+        XCTAssertThrowsError(try draft(margin: 30, impulse: 40, hysteresis: 21))
+        XCTAssertThrowsError(try draft(confirmations: 0))
+        XCTAssertThrowsError(try draft(confirmations: 6))
+        XCTAssertThrowsError(try draft(window: 16))
+        XCTAssertThrowsError(try draft(dwell: 0))
+        XCTAssertThrowsError(try draft(dwell: 31))
+    }
+
+    func testDetectorCountsMustBeIntegersAndKnownNumericFieldsStayPublic() async throws {
+        let raw = #"{"autostart":false,"archive":{"minimum_free_bytes":268435456,"minimum_retention_seconds":3600},"webhook":{"enabled":false,"url":"","secret_configured":false},"detector":{"margin_db":6,"impulse_db":12,"hysteresis_db":3,"confirmations":3.5,"window_sweeps":5,"dwell_seconds":10,"secret":"hidden-detector-value"}}"#
+        let client = try makeClient { request in (self.response(request), self.envelope(raw)) }
+        let value = try await client.monitoringSettings(projectID: "p")
+        XCTAssertEqual(value["detector"]["confirmations"], .null)
+        XCTAssertEqual(value["detector"]["window_sweeps"], .integer(5))
+        XCTAssertFalse(value.pretty.contains("hidden-detector-value"))
+        XCTAssertThrowsError(try MonitoringDetectorSettings(value["detector"]))
+    }
+
+    func testDetectorSaveIsPartialAndLeavesWebhookArchiveAndAutostartUntouched() async throws {
+        let expected = MonitoringDetectorSettings().body
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url!.path.hasSuffix("/p/settings"))
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            guard case .object(let fields) = body else { throw PlatformError.invalidResponse("Expected settings object") }
+            XCTAssertEqual(Set(fields.keys), ["detector"])
+            XCTAssertEqual(body["detector"]["confirmations"], .integer(3))
+            XCTAssertEqual(body["detector"]["window_sweeps"], .integer(5))
+            return (self.response(request), self.envelope(self.publicSettingsJSON))
+        }
+        _ = try await client.monitoringSettings(projectID: "p", body: ["detector": .object(expected)])
     }
 
 }

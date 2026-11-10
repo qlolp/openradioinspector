@@ -826,6 +826,11 @@ class OrchestrationTests(unittest.TestCase):
                     raise failure
                 Path(command[-1]).write_text(json.dumps({"tests_run": 100, "successful": True,
                                                        "skipped": [], "unexpected_skips": []}), encoding="utf-8")
+            if 'tests.monitoring_endurance' in command:
+                Path(command[command.index('--report')+1]).write_text(json.dumps(dict(
+                    logical_elapsed_seconds=604800,raw_sweeps=10045,raw_verified=10045,
+                    bounded_working_registry=True,restart_no_duplicate_events=True,
+                    active_workers=0,hardware_validation='not_run',comparison={'comparable_weak_recall':True})),encoding='utf-8')
             return "Executed 10 tests, with 0 failures\n"
 
         return fixtures, environments, commands, fixture_factory, command
@@ -842,6 +847,14 @@ class OrchestrationTests(unittest.TestCase):
         self.assertFalse(Path(test_environment["TMPDIR"]).exists())
         for fixture in fixtures:
             fixture.close.assert_called_once()
+
+    def test_seven_day_acceptance_runs_inside_owned_release_environment(self):
+        fixtures,environments,commands,factory,command=self.make_runner()
+        with patch.object(release,'Fixture',side_effect=factory),patch.object(release,'run_command',side_effect=command),redirect_stdout(io.StringIO()):
+            release.release_checks()
+        endurance=[cmd for cmd,_ in commands if 'tests.monitoring_endurance' in cmd]
+        self.assertEqual(len(endurance),1)
+        self.assertIn('--report',endurance[0]);self.assertNotIn('--archive',endurance[0])
 
     def test_entrypoint_never_trusts_registry_from_callers_environment(self):
         _, environments, commands, factory, command = self.make_runner()

@@ -13,7 +13,11 @@ def dispatch(handler, method, route, payload=None, query=None):
     tail = [unquote(x) for x in route[len(prefix):].strip('/').split('/') if x]
     query = query or {}
     try:
-        if len(tail)==2 and tail[1] in ('settings','storage','alerts'):
+        if method=='POST' and len(tail) in (2,3) and tail[1]=='preparation':
+            action=tail[2] if len(tail)==3 else 'save'
+            if action not in ('save','start','stop'):raise ValueError('Неизвестный шаг подготовки')
+            handler._send_json(api_payload(getattr(service,action+'_preparation')(tail[0],payload)))
+        elif len(tail)==2 and tail[1] in ('settings','storage','alerts'):
             identifier,action=tail
             if method=='GET':
                 value=service.settings(identifier) if action=='settings' else service.storage_report(identifier) if action=='storage' else service.alerts(identifier,query)
@@ -69,7 +73,8 @@ def dispatch(handler, method, route, payload=None, query=None):
             service.project(identifier)
             kind = {'baselines':'baseline', 'allowed':'allowed', 'events':'event'}[action]
             if method == 'GET':
-                items = service.store.list(kind, identifier, limit=int(query.get('limit',['200'])[0]), after=query.get('after',[''])[0])
+                list_records=service.store.recent if kind in ('event','baseline') else service.store.list
+                items = list_records(kind, identifier, limit=int(query.get('limit',['200'])[0]), after=query.get('after',[''])[0])
                 if kind == 'baseline':
                     items = [{k:v for k,v in x.items() if k not in ('frequencies_hz','p50_dbm','p95_dbm','mad_db','source_refs')} | {'source_count':len(x['source_refs'])} for x in items]
                 elif kind == 'event':

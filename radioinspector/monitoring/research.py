@@ -32,6 +32,10 @@ class ResearchOperations:
             if lease['token'] == token:
                 if current and (lease['returning'] or time.monotonic() >= lease['expires']):
                     raise WorkerError('Ручная аренда истекла; обзор/очередь остаётся на паузе до явного возврата')
+                if current and lease['role']=='receiver':
+                    with self.workers._lock:worker=self.workers._workers.get((runtime['sid'],stream))
+                    if worker is not lease.get('worker'):
+                        raise WorkerError('Соединение приёмника изменилось; требуется явный возврат под управление охраны')
                 return runtime, stream, lease
         raise WorkerError('Неверный token ручного владельца')
 
@@ -46,6 +50,7 @@ class ResearchOperations:
             if stream in runtime['manual']: raise WorkerError('Прибор уже передан вручную; используйте возврат или снимите охрану')
             if role=='receiver': runtime['epoch']+=1
             lease=dict(token=uuid4().hex,role=role,expires=time.monotonic()+30,returning=False)
+            with self.workers._lock:lease['worker']=self.workers._workers.get((runtime['sid'],stream))
             runtime['manual'][stream]=lease
             if role=='analyzer':
                 project['coverage']='paused'; self.store.put('project',project)
@@ -89,6 +94,10 @@ class ResearchOperations:
             project=self.project(identifier)
             frequency=project['profile']['receiver']['settings'].get('frequency_hz',145500000)
         try:
+            status=next(x for x in self.workers.list_workers(runtime['sid']) if x['stream_id']==stream)
+            if not status['alive'] or status.get('current',{}).get('restart_required'):
+                self.workers.stop_stream(runtime['sid'],stream)
+                self.workers.start_stream(runtime['sid'],stream)
             self.workers.tune(runtime['sid'],stream,dict(frequency_hz=frequency,mode=project.get('receiver_mode','AUTO')),control_owner=runtime['token'])
         except Exception:
             with self.lock: lease['returning']=False
@@ -118,7 +127,7 @@ class ResearchOperations:
             search=dict(session_id=session.id,stream_id=session.streams[0].id,event_id=event['id'],
                         center_frequency_hz=center,span_hz=span,detector_rowid=0,maximum_level=None)
             runtime['search']=search
-            project['session_ids'].append(session.id);project['coverage']='narrow';project['state']='searching'
+            project['session_ids']=(project['session_ids']+[session.id])[-128:];project['coverage']='narrow';project['state']='searching'
             self.store.put('project',project)
         try:
             statuses=self.workers.start_session(session.id)
@@ -197,6 +206,7 @@ class ResearchOperations:
                 if search:
                     self.workers.stop_session(search['session_id']);self.sessions.stop_session(search['session_id'])
                     while self._search_tick(identifier,runtime):pass
+                    with self.lock:runtime['claims'].discard((search['session_id'],search['stream_id']))
                 self.workers.stop_stream(runtime['sid'],stream)
                 started=utc_now()
                 self.workers.start_stream(runtime['sid'],stream)
@@ -303,7 +313,10 @@ class ResearchOperations:
             sweep=store.get_sweep(sweep_id)
         else:
             with self.sessions._lock:sweep=next((s for s in self.sessions._sweeps if s.id==sweep_id),None)
-        if sweep is None or sweep.session_id not in project['session_ids']:raise KeyError('Свип другого проекта/отсутствует')
+        with self.store.lock:
+            owned=self.store.db.execute('SELECT 1 FROM monitoring_sessions WHERE project_id=? AND session_id=?',
+                (identifier,sweep.session_id if sweep else '')).fetchone()
+        if sweep is None or not owned:raise KeyError('Свип другого проекта/отсутствует')
         return to_primitive(sweep)
 
     def history_comparison(self, identifier, sweep_id):

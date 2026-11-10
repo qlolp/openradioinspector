@@ -5,7 +5,7 @@ function element(){ return {value:'',textContent:'',dataset:{},selectedOptions:[
 const nodes={}, root=element(), pending=[], emitted=[], timers=new Map();let timerId=0;
 root.querySelector=s=>nodes[s]||(nodes[s]=element());
 const context=vm.createContext({document:{getElementById:()=>root,body:{dataset:{}},createElement:()=>element()},
- window:{dispatchEvent:e=>emitted.push(e),addEventListener(){},setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);}},CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}},URLSearchParams,Option:function(t,v){return Object.assign(element(),{textContent:t,value:v});},localStorage:{getItem:()=>null,setItem(){}},
+ window:{dispatchEvent:e=>emitted.push(e),addEventListener(){},setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);}},AbortController,CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}},URLSearchParams,Option:function(t,v){return Object.assign(element(),{textContent:t,value:v});},localStorage:{getItem:()=>null,setItem(){}},
  fetch:(url,options)=>new Promise(resolve=>pending.push({url,options,resolve})),FormData:class{},console});
 vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);
 async function respond(data){pending.shift().resolve({ok:true,text:async()=>JSON.stringify({data})});await new Promise(setImmediate);}
@@ -46,5 +46,16 @@ async function respond(data){pending.shift().resolve({ok:true,text:async()=>JSON
   await respond({autostart:false,archive:{minimum_free_bytes:268435456,minimum_retention_seconds:3600},webhook:{enabled:false,url:'http://127.0.0.1/hook',secret_configured:true}});await again;
   assert.equal(timers.size,1,'one bounded polling timer');
  }
+ const api=context.window.oriMonitoring;
+ const poll=api.request('/project-1/status',undefined,{quiet:true});
+ const stop=nodes['[data-action=disarm]'].onclick();
+ assert.equal(pending.length,2,'Disarm must be sent while a background read is pending');
+ const returning=api.request('/project-1/manual/return',{token:'explicit-owner'});
+ const background=pending.shift(),stopping=pending.shift();
+ stopping.resolve({ok:true,text:async()=>JSON.stringify({data:{state:'ready'}})});await stop;await new Promise(setImmediate);
+ assert.equal(pending[0].url,'/api/v1/monitoring-projects/project-1/manual/return','foreground writes retain explicit order');
+ await respond({state:'returned'});await returning;
+ background.resolve({ok:true,text:async()=>JSON.stringify({data:{project:{id:'project-1',active_session_id:'stale-run'}}})});await poll;
+ assert.equal(emitted.some(e=>e.detail.sessionId==='stale-run'),false,'stale poll cannot override a newer operator action');
  console.log('Monitoring project scope, explicit arm and audio consent passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1,6 +1,7 @@
 """Thin monitoring workspace: the core owns all capture and receiver control."""
 import io
 import json
+import math
 import time
 from datetime import datetime, timezone
 import sys
@@ -48,6 +49,8 @@ DELIVERY_LABELS = {'disabled':'отключена', 'pending':'ожидаетс�
                    'sent':'доставлено', 'failed':'ошибка доставки'}
 
 
+BALANCED_DETECTOR = dict(margin_db=6.0, impulse_db=12.0, hysteresis_db=3.0, confirmations=3, window_sweeps=5, dwell_seconds=10.0)
+
 def _public_data(value, secret=''):
     if isinstance(value, dict):
         return {key:_public_data(item, secret) for key,item in value.items() if str(key).lower() not in ('secret','token')}
@@ -65,9 +68,12 @@ def _post_settings(client, path, payload):
         raise PlatformClientError(message, status=getattr(exc, 'status', None), code=getattr(exc, 'code', 'settings_error')) from None
 
 
-def _poll_project(client, project, health):
+def _poll_project(client, project, health, collecting=False, searching=False):
     result = {}
-    for resource in (('alerts', 'storage', 'status') if health else ('alerts',)):
+    resources = ('alerts', 'storage', 'status') if health else ('alerts',)
+    if health and collecting: resources += ('preflight',)
+    if searching: resources += ('search/status',)
+    for resource in resources:
         try:
             result[resource] = client.monitoring('/' + quote(project, safe='') + '/' + resource,
                 **({'query':{'limit':50}} if resource == 'alerts' else {}))
@@ -85,6 +91,9 @@ class MonitoringPanel(TkTimerOwner):
         self.app, self.notebook = app, notebook
         self._client = app.client
         self.closed = False
+        self._background_token=None
+        self._operator_epoch=0
+        self._operator_actions=[]
         self._followed_runs, self._following_runs = set(), set()
         self.generation = 0
         self.items, self.events, self.devices = [], [], []
@@ -143,6 +152,7 @@ class MonitoringPanel(TkTimerOwner):
         self.audio_text = tk.StringVar(value='Выберите вход явно. USB AR-DV1 не передаёт PCM. AUTO не включает TETRA.')
         ttk.Label(receiver, textvariable=self.audio_text, wraplength=900).pack(fill='x')
         extra = ttk.Frame(prepare_page); extra.pack(fill='x')
+        self.preparation_baseline_row = extra
         self.confirm = tk.BooleanVar(value=False)
         ttk.Checkbutton(extra, text='Подтверждаю обычную обстановку', variable=self.confirm).pack(side='left')
         ttk.Button(extra, text='Зафиксировать эталон', command=self.baseline).pack(side='left')
@@ -178,6 +188,7 @@ class MonitoringPanel(TkTimerOwner):
         self.output.pack(fill='both', expand=True)
         self._build_research(receiver_page)
         self._build_operations(events_page)
+        self._build_acceptance(prepare_page)
         self._init_timers(app.root)
         self._bind_scroll(self.content)
         self.tabs = list(notebook.tabs())
@@ -208,9 +219,13 @@ class MonitoringPanel(TkTimerOwner):
 
     def project_changed(self, _event=None):
         self.generation += 1
+        self._background_token=None
+        self._operator_epoch+=1
+        self._operator_actions.clear()
         self._following_runs.clear()
         self._clear_research()
         self._reset_operations()
+        self._reset_acceptance()
         self.active, self.event, self.events = None, None, []
         self.audio_confirm.set(False)
         self.receiver_mode.set('AUTO')
@@ -237,16 +252,43 @@ class MonitoringPanel(TkTimerOwner):
     def _valid(self, context):
         return not self.closed and not getattr(self.app, '_closed', False) and context == self._context()
 
-    def _submit(self, operation, callback, *, event_id=None):
-        if self.closed or getattr(self.app, '_closed', False) or getattr(self.app, '_action_running', False) or not self.app.client:
+    def _submit(self, operation, callback, *, event_id=None, background=False):
+        if self.closed or getattr(self.app, '_closed', False) or not self.app.client:
             return False
-        context = self._context()
+        if getattr(self.app,'_action_running',False):
+            if background:return False
+            if len(self._operator_actions)>=32:
+                self.render({'error':'Очередь действий клиента заполнена; дождитесь ответа'});return False
+            self._operator_actions.append((self._context(),operation,callback,event_id))
+            self._operator_epoch+=1
+            self.status_text.set('Действие ожидает завершения предыдущего запроса; повторно нажимать не нужно.')
+            self._schedule_after(self.app.root,'operator-actions',100,self._drain_operator_actions)
+            return True
+        if background and self._background_token is not None:return False
+        token=object()
+        if background:self._background_token=token
+        else:self._operator_epoch+=1
+        epoch=self._operator_epoch;context = self._context()
         def completed(data):
+            if background:
+                if self._background_token is token:self._background_token=None
+                if epoch!=self._operator_epoch:return
             if self._valid(context) and (event_id is None or self.selected_event() == event_id):
                 callback(data)
-        submit = getattr(self.app, '_submit_project_action', self.app._submit_action)
+        submit = getattr(self.app, '_submit_project_read' if background else '_submit_project_action', self.app._submit_action)
         submit('Проект наблюдения', operation, completed)
         return True
+
+    def _drain_operator_actions(self):
+        if self.closed or getattr(self.app,'_closed',False):self._operator_actions.clear();return
+        if getattr(self.app,'_action_running',False):
+            self._schedule_after(self.app.root,'operator-actions',100,self._drain_operator_actions);return
+        while self._operator_actions:
+            context,operation,callback,event_id=self._operator_actions.pop(0)
+            if self._valid(context):
+                self._submit(operation,callback,event_id=event_id)
+                break
+        if self._operator_actions:self._schedule_after(self.app.root,'operator-actions',100,self._drain_operator_actions)
 
     def call(self, path='', payload=None):
         self._sync_context()
@@ -276,12 +318,19 @@ class MonitoringPanel(TkTimerOwner):
         elif '/events/' in path:
             self.event = data
             self.workspace.select(self.diagnostics_page)
+        elif path.endswith('/preflight'):
+            self._show_preflight(data)
+        elif path.endswith('/baselines'):
+            self.confirm.set(False)
+            if self.collecting_baseline: self.preparation_text.set('Эталон зафиксирован. Приём продолжается до явной остановки сбора или постановки на охрану; аппаратная проверка не выполнена.')
         elif path.endswith('/status'):
             self._show_status(data, update_inputs=True)
         elif path.endswith(('/arm', '/disarm', '/configure')):
+            if path.endswith(('/arm','/disarm')): self.collecting_baseline = False
             if path.endswith('/disarm'): self._clear_research()
             self.active = data.get('state') == 'armed'
             self.status_text.set('Команда выполнена. Запросите «Статус» для состояния исполнителей; оборудование не проверено.')
+        self._update_preparation_controls()
         self.render(data)
         if path.endswith('/arm'): self._maybe_follow(data)
 
@@ -327,6 +376,11 @@ class MonitoringPanel(TkTimerOwner):
         if self._configurable(): self.scoped('configure', {'audio': None})
 
     def baseline(self):
+        if not self._configurable(): return
+        if not self.confirm.get():
+            self.render({'error':'Явно подтвердите обычную обстановку перед фиксацией эталона.'}); return
+        if self.collection_ready is False:
+            self.render({'error':'Ядро ещё не подтвердило достаточный сбор эталона; обновите готовность.'}); return
         self.scoped('baselines', dict(name=self.name.get(), location=self.site.get(), confirm=self.confirm.get()))
 
     def allow_signal(self):
@@ -530,6 +584,8 @@ class MonitoringPanel(TkTimerOwner):
                 self.leases[role] = dict(token=data.get('token', payload.get('token')), deadline=requested + data['expires_seconds'])
             else:
                 self.leases.pop(role, None)
+                if role == 'analyzer' and data.get('state') == 'restoring':
+                    self.search_data = dict(self.search_data, active=False, coverage='restoring')
                 self.coverage_text.set('Широкий обзор восстанавливается; обновите поиск до подтверждения wide.' if data.get('state') == 'restoring' else 'Управление возвращено; обновите статус поиска.')
             self._refresh_manual()
             self.render({k: v for k, v in data.items() if k != 'token'})
@@ -571,16 +627,18 @@ class MonitoringPanel(TkTimerOwner):
             self.render(data)
         self._research('search/mark', dict(token=token, label=label), completed)
 
-    def receive_search(self, data):
+    def receive_search(self, data, *, diagnostic=True):
         self.search_data = data
         descriptions = {'narrow': 'УЗКИЙ поиск: широкий обзор приостановлен', 'wide': 'Широкий обзор подтверждён ядром',
                         'restoring': 'Широкий обзор восстанавливается', 'paused': 'Широкий обзор приостановлен',
-                        'error': 'Ошибка обзора; проверьте статус', 'stopped': 'Обзор остановлен'}
+                        'error': 'Ошибка обзора; проверьте статус', 'stopped': 'Обзор остановлен',
+                        'unavailable': 'Широкий обзор недоступен; проверьте состояние анализатора'}
         coverage = data.get('coverage', 'unknown')
         self.coverage_text.set(f"{descriptions.get(coverage, 'Покрытие неизвестно')} · событие {data.get('event_id', '—')} · максимум ядра: {data.get('maximum_level', '—')} dBm")
         marks = data.get('marks', [])[-8:]
         self.marks_text.set('; '.join(f"{m.get('label', '')} · {m.get('created_at', '')} · {m.get('level', '—')} dBm" for m in marks)[:900])
-        self._refresh_manual(); self.draw_search(); self.render(data)
+        self._refresh_manual(); self.draw_search()
+        if diagnostic: self.render(data)
 
     def _filter_signature(self):
         return tuple(v.get() for v in (self.history_start, self.history_end, self.history_min, self.history_max, self.history_event))
@@ -776,6 +834,7 @@ class MonitoringPanel(TkTimerOwner):
         ttk.Button(row, text='Сохранить вердикт', command=self.review_event).pack(side='left')
         operations = ttk.Frame(self.workspace, padding=4); self.workspace.add(operations, text='Эксплуатация')
         pages = ttk.Notebook(operations); pages.pack(fill='both', expand=True)
+        self.operations_tabs = pages
         settings_page, storage_page, alerts_page = [ttk.Frame(pages, padding=4) for _ in range(3)]
         for page,title in [(settings_page,'Настройки'),(storage_page,'Архив'),(alerts_page,'Уведомления')]: pages.add(page,text=title)
         self.operations_page, self.alerts_page = operations, alerts_page
@@ -850,8 +909,16 @@ class MonitoringPanel(TkTimerOwner):
                 if data['storage'].get('poll_error'): self.storage_text.set('Прогноз не обновлён: '+str(data['storage']['poll_error'])[:500])
                 else: self._show_storage(data['storage'])
             if 'status' in data and not data['status'].get('poll_error'): self._show_status(data['status'],update_inputs=False)
+            if 'preflight' in data:
+                if data['preflight'].get('poll_error'): self.collection_text.set('Прогресс не обновлён: '+str(data['preflight']['poll_error'])[:500])
+                else: self._show_preflight(data['preflight'])
+            if 'search/status' in data:
+                search = data['search/status']
+                if search.get('poll_error'): self.coverage_text.set('Не удалось обновить поиск: '+str(search['poll_error'])[:500])
+                else: self.receive_search(search,diagnostic=False)
             self._refresh_manual()
-        self._submit(partial(_poll_project,self.app.client,self.selected(),health),completed)
+        searching = bool(self.search_data.get('active')) or self.search_data.get('coverage') == 'restoring'
+        self._submit(partial(_poll_project,self.app.client,self.selected(),health,self.collecting_baseline,searching),completed,background=True)
 
     def close(self):
         if self.closed: return
@@ -859,6 +926,7 @@ class MonitoringPanel(TkTimerOwner):
         self.generation += 1
         self._close_timers()
         self.leases.clear()
+        self._operator_actions.clear()
 
     def load_settings(self):
         self._research('settings',None,self._receive_settings)
@@ -873,7 +941,7 @@ class MonitoringPanel(TkTimerOwner):
         self.webhook_enabled.set(bool(webhook.get('enabled')))
         self.webhook_url.set(webhook.get('url','')); self.webhook_secret.set('')
         self.settings_text.set(('Секрет webhook настроен. ' if webhook.get('secret_configured') else 'Секрет webhook не настроен. ')
-            +'Параметры детектора из ядра: '+json.dumps(data.get('detector',{}),ensure_ascii=False)[:2000])
+            +'Параметры детектора — на вкладке «Детектор».')
         self.render(data)
 
     def save_settings(self):
@@ -984,18 +1052,27 @@ class MonitoringPanel(TkTimerOwner):
             guard=lambda:self.selected_event()==identifier)
 
     def _show_status(self, data, *, update_inputs):
-        self.active = bool(data.get('active')) or data.get('project',{}).get('state') == 'armed'
+        self.active = bool(data.get('active')) or data.get('project',{}).get('state') in ('armed','searching','degraded')
         project = data.get('project',{})
+        if project.get('state') or project.get('coverage'):
+            self.collecting_baseline = project.get('state') == 'collecting' or project.get('coverage') == 'preparation'
         worker_errors = '; '.join(str(w.get('error') or w.get('last_error')) for w in data.get('workers',[]) if w.get('error') or w.get('last_error'))
-        self.status_text.set(f"Охрана: {'активна' if data.get('active') else 'выключена'}; приёмник: {'занят' if data.get('receiver_busy') else 'свободен'}; "
+        degraded = project.get('state') == 'degraded'
+        coverage = {'wide':'широкий обзор', 'unavailable':'широкий обзор недоступен', 'narrow':'узкий поиск',
+                    'restoring':'широкий обзор восстанавливается', 'paused':'обзор на паузе', 'stopped':'обзор остановлен',
+                    'preparation':'сбор эталона', 'error':'ошибка обзора'}.get(project.get('coverage'),'покрытие неизвестно')
+        guard = 'работает с отказом прибора' if degraded else ('активна' if data.get('active') else 'выключена')
+        self.status_text.set(f"Охрана: {guard}; {coverage}; приёмник: {'занят' if data.get('receiver_busy') else 'свободен'}; "
             +f"аудио: {'настроено' if data.get('audio_configured') else 'не выбрано'}. Оборудование: "
             +f"{'не проверено' if data.get('hardware_validation')=='not_run' else data.get('hardware_validation','неизвестно')}. "
+            +('Очередь неисправного прибора на паузе, автоматический повтор команд не выполняется. ' if degraded else '')
             +str(data.get('error') or worker_errors or '')[:500])
         if update_inputs:
             self.receiver_mode.set(project.get('receiver_mode','AUTO'))
             configured = project.get('audio')
             self.audio_text.set(('Настроенный вход ядра: '+str(configured.get('name',''))[:800]) if configured else 'Аудио не настроено. Выберите и подтвердите вход AR-DV1 явно.')
-        if data.get('active'): self._maybe_follow(project)
+        self._update_preparation_controls()
+        if data.get('active') or self.collecting_baseline: self._maybe_follow(project)
 
     def _maybe_follow(self, project):
         identifier = project.get('active_session_id')
@@ -1011,3 +1088,190 @@ class MonitoringPanel(TkTimerOwner):
             self._followed_runs.add(key)
             if self.app.session_id == original_selection: self.app._use_created_session(data['session'])
         if self._submit(partial(_follow_session,self.app.client,identifier),completed): self._following_runs.add(key)
+
+    def _build_acceptance(self, prepare_page):
+        tk, ttk = self.app.tk, self.app.ttk
+        self.antenna_notes = tk.StringVar()
+        self.receive_path_confirmed, self.location_confirmed = tk.BooleanVar(value=False), tk.BooleanVar(value=False)
+        self.preparation_project, self.preparation_saved = None, None
+        self.collecting_baseline, self.collection_ready = False, None
+        self.preparation_text = tk.StringVar(value='Подготовка не загружена; аппаратная проверка не выполнена.')
+        self.collection_text = tk.StringVar(value='Прогресс эталона не получен. Нужны число свипов и длительность, подтверждённые ядром.')
+        self.preflight_text = tk.StringVar()
+        wizard = ttk.LabelFrame(prepare_page,text='Подготовка наблюдения',padding=4)
+        wizard.pack(fill='x',before=self.preparation_baseline_row)
+        ttk.Label(wizard,text='1. Антенна, приёмный тракт и место установки',wraplength=900).pack(fill='x')
+        ttk.Entry(wizard,textvariable=self.antenna_notes,width=70).pack(fill='x')
+        row = ttk.Frame(wizard); row.pack(fill='x')
+        ttk.Checkbutton(row,text='Приёмный тракт проверен оператором',variable=self.receive_path_confirmed).pack(side='left')
+        ttk.Checkbutton(row,text='Место установки подтверждено',variable=self.location_confirmed).pack(side='left')
+        row = ttk.Frame(wizard); row.pack(fill='x')
+        ttk.Button(row,text='Обновить подготовку',command=self.load_preparation).pack(side='left')
+        ttk.Button(row,text='Сохранить подготовку',command=self.save_preparation).pack(side='left')
+        ttk.Label(wizard,textvariable=self.preparation_text,wraplength=900).pack(fill='x')
+        row = ttk.Frame(wizard); row.pack(fill='x')
+        self.preparation_start_button = ttk.Button(row,text='2. Запустить приём и сбор эталона',command=self.start_preparation,state='disabled')
+        self.preparation_start_button.pack(side='left')
+        self.preparation_stop_button = ttk.Button(row,text='Остановить сбор',command=self.stop_preparation,state='disabled')
+        self.preparation_stop_button.pack(side='left')
+        ttk.Button(row,text='Обновить прогресс',command=self.preflight).pack(side='left')
+        ttk.Label(wizard,text='Профиль только приёма: команды генерации не отправляются. Физическое состояние RF не проверено.',wraplength=900).pack(fill='x')
+        ttk.Label(wizard,textvariable=self.collection_text,wraplength=900).pack(fill='x')
+        self.collection_bar = ttk.Progressbar(wizard,maximum=100)
+        self.collection_bar.pack(fill='x')
+        ttk.Label(wizard,textvariable=self.preflight_text,wraplength=900).pack(fill='x')
+        ttk.Label(wizard,text='3. Дождитесь готовности ядра и явно подтвердите обычную обстановку для эталона ниже.',wraplength=900).pack(fill='x')
+        for variable in (self.antenna_notes,self.receive_path_confirmed,self.location_confirmed):
+            variable.trace_add('write',lambda *_args:self._update_preparation_controls())
+        detector_page = ttk.Frame(self.operations_tabs,padding=4)
+        self.operations_tabs.add(detector_page,text='Детектор')
+        self.detector_values = {key:tk.StringVar(value=str(value)) for key,value in BALANCED_DETECTOR.items()}
+        self.detector_loaded = False
+        self.detector_text = tk.StringVar(value='Алгоритм robust-city-v1; оборудование не проверено. Загрузите настроенные значения из ядра.')
+        ttk.Label(detector_page,text='Инженерные параметры обнаружения. Сохранение доступно после снятия с охраны.',wraplength=900).pack(fill='x')
+        fields = [('margin_db','Порог превышения','дБ'),('impulse_db','Порог импульса','дБ'),('hysteresis_db','Гистерезис','дБ'),
+                  ('confirmations','Число подтверждений','свипов'),('window_sweeps','Окно подтверждения','свипов'),('dwell_seconds','Исследование приёмником','с')]
+        for key,label,unit in fields:
+            row = ttk.Frame(detector_page); row.pack(fill='x')
+            ttk.Label(row,text=label,width=28).pack(side='left')
+            ttk.Entry(row,textvariable=self.detector_values[key],width=10).pack(side='left')
+            ttk.Label(row,text=unit).pack(side='left')
+        row = ttk.Frame(detector_page); row.pack(fill='x')
+        ttk.Button(row,text='Обновить параметры',command=self.load_detector).pack(side='left')
+        ttk.Button(row,text='Сбалансированный профиль',command=self.balanced_detector).pack(side='left')
+        ttk.Button(row,text='Сохранить параметры',command=self.save_detector).pack(side='left')
+        ttk.Label(detector_page,textvariable=self.detector_text,wraplength=900).pack(fill='x')
+
+    def _reset_acceptance(self):
+        self.preparation_project, self.preparation_saved = None, None
+        self.collecting_baseline, self.collection_ready = False, None
+        self.antenna_notes.set(''); self.receive_path_confirmed.set(False); self.location_confirmed.set(False)
+        self.preparation_start_button.configure(state='disabled')
+        self.preparation_text.set('Подготовка не загружена; аппаратная проверка не выполнена.')
+        self.collection_text.set('Прогресс эталона не получен. Обновите готовность выбранного проекта.')
+        self.collection_bar.configure(value=0); self.preflight_text.set('')
+        self.detector_loaded = False
+        for key,value in BALANCED_DETECTOR.items(): self.detector_values[key].set(str(value))
+        self.detector_text.set('Алгоритм robust-city-v1; оборудование не проверено. Загрузите настроенные значения из ядра.')
+
+    def _preparation_values(self):
+        return dict(antenna_notes=self.antenna_notes.get().strip(),receive_path_confirmed=self.receive_path_confirmed.get(),
+                    location_confirmed=self.location_confirmed.get())
+
+    def _update_preparation_controls(self):
+        values = self._preparation_values()
+        project = self.preparation_project or {}
+        adapters = tuple(project.get('profile',{}).get(role,{}).get('settings',{}).get('adapter') for role in ('analyzer','receiver'))
+        simulated = adapters == ('tinysa-sim','ardv1-sim')
+        confirmed = values['receive_path_confirmed'] and values['location_confirmed']
+        declared = self.preparation_saved == values and bool(values['antenna_notes']) and confirmed
+        ready = bool(not self.active and not self.collecting_baseline and (simulated or declared))
+        self.preparation_start_button.configure(state='normal' if ready else 'disabled')
+        self.preparation_stop_button.configure(state='normal' if self.collecting_baseline and not self.active else 'disabled')
+        return ready
+
+    def load_preparation(self):
+        self._sync_context()
+        if self.selected() and self.app.client:
+            self._submit(partial(self.app.client.monitoring,'/'+quote(self.selected(),safe='')),self._receive_preparation)
+
+    def _receive_preparation(self, data):
+        project = data.get('project',data)
+        preparation = project.get('preparation') or {}
+        self.preparation_project = project
+        if project.get('state') in ('armed','searching','degraded'): self.active = True
+        elif project.get('state') in ('draft','ready','collecting','interrupted'): self.active = False
+        self.collecting_baseline = project.get('state') == 'collecting' or project.get('coverage') == 'preparation'
+        self.antenna_notes.set(preparation.get('antenna_notes',''))
+        self.receive_path_confirmed.set(bool(preparation.get('receive_path_confirmed')))
+        self.location_confirmed.set(bool(preparation.get('location_confirmed')))
+        self.preparation_saved = self._preparation_values()
+        self._update_preparation_controls()
+        adapters = tuple(project.get('profile',{}).get(role,{}).get('settings',{}).get('adapter') for role in ('analyzer','receiver'))
+        declaration = ('Симуляция: физические декларации неприменимы.' if adapters == ('tinysa-sim','ardv1-sim')
+            else ('Подтверждения оператора получены.' if self.receive_path_confirmed.get() and self.location_confirmed.get() else 'Для аппаратного приёма нужны оба подтверждения.'))
+        self.preparation_text.set('Подготовка сохранена в ядре; аппаратная проверка не выполнена. '+declaration)
+        self.render(data)
+
+    def save_preparation(self):
+        if not self._configurable(): return
+        if self.collecting_baseline:
+            self.render({'error':'Остановите сбор перед изменением подготовки.'}); return
+        values = self._preparation_values()
+        if not 1<=len(values['antenna_notes'])<=1000:
+            self.render({'error':'Опишите антенну и приёмный тракт: 1…1000 символов.'}); return
+        self._research('preparation',values,self._receive_preparation)
+
+    def start_preparation(self):
+        if not self._configurable(): return
+        if not self._update_preparation_controls():
+            self.render({'error':'Сохраните заметки и оба подтверждения оператора перед аппаратным сбором эталона.'}); return
+        def completed(data):
+            self.collecting_baseline, self.collection_ready = True, False
+            self.next_health_poll = 0
+            self.preparation_project = data.get('project',self.preparation_project)
+            self.preparation_text.set('Запрошен приём в новом сеансе сбора эталона; аппаратная проверка не выполнена. Статусы исполнителей — в диагностике.')
+            self.collection_text.set('Сбор начат. Обновите прогресс; готовность определяет ядро по числу свипов и длительности.')
+            self._update_preparation_controls()
+            self.render(data)
+            self._maybe_follow(data.get('project',{}))
+        self._research('preparation/start',{},completed)
+
+    def stop_preparation(self):
+        if not self._configurable(): return
+        def completed(data):
+            self.collecting_baseline = False
+            self.preparation_project = data.get('project',self.preparation_project)
+            self.preparation_text.set('Сбор остановлен. Исходные измерения сохранены; аппаратная проверка не выполнена.')
+            self._update_preparation_controls(); self.render(data)
+        self._research('preparation/stop',{},completed)
+
+    def _show_preflight(self, data):
+        collection = data.get('baseline_collection')
+        if isinstance(collection,dict):
+            self.collection_ready = collection.get('ready') is True
+            sweeps, elapsed = collection.get('sweeps',0), collection.get('elapsed_seconds',0)
+            minimum_sweeps, minimum_seconds = collection.get('minimum_sweeps',20), collection.get('minimum_seconds',60)
+            self.collection_text.set(f"Свипы: {sweeps} / {minimum_sweeps}; длительность: {elapsed:g} / {minimum_seconds:g} с. "
+                +('Ядро подтвердило готовность к фиксации эталона.' if self.collection_ready else 'Сбор эталона ещё не готов.'))
+            progress = min(sweeps/max(1,minimum_sweeps),elapsed/max(1,minimum_seconds))
+            self.collection_bar.configure(value=max(0,min(100,progress*100)))
+        else:
+            self.collection_ready = None
+            self.collection_text.set('Ядро не вернуло прогресс сбора эталона; проверьте диагностический ответ.')
+        failed = [str(check.get('detail') or check.get('name','')) for check in data.get('checks',[]) if not check.get('ok')]
+        self.preflight_text.set(('Проверки ядра пройдены. ' if data.get('ready') else 'Подготовка ещё не готова. ')
+            +'; '.join(failed)[:700]+' Оборудование не проверено.')
+
+    def load_detector(self):
+        self._research('settings',None,self._receive_detector)
+
+    def _receive_detector(self, data):
+        parameters = data.get('detector',{})
+        self.detector_loaded = all(key in parameters for key in BALANCED_DETECTOR)
+        for key in BALANCED_DETECTOR:
+            if key in parameters: self.detector_values[key].set(str(parameters[key]))
+        self.detector_text.set('Алгоритм robust-city-v1; оборудование не проверено. Настроено в ядре: '
+            +f"порог {parameters.get('margin_db','—')} дБ; импульс {parameters.get('impulse_db','—')} дБ; "
+            +f"гистерезис {parameters.get('hysteresis_db','—')} дБ; подтверждения {parameters.get('confirmations','—')} из {parameters.get('window_sweeps','—')} свипов; "
+            +f"приёмник {parameters.get('dwell_seconds','—')} с.")
+        self.render(data)
+
+    def balanced_detector(self):
+        for key,value in BALANCED_DETECTOR.items(): self.detector_values[key].set(str(value))
+        self.detector_text.set('Черновик: 6 / 12 / 3 дБ; 3 из 5 свипов; 10 с. Нажмите «Сохранить параметры». Алгоритм robust-city-v1; оборудование не проверено.')
+
+    def save_detector(self):
+        if not self._configurable(): return
+        if not self.detector_loaded:
+            self.render({'error':'Сначала обновите параметры детектора из ядра.'}); return
+        try:
+            parameters = {key:(int(variable.get()) if key in ('confirmations','window_sweeps') else float(variable.get()))
+                          for key,variable in self.detector_values.items()}
+            bounds = dict(margin_db=(1,60),impulse_db=(1,120),hysteresis_db=(0,20),dwell_seconds=(1,30))
+            if any(not math.isfinite(parameters[key]) or not low<=parameters[key]<=high for key,(low,high) in bounds.items()): raise ValueError()
+            if not 1<=parameters['confirmations']<=parameters['window_sweeps']<=15: raise ValueError()
+            if parameters['impulse_db']<parameters['margin_db'] or parameters['hysteresis_db']>parameters['margin_db']: raise ValueError()
+        except (ValueError,OverflowError):
+            self.render({'error':'Проверьте параметры: порог 1…60 дБ; импульс 1…120 дБ и не ниже порога; гистерезис 0…20 дБ и не выше порога; подтверждения 1…окно ≤15 целых свипов; время 1…30 с.'}); return
+        self._research('settings',{'detector':parameters},self._receive_detector)

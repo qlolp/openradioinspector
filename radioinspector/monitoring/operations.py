@@ -243,7 +243,7 @@ class OperationalMonitoring:
                         if self._closed or self._supervisor_stop.is_set():return
                         if identifier in self.runtime:continue
                         project=self.project(identifier)
-                        requested=project.get('resume_requested') or project['state'] in ('armed','searching')
+                        requested=project.get('resume_requested') or project['state'] in ('armed','searching','degraded')
                         if not requested:continue
                         with self.store.transaction():
                             rows=self.store.db.execute("SELECT id,payload FROM monitoring_records WHERE kind='event' AND project_id=? AND json_extract(payload,'$.analysis.state') IN ('queued','listening','decoding')",(identifier,)).fetchall()

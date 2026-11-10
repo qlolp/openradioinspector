@@ -636,7 +636,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
     MONITOR_MODES = {'AUTO':'MD000', 'DSTAR':'MD010', 'YSF':'MD020',
                      'ALINCO':'MD030', 'NXDN':'MD040', 'P25':'MD050',
                      'DPMR':'MD060', 'DMR':'MD070', 'FM':'MD0F0', 'AM':'MD0F1'}
-    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'NXDN',
+    DECODED = {'1':'DSTAR', '2':'YSF', '3':'ALINCO', '4':'DCR/NXDN',
                '5':'P25', '6':'DPMR', '7':'DMR'}
 
     def __init__(

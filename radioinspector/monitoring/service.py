@@ -15,14 +15,16 @@ from .baselines import BaselineOperations
 from .guard import GuardOperations
 from .research import ResearchOperations
 from .operations import OperationalMonitoring
+from .preparation import PreparationOperations
 
 
-class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations, OperationalMonitoring):
+class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations, OperationalMonitoring, PreparationOperations):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
         self.lock = threading.RLock()
         self._closed = False
+        self.preparing={}
         self.initialize_runtime()
         self.initialize_operations()
 
@@ -64,6 +66,9 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         check('adapters', adapters in (('tinysa-serial', 'ardv1-serial'), ('tinysa-sim', 'ardv1-sim')),
               'tinySA Ultra + AR-DV1; симуляторы выбираются только явно')
         if adapters[0] == 'tinysa-serial':
+            declared=project.get('preparation',{})
+            check('operator_receive_path',declared.get('receive_path_confirmed') is True and declared.get('location_confirmed') is True,
+                'Оператор подтверждает антенну, тракт и место; RF readback не заявлен')
             try:
                 validate_receive_settings(analyzer.settings)
                 check('receive_profile', True, 'Консервативный профиль приёма; RF off')
@@ -79,6 +84,7 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         storage = self.storage_report(identifier,probe=True) if self.sessions._store and self.sessions._store.persistent else None
         if storage:check('storage_budget',storage['ready'],'Свободное место, запись и прогноз хранения без автоудаления')
         return dict(project_id=identifier, ready=all(c['ok'] for c in checks), checks=checks,storage=storage,
+                    baseline_collection=self.baseline_collection(project),
                     capacity=capacity, performance=performance,
                     workers=self.workers.list_workers(session.id), hardware_validation='not_run',
                     baseline_ready=project['baseline_id'] is not None)
@@ -99,5 +105,6 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
                 self.disarm(identifier, {})
                 if resume:
                     project=self.project(identifier);project['resume_requested']=True;self.store.put('project',project)
+        for identifier in list(self.preparing):self.stop_preparation(identifier,{})
         self.workers.control_authorizer = None
         self.store.close()

@@ -75,6 +75,20 @@ class MonitoringTkTests(unittest.TestCase):
         if errors: raise errors[0]
         callback(result[0])
 
+    def test_disarm_and_manual_return_wait_for_foreground_action_without_being_lost(self):
+        self.app._action_running=True
+        self.panel.disarm()
+        self.panel.leases['receiver']={'token':'owner','deadline':0}
+        self.panel.manual('receiver','return')
+        self.assertEqual(self.pending,[])
+        self.app._action_running=False
+        self.panel._drain_operator_actions()
+        self.complete({'state':'ready'})
+        self.panel._drain_operator_actions()
+        self.complete({'state':'returned','role':'receiver'})
+        self.assertIn(('/p1/disarm',{}),self.app.client.calls)
+        self.assertIn(('/p1/manual/return',{'token':'owner'}),self.app.client.calls)
+
     def test_event_items_never_replace_project_selector(self):
         self.panel.scoped('events')
         self.complete({'items': [EVENT]})
@@ -479,6 +493,201 @@ class MonitoringTkTests(unittest.TestCase):
         self.assertEqual(followed, ['guard-1','guard-2'])
 
 
+    def test_preparation_saves_unready_state_and_requires_saved_serial_confirmations(self):
+        self.assertFalse(self.panel.receive_path_confirmed.get())
+        self.assertFalse(self.panel.location_confirmed.get())
+        self.panel.antenna_notes.set('Антенна у окна; тракт tinySA/AR-DV1 проверен')
+        self.panel.save_preparation(); self.complete(prepared_project(confirmed=False))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/preparation', dict(
+            antenna_notes='Антенна у окна; тракт tinySA/AR-DV1 проверен',receive_path_confirmed=False,location_confirmed=False)))
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')), 'disabled')
+        self.panel.start_preparation()
+        self.assertEqual(self.pending, [])
+        self.panel.receive_path_confirmed.set(True); self.panel.location_confirmed.set(True)
+        self.panel.save_preparation(); self.complete(prepared_project())
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')), 'normal')
+        self.panel.start_preparation(); self.complete(dict(project=dict(prepared_project(),state='collecting',coverage='preparation'),workers=[dict(state='running',stream_id='a')]))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/preparation/start', {}))
+        self.assertTrue(self.panel.collecting_baseline)
+        self.assertIn('аппарат',self.panel.preparation_text.get())
+        self.panel.receive_path_confirmed.set(False)
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')), 'disabled')
+
+    def test_preparation_load_validation_and_stale_project_response(self):
+        self.panel.save_preparation()
+        self.assertEqual(self.pending, [])
+        self.panel.antenna_notes.set('x'*1001); self.panel.save_preparation()
+        self.assertEqual(self.pending, [])
+        self.panel.load_preparation(); self.complete(prepared_project())
+        self.assertEqual(self.app.client.calls[-1], ('/p1',None))
+        self.assertEqual(self.panel.antenna_notes.get(),'Приёмная антенна; кабель проверен')
+        self.assertTrue(self.panel.receive_path_confirmed.get())
+        self.panel.load_preparation()
+        self.panel.choice.current(1); self.panel.project_changed()
+        self.complete(prepared_project())
+        self.assertEqual(self.panel.antenna_notes.get(),'')
+        self.assertFalse(self.panel.receive_path_confirmed.get())
+
+    def test_baseline_progress_requires_core_ready_and_explicit_operator_confirmation(self):
+        self.panel.preflight(); self.complete(collection_progress(20,59.5,False))
+        self.assertIn('20 / 20',self.panel.collection_text.get())
+        self.assertIn('59.5 / 60',self.panel.collection_text.get())
+        self.panel.confirm.set(True)
+        self.panel.baseline()
+        self.assertEqual(self.pending, [])
+        self.panel.preflight(); self.complete(collection_progress(25,63,True))
+        self.panel.confirm.set(False); self.panel.baseline()
+        self.assertEqual(self.pending, [])
+        self.panel.confirm.set(True); self.panel.baseline()
+        self.complete(dict(id='b1',confirmed=True))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/baselines', dict(name='Наблюдение',location='Объект',confirm=True)))
+        self.assertFalse(self.panel.collecting_baseline)
+
+    def test_collection_poll_is_read_only_and_preserves_preparation_and_detector_edits(self):
+        self.panel.load_preparation(); self.complete(prepared_project())
+        self.panel.load_detector(); self.complete(dict(settings(),detector=detector_parameters()))
+        self.panel.antenna_notes.set('Новая несохранённая заметка')
+        self.panel.detector_values['margin_db'].set('9')
+        self.panel.collecting_baseline = True
+        self.app.client.responses.update({'/p1/alerts':dict(items=[],next_cursor=None),'/p1/storage':storage(),
+            '/p1/status':dict(active=False,project=dict(prepared_project(),state='collecting',coverage='preparation'),workers=[],hardware_validation='not_run'),
+            '/p1/preflight':collection_progress(19,58,False)})
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertIn('/p1/preflight',[call[0] for call in self.app.client.calls])
+        self.assertTrue(all(call[1] is None for call in self.app.client.calls))
+        self.assertEqual(self.panel.antenna_notes.get(),'Новая несохранённая заметка')
+        self.assertEqual(self.panel.detector_values['margin_db'].get(),'9')
+        self.assertIn('19 / 20',self.panel.collection_text.get())
+
+    def test_detector_controls_send_only_parameters_and_preserve_integer_counts(self):
+        self.panel.load_detector(); self.complete(dict(settings(),detector=detector_parameters()))
+        self.panel.webhook_secret.set('UNSAVED-SECRET')
+        self.panel.detector_values['margin_db'].set('9')
+        self.panel.balanced_detector()
+        self.assertEqual(self.pending, [])
+        self.panel.save_detector(); self.complete(dict(settings(),detector=detector_parameters()))
+        self.assertEqual(self.app.client.calls[-1], ('/p1/settings', {'detector':detector_parameters()}))
+        parameters=self.app.client.calls[-1][1]['detector']
+        self.assertIs(type(parameters['confirmations']),int)
+        self.assertIs(type(parameters['window_sweeps']),int)
+        self.assertEqual(self.panel.webhook_secret.get(),'UNSAVED-SECRET')
+        self.assertIn('robust-city-v1',self.panel.detector_text.get())
+        self.assertIn('не проверено',self.panel.detector_text.get())
+
+    def test_detector_validation_and_active_guard_do_not_submit(self):
+        self.panel.load_detector(); self.complete(dict(settings(),detector=detector_parameters()))
+        for key,value in [('margin_db','nan'),('confirmations','3.5'),('confirmations','6'),('hysteresis_db','7')]:
+            self.panel.balanced_detector(); self.panel.detector_values[key].set(value)
+            self.panel.save_detector()
+            self.assertEqual(self.pending, [])
+        self.panel.balanced_detector(); self.panel.active=True
+        self.panel.save_detector()
+        self.assertEqual(self.pending, [])
+        self.assertIn('снимите',self.panel.status_text.get())
+
+
+    def test_collection_new_session_follows_once_and_stop_is_explicit(self):
+        followed=[]
+        def use_session(data):
+            followed.append(data['id']); self.app.session_id=data['id']; self.app._revision+=1
+        self.app._use_created_session=use_session
+        self.app.client.get_session=lambda sid:dict(id=sid,state='running',streams=[])
+        self.panel.load_preparation(); self.complete(prepared_project())
+        self.panel.start_preparation()
+        collecting=dict(prepared_project(),active_session_id='collection-new',state='collecting',coverage='preparation')
+        self.complete(dict(project=collecting,workers=[])); self.complete()
+        self.assertEqual(followed,['collection-new'])
+        self.app.session_id='manual-history'; self.app._revision+=1
+        self.panel.status(); self.complete(dict(active=False,project=collecting,workers=[]))
+        self.assertEqual(self.pending,[])
+        self.assertEqual(self.app.session_id,'manual-history')
+        self.assertEqual(str(self.panel.preparation_stop_button.cget('state')),'normal')
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')),'disabled')
+        self.panel.preflight(); self.complete(collection_progress(30,65,True))
+        self.panel.confirm.set(True); self.panel.baseline(); self.complete(dict(id='b1',confirmed=True))
+        self.assertTrue(self.panel.collecting_baseline)  # Core owns capture until stop/arm.
+        self.panel.stop_preparation(); self.complete(dict(project=dict(collecting,state='ready',coverage='stopped'),workers=[]))
+        self.assertEqual(self.app.client.calls[-1],('/p1/preparation/stop',{}))
+        self.assertFalse(self.panel.collecting_baseline)
+        self.assertEqual(str(self.panel.preparation_stop_button.cget('state')),'disabled')
+        self.assertEqual(self.panel.selected(),'p1')
+
+    def test_explicit_simulator_profile_bypasses_physical_declarations(self):
+        simulated=dict(prepared_project(False),profile=dict(analyzer=dict(settings={'adapter':'tinysa-sim'}),receiver=dict(settings={'adapter':'ardv1-sim'})),preparation={})
+        self.panel.load_preparation(); self.complete(simulated)
+        self.assertFalse(self.panel.receive_path_confirmed.get())
+        self.assertFalse(self.panel.location_confirmed.get())
+        self.assertIn('Симуляция',self.panel.preparation_text.get())
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')),'normal')
+        self.panel.start_preparation(); self.complete(dict(project=dict(simulated,state='collecting',coverage='preparation'),workers=[]))
+        self.assertEqual(self.app.client.calls[-1],('/p1/preparation/start',{}))
+
+
+    def test_degraded_guard_labels_coverage_and_keeps_configuration_locked(self):
+        self.panel.status(); self.complete(dict(active=True,receiver_busy=False,error='AR-DV1 disconnected',
+            audio_configured=False,hardware_validation='not_run',project=dict(id='p1',state='degraded',coverage='wide'),
+            workers=[dict(stream_id='a',state='running',alive=True),dict(stream_id='r',state='error',alive=False)]))
+        self.assertIn('отказ',self.panel.status_text.get())
+        self.assertIn('широкий обзор',self.panel.status_text.get())
+        self.assertIn('AR-DV1 disconnected',self.panel.status_text.get())
+        self.panel.disable_audio()
+        self.assertEqual(self.pending,[])
+        self.panel.status(); self.complete(dict(active=True,workers=[],error='tinySA disconnected',
+            hardware_validation='not_run',project=dict(id='p1',state='degraded',coverage='unavailable')))
+        self.assertIn('недоступен',self.panel.status_text.get())
+        self.panel.search_status(); self.complete(dict(active=False,coverage='unavailable',series=[],marks=[],maximum_level=None))
+        self.assertIn('недоступен',self.panel.coverage_text.get())
+
+
+    def test_loaded_active_project_cannot_start_collection(self):
+        self.panel.load_preparation(); self.complete(dict(prepared_project(),state='degraded'))
+        self.assertEqual(str(self.panel.preparation_start_button.cget('state')),'disabled')
+        self.panel.start_preparation()
+        self.assertEqual(self.pending,[])
+
+
+    def test_active_search_poll_updates_core_chart_without_commands_or_lease_renewal(self):
+        self.panel.search_data=dict(active=True,coverage='narrow',series=[],marks=[],maximum_level=None)
+        self.panel.leases['analyzer']=dict(token='expired-token',deadline=0)
+        self.panel.next_health_poll=10**20
+        self.panel.render({'retained':'Operator data'})
+        self.app.client.responses.update({'/p1/alerts':dict(items=[],next_cursor=None),'/p1/search/status':
+            dict(active=True,coverage='narrow',maximum_level=-25,event_id='e1',
+                series=[dict(sweep_id='s1',started_at='2026-11-10T12:00:00Z',ended_at='2026-11-10T12:00:01Z',peak_level=-80,frequency_hz=100000000),
+                        dict(sweep_id='s2',started_at='2026-11-10T12:00:05Z',ended_at='2026-11-10T12:00:06Z',peak_level=-30,frequency_hz=100000001)],
+                marks=[dict(label='Новый пункт',created_at='2026-11-10T12:00:05Z',level=-30,frequency_hz=100000001)])})
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertEqual({call[0] for call in self.app.client.calls},{'/p1/alerts','/p1/search/status'})
+        self.assertTrue(all(call[1] is None for call in self.app.client.calls))
+        self.assertTrue(self.panel.search_canvas.find_withtag('search-series'))
+        self.assertEqual(len(self.panel.search_data['series']),2)
+        self.assertIn('-25',self.panel.coverage_text.get())
+        self.assertIn('Новый пункт',self.panel.marks_text.get())
+        self.assertEqual(self.panel.leases['analyzer']['deadline'],0)
+        self.assertIn('Operator data',self.panel.output.get('1.0','end'))
+
+    def test_search_poll_skips_inactive_and_tracks_explicit_restoration_until_wide(self):
+        self.panel.next_health_poll=10**20
+        self.app.client.responses['/p1/alerts']=dict(items=[],next_cursor=None)
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertNotIn('/p1/search/status',[call[0] for call in self.app.client.calls])
+        self.panel.leases['analyzer']=dict(token='expired-token',deadline=0)
+        self.panel.manual('analyzer','return'); self.complete(dict(role='analyzer',state='restoring'))
+        self.app.client.responses['/p1/search/status']=dict(active=False,coverage='restoring',series=[],marks=[],maximum_level=None)
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertIn('/p1/search/status',[call[0] for call in self.app.client.calls])
+        self.app.client.responses['/p1/search/status']=dict(active=False,coverage='wide',series=[],marks=[],maximum_level=None)
+        self.panel.poll_operations(); self.complete()
+        self.app.client.calls.clear()
+        self.panel.poll_operations(); self.complete()
+        self.assertNotIn('/p1/search/status',[call[0] for call in self.app.client.calls])
+        self.assertNotIn('analyzer',self.panel.leases)
+
+
 def history_page():
     return dict(next_cursor='page+/=', items=[dict(id=key, session_id='s', stream_id='a',
         interval=dict(started_at=time, ended_at=time.replace('00Z','01Z').replace('10Z','11Z')),
@@ -530,6 +739,26 @@ def alert(identifier, **changes):
 
 
 class MonitoringProjectActionScopeTests(unittest.TestCase):
+    def test_background_read_never_blocks_or_completes_operator_action(self):
+        from concurrent.futures import Future
+        from radioinspector.windows.app import WindowsApp
+        from tests.test_windows_tk_lifecycle import TclRoot
+        root=TclRoot()
+        try:
+            with patch.object(WindowsApp,'_build'),patch('radioinspector.windows.app.ThreadPoolExecutor'):
+                app=WindowsApp(root,Mock(),Mock())
+            app.refresh=Mock();app._render_controls=Mock();app.action_var=Mock();app.client=Client()
+            read=Future();app._executor.submit.return_value=read
+            app._submit_project_read('poll',lambda:{},lambda data:None)
+            self.assertFalse(app._action_running)
+            action=Future();app._executor.submit.return_value=action
+            app._submit_project_action('disarm',lambda:{},lambda data:None)
+            self.assertTrue(app._action_running)
+            read.set_result({});app._drain_messages();self.assertTrue(app._action_running)
+            action.set_result({});app._drain_messages();self.assertFalse(app._action_running)
+            app.close()
+        finally:root.dispose()
+
     def test_project_http_callback_survives_session_switch_but_not_endpoint_switch(self):
         from concurrent.futures import Future
         from radioinspector.windows.app import WindowsApp
@@ -555,3 +784,18 @@ class MonitoringProjectActionScopeTests(unittest.TestCase):
             self.assertEqual(root.pending(), ())
         finally:
             root.dispose()
+
+
+def detector_parameters():
+    return dict(margin_db=6.0,impulse_db=12.0,hysteresis_db=3.0,confirmations=3,window_sweeps=5,dwell_seconds=10.0)
+
+
+def prepared_project(confirmed=True):
+    return dict(id='p1',state='ready',active_session_id='original-source',
+        profile=dict(analyzer=dict(settings={'adapter':'tinysa-serial'}),receiver=dict(settings={'adapter':'ardv1-serial'})),
+        preparation=dict(antenna_notes='Приёмная антенна; кабель проверен',receive_path_confirmed=confirmed,location_confirmed=confirmed))
+
+
+def collection_progress(sweeps,seconds,ready):
+    return dict(project_id='p1',ready=ready,checks=[],hardware_validation='not_run',
+                baseline_collection=dict(sweeps=sweeps,elapsed_seconds=seconds,minimum_sweeps=20,minimum_seconds=60,ready=ready))

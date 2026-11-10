@@ -82,6 +82,17 @@ class OperationalTests(unittest.TestCase):
         self.service.disarm(project['id'],{})
         self.assertFalse(self.service.project(project['id'])['resume_requested'])
 
+    def test_degraded_restart_obeys_opt_in_and_does_not_leave_stale_coverage(self):
+        project=self.ready_project()
+        for enabled in (False,True):
+            project=self.service.project(project['id']);project.update(state='degraded',coverage='wide',autostart=enabled,resume_requested=False)
+            self.service.store.put('project',project)
+            with patch.object(self.service,'_launch_guard'):
+                self.service._recover_projects()
+            recovered=self.service.project(project['id'])
+            self.assertEqual(recovered['state'],'armed' if enabled else 'interrupted')
+            if enabled:self.service.disarm(project['id'],{})
+
     def test_missing_archive_budget_rejects_arm_without_starting_devices(self):
         project=self.ready_project()
         with patch('radioinspector.monitoring.operations.shutil.disk_usage',return_value=SimpleNamespace(free=0)):

@@ -1804,6 +1804,16 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var baselineComparison: MonitoringValue = .null
     @Published var sources: [MonitoringValue] = []
     @Published var sourcesNext = ""
+    @Published var antennaNotes = ""
+    @Published var receivePathConfirmed = false
+    @Published var locationConfirmed = false
+    @Published var detectorMargin = "6"
+    @Published var detectorImpulse = "12"
+    @Published var detectorHysteresis = "3"
+    @Published var detectorConfirmations = "3"
+    @Published var detectorWindow = "5"
+    @Published var detectorDwell = "10"
+    private var preparationSeeded = false
     @Published var operationsSettings: MonitoringValue = .null
     @Published var storage: MonitoringValue = .null
     @Published var alerts: [MonitoringValue] = []
@@ -1838,7 +1848,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
-    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !pending && !researchPending.contains("control") }
+    var canConfigure: Bool { !selected.isEmpty && status != .null && !isArmed && !pending && !researchPending.contains("control") && !operationsPending.contains("preparation") && !operationsPending.contains("settings") }
     var configurationDirty: Bool {
         let savedMode = project["receiver_mode"].text.isEmpty ? "AUTO" : project["receiver_mode"].text
         if savedMode != receiverMode || (project["audio"] != .null) != audioEnabled { return true }
@@ -1847,7 +1857,29 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var canSaveConfiguration: Bool {
         canConfigure && (!audioEnabled || (audioInputs["available"].bool == true && chosenDevice != nil && audioConfirmed))
     }
-    var canArm: Bool { canConfigure && !configurationDirty }
+    var canArm: Bool { canConfigure && !configurationDirty && !project["baseline_id"].text.isEmpty && (preparationSimulation || (savedPreparationReady && !preparationDirty)) }
+    var isCollecting: Bool { project["state"].text == "collecting" || project["coverage"].text == "preparation" }
+    var canEditPreparation: Bool { canConfigure && !isCollecting }
+    var preparationSimulation: Bool {
+        project["profile"]["analyzer"]["settings"]["adapter"].text == "tinysa-sim" &&
+        project["profile"]["receiver"]["settings"]["adapter"].text == "ardv1-sim"
+    }
+    var savedPreparationReady: Bool {
+        project["preparation"]["receive_path_confirmed"].bool == true && project["preparation"]["location_confirmed"].bool == true &&
+        !project["preparation"]["antenna_notes"].text.isEmpty
+    }
+    var preparationInputValid: Bool {
+        let notes = antennaNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !notes.isEmpty && notes.unicodeScalars.count <= 1000
+    }
+    var preparationDirty: Bool {
+        antennaNotes.trimmingCharacters(in: .whitespacesAndNewlines) != project["preparation"]["antenna_notes"].text ||
+        receivePathConfirmed != (project["preparation"]["receive_path_confirmed"].bool == true) ||
+        locationConfirmed != (project["preparation"]["location_confirmed"].bool == true)
+    }
+    var canStartPreparation: Bool {
+        canEditPreparation && (preparationSimulation || (savedPreparationReady && !preparationDirty))
+    }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
 
     /// Capture the UI's project before an asynchronous button action can begin.
@@ -1878,6 +1910,9 @@ final class MonitoringWorkspaceModel: ObservableObject {
         rawDetail = .null; baselineComparison = .null; sources = []; sourcesNext = ""
         historyDescription = "История ещё не загружена."
         stopOperations()
+        antennaNotes = ""; receivePathConfirmed = false; locationConfirmed = false; preparationSeeded = false
+        detectorMargin = "6"; detectorImpulse = "12"; detectorHysteresis = "3"
+        detectorConfirmations = "3"; detectorWindow = "5"; detectorDwell = "10"
         operationsSettings = .null; storage = .null; alerts = []; alertsNext = ""; alertsLatest = true
         alertsPageAfter = nil; soundState = MonitoringAlertSoundState(); operationsErrors = [:]; operationsNotice = ""
         autostart = false; archiveReserve = "268435456"; archiveRetention = "3600"
@@ -1951,6 +1986,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
         await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
             coverage = result["project"]["coverage"].text
+            if !preparationSeeded {
+                antennaNotes = project["preparation"]["antenna_notes"].text
+                receivePathConfirmed = project["preparation"]["receive_path_confirmed"].bool == true
+                locationConfirmed = project["preparation"]["location_confirmed"].bool == true
+                preparationSeeded = true
+            }
             if syncConfiguration {
                 let mode = project["receiver_mode"].text
                 receiverMode = mode.isEmpty ? "AUTO" : mode
@@ -1994,6 +2035,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
         guard current == revision, !Task.isCancelled else { return }
         if resource == "disarm", succeeded { leases = [:]; search = .null; coverage = "" }
+        if resource == "baselines", succeeded { await refreshStatus(); await checkPreflight() }
         if ["arm", "disarm", "configure"].contains(resource) {
             // A failed/timeout command can still have reached the core; query its actual state.
             status = .null
@@ -2003,7 +2045,9 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func checkPreflight() async {
         guard !selected.isEmpty else { return }
-        await run(request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { preflight = $0 }
+        await operationsRequest("preflight", request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { result in
+            preflight = result
+        }
     }
 
     func loadEvents() async {
@@ -2234,13 +2278,14 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
-    private func applySettings(_ value: MonitoringValue) {
+    private func applySettings(_ value: MonitoringValue, syncDetector: Bool = true) {
         operationsSettings = value
         autostart = value["autostart"].bool == true
         archiveReserve = value["archive"]["minimum_free_bytes"].scalar
         archiveRetention = value["archive"]["minimum_retention_seconds"].scalar
         webhookEnabled = value["webhook"]["enabled"].bool == true
         webhookURL = value["webhook"]["url"].text
+        if syncDetector { applyDetectorDraft(value["detector"]) }
     }
 
     var operationsSettingsValidation: String? {
@@ -2278,7 +2323,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         let current = revision, viewGeneration = operationsRevision
         let secret = body["webhook"]?["secret"].text ?? ""
         let saved = await operationsRequest("settings", request: { client, id in try await client.monitoringSettings(projectID: id, body: body) }) { result in
-            applySettings(result); webhookSecret = ""
+            applySettings(result, syncDetector: false); webhookSecret = ""
             operationsNotice = "Настройки проекта сохранены."
         }
         if current == revision, viewGeneration == operationsRevision {
@@ -2286,6 +2331,73 @@ final class MonitoringWorkspaceModel: ObservableObject {
             if webhookSecret == secret { webhookSecret = "" }
             if saved, !Task.isCancelled { await refreshStorage() }
         }
+    }
+
+    func savePreparation(notes: String, receivePath: Bool, location: Bool) async {
+        guard canEditPreparation else { return }
+        let current = revision
+        let saved = await operationsRequest("preparation", request: { client, id in
+            try await client.monitoringSavePreparation(projectID: id, antennaNotes: notes,
+                receivePathConfirmed: receivePath, locationConfirmed: location)
+        }) { _ in operationsNotice = "Подготовка сохранена как заявление оператора; аппаратная проверка не заявляется." }
+        if current == revision, saved, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
+    }
+
+    func startPreparation() async {
+        guard canStartPreparation else { return }
+        let current = revision
+        let started = await operationsRequest("preparation", request: { client, id in try await client.monitoringStartPreparation(projectID: id) }) { _ in
+            operationsNotice = "Ядро получило команду запуска приёмных потоков. Дождитесь полного набора данных эталона; генератор не включается."
+        }
+        if current == revision, started, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
+    }
+
+    func stopPreparation() async {
+        guard !selected.isEmpty, !isArmed else { return }
+        let current = revision
+        let stopped = await operationsRequest("preparation", request: { client, id in try await client.monitoringStopPreparation(projectID: id) }) { _ in
+            operationsNotice = "Сбор данных эталона остановлен по команде оператора. Архивные данные сохранены."
+        }
+        if current == revision, stopped, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
+    }
+
+    private func applyDetectorDraft(_ value: MonitoringValue) {
+        detectorMargin = value["margin_db"].double.map { String($0) } ?? ""
+        detectorImpulse = value["impulse_db"].double.map { String($0) } ?? ""
+        detectorHysteresis = value["hysteresis_db"].double.map { String($0) } ?? ""
+        detectorConfirmations = value["confirmations"].integer.map { String($0) } ?? ""
+        detectorWindow = value["window_sweeps"].integer.map { String($0) } ?? ""
+        detectorDwell = value["dwell_seconds"].double.map { String($0) } ?? ""
+    }
+
+    func balancedDetectorDraft() {
+        applyDetectorDraft(.object(MonitoringDetectorSettings().body))
+        operationsNotice = "Сбалансированные инженерные значения заполнены. Сохраните их явно после проверки."
+    }
+
+    func detectorDraft() throws -> MonitoringDetectorSettings {
+        guard let margin = Double(detectorMargin), let impulse = Double(detectorImpulse), let hysteresis = Double(detectorHysteresis),
+              let confirmations = Int64(detectorConfirmations), let window = Int64(detectorWindow), let dwell = Double(detectorDwell) else {
+            throw PlatformError.invalidCommand("Введите числовые значения с десятичной точкой; подтверждения и окно — целые числа.")
+        }
+        return try MonitoringDetectorSettings(marginDB: margin, impulseDB: impulse, hysteresisDB: hysteresis,
+            confirmations: confirmations, windowSweeps: window, dwellSeconds: dwell)
+    }
+
+    var detectorValidation: String? {
+        do { _ = try detectorDraft(); return nil } catch { return error.localizedDescription }
+    }
+
+    func saveDetector(_ draft: MonitoringDetectorSettings) async {
+        guard canConfigure else { return }
+        let current = revision
+        let saved = await operationsRequest("settings", request: { client, id in
+            try await client.monitoringSettings(projectID: id, body: ["detector": .object(draft.body)])
+        }) { result in
+            operationsSettings = result; applyDetectorDraft(result["detector"])
+            operationsNotice = "Параметры детектора сохранены. Инженерные пороги не являются аппаратной калибровкой."
+        }
+        if current == revision, saved, !Task.isCancelled { await refreshStatus(); await checkPreflight() }
     }
 
     func refreshStorage() async {
@@ -2348,6 +2460,7 @@ struct MonitoringWorkspacePane: View {
     @State private var name = "Наблюдение"
     @State private var site = "Объект"
     @State private var confirm = false
+    @State private var preparationExpanded = true
     @State private var allowedName = "Разрешённый сигнал"
     @State private var allowedStart = "100000000"
     @State private var allowedEnd = "100100000"
@@ -2376,6 +2489,7 @@ struct MonitoringWorkspacePane: View {
                 searchControls
                 historyControls
                 operationsSettingsControls
+                detectorControls
                 storageControls
                 alertControls
                 if !workspace.operationsNotice.isEmpty { Text(workspace.operationsNotice).font(.caption) }
@@ -2420,6 +2534,11 @@ struct MonitoringWorkspacePane: View {
             while !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) {
                 await workspace.pollAlerts()
                 guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
+                if workspace.search["active"].bool == true || workspace.coverage == "restoring" {
+                    // Keep the narrow series live even when its disclosure is collapsed.
+                    await workspace.refreshSearch()
+                }
+                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
                 await workspace.refreshStatus()
                 guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
                 if tick % 6 == 0 { await workspace.refreshStorage() }
@@ -2427,26 +2546,36 @@ struct MonitoringWorkspacePane: View {
                 do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
             }
         }
+        .task(id: server + "|" + workspace.selected + "|preflight|" + String(preparationExpanded)) {
+            let endpoint = server, projectID = workspace.selected
+            guard preparationExpanded, !endpoint.isEmpty, !projectID.isEmpty else { return }
+            while !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) {
+                await workspace.checkPreflight()
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+            }
+        }
         .task(id: server + "|" + workspace.selected + "|" + String(searchExpanded)) {
             guard searchExpanded, !workspace.selected.isEmpty else { return }
             while !Task.isCancelled {
-                await workspace.refreshSearch()
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
+                if workspace.search["active"].bool != true && workspace.coverage != "restoring" {
+                    await workspace.refreshSearch()
+                }
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
             }
         }
     }
 
     private var preparation: some View {
-        GroupBox("Подготовка") {
-            VStack(alignment: .leading, spacing: 8) {
+        DisclosureGroup("Подготовка к охране · 4 шага", isExpanded: $preparationExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("1. Выберите сеанс и проект").font(.headline)
                 HStack {
                     TextField("Название", text: $name)
                     TextField("Объект", text: $site)
                     Button("Создать") {
                         let projectName = name, projectSite = site, session = sessionID
                         workspace.perform { await workspace.createProject(name: projectName, site: projectSite, sessionID: session) }
-                    }
-                        .disabled(server.isEmpty || sessionID.isEmpty || workspace.pending)
+                    }.disabled(server.isEmpty || sessionID.isEmpty || workspace.pending)
                     Button("Обновить проекты") { workspace.perform { await workspace.reloadProjects() } }
                         .disabled(server.isEmpty || workspace.pending)
                 }
@@ -2456,22 +2585,64 @@ struct MonitoringWorkspacePane: View {
                         Text(p["name"].text + " · " + p["site"].text).tag(p["id"].text)
                     }
                 }
+                Text("2. Опишите антенну и подтвердите обстановку").font(.headline)
+                TextField("Антенна, тракт приёма, расположение · 1…1000 символов", text: $workspace.antennaNotes, axis: .vertical)
+                    .lineLimit(2...4).disabled(!workspace.canEditPreparation)
+                Toggle("Подтверждаю подключение и проверку приёмного тракта", isOn: $workspace.receivePathConfirmed).disabled(!workspace.canEditPreparation)
+                Toggle("Подтверждаю выбранное расположение и объект наблюдения", isOn: $workspace.locationConfirmed).disabled(!workspace.canEditPreparation)
+                Button("Сохранить подготовку") {
+                    let notes = workspace.antennaNotes, path = workspace.receivePathConfirmed, location = workspace.locationConfirmed
+                    workspace.perform { await workspace.savePreparation(notes: notes, receivePath: path, location: location) }
+                }.disabled(!workspace.canEditPreparation || !workspace.preparationInputValid || workspace.operationsPending.contains("preparation"))
+                if workspace.preparationSimulation {
+                    Text("Симуляторы выбраны явно: физические подтверждения не требуются. Результат не является аппаратной проверкой.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Для serial-профиля сохраните описание и оба подтверждения. Это заявления оператора; приложение не проверяет антенну физически.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if workspace.preparationDirty { Text("Есть несохранённые изменения подготовки.").font(.caption) }
+                Text("3. Соберите данные обычной обстановки").font(.headline)
                 HStack {
-                    Button("Проверить готовность") { workspace.perform { await workspace.checkPreflight() } }
+                    Button("Запустить приём и сбор эталона") { workspace.perform { await workspace.startPreparation() } }
+                        .disabled(!workspace.canStartPreparation)
+                    Button("Остановить сбор") { workspace.perform { await workspace.stopPreparation() } }
+                        .disabled(!workspace.isCollecting || workspace.isArmed || workspace.operationsPending.contains("preparation"))
+                    Button("Обновить готовность") { workspace.perform { await workspace.checkPreflight() } }
+                        .disabled(workspace.selected.isEmpty || workspace.operationsPending.contains("preflight"))
+                }
+                Text("Запуск выполняется только по кнопке через ядро. Генератор RF не включается. Закрытие раздела останавливает только опрос прогресса; потоки ядра продолжают приём.")
+                    .font(.caption).foregroundStyle(.secondary)
+                baselineProgress
+                Text("4. Подтвердите обычную обстановку и сохраните эталон").font(.headline)
+                HStack {
                     Toggle("Подтверждаю обычную обстановку", isOn: $confirm)
                     Button("Зафиксировать эталон") {
                         let body: [String: MonitoringValue] = ["name": .string(name), "location": .string(site), "confirm": .boolean(confirm)]
                         workspace.perform { await workspace.command("baselines", body: body, success: "Эталон сохранён.") }
-                    }.disabled(!confirm || workspace.isArmed)
+                    }.disabled(!confirm || workspace.isArmed || workspace.preflight["baseline_collection"]["ready"].bool != true || (!workspace.preparationSimulation && (!workspace.savedPreparationReady || workspace.preparationDirty)))
                     Button("Анализ новых свипов") { workspace.perform { await workspace.command("analyze", success: "Анализ новых свипов выполнен.") } }
-                }.disabled(workspace.selected.isEmpty || workspace.pending)
+                }.disabled(workspace.selected.isEmpty || workspace.pending || workspace.operationsPending.contains("preparation"))
                 if workspace.preflight != .null {
-                    Text(workspace.preflight["ready"].bool == true ? "Подготовка: успешно" : "Подготовка: требуется внимание")
-                    Text("Эталон: \(workspace.preflight["baseline_ready"].bool == true ? "готов" : "не создан")").font(.caption)
+                    Text(workspace.preflight["ready"].bool == true ? "Проверки подготовки: успешно" : "Проверки подготовки: требуется внимание")
+                    Text("Сохранённый эталон: \(workspace.preflight["baseline_ready"].bool == true ? "готов" : "не создан")").font(.caption)
                     ForEach(Array(workspace.preflight["checks"].items.enumerated()), id: \.offset) { _, check in
                         Text("\(check["ok"].bool == true ? "✓" : "⚠") \(check["detail"].text)").font(.caption)
                     }
                 }
+            }
+        }
+    }
+
+    private var baselineProgress: some View {
+        let collection = workspace.preflight["baseline_collection"]
+        return VStack(alignment: .leading, spacing: 4) {
+            if collection == .null { Text("Прогресс сбора ещё не получен от ядра.").font(.caption).foregroundStyle(.secondary) }
+            else {
+                Text("Свипы: \(collection["sweeps"].scalar) / \(collection["minimum_sweeps"].scalar) · длительность: \(collection["elapsed_seconds"].scalar) / \(collection["minimum_seconds"].scalar) с").font(.caption)
+                ProgressView(value: min(collection["sweeps"].double ?? 0, max(1, collection["minimum_sweeps"].double ?? 20)), total: max(1, collection["minimum_sweeps"].double ?? 20))
+                ProgressView(value: min(collection["elapsed_seconds"].double ?? 0, max(1, collection["minimum_seconds"].double ?? 60)), total: max(1, collection["minimum_seconds"].double ?? 60))
+                Text(collection["ready"].bool == true ? "Данные для эталона собраны. Требуется подтверждение оператора." : "Дождитесь требуемого числа свипов и полного интервала.").font(.caption)
             }
         }
     }
@@ -2581,6 +2752,37 @@ struct MonitoringWorkspacePane: View {
                 }
             }.disabled(workspace.selected.isEmpty || workspace.operationsPending.contains("settings"))
         }
+    }
+
+    private var detectorControls: some View {
+        DisclosureGroup("Детектор · сбалансированный инженерный профиль") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    detectorField("Порог, dB", text: $workspace.detectorMargin)
+                    detectorField("Импульс, dB", text: $workspace.detectorImpulse)
+                    detectorField("Гистерезис, dB", text: $workspace.detectorHysteresis)
+                }
+                HStack {
+                    detectorField("Подтверждения", text: $workspace.detectorConfirmations)
+                    detectorField("Окно, свипы", text: $workspace.detectorWindow)
+                    detectorField("Прослушивание, с", text: $workspace.detectorDwell)
+                }
+                HStack {
+                    Button("Заполнить сбалансированные значения") { workspace.balancedDetectorDraft() }
+                    Button("Сохранить только детектор") {
+                        guard let draft = try? workspace.detectorDraft() else { return }
+                        workspace.perform { await workspace.saveDetector(draft) }
+                    }.disabled(workspace.operationsSettings == .null || workspace.detectorValidation != nil)
+                }
+                ErrorLine(text: workspace.detectorValidation)
+                Text("Начальные значения: 6 / 12 / 3 dB, 3 подтверждения из 5, 10 с прослушивания. Это инженерная отправная точка, не аппаратная калибровка. Кнопка заполнения не сохраняет значения. Изменения разрешены только после снятия с охраны.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.disabled(!workspace.canConfigure || workspace.operationsPending.contains("settings"))
+        }
+    }
+
+    private func detectorField(_ title: String, text: Binding<String>) -> some View {
+        HStack { Text(title).font(.caption); TextField(title, text: text).frame(width: 80).textFieldStyle(.roundedBorder) }
     }
 
     private var storageControls: some View {
@@ -2741,7 +2943,7 @@ struct MonitoringWorkspacePane: View {
                 }
                 Text("Покрытие: \(coverageLabel(workspace.coverage))")
                     .font(.headline).foregroundStyle(workspace.coverage == "wide" ? Color.primary : Color.orange)
-                Text("Узкий поиск приостанавливает широкий обзор. Для возврата явно верните анализатор охране и дождитесь покрытия «широкий обзор».")
+                Text("Узкий поиск приостанавливает широкий обзор. Кривая обновляется чтением каждые 5 секунд; продление права выполняется явно. Для возврата явно верните анализатор охране и дождитесь покрытия «широкий обзор».")
                     .font(.caption).foregroundStyle(.secondary)
                 if workspace.search != .null {
                     ErrorLine(text: workspace.search["error"].text)
@@ -2858,7 +3060,7 @@ struct MonitoringWorkspacePane: View {
     }
 
     private func coverageLabel(_ value: String) -> String {
-        ["wide": "широкий обзор", "stopped": "остановлено", "error": "ошибка покрытия", "narrow": "узкая полоса — широкий обзор приостановлен", "restoring": "восстанавливается широкий обзор", "paused": "пауза — требуется явный возврат или снятие с охраны"][value] ?? "не подтверждено ядром"
+        ["wide": "широкий обзор", "unavailable": "широкое покрытие недоступно", "preparation": "сбор данных эталона — охрана ещё не включена", "stopped": "остановлено", "error": "ошибка покрытия", "narrow": "узкая полоса — широкий обзор приостановлен", "restoring": "восстанавливается широкий обзор", "paused": "пауза — требуется явный возврат или снятие с охраны"][value] ?? "не подтверждено ядром"
     }
 
     private var eventControls: some View {
@@ -2932,7 +3134,7 @@ struct MonitoringWorkspacePane: View {
     }
 
     private func label(_ value: String) -> String {
-        ["draft": "подготовка", "ready": "готов", "armed": "на охране", "searching": "поиск источника", "error": "ошибка",
+        ["draft": "подготовка", "collecting": "сбор данных эталона", "ready": "готов", "armed": "на охране", "searching": "поиск источника", "degraded": "частичная неисправность", "error": "ошибка",
          "running": "работает", "stopped": "остановлен", "connected": "подключён",
          "persistent": "устойчивый сигнал", "impulse": "импульс", "broadband_change": "широкополосное изменение",
          "authorized_changed": "изменение разрешённого сигнала", "open": "открыто", "closed": "закрыто",

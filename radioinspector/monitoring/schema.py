@@ -3,7 +3,7 @@
 def install_schema(db):
     db.execute('CREATE TABLE IF NOT EXISTS monitoring_schema (version INTEGER NOT NULL)')
     version = db.execute('SELECT version FROM monitoring_schema').fetchone()
-    if version and version[0] > 3:
+    if version and version[0] > 4:
         raise ValueError('Неподдерживаемая версия проектов наблюдения')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_records (
         kind TEXT NOT NULL, id TEXT NOT NULL, project_id TEXT NOT NULL,
@@ -11,9 +11,17 @@ def install_schema(db):
     db.execute('''CREATE INDEX IF NOT EXISTS monitoring_scope_time
         ON monitoring_records(kind,project_id,created_at,id)''')
     if not version:
-        db.execute('INSERT INTO monitoring_schema VALUES (?)', (3,))
+        db.execute('INSERT INTO monitoring_schema VALUES (?)', (4,))
     else:
-        db.execute('UPDATE monitoring_schema SET version=3 WHERE version<3')
+        if version[0]<4:
+            from ..contracts import parse_time
+            cursor=db.execute('SELECT kind,id,created_at FROM monitoring_records')
+            while True:
+                rows=cursor.fetchmany(128)
+                if not rows:break
+                db.executemany('UPDATE monitoring_records SET created_at=? WHERE kind=? AND id=?',
+                    [(parse_time(row[2]).isoformat(timespec='microseconds').replace('+00:00','Z'),row[0],row[1]) for row in rows])
+        db.execute('UPDATE monitoring_schema SET version=4 WHERE version<4')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_webhooks(
         project_id TEXT PRIMARY KEY,url TEXT NOT NULL,secret TEXT NOT NULL)''')
     db.execute('''CREATE TABLE IF NOT EXISTS monitoring_notifications(
@@ -32,6 +40,8 @@ def install_schema(db):
     db.execute("""CREATE INDEX IF NOT EXISTS monitoring_search_marks ON monitoring_records(
         kind,project_id,json_extract(payload,'$.search_session_id'),created_at DESC,id DESC)""")
     db.execute("CREATE INDEX IF NOT EXISTS monitoring_state ON monitoring_records(kind,project_id,json_extract(payload,'$.state'),id)")
+    db.execute("""CREATE INDEX IF NOT EXISTS monitoring_open_run ON monitoring_records(kind,project_id,
+        json_extract(payload,'$.state'),json_extract(payload,'$.run_session_id'),json_extract(payload,'$.baseline_id'),id)""")
     db.execute("""CREATE INDEX IF NOT EXISTS monitoring_receiver_pending ON monitoring_records(
         kind,project_id,json_extract(payload,'$.analysis.state'),
         json_extract(payload,'$.source_refs[#-1].session_id'),json_extract(payload,'$.last_seen') DESC,id DESC)""")

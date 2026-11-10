@@ -31,6 +31,7 @@ class GuardOperations:
 
     def authorize_control(self, sid, stream, owner):
         with self.lock:
+            if sid in self.preparing.values():raise WorkerError('Сбор эталона владеет приборами; сначала остановите сбор')
             for runtime in self.runtime.values():
                 if (sid,stream) in runtime['claims']:
                     if runtime['stop'].is_set(): raise WorkerError('Охрана останавливается')
@@ -81,6 +82,7 @@ class GuardOperations:
             if any(r['sid'] == old_sid for r in self.runtime.values()):
                 raise WorkerError('Этот сеанс уже принадлежит другому проекту на охране')
             self.workers.stop_session(old_sid)
+            self.preparing.pop(identifier,None)
             if self.sessions.get_session(old_sid).state.value == 'running':
                 self.sessions.stop_session(old_sid)
             streams = []
@@ -92,7 +94,7 @@ class GuardOperations:
                 streams.append(stream)
             session = self.sessions.create_session(dict(name=project['name'], streams=streams, metadata={'monitoring_project_id':identifier}))
             self.sessions.start_session(session.id)
-            project.update(active_session_id=session.id, session_ids=project['session_ids']+[session.id],
+            project.update(active_session_id=session.id, session_ids=(project['session_ids']+[session.id])[-128:],
                 analyzer_stream_id=session.streams[0].id, receiver_stream_id=session.streams[1].id,
                 state='armed', detector_state=None, detector_cursor=None, detector_rowid=0,
                 last_error=None, coverage='wide', armed_at=format_time(utc_now()))
@@ -115,6 +117,7 @@ class GuardOperations:
 
     def _disarm(self, identifier, payload):
         if payload: raise ValueError('Снятие с охраны принимает пустой объект')
+        if identifier in self.preparing:self.stop_preparation(identifier,{})
         with self.lock:
             runtime = self.runtime.get(identifier)
             if runtime: runtime['stop'].set(); runtime['epoch'] += 1
@@ -143,8 +146,8 @@ class GuardOperations:
                         raise WorkerError('Архив не обеспечивает резерв места/запись/заданный срок хранения')
                     storage_checked=time.monotonic()
                 statuses=self.workers.list_workers(runtime['sid'])
-                if any(not x['alive'] and x['stream_id'] not in runtime['manual'] for x in statuses):
-                    raise WorkerError('Исполнитель прибора остановился; охрана не обеспечивает полное покрытие')
+                self._device_health(identifier,runtime,statuses)
+                project=self.project(identifier)
                 analyzer = project['analyzer_stream_id']
                 if analyzer not in runtime['manual']:
                     self.analyze(identifier)
@@ -166,10 +169,33 @@ class GuardOperations:
                 try: self.workers.stop_session(sid)
                 except Exception: pass
 
+    def _device_health(self,identifier,runtime,statuses):
+        with self.lock:
+            failed=[x for x in statuses if not x['alive'] and x['stream_id'] not in runtime['manual']]
+            previous=runtime.get('device_faults',{})
+            faults={x['stream_id']:x.get('started_at') for x in failed}
+            project=self.project(identifier)
+            if failed:
+                runtime['warning']='Часть приборов недоступна; исправный прибор продолжает регистрацию'
+                analyzer_ok=not any(x['stream_id']==project['analyzer_stream_id'] for x in failed)
+                project.update(state='degraded',last_error=runtime['warning'])
+                if not analyzer_ok:project['coverage']='unavailable'
+                for worker in failed:
+                    if worker['stream_id'] not in previous or previous[worker['stream_id']]!=worker.get('started_at'):
+                        self._notify(project,worker['stream_id']+':'+str(worker.get('started_at')),'device_unavailable',
+                            'critical','Прибор недоступен: '+worker['device'],None)
+            elif previous:
+                runtime.pop('warning',None)
+                project.update(state='searching' if runtime.get('search') else 'armed',last_error=None)
+                if project.get('coverage')=='unavailable':project['coverage']='wide'
+            if faults!=previous:
+                runtime['device_faults']=faults;self.store.put('project',project)
+
     def _queue_receiver(self, identifier, runtime):
         with self.lock:
             project = self.project(identifier)
             if runtime['receiver_busy'] or project['receiver_stream_id'] in runtime['manual']: return
+            if project['receiver_stream_id'] in runtime.get('device_faults',{}):return
             events = self.store.pending_receiver_events(identifier, runtime['sid'])
             if not events: return
             event = max(events, key=lambda x:(x['last_seen'], x['id']))
@@ -259,7 +285,7 @@ class GuardOperations:
                 project.update(state='error',coverage='error',last_error=runtime['error'])
             return dict(project=project, active=bool(runtime and not runtime['stop'].is_set()),
                 receiver_busy=bool(runtime and runtime['receiver_busy']),
-                error=runtime.get('error') if runtime else project.get('last_error'),
+                error=(runtime.get('error') or runtime.get('warning')) if runtime else project.get('last_error'),
                 manual=[dict(role=lease['role'],expired=time.monotonic()>=lease['expires'],returning=lease['returning'],
                              expires_seconds=max(0,round(lease['expires']-time.monotonic()))) for lease in runtime['manual'].values()] if runtime else [],
                 workers=self.workers.list_workers(project['active_session_id']),
