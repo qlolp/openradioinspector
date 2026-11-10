@@ -12,7 +12,23 @@ def dispatch(handler, method, route, payload=None, query=None):
     tail = [unquote(x) for x in route[len(prefix):].strip('/').split('/') if x]
     query = query or {}
     try:
-        if method == 'GET' and tail == ['audio-inputs']:
+        if len(tail)==3 and tail[1] in ('manual','search'):
+            identifier,group,action=tail
+            if group=='search' and action=='status' and method=='GET':
+                handler._send_json(api_payload(service.search_status(identifier)))
+            elif method=='POST' and (group,action) in {
+                ('manual','acquire'),('manual','renew'),('manual','return'),('manual','tune'),('search','start'),('search','mark')}:
+                handler._send_json(api_payload(getattr(service,group+'_'+action)(identifier,payload)))
+            else: raise ValueError('Неизвестное действие ручного управления')
+        elif method=='GET' and len(tail)==2 and tail[1]=='history':
+            handler._send_json(api_payload(service.history(tail[0],query)))
+        elif method=='GET' and len(tail)==3 and tail[1]=='history':
+            handler._send_json(api_payload(service.history_original(tail[0],tail[2])))
+        elif method=='GET' and len(tail)==4 and tail[1]=='history' and tail[3]=='comparison':
+            handler._send_json(api_payload(service.history_comparison(tail[0],tail[2])))
+        elif method=='GET' and len(tail)==4 and tail[1]=='events' and tail[3]=='sources':
+            handler._send_json(api_payload(service.event_sources(tail[0],tail[2],query)))
+        elif method == 'GET' and tail == ['audio-inputs']:
             from ..tinysa.audio import inputs
             handler._send_json(api_payload(inputs()))
         elif len(tail) == 2 and tail[1] in ('arm','disarm','configure','status'):

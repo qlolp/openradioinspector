@@ -305,6 +305,8 @@ class SQLiteSessionStore:
                 self._connection.execute(statement)
         self._create_reference_schema()
         self._create_measurement_schema()
+        from .monitoring.schema import install_sweep_index
+        install_sweep_index(self._connection)
 
     def _create_measurement_schema(self) -> None:
         # Measurement results keep the methodology explicit and the verdict
@@ -638,6 +640,9 @@ class SQLiteSessionStore:
                 data["level_unit"], _json(data["settings"]),
             ),
         )
+        self._connection.execute('INSERT INTO monitoring_sweep_index VALUES (?,?,?,?,?,?)',
+            (sweep.id,sweep.session_id,_archive_time(sweep.interval.started_at),_archive_time(sweep.interval.ended_at),
+             min(sweep.frequencies_hz),max(sweep.frequencies_hz)))
 
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None

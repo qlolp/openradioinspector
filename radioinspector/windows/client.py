@@ -250,9 +250,13 @@ class PlatformClient:
             return AverageChangeResult(envelope["data"], _data_json(raw.decode("utf-8")))
         return envelope["data"]
 
-    def monitoring(self, path='', payload=None):
+    def monitoring(self, path='', payload=None, *, query=None):
         if path and (not path.startswith('/') or '..' in path or '?' in path):
             raise ValueError('Некорректный путь проекта')
+        if query is not None:
+            if payload is not None or not isinstance(query, dict):
+                raise ValueError('Фильтры проекта допустимы только для GET')
+            path += ('?' + urlencode(query)) if query else ''
         return self._request('GET' if payload is None else 'POST', '/monitoring-projects' + path, payload)
 
     def instrument(self,session_id,stream_id,resource,payload=None,*,client_key=None,offset=0):

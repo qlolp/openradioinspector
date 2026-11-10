@@ -13,9 +13,10 @@ from .store import ProjectStore
 from .models import record, text
 from .baselines import BaselineOperations
 from .guard import GuardOperations
+from .research import ResearchOperations
 
 
-class MonitoringService(BaselineOperations, GuardOperations):
+class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations):
     def __init__(self, sessions, workers):
         self.sessions, self.workers = sessions, workers
         self.store = ProjectStore(sessions._store)
