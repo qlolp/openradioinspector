@@ -29,7 +29,7 @@ from .contracts import (
 from .sweep_references import check_reference_creation
 from .sweep_context import ContextIncompatibleError, validate_context_request
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 ARCHIVE_WARNING_THRESHOLD = 0.9
 
 
@@ -303,6 +303,9 @@ class SQLiteSessionStore:
         for statement in schema.split(";"):
             if statement.strip():
                 self._connection.execute(statement)
+        columns = {row[1] for row in self._connection.execute("PRAGMA table_info(investigations)")}
+        if "listening_started_at" not in columns:
+            self._connection.execute("ALTER TABLE investigations ADD COLUMN listening_started_at TEXT")
         self._create_reference_schema()
         self._create_measurement_schema()
         from .monitoring.schema import install_sweep_index
@@ -1010,8 +1013,8 @@ class SQLiteSessionStore:
             INSERT INTO investigations (
                 id, session_id, candidate_id, target_stream_id,
                 target_frequency_hz, state, priority, mode, created_at,
-                started_at, ended_at, result_observation_ids_json, error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                started_at, ended_at, result_observation_ids_json, error, listening_started_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 target_frequency_hz = excluded.target_frequency_hz,
                 state = excluded.state,
@@ -1020,7 +1023,8 @@ class SQLiteSessionStore:
                 started_at = excluded.started_at,
                 ended_at = excluded.ended_at,
                 result_observation_ids_json = excluded.result_observation_ids_json,
-                error = excluded.error
+                error = excluded.error,
+                listening_started_at = excluded.listening_started_at
             """,
             (
                 data["id"], candidate.session_id, data["candidate_id"],
@@ -1031,6 +1035,8 @@ class SQLiteSessionStore:
                 _archive_time(investigation.ended_at)
                 if investigation.ended_at is not None else None,
                 _json(data["result_observation_ids"]), data["error"],
+                _archive_time(investigation.listening_started_at)
+                if investigation.listening_started_at is not None else None,
             ),
         )
         if event is not None:
@@ -1168,6 +1174,7 @@ class SQLiteSessionStore:
             "target_frequency_hz": row["target_frequency_hz"],
             "state": row["state"], "priority": row["priority"], "mode": row["mode"],
             "created_at": row["created_at"], "started_at": row["started_at"],
+            "listening_started_at": row["listening_started_at"],
             "ended_at": row["ended_at"],
             "result_observation_ids": json.loads(row["result_observation_ids_json"]),
             "error": row["error"],
