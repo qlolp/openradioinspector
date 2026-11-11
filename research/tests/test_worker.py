@@ -1,6 +1,7 @@
 """Real SQLite -> Parquet -> DuckDB contracts, independent of the core runtime."""
 from __future__ import annotations
 
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -46,7 +47,8 @@ def make_snapshot(directory, *, schema=6, copies=1):
     for stream in FIXTURE['session']['streams']:
         db.execute('INSERT INTO streams VALUES (?,?,?,?,?,?,?,?)', (
             stream['id'], FIXTURE['session']['id'], stream['device'], stream['role'],
-            stream['level_unit'], 'Synthetic', '{"private":"synthetic-private"}', '{}'))
+            stream['level_unit'], 'Synthetic', '{"private":"synthetic-private"}',
+            json.dumps(stream.get('capabilities', []), ensure_ascii=False)))
     sweep = FIXTURE['sweep']
     for n in range(copies):
         db.execute('INSERT INTO sweeps VALUES (?,?,?,?,?,?,?,?,?)', (
@@ -88,7 +90,8 @@ class WorkerTests(unittest.TestCase):
                     filters={}, **kwargs)
 
     def run_worker(self, request=None, *, raw=None):
-        env = dict(os.environ, PYTHONPATH=str(ROOT / 'src'), OPENBLAS_NUM_THREADS='1')
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(ROOT/'src'),str(ROOT.parent))),
+                   OPENBLAS_NUM_THREADS='1')
         process = subprocess.run([sys.executable, '-m', 'ori_research'],
             input=raw if raw is not None else json.dumps(request), text=True,
             capture_output=True, env=env, timeout=30)
@@ -141,6 +144,58 @@ class WorkerTests(unittest.TestCase):
         again = self.success(self.request())
         self.assertTrue(again['result']['cache_hit'])
         self.assertEqual(again['result']['manifest_sha256'], result['manifest_sha256'])
+
+    def test_actual_canonical_backup_exports_capabilities_arrays_without_changing_the_source(self):
+        source = self.root / 'canonical.sqlite'
+        destination = self.root / 'canonical-snapshot'
+        producer = r'''
+import math, sys
+from radioinspector.session_service import SessionService
+from radioinspector.session_store import SQLiteSessionStore
+from radioinspector.recovery_backup import create_backup
+service = SessionService(store=SQLiteSessionStore(sys.argv[1]))
+try:
+    service.create_session({'id':'canonical-é','name':'Synthetic canonical source','streams':[
+        {'id':'spectrum','device':'Synthetic','role':'spectrum_analyzer','level_unit':'dBm',
+         'capabilities':['sweep','waterfall','é','e\u0301'],
+         'settings':{'extension':{'preserve':-0.0}}}]})
+    service.ingest_sweep({'id':'raw-α','session_id':'canonical-é','stream_id':'spectrum',
+        'interval':{'started_at':'2026-11-11T00:00:00.123456Z','ended_at':'2026-11-11T00:00:00.223456Z'},
+        'frequencies_hz':[100000001,100000002],'levels':[-0.0,math.nextafter(1.0,2.0)],
+        'level_unit':'dBm','settings':{'extension':{'preserve':-0.0}}})
+finally:
+    service.close()
+create_backup(sys.argv[1],sys.argv[2])
+'''
+        result = subprocess.run([sys.executable, '-I', '-c', producer, str(source), str(destination)],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.snapshot = destination / 'archive.sqlite'
+        before = {p.name: digest(p) for p in destination.iterdir()}
+        with closing(sqlite3.connect(self.snapshot)) as db:
+            capabilities = db.execute('SELECT capabilities_json FROM streams').fetchone()[0]
+        exported = self.success(self.request())['result']
+        streams = pq.read_table(Path(exported['cache_path']) / 'streams.parquet').to_pylist()
+        self.assertEqual(streams[0]['capabilities_json'], capabilities)
+        self.assertEqual(json.loads(capabilities), ['sweep', 'waterfall', 'é', 'e\u0301'])
+        points = pq.read_table(Path(exported['cache_path']) / 'sweep_points.parquet').to_pylist()
+        self.assertEqual([struct.pack('>d', r['level']).hex() for r in points],
+                         ['8000000000000000', '3ff0000000000001'])
+        self.assertEqual(before, {p.name: digest(p) for p in destination.iterdir()})
+
+    def test_stream_capabilities_and_settings_keep_distinct_json_shapes(self):
+        for column, value in [('capabilities_json', '{}'), ('capabilities_json', '[1]'),
+                              ('capabilities_json', '[NaN]'), ('settings_json', '[]'),
+                              ('settings_json', '{"x":1,"x":2}'),
+                              ('settings_json', '{"x":1e400}')]:
+            with self.subTest(column=column, value=value), closing(sqlite3.connect(self.snapshot)) as db:
+                db.execute('UPDATE streams SET capabilities_json=?,settings_json=?',
+                           (value if column == 'capabilities_json' else '[]',
+                            value if column == 'settings_json' else '{}'))
+                db.commit()
+                self.reseal()
+                self.failure(self.request(), code='source_record_invalid')
+                self.assertEqual(list(self.cache.glob('cache-*/manifest.json')), [])
 
     def test_unknown_schema_is_rejected_before_export(self):
         self.snapshot = make_snapshot(self.root / 'future', schema=7)

@@ -135,8 +135,11 @@ no Windows hard-limit/service acceptance is claimed.
 
 ## Research child and real resource capabilities
 
-Use one shared `ResearchPool` across the service. `try_acquire` admits one heavy
-child and returns `Busy` immediately under overload. `Cancellation` and deadlines
+Use one shared `ResearchPool` across the service. `try_reserve()` admits one heavy
+job before source selection or sealed-snapshot preparation and returns `Busy`
+immediately under overload. Its non-cloneable reservation is consumed by
+`ResearchPermit::run`; existing `ResearchPool::run` uses it internally.
+`Cancellation` and deadlines
 terminate and reap the owned process group, retaining the sealed source. The
 configured executable receives one bounded version-1 JSON request (<=65,536
 bytes) then stdin EOF. stdout is one JSON response (<=2 MiB); stderr <=64 KiB
@@ -181,6 +184,19 @@ service/container policy; the crate does not claim portable hard containment.
 
 ## Offline LAN identity, pairing and request policy
 
+Scientific IPC uses the shared preservation-safe contract codec in both
+directions. Existing DuckDB requests keep their 64 KiB input and 2 MiB output
+ceilings; the explicit `analysis` operation permits at most 16 MiB in each
+direction for bounded immutable source DTOs. It shares the same single heavy-job
+admission and process limits. Thread limits are set before Python starts,
+including when package initialization imports NumPy before the worker module.
+Worker execution clears the inherited environment. Only PATH, locale, timezone,
+temporary-directory settings and Windows system-directory names are copied;
+explicit WorkerSpec environment entries are restricted to those same names
+and bounded values. Core credentials, HOME, PYTHONPATH and loader-injection
+variables are excluded. NumPy/Arrow thread ceilings and Python isolation/UTF-8
+settings are then supplied by the parent, before imports run.
+
 `SecurityMode::for_installation(existing,opt_in_lan)` selects LAN TLS for a new
 installation, and explicit loopback compatibility for an existing installation
 until the operator opts in. `LegacyLoopback.validate_bind` rejects non-loopback
@@ -195,9 +211,12 @@ not contain symlinks, and linked/public/wrong-owner key files are refused. Write
 fsync and atomically rename. A local constrained CA signs a one-year server
 certificate for explicit names/IPs; the CA signing key is discarded after
 issuance. Existing identity is never silently replaced. Certificate renewal or
-name changes require explicit re-enrollment and trust/pin updates. Native clients
-pin `fingerprint_sha256()` (leaf DER SHA-256) after verifying it over a trusted
-local channel. They must refuse a changed identity until explicit re-pairing.
+name changes require explicit re-enrollment and trust updates. The current
+Web/Windows/macOS clients validate the exact HTTPS origin using the OS or browser
+trust store, including an explicitly enrolled local CA. They do not persist a
+separate leaf-certificate pin. `fingerprint_sha256()` (leaf DER SHA-256) is
+available for independent operator verification; it is not a claimed client
+pinning feature. A changed untrusted identity is rejected by TLS validation.
 
 Browser trust comes **before sending pairing credentials**: export the local CA
 certificate using a trusted local/admin channel, verify its SHA-256 independently,
@@ -213,15 +232,21 @@ locally. A window is single-use, 1–300 seconds, at most 10 attempts globally,
 rejects clock rollback, and disappears on restart. Keep only one active window
 behind the core's mutex. Pairing redemption is the only LAN operation exempt
 from bearer auth, and still requires TLS and trusted Host/Origin validation.
-Suggested public adapter routes (core integration required):
+The Rust candidate implements these routes over its actual TLS listener:
 
-* `POST /api/v1/security/pair` accepts `{pairing_code, label}`; under the single
-  window mutex redeem then call `Credentials::issue`. Return the new opaque
-  device token once over trusted TLS. On persistence failure consume the window
-  and require the local operator to start another one.
-* `DELETE /api/v1/security/credentials/current` authenticates the supplied token,
-  calls `revoke`, and invalidates subsequent requests immediately. An existing
-  Credentials handle reloads hash-only state for each authorization.
+* `GET /api/v1/security/status` reports the installation mode and pairing state.
+* `POST /api/v1/security/pair` accepts `{pairing_code, label, client}`. Native
+  clients receive the new opaque credential once over trusted TLS. A browser
+  receives only an HttpOnly/Secure/SameSite=Strict session cookie. The single
+  pairing window is consumed even if credential persistence fails.
+* `POST /api/v1/security/browser-session` exchanges a valid native Bearer
+  credential for the browser cookie used by the same-origin legacy interface.
+* `POST /api/v1/security/credentials/current/revoke` (or the existing DELETE
+  alias) revokes the credential, expires the cookie and closes its event stream.
+
+Security POST bodies have a 4 KiB limit. The local `ori-core pair`
+command opens the bounded window; no unauthenticated network route opens it.
+The implementation and tested wire details are in `docs/rust-core.md`.
 
 Persist only SHA-256 hashes of these high-entropy tokens; no passwords or raw
 bearer tokens are written. At most 256 device credentials are admitted. Do not

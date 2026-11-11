@@ -1,4 +1,4 @@
-"""Only sealed, consistent SQLite recovery snapshots are accepted as input."""
+"""Sealed recovery snapshots and explicitly derived immutable record sources."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -98,6 +98,11 @@ def _file(path):
 @contextmanager
 def open_snapshot(path, filters, budget):
     path = Path(path)
+    if path.name == 'records.ndjson':
+        from .derived import open_derived
+        with open_derived(path,filters,budget) as source:
+            yield source
+        return
     _file(path)
     path = path.resolve(strict=True)
     _unsealed(path)
@@ -188,15 +193,39 @@ def text(value, maximum=1024, *, nullable=False):
     return value
 
 
-def json_object(value, maximum):
+def _json_document(value, maximum):
     text(value, maximum)
     def invalid(_):
         raise ValueError()
-    try:
-        if not isinstance(json.loads(value, parse_constant=invalid),dict):
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError()
+            result[key] = item
+        return result
+    def finite(raw):
+        number = float(raw)
+        if not math.isfinite(number):
             raise ValueError()
+        return number
+    try:
+        return json.loads(value, parse_constant=invalid, parse_float=finite,
+                          object_pairs_hook=unique)
     except (ValueError, TypeError, RecursionError):
         raise WorkerError('source_record_invalid', 'Source settings or metadata are invalid') from None
+
+
+def json_object(value, maximum):
+    if not isinstance(_json_document(value, maximum), dict):
+        raise WorkerError('source_record_invalid', 'Source settings or metadata are invalid')
+    return value
+
+
+def json_capabilities(value, maximum):
+    parsed = _json_document(value, maximum)
+    if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+        raise WorkerError('source_record_invalid', 'Source capabilities must be a JSON string array')
     return value
 
 

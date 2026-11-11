@@ -32,7 +32,7 @@ def main():
                 pass
         request = parse(raw)
         request_id,operation = request['request_id'],request['operation']
-        budget = Budget(request['limits'])
+        budget = Budget(request['limits'],shared_io=request.get('shared_io'))
         from .worker import run
         result = run(request,budget)
         response = {'version':1,'request_id':request_id,'operation':operation,

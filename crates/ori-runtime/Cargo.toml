@@ -7,6 +7,7 @@ license = "MIT"
 description = "Owned backend supervision and offline LAN security for OpenRadioInspector"
 
 [dependencies]
+ori-contracts = { path = "../ori-contracts" }
 base64 = "=0.23.1"
 fs2 = "=0.4.3"
 rand = "=0.8.8"

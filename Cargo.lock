@@ -771,6 +771,7 @@ dependencies = [
  "base64",
  "fs2",
  "libc",
+ "ori-contracts",
  "rand",
  "rcgen",
  "rustls",

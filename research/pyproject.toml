@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ori-research"
-version = "0.2.0"
+version = "0.2.2"
 description = "Isolated, disposable snapshot analytics for OpenRadioInspector"
 license = "MIT"
 requires-python = "==3.15.*"

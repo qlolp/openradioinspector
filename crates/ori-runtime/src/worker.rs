@@ -56,21 +56,85 @@ impl Cancellation {
 }
 
 use crate::{Error, lease::validate_path, process::OwnedChild};
+const CONTROL_REQUEST_BYTES: usize = 65_536;
+const ANALYSIS_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+// Offline workers need an executable/locale/temp context, never the core's
+// credentials, user startup configuration or dynamic-loader injection hooks.
+const WORKER_ENVIRONMENT: &[&str] = &[
+    "PATH",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SYSTEMROOT",
+    "WINDIR",
+];
 use std::{
     io::{Read, Write},
     process::{Command, Stdio},
     sync::mpsc,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
-use tokio::{
-    sync::Semaphore,
-    time::{Instant, sleep},
-};
+use tokio::sync::Semaphore;
+
+struct WorkerOwner {
+    child: OwnedChild,
+    threads: Vec<thread::JoinHandle<()>>,
+    joined: bool,
+}
+impl WorkerOwner {
+    fn spawn(command: &mut Command) -> Result<Self> {
+        Ok(Self {
+            child: OwnedChild::spawn(command)?,
+            threads: Vec::with_capacity(3),
+            joined: false,
+        })
+    }
+    fn thread(&mut self, name: &str, work: impl FnOnce() + Send + 'static) -> Result<()> {
+        self.threads
+            .push(thread::Builder::new().name(name.into()).spawn(work)?);
+        Ok(())
+    }
+    fn finish(&mut self) -> Result<std::process::ExitStatus> {
+        // Unknown process cleanup retains this owner and its reservation.
+        let exit = loop {
+            match self.child.terminate_and_reap() {
+                Ok(exit) => break exit,
+                Err(_) => thread::sleep(Duration::from_millis(10)),
+            }
+        };
+        let mut failed = false;
+        for handle in self.threads.drain(..) {
+            failed |= handle.join().is_err();
+        }
+        self.joined = true;
+        if failed {
+            return Err(Error::Protocol("worker IPC thread failed".into()));
+        }
+        Ok(exit)
+    }
+}
+impl Drop for WorkerOwner {
+    fn drop(&mut self) {
+        if !self.joined {
+            let _ = self.finish();
+        }
+    }
+}
 /// Share one pool between all API handlers in a service. It never queues heavy jobs.
 #[derive(Clone)]
 pub struct ResearchPool {
     admission: Arc<Semaphore>,
+}
+/// One global heavy-work reservation, including preparation of its sealed source.
+/// Non-cloneable. Retained execution permits sequential reuse after the prior
+/// child and all IPC threads have joined; concurrent children are never admitted.
+pub struct ResearchPermit {
+    _permit: tokio::sync::OwnedSemaphorePermit,
 }
 impl Default for ResearchPool {
     fn default() -> Self {
@@ -97,31 +161,114 @@ fn read_bounded(mut stream: impl Read, limit: usize) -> Result<Vec<u8>> {
     }
 }
 impl ResearchPool {
+    pub fn try_reserve(&self) -> Result<ResearchPermit> {
+        Ok(ResearchPermit {
+            _permit: self
+                .admission
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| Error::Busy)?,
+        })
+    }
+
     pub async fn run(
         &self,
         spec: WorkerSpec,
         request: Vec<u8>,
         cancel: Cancellation,
     ) -> Result<WorkerResult> {
-        let _permit = self
-            .admission
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Error::Busy)?;
+        self.try_reserve()?.run(spec, request, cancel).await
+    }
+}
+impl ResearchPermit {
+    /// Consume the preparation reservation without reacquiring the shared pool.
+    pub async fn run(
+        self,
+        spec: WorkerSpec,
+        request: Vec<u8>,
+        cancel: Cancellation,
+    ) -> Result<WorkerResult> {
+        let (_reservation, result) = self.run_retained(spec, request, cancel).await;
+        result
+    }
+    /// Return the same reservation after actual child/IPC JOIN, on success or
+    /// failure. A dropped waiter cancels an independently owned runner which
+    /// keeps admission until cleanup finishes. Sequential reuse is permitted.
+    pub async fn run_retained(
+        self,
+        spec: WorkerSpec,
+        request: Vec<u8>,
+        cancel: Cancellation,
+    ) -> (Self, Result<WorkerResult>) {
+        struct CancelOnDrop(Option<Cancellation>);
+        impl Drop for CancelOnDrop {
+            fn drop(&mut self) {
+                if let Some(cancel) = &self.0 {
+                    cancel.cancel();
+                }
+            }
+        }
+        let mut waiter = CancelOnDrop(Some(cancel.clone()));
+        let owner = tokio::task::spawn_blocking(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.execute(spec, request, cancel)
+            }))
+            .unwrap_or_else(|_| Err(Error::Protocol("owned research runner failed".into())));
+            (self, result)
+        });
+        let outcome = owner.await.expect("owned research runner completion");
+        waiter.0 = None;
+        outcome
+    }
+    fn execute(
+        &self,
+        spec: WorkerSpec,
+        request: Vec<u8>,
+        cancel: Cancellation,
+    ) -> Result<WorkerResult> {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
-        if request.len() > 65536
+        if request.len() > ANALYSIS_MESSAGE_BYTES
             || !spec.program.is_absolute()
             || spec.deadline_ms == 0
             || spec.deadline_ms > 86400000
         {
             return Err(Error::Unsafe("invalid bounded worker invocation".into()));
         }
+        if spec.environment.iter().any(|(key, value)| {
+            !WORKER_ENVIRONMENT.contains(&key.as_str())
+                || value.len() > 8192
+                || value.contains('\0')
+        }) {
+            return Err(Error::Unsafe(
+                "worker environment contains an unsupported execution setting".into(),
+            ));
+        }
+        let original_bytes = request.len();
         let mut request: serde_json::Value = strict_json(&request)?;
         let object = request
             .as_object_mut()
             .ok_or_else(|| Error::Protocol("worker request must be an object".into()))?;
+        let analysis = matches!(
+            object.get("operation").and_then(|value| value.as_str()),
+            Some("analysis" | "control_analysis")
+        );
+        let request_budget = if analysis {
+            ANALYSIS_MESSAGE_BYTES
+        } else {
+            CONTROL_REQUEST_BYTES
+        };
+        let response_budget = if analysis {
+            ANALYSIS_MESSAGE_BYTES
+        } else {
+            2 * 1024 * 1024
+        };
+        if original_bytes > request_budget {
+            return Err(Error::Unsafe(
+                "worker envelope exceeds operation budget".into(),
+            ));
+        }
         if object.get("version").and_then(|v| v.as_u64()) != Some(1) {
             return Err(Error::Protocol("unsupported worker request version".into()));
         }
@@ -149,8 +296,9 @@ impl ResearchPool {
             }
         }
         object.insert("limits".into(), effective.clone());
-        let request = serde_json::to_vec(&request)?;
-        if request.len() > 65536 {
+        let request = ori_contracts::to_json_vec(&request)
+            .map_err(|_| Error::Protocol("invalid finite worker request".into()))?;
+        if request.len() > request_budget {
             return Err(Error::Unsafe(
                 "worker envelope exceeds request bound".into(),
             ));
@@ -168,14 +316,29 @@ impl ResearchPool {
             return Err(Error::Unsafe("research child requires an owned process-tree containment implementation on this platform".into()));
         }
         let mut command = Command::new(&spec.program);
+        command.env_clear();
+        for key in WORKER_ENVIRONMENT {
+            if let Some(value) = spec
+                .environment
+                .get(*key)
+                .map(std::ffi::OsString::from)
+                .or_else(|| std::env::var_os(key))
+            {
+                command.env(key, value);
+            }
+        }
         command
             .args(&spec.args)
-            .envs(&spec.environment)
             .env("PYTHONNOUSERSITE", "1")
-            .env("OMP_NUM_THREADS", "2")
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("OMP_NUM_THREADS", "1")
             .env("OPENBLAS_NUM_THREADS", "1")
             .env("MKL_NUM_THREADS", "1")
-            .env("NUMEXPR_NUM_THREADS", "2")
+            .env("NUMEXPR_NUM_THREADS", "1")
+            .env("VECLIB_MAXIMUM_THREADS", "1")
+            .env("ARROW_NUM_THREADS", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -199,23 +362,27 @@ impl ResearchPool {
         if spec.require_hard_memory && !capabilities.hard_memory {
             return Err(Error::Unsafe("hard child memory budget requires a delegated Linux cgroup; best effort must be explicitly selected".into()));
         }
-        let mut child = OwnedChild::spawn(&mut command)?;
-        let mut stdin = child.child_mut().stdin.take().unwrap();
-        let stdout = child.child_mut().stdout.take().unwrap();
-        let stderr = child.child_mut().stderr.take().unwrap();
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let mut owner = WorkerOwner::spawn(&mut command)?;
+        let mut stdin = owner.child.child_mut().stdin.take().unwrap();
+        let stdout = owner.child.child_mut().stdout.take().unwrap();
+        let stderr = owner.child.child_mut().stderr.take().unwrap();
         let (sender, receiver) = mpsc::channel();
-        let writer = thread::spawn(move || {
+        let (write_sender, write_receiver) = mpsc::channel();
+        owner.thread("ori-research-stdin", move || {
             let result = stdin.write_all(&request);
             drop(stdin);
-            result
-        });
+            let _ = write_sender.send(result);
+        })?;
         let out_sender = sender.clone();
-        let reader = thread::spawn(move || {
-            let _ = out_sender.send((true, read_bounded(stdout, 2 * 1024 * 1024)));
-        });
-        let err_reader = thread::spawn(move || {
+        owner.thread("ori-research-stdout", move || {
+            let _ = out_sender.send((true, read_bounded(stdout, response_budget)));
+        })?;
+        owner.thread("ori-research-stderr", move || {
             let _ = sender.send((false, read_bounded(stderr, 65536)));
-        });
+        })?;
         let deadline = Instant::now() + Duration::from_millis(spec.deadline_ms);
         let mut output = None;
         let mut failure = None;
@@ -239,25 +406,19 @@ impl ResearchPool {
                 break;
             }
             #[cfg(target_os = "linux")]
-            if group_rss(child.pid()) > rss_limit {
+            if group_rss(owner.child.pid()) > rss_limit {
                 failure = Some(Error::ResourceLimit);
                 break;
             }
-            if child.exited()? {
+            if owner.child.exited()? {
                 break;
             }
-            sleep(Duration::from_millis(10)).await;
+            thread::sleep(Duration::from_millis(10));
         }
-        let exit = child.terminate_and_reap()?;
-        let write_result = writer
-            .join()
+        let exit = owner.finish()?;
+        let write_result = write_receiver
+            .recv()
             .map_err(|_| Error::Protocol("worker stdin thread failed".into()))?;
-        reader
-            .join()
-            .map_err(|_| Error::Protocol("worker stdout thread failed".into()))?;
-        err_reader
-            .join()
-            .map_err(|_| Error::Protocol("worker stderr thread failed".into()))?;
         for (is_stdout, result) in receiver.try_iter() {
             match result {
                 Ok(bytes) if is_stdout => output = Some(bytes),
@@ -409,87 +570,9 @@ fn group_rss(group: u32) -> u64 {
     total
 }
 
-// Preserve the worker's strict framing even though the driver adds resource limits.
+// Use the shared parser: serde's arbitrary-precision protocol must never alias
+// actual metadata objects or round large integers at either IPC boundary.
 fn strict_json(bytes: &[u8]) -> Result<serde_json::Value> {
-    struct Strict(serde_json::Value);
-    impl<'de> serde::Deserialize<'de> for Strict {
-        fn deserialize<D: serde::Deserializer<'de>>(
-            deserializer: D,
-        ) -> std::result::Result<Self, D::Error> {
-            struct Visitor;
-            impl<'de> serde::de::Visitor<'de> for Visitor {
-                type Value = Strict;
-                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    formatter.write_str("strict JSON")
-                }
-                fn visit_unit<E: serde::de::Error>(self) -> std::result::Result<Strict, E> {
-                    Ok(Strict(serde_json::Value::Null))
-                }
-                fn visit_bool<E: serde::de::Error>(
-                    self,
-                    value: bool,
-                ) -> std::result::Result<Strict, E> {
-                    Ok(Strict(value.into()))
-                }
-                fn visit_i64<E: serde::de::Error>(
-                    self,
-                    value: i64,
-                ) -> std::result::Result<Strict, E> {
-                    Ok(Strict(value.into()))
-                }
-                fn visit_u64<E: serde::de::Error>(
-                    self,
-                    value: u64,
-                ) -> std::result::Result<Strict, E> {
-                    Ok(Strict(value.into()))
-                }
-                fn visit_f64<E: serde::de::Error>(
-                    self,
-                    value: f64,
-                ) -> std::result::Result<Strict, E> {
-                    serde_json::Number::from_f64(value)
-                        .map(|n| Strict(n.into()))
-                        .ok_or_else(|| E::custom("nonfinite number"))
-                }
-                fn visit_str<E: serde::de::Error>(
-                    self,
-                    value: &str,
-                ) -> std::result::Result<Strict, E> {
-                    Ok(Strict(value.into()))
-                }
-                fn visit_string<E: serde::de::Error>(
-                    self,
-                    value: String,
-                ) -> std::result::Result<Strict, E> {
-                    Ok(Strict(value.into()))
-                }
-                fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                    self,
-                    mut sequence: A,
-                ) -> std::result::Result<Strict, A::Error> {
-                    let mut values = Vec::new();
-                    while let Some(Strict(value)) = sequence.next_element()? {
-                        values.push(value);
-                    }
-                    Ok(Strict(values.into()))
-                }
-                fn visit_map<A: serde::de::MapAccess<'de>>(
-                    self,
-                    mut map: A,
-                ) -> std::result::Result<Strict, A::Error> {
-                    let mut values = serde_json::Map::new();
-                    while let Some(key) = map.next_key::<String>()? {
-                        if values.contains_key(&key) {
-                            return Err(serde::de::Error::custom("duplicate JSON key"));
-                        }
-                        let Strict(value) = map.next_value()?;
-                        values.insert(key, value);
-                    }
-                    Ok(Strict(values.into()))
-                }
-            }
-            deserializer.deserialize_any(Visitor)
-        }
-    }
-    Ok(serde_json::from_slice::<Strict>(bytes)?.0)
+    ori_contracts::parse_json_value(bytes, ANALYSIS_MESSAGE_BYTES)
+        .map_err(|_| Error::Protocol("invalid strict worker JSON".into()))
 }

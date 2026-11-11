@@ -1,0 +1,221 @@
+{
+  "oracle": "Actual Python Controller + synthetic UltraWire; no devices or audio; derived-only subset of existing 36-case controller oracle",
+  "oracle_sha256": "25b1b63044a563ff0bf1f6d9e25e18cf93129bb09b5822bc49ab3c003b2098e6",
+  "cases": [
+    {
+      "method": "peak",
+      "source": {
+        "frequencies_hz": [
+          100000000,
+          100333333,
+          100666666
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -70.0
+        ],
+        "level_unit": "dBm",
+        "wire_base64": "e3iACnjAC3gADX0=",
+        "zero_db": 174,
+        "started_at": "2026-11-11T12:00:00Z",
+        "ended_at": "2026-11-11T12:00:00Z",
+        "sample_offsets_seconds": null,
+        "timing_source": "interval_only",
+        "grid_source": "firmware_ea71dfd_scanraw",
+        "requested_stop_hz": 101000000,
+        "stop_is_inclusive": false
+      },
+      "rbw_hz": 10000.0,
+      "result": {
+        "name": "Sampled peak frequency",
+        "value": 100666666,
+        "unit": "Hz",
+        "uncertainty": 333333.0,
+        "details": {
+          "level_dbm": -70.0
+        },
+        "warnings": [
+          "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+          "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+        ],
+        "method": "peak",
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "method": "occupied_bandwidth",
+      "source": {
+        "frequencies_hz": [
+          100000000,
+          100333333,
+          100666666
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -70.0
+        ],
+        "level_unit": "dBm",
+        "wire_base64": "e3iACnjAC3gADX0=",
+        "zero_db": 174,
+        "started_at": "2026-11-11T12:00:00Z",
+        "ended_at": "2026-11-11T12:00:00Z",
+        "sample_offsets_seconds": null,
+        "timing_source": "interval_only",
+        "grid_source": "firmware_ea71dfd_scanraw",
+        "requested_stop_hz": 101000000,
+        "stop_is_inclusive": false
+      },
+      "rbw_hz": 10000.0,
+      "result": {
+        "bandwidth_hz": 813149.1868499964,
+        "lower_edge_hz": 100018333.315,
+        "upper_edge_hz": 100831482.50185,
+        "center_hz": 100424907.908425,
+        "method": "occupied_bandwidth",
+        "uncertainty_hz": 333333.0,
+        "warnings": [
+          "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 40 дБ — точность измерения снижена",
+          "Полоса обзора должна составлять 1,5–2 полосы занимаемых частот; иначе результат недостоверен",
+          "Шаг перестройки частоты слишком велик относительно измеренной полосы",
+          "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+          "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+        ],
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "method": "bandwidth_3db",
+      "source": {
+        "frequencies_hz": [
+          100000000,
+          100333333,
+          100666666
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -70.0
+        ],
+        "level_unit": "dBm",
+        "wire_base64": "e3iACnjAC3gADX0=",
+        "zero_db": 174,
+        "started_at": "2026-11-11T12:00:00Z",
+        "ended_at": "2026-11-11T12:00:00Z",
+        "sample_offsets_seconds": null,
+        "timing_source": "interval_only",
+        "grid_source": "firmware_ea71dfd_scanraw",
+        "requested_stop_hz": 101000000,
+        "stop_is_inclusive": false
+      },
+      "rbw_hz": 10000.0,
+      "result": {
+        "bandwidth_hz": 184745.28428146243,
+        "lower_edge_hz": 100481920.71571854,
+        "upper_edge_hz": 100666666.0,
+        "center_hz": 100574293.35785927,
+        "method": "bandwidth_3db",
+        "uncertainty_hz": 333333.0,
+        "warnings": [
+          "Сигнал не отделён от правого края полосы обзора — правая граница принята равной частоте конца обзора",
+          "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 40 дБ",
+          "Шаг перестройки частоты слишком велик относительно измеренной полосы",
+          "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+          "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+        ],
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "method": "centroid",
+      "source": {
+        "frequencies_hz": [
+          100000000,
+          100333333,
+          100666666
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -70.0
+        ],
+        "level_unit": "dBm",
+        "wire_base64": "e3iACnjAC3gADX0=",
+        "zero_db": 174,
+        "started_at": "2026-11-11T12:00:00Z",
+        "ended_at": "2026-11-11T12:00:00Z",
+        "sample_offsets_seconds": null,
+        "timing_source": "interval_only",
+        "grid_source": "firmware_ea71dfd_scanraw",
+        "requested_stop_hz": 101000000,
+        "stop_is_inclusive": false
+      },
+      "rbw_hz": 10000.0,
+      "result": {
+        "name": "Центральная частота (метод центра тяжести)",
+        "value": null,
+        "unit": "Гц",
+        "uncertainty": 666666.0,
+        "warnings": [
+          "В полосе обзора 3 точек при рекомендуемых 200; точность оценки снижена",
+          "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 30 дБ",
+          "Сигнал не выделен над уровнем шума — проверьте исходные данные",
+          "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+          "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+        ],
+        "details": {
+          "noise_level_db": -80.0,
+          "threshold_db": -74.0,
+          "left_edge_hz": 100000000.0,
+          "right_edge_hz": 100666666.0
+        },
+        "method": "centroid",
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "method": "channel_power",
+      "source": {
+        "frequencies_hz": [
+          100000000,
+          100333333,
+          100666666
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -70.0
+        ],
+        "level_unit": "dBm",
+        "wire_base64": "e3iACnjAC3gADX0=",
+        "zero_db": 174,
+        "started_at": "2026-11-11T12:00:00Z",
+        "ended_at": "2026-11-11T12:00:00Z",
+        "sample_offsets_seconds": null,
+        "timing_source": "interval_only",
+        "grid_source": "firmware_ea71dfd_scanraw",
+        "requested_stop_hz": 101000000,
+        "stop_is_inclusive": false
+      },
+      "rbw_hz": 10000.0,
+      "result": {
+        "name": "Channel power estimate",
+        "value": -56.953663143618925,
+        "unit": "dBm",
+        "uncertainty": null,
+        "details": {
+          "rbw_hz": 10000.0,
+          "integration": "trapezoid_over_actual_grid",
+          "enbw_correction": "not_calibrated"
+        },
+        "warnings": [
+          "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+          "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+        ],
+        "method": "channel_power",
+        "hardware_validation": "not_run"
+      }
+    }
+  ]
+}

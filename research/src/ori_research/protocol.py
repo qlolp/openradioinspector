@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 REQUEST_BYTES = 65_536
@@ -71,7 +72,7 @@ def parse(raw):
             return result
         request = json.loads(raw, parse_constant=reject_constant, object_pairs_hook=unique_object)
         allowed = {'version', 'request_id', 'operation', 'snapshot_path', 'cache_directory',
-                   'filters', 'limits', 'page_size', 'cursor', 'threshold'}
+                   'filters', 'limits', 'page_size', 'cursor', 'threshold','shared_io'}
         if not isinstance(request, dict) or set(request) - allowed:
             _bad()
         if type(request.get('version')) is not int or request['version'] != 1 \
@@ -108,6 +109,13 @@ def parse(raw):
             if not _integer(value, 1, DEFAULT_LIMITS[key]):
                 _bad()
         request['limits'] = DEFAULT_LIMITS | limits
+        if 'shared_io' in request:
+            shared=request['shared_io']
+            if not isinstance(shared,dict) or set(shared)!={'version','path','nonce','clock'} \
+                    or type(shared['version']) is not int or shared['version']!=1 \
+                    or shared['clock']!='posix-monotonic' or not _path(shared['path']) \
+                    or not isinstance(shared['nonce'],str) or not re.fullmatch('[0-9a-f]{32}',shared['nonce']):
+                _bad()
         if request['operation'] == 'occupancy':
             threshold = request.get('threshold')
             if not isinstance(threshold, dict) or set(threshold) != {'value', 'unit'} \

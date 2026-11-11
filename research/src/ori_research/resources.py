@@ -36,12 +36,19 @@ def resident_bytes():
 
 
 class Budget:
-    def __init__(self, limits):
+    def __init__(self, limits, *, shared_io=None):
         self.limits = limits
         self.started = time.monotonic()
         self.io_started = self.started
         self.accounted_io = 0
         self.cache_used = 0
+        self.shared_io = None
+        if shared_io is not None:
+            try:
+                from radioinspector.worker_io import SharedIoBudget
+                self.shared_io = SharedIoBudget(shared_io)
+            except Exception:
+                raise WorkerError('shared_io_unavailable','Shared cooperative I/O capability is unavailable') from None
         self.metrics = dict(source_bytes_read=0, cache_bytes_read=0, cache_bytes_written=0, max_batch_rows=0,
                             max_batch_bytes=0, peak_rss_bytes=0)
 
@@ -54,6 +61,13 @@ class Budget:
     def account_io(self, size, metric):
         self.metrics[metric] += size
         self.accounted_io += size
+        if self.shared_io is not None:
+            try:
+                self.shared_io.account(size)
+            except Exception:
+                raise WorkerError('shared_io_unavailable','Shared cooperative I/O capability is unavailable') from None
+            self.checkpoint()
+            return
         # Smooth logical file bytes with at most one 64 KiB chunk of burst.
         delay = self.accounted_io / self.limits['io_bytes_per_second'] - (time.monotonic()-self.io_started)
         while delay > 0:
@@ -71,6 +85,7 @@ class Budget:
         self.metrics['peak_rss_bytes'] = max(self.metrics['peak_rss_bytes'], resident_bytes())
         return self.metrics | {'elapsed_ms': round((time.monotonic()-self.started)*1000),
             'cache_bytes': self.cache_used,
+            'cross_process_logical_io': self.shared_io is not None,
             'hard_limits_require_parent': ['process_tree_memory', 'physical_io_rate', 'filesystem_quotas'],
             'limits': self.limits}
 

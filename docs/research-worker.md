@@ -3,7 +3,8 @@
 The optional `research/` package runs in its own Python 3.15 environment. The
 Python 3.10+ core must never import it or add its DuckDB/PyArrow dependencies.
 Only the core owns instruments and canonical archive writes. This child reads
-a **sealed, already verified private recovery bundle**, produces regenerable
+an immutable **scoped derived source** or a **sealed, already verified private
+recovery bundle**, produces regenerable
 Parquet, and performs derived summary or occupancy queries. It has no device,
 port, SQL execution, network-fetch, source-deletion, or archive-write operation.
 
@@ -12,10 +13,18 @@ Python 3.15.1, NumPy 2.5.4, DuckDB 2.0.0, PyArrow 26.0.1. These tests do not
 establish Raspberry Pi performance, physical instrument acceptance, or Windows
 and macOS runtime acceptance.
 
-Worker 0.2.0 also reads canonical observation precision extension version 1.
+Worker 0.2.2 adds explicitly derived selected-record input without changing IPC
+or Parquet schema versions. Worker 0.2.1 reads canonical observation precision extension version 1 and the
+canonical string-array stream capabilities. Version 0.2.0 incorrectly required
+an object for capabilities, which made ordinary canonical backups fail export;
+the regression now produces a real backup with the existing SQLite service.
+Settings and metadata remain strict objects. Existing SQLite input retains
+source JSON text without reserialization. Derived input retains decoded JSON
+values, array order, exact Unicode keys/IDs, arbitrary-size integers and finite
+binary64 values; its Parquet JSON text uses compact serialization.
 The IPC and Parquet column formats remain version 1. The worker version and
-extension provenance participate in cache identity, so 0.1.x caches are not
-accepted as compatible observation exports.
+extension provenance participate in cache identity, so earlier worker caches
+are not accepted as compatible exports.
 
 ## Installation and verification
 
@@ -26,6 +35,7 @@ uv venv research/.venv --python 3.15.1
 uv pip install --python research/.venv/bin/python --require-hashes --only-binary :all: -r research/requirements.lock
 uv pip install --python research/.venv/bin/python --require-hashes -r research/build-requirements.lock
 uv pip install --python research/.venv/bin/python --no-deps --no-build-isolation ./research
+uv pip install --python research/.venv/bin/python --no-index --no-deps --no-build-isolation .
 research/.venv/bin/python -m unittest discover -s research/tests -p 'test_*.py'
 ```
 
@@ -36,6 +46,10 @@ separately. No research test is included in the legacy `tests/` discovery tree.
 `research/tests/fixtures/measurement-v1.json` is the verbatim common contract
 fixture. Regenerating a lock requires verifying the new artifacts and rerunning
 this isolated suite; a version change invalidates cache compatibility.
+The installed core library supplies point-analysis RPC and the separate
+synthetic canonical-backup fixture producer. The archival research process
+does not launch a server or acquire a device; the core environment still never
+imports DuckDB or PyArrow.
 
 ## Supervisor IPC contract, version 1
 
@@ -66,6 +80,11 @@ are rejected. There is no long-lived worker or stdin command loop.
   "threshold": {"value": -10.0, "unit": "dBm"}
 }
 ```
+
+For a scoped derived source, `snapshot_path` names `records.ndjson` beside its
+derived `manifest.json`; see [the source contract](scoped-history-source.md).
+Its sealed filters must exactly equal the request filters, including omitted
+fields. The supervisor cannot widen a retained selection on replay.
 
 `version`, `request_id`, `operation`, `snapshot_path`, and `cache_directory`
 are required. `request_id` is nonempty and at most 128 UTF-8 bytes. Paths must
@@ -141,7 +160,7 @@ the child/process group; a killed process is not required to return JSON.
 
 ## Source provenance and atomic disposable caches
 
-The input must be named `archive.sqlite` beside the recovery
+Recovery input must be named `archive.sqlite` beside the recovery
 `manifest.json` and `artifacts.ndjson`. The core must first verify the full
 bundle with `radioinspector.recovery_backup.verify_backup`, including each
 closed artifact checksum. The worker checks the bounded recovery manifest,
@@ -151,6 +170,14 @@ It refuses WAL/SHM/journal sidecars and opens the snapshot with
 `mode=ro&immutable=1`, `query_only=ON`, no mmap, and a small SQLite cache. It
 checks source identity, size and mtime again before publishing. The core must
 keep the sealed bundle immutable and retained for the entire invocation.
+
+Scoped input is separately identified as `source.kind: "scoped-derived-v1"`,
+with `derived: true`, its record digest/size, counts, exact selection, boundary
+and `source_manifest_sha256`. It never claims a recovery manifest or full
+database digest. Strict bounded NDJSON rejects duplicate keys, nonfinite values,
+out-of-order/duplicate IDs, unknown kinds, mismatched scope/counts and changed
+source identities. Cache hits also validate the record envelopes/counts. No
+SQLite connection is opened for this source kind. Both files remain unchanged.
 
 The optional canonical supplement uses `ori_archive_schema(singleton, version)`
 with exactly `(1, 1)` and `ori_observation_level_bits(observation_id,
@@ -169,7 +196,7 @@ tables/rows. Derived provenance reports `source.canonical_extensions` as
 `{"observation_level_bits":1}` when supported, or an empty object for legacy
 sources. The source SHA-256 covers both the ordinary archive and supplement.
 
-Cache identity covers the source SHA-256, full provenance, recovery manifest
+Cache identity covers the source SHA-256, full provenance, source manifest
 SHA-256, filter values, format version, and exact worker/runtime versions. Each
 cache contains a final `manifest.json` and four bounded-batch Parquet tables:
 
@@ -220,7 +247,7 @@ An optional `limits` object may **lower**, never raise, these defaults:
 | `io_bytes_per_second` | 20971520 (20 MiB/s logical accounted I/O) |
 | `batch_rows` | 1024 |
 | `batch_bytes` | 4194304 (4 MiB) |
-| `max_record_bytes` | 8388608 (8 MiB SQLite record limit) |
+| `max_record_bytes` | 8388608 (8 MiB source record limit) |
 | `max_points_per_sweep` | 65536 |
 
 The child sets DuckDB's actual thread, memory and spill limits, bounds Arrow
@@ -233,6 +260,12 @@ observed peak RSS, elapsed time, logical byte accounting, maximum Arrow batch
 rows/bytes, retained cache bytes, temporary bytes at query completion, and
 effective native DuckDB settings. Reads of SQLite native pages and Arrow's
 native query I/O are not included in logical byte accounting.
+
+An optional trusted-only `shared_io` capability puts accounted worker I/O on
+the same aggregate timeline as the core's source producer and other registered
+consumers. It is validated before cache/source operations, is never a public
+HTTP field, and does not appear in result/debug output. Old requests retain
+local pacing. See [shared I/O pacing](shared-background-io.md).
 
 **These cooperative checks are not portable hard RSS, physical I/O, or physical
 disk limits.** Native allocation, filesystem metadata, page cache, transient
@@ -254,3 +287,22 @@ does not establish them. The supervisor must surface a resource-killed or
 cancelled job explicitly, retain the sealed source, and keep acquisition ahead
 of analytics. Offline packaging must include the locked wheels and interpreter;
 no startup download or runtime package installation is performed by this child.
+
+Rust callers share one `ResearchPool` across the service. A job reserves it with
+`try_reserve()` **before** selecting a derived source, preparing a sealed backup or reading a heavy
+viewport. The non-cloneable `ResearchPermit` remains held through preparation;
+its consuming `run(spec, request, cancellation)` method launches at most one
+worker without releasing and reacquiring admission. Dropping a preparation
+reservation releases it. Existing `ResearchPool::run` callers keep the same
+behavior and use that reservation internally. A second job receives `Busy`
+while either preparation or the child owns the permit.
+
+`ResearchPermit::run_retained` returns the same non-cloneable reservation with
+the worker result after the owned child and all three IPC threads have joined.
+An owner can retain it through result validation and disposable-source cleanup,
+then release it or reuse it sequentially. Child execution and cleanup belong to
+an independent blocking runner; dropping an async waiter signals cancellation
+without releasing admission ahead of that runner. Unconfirmed child cleanup
+retains its owner and reservation. The calling service must likewise retain its
+background work guard through actual completion; a cancellation signal alone
+does not establish a drained service.

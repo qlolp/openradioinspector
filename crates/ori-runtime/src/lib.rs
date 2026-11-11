@@ -1,6 +1,8 @@
 //! Runtime ownership, controlled cutover, bounded children and LAN security.
 pub mod lease;
+pub mod qos;
 pub mod security;
+mod shared_io;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
