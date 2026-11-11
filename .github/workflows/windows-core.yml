@@ -48,6 +48,12 @@ jobs:
       - name: Check Windows audio cancellation before the full suite
         if: runner.os == 'Windows'
         run: python -m unittest tests.test_windows_audio_stream.AudioCancellationTests
+      - name: Check Windows event stream shutdown before the full suite
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p release-reports
+          python -u -m unittest tests.test_event_stream_writer tests.test_http_event_stream_lifecycle tests.test_durable_sse -v 2>&1 | tee release-reports/windows-event-streams.log
       - name: Check selected Python and headless Tk display on Linux
         if: runner.os == 'Linux'
         run: python -m tools.ci.headless_bootstrap
