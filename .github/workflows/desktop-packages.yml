@@ -118,7 +118,9 @@ jobs:
         shell: bash
         run: bash macos/ci/select-xcode.sh
       - name: Check bundled helper and remote launch lifetimes
-        run: python macos/ci/test_launcher.py -v
+        run: |
+          python macos/ci/test_launcher.py -v
+          python macos/ci/test_native_ci.py -v
       - name: Native URL and concurrent completion regressions
         shell: bash
         run: |

@@ -95,7 +95,12 @@ struct NativeConnectionPane: View {
             if connection.authorizedNode?.access == .pairedTLS, model.connected {
                 Button("Отозвать это сопряжение", role: .destructive) {
                     let endpoint = model.serverURL
-                    Task { if await connection.revokeCurrent(server: endpoint) { model.disconnect() } }
+                    let generation = model.connectionGeneration
+                    Task {
+                        if await connection.revokeCurrent(server: endpoint) {
+                            model.disconnectIfCurrent(connection: generation, server: endpoint)
+                        }
+                    }
                 }.disabled(connection.isBusy)
             }
             if connection.phase != .idle {

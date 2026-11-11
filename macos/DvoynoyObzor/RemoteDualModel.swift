@@ -299,6 +299,13 @@ final class RemoteDualModel: ObservableObject {
         status = "Отключено от сервера; сеанс ядра не остановлен"
     }
 
+    @discardableResult
+    func disconnectIfCurrent(connection: Int, server: String) -> Bool {
+        guard connection == connectionGeneration, PlatformExactID.same(server, serverURL) else { return false }
+        disconnect()
+        return true
+    }
+
     func reloadSessions() async {
         guard let client else { return }
         let requestGeneration = generation

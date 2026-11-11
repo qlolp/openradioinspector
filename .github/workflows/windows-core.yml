@@ -62,7 +62,7 @@ jobs:
         run: python -m tests.run_release_checks --report-dir release-reports
       - name: Run macOS release checks, both Swift suites and unsigned Xcode build
         if: runner.os == 'macOS' && matrix.python == '3.12'
-        run: python -m tests.run_release_checks --swift --report-dir release-reports
+        run: python macos/ci/native_ci.py -- python -m tests.run_release_checks --swift --report-dir release-reports
       - name: Capture modernization source baseline
         run: python -m tests.modernization_baseline --report-dir release-reports/baseline --sweeps 128 --bins 290
       # Only owned synthetic servers/archives, mocked COM and own PTYs are used.

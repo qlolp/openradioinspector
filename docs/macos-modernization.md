@@ -85,8 +85,9 @@ sources compile in Swift 6 language mode; streamed measurement and display DTOs
 crossing executors have checked `Sendable` conformance. The native production
 target also uses Swift 6 language mode with complete concurrency checking.
 Existing XCTest source compatibility remains Swift 5. The production native
-semantic build and runtime tests passed in Xcode CI at `4a462f3`; the subsequent
-pairing/Keychain/WebKit slice requires its own Xcode CI pass. The project registers each
+semantic build and runtime tests passed in Xcode CI at `4a462f3`. The subsequent
+pairing slice passed its targeted native tests and production build at `5f2395d`;
+the complete updated native gate remains required. The project registers each
 native source once and retains `MACOSX_DEPLOYMENT_TARGET=14.0`. CI selects the
 published `xcode-27` runner inventory and verifies Xcode 27.2 / Swift 6.4.2;
 `macos-latest` currently defaults to Swift 6.3.3. Existing matrix entries and
@@ -126,9 +127,21 @@ passed the full macOS gate: 1,753 Python/Node/Tk tests with zero skips, the
 tests, 153 native XCTest plus four Swift Testing tests, and the unsigned Xcode
 build. All seven fixture archives were unchanged and stopped. The Metal API
 pixel path passed; the bitmap-fallback branch was not taken on that host.
-No Swift compiler warnings were reported. This evidence predates the separate
-pairing slice: its native Keychain query/state/WK-cookie tests and semantic
-build are pending Xcode CI. Keychain tests inject Security calls and also
+No Swift compiler warnings were reported in that run.
+
+At `5f2395d`, [targeted native CI](https://github.com/qlolp/openradioinspector/actions/runs/42991219752/job/130424311971)
+passed 12 SDK regressions, all 14 new native security tests, both launcher tests
+and the unsigned Swift 6 app build; macOS/Windows packaging also passed.
+The owned login-Keychain test passed in 0.078 seconds, and the nonpersistent
+WebKit cookie test in 0.190 seconds. The separate full release job passed all
+285 SDK XCTest tests, then timed out at the existing 600-second native-command
+deadline. Its native build took 59 seconds; buffered output stops during the
+native suite. This is an unresolved failing gate, not a complete native pass.
+The follow-up guards stale revocation completions, awaits the correct WebKit
+cookie-deletion API and adds owned XCTest stack sampling for diagnosis. It
+does not extend timeouts or change test HOME isolation.
+
+Keychain tests inject Security calls and also
 exercise one random, owned synthetic account in the login Keychain, removing
 it afterwards. They do not read existing credentials or change Keychain
 search lists, lock state or access controls. A signed-app/login-Keychain acceptance
@@ -160,6 +173,13 @@ fake UI/core executables. It verifies that remote mode starts no local process
 and clears an inherited helper marker, while the bundled mode sets its marker,
 closes its lifeline and removes its private runtime directory on UI exit. It
 uses no hardware, archive or installed service.
+
+The Darwin CI wrapper samples only a live XCTest descendant of its known
+release-check child after 60 seconds, rechecking PID ancestry/start identity.
+At most eight bounded samples go into the existing diagnostic artifact.
+The release runner's deadline, checks and process cleanup remain in force.
+`python macos/ci/test_native_ci.py -v` verifies ownership selection without
+starting subprocesses or touching devices.
 
 Physical tinySA/AR-DV1/USB/audio acceptance, eight-hour and autonomous-node runs
 remain **not run**. macOS latency, frame-rate and memory targets remain

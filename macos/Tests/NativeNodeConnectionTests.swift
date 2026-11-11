@@ -40,6 +40,8 @@ final class NativeNodeConnectionTests: XCTestCase {
         var requests: [URLRequest] = []
         var held: Stub?
         var holdStatus = false
+        var holdRevoke = false
+        var heldRevoke: Stub?
         var statusCode = 200
         var certificateError = false
         var requestCount: Int { lock.withLock { requests.count } }
@@ -53,14 +55,25 @@ final class NativeNodeConnectionTests: XCTestCase {
                     if holdStatus { held = stub; return }
                     try stub.reply(["mode": "lan_tls", "pairing_required": stub.request.value(forHTTPHeaderField: "Authorization") != "Bearer synthetic-native-secret"], status: statusCode)
                 case "/api/v1/security/pair": try stub.reply(["paired": true, "credential": "bearer", "token": "synthetic-native-secret"])
-                case "/api/v1/security/credentials/current/revoke": try stub.reply(["revoked": true])
-                default: XCTFail("Connection UI must not control a core worker: \(stub.request.url!.path)")
+                case "/api/v1/security/credentials/current/revoke":
+                    if holdRevoke { heldRevoke = stub; return }
+                    try stub.reply(["revoked": true])
+                case "/api/v1/sessions": try stub.reply([])
+                case "/api/v1/archive/capacity", "/api/v1/task-scheduler", "/api/v1/task-scheduler/tasks":
+                    XCTAssertEqual(stub.request.httpMethod, "GET")
+                    try stub.reply([:], status: 404)
+                default:
+                    XCTFail("Unexpected connection or core-control request: \(stub.request.url!.path)")
                 }
             }
         }
         func release() throws {
             let stub = lock.withLock { let result = held; held = nil; return result }
             try stub?.reply(["mode": "lan_tls", "pairing_required": true])
+        }
+        func releaseRevocation() throws {
+            let stub = lock.withLock { let result = heldRevoke; heldRevoke = nil; return result }
+            try stub?.reply(["revoked": true])
         }
     }
     private let server = "https://node.example"
@@ -179,6 +192,38 @@ final class NativeNodeConnectionTests: XCTestCase {
         XCTAssertEqual(stored?.dataRepresentation, Data("new-window-secret".utf8))
     }
 
+    @MainActor func testLateRevocationCompletionCannotDisconnectANewerNodeConnection() async throws {
+        let store = MemoryStore(), responses = Responses()
+        let newer = "https://other.example"
+        try await store.save(.init(token: "synthetic-native-secret"), for: PlatformBaseURL(server))
+        try await store.save(.init(token: "synthetic-native-secret"), for: PlatformBaseURL(newer))
+        let connection = model(store, responses), remote = RemoteDualModel()
+        let initial = await connection.preflight(server: server)
+        let first = try XCTUnwrap(initial)
+        remote.serverURL = server; remote.connect(startPolling: false, using: first.client)
+        defer { connection.cancel(); remote.disconnect() }
+        responses.holdRevoke = true
+        let generation = remote.connectionGeneration, endpoint = server
+        let pending = Task { () -> Bool in
+            guard await connection.revokeCurrent(server: endpoint) else { return false }
+            return remote.disconnectIfCurrent(connection: generation, server: endpoint)
+        }
+        for _ in 0..<200 {
+            if responses.revokeCount > 0 { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(responses.revokeCount, 1)
+        connection.cancel(); remote.disconnect()
+        let prepared = await connection.preflight(server: newer)
+        let next = try XCTUnwrap(prepared)
+        remote.serverURL = newer; remote.connect(startPolling: false, using: next.client)
+        try responses.releaseRevocation()
+        let disconnected = await pending.value
+        XCTAssertFalse(disconnected); XCTAssertTrue(remote.connected)
+        XCTAssertTrue(remote.client === next.client); XCTAssertTrue(connection.accepts(next))
+        let stored = await store.load(for: try PlatformBaseURL(newer)); XCTAssertNotNil(stored)
+    }
+
     @MainActor func testRevokedBearerDisconnectsOnlyUIAndRequestsPairingAgain() async throws {
         var requests: [URLRequest] = []
         let lock = NSLock()
@@ -234,6 +279,8 @@ final class NativeNodeConnectionTests: XCTestCase {
         let cookies = await store.httpCookieStore.allCookies()
         let installed = try XCTUnwrap(cookies.first { $0.name == "ori_session" })
         XCTAssertEqual(installed.path, "/api"); XCTAssertTrue(installed.isSecure); XCTAssertTrue(installed.isHTTPOnly)
-        await store.httpCookieStore.delete(installed)
+        await store.httpCookieStore.deleteCookie(installed)
+        let remaining = await store.httpCookieStore.allCookies()
+        XCTAssertTrue(remaining.isEmpty)
     }
 }
