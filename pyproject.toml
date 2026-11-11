@@ -33,7 +33,7 @@ classifiers = [
 dependencies = ["numpy>=1.21"]
 
 [project.optional-dependencies]
-test = ["tomli>=2; python_version < '3.11'"]
+test = ["tomli>=2; python_version < '3.11'", "jsonschema>=4.25,<5"]
 # Графики и отчёты: PNG/vector-вывод диаграмм без веб-интерфейса.
 plot = ["matplotlib>=3.5"]
 # Аппаратные драйверы.
@@ -75,4 +75,4 @@ include = ["radioinspector*"]
 
 [tool.setuptools.package-data]
 "radioinspector.tinysa" = ["*.json"]
-"radioinspector.web" = ["static/*"]
+"radioinspector.web" = ["static/*", "modern/*", "modern/assets/*"]

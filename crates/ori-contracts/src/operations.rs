@@ -368,6 +368,13 @@ pub const OPERATIONS: &[Operation] = &[
         max_request_bytes: None,
     },
     Operation {
+        operation_id: "post_api_v1_sessions_id_audio_segments",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/audio-segments",
+        query: &[],
+        max_request_bytes: Some(16777216),
+    },
+    Operation {
         operation_id: "get_api_v1_sessions_id_audio_status",
         method: "GET",
         path: "/api/v1/sessions/{id}/audio/status",
@@ -842,6 +849,21 @@ pub const OPERATIONS: &[Operation] = &[
         path: "/api/v1/sessions/{id}/sweep-references",
         query: &[],
         max_request_bytes: Some(65536),
+    },
+    Operation {
+        operation_id: "get_api_v1_sessions_id_sweep_summaries",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/sweep-summaries",
+        query: &[
+            "stream_id",
+            "limit",
+            "after",
+            "start",
+            "end",
+            "min_hz",
+            "max_hz",
+        ],
+        max_request_bytes: None,
     },
     Operation {
         operation_id: "post_api_v1_sessions_id_sweep_three_thresholds",

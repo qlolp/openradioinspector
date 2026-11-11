@@ -34,6 +34,50 @@ impl crate::RestoreKeys for DeviceRole {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArtifactSummary {
+    pub created_at: UtcTimestamp,
+    pub filename: String,
+    pub id: String,
+    pub kind: String,
+    pub metadata: JSONObject,
+    pub mime_type: String,
+    pub schema_version: u64,
+    pub session_id: String,
+    pub sha256: String,
+    pub size_bytes: u64,
+    pub stream_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ArtifactSummary {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.metadata);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioSegmentInput {
+    pub data_base64: String,
+    pub frequency_hz: u64,
+    pub id: String,
+    pub interval: TimeInterval,
+    pub mode: String,
+    pub sha256: String,
+    pub stream_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for AudioSegmentInput {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.interval);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Candidate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bandwidth_hz: Option<i64>,
@@ -289,6 +333,45 @@ impl crate::RestoreKeys for Sweep {
         crate::RestoreKeys::restore_keys(&mut self.extra);
         crate::RestoreKeys::restore_keys(&mut self.interval);
         crate::RestoreKeys::restore_keys(&mut self.settings);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepSummary {
+    pub id: String,
+    pub interval: TimeInterval,
+    pub level_unit: String,
+    pub max_frequency_hz: u64,
+    pub min_frequency_hz: u64,
+    pub peak_frequency_hz: u64,
+    pub peak_level: f64,
+    pub point_count: u64,
+    pub session_id: String,
+    pub stream_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepSummary {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.interval);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SweepSummaryPage {
+    pub items: Vec<SweepSummary>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub next_cursor: Option<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SweepSummaryPage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
     }
 }
 

@@ -32,3 +32,8 @@ Thumbs.db
 
 # Owned synthetic release diagnostics (CI artifacts only)
 release-reports/
+
+# Rust build outputs (workspace and standalone client crates)
+target/
+.build/
+radioinspector/web/modern/

@@ -25,6 +25,127 @@ public enum DeviceRole: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public struct ArtifactSummary: ContractModel, Equatable, Sendable {
+    public var created_at: UtcTimestamp
+    public var filename: String
+    public var id: String
+    public var kind: String
+    public var metadata: JSONObject
+    public var mime_type: String
+    public var schema_version: UInt64
+    public var session_id: String
+    public var sha256: String
+    public var size_bytes: UInt64
+    public var stream_id: String
+    public var extra: JSONObject
+    public init(created_at: UtcTimestamp, filename: String, id: String, kind: String, metadata: JSONObject, mime_type: String, schema_version: UInt64, session_id: String, sha256: String, size_bytes: UInt64, stream_id: String, extra: JSONObject = [:]) {
+        self.created_at = created_at
+        self.filename = filename
+        self.id = id
+        self.kind = kind
+        self.metadata = metadata
+        self.mime_type = mime_type
+        self.schema_version = schema_version
+        self.session_id = session_id
+        self.sha256 = sha256
+        self.size_bytes = size_bytes
+        self.stream_id = stream_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let created_atValue = object.removeValue(forKey: "created_at") else { throw ContractError.invalid("Missing created_at") }
+        created_at = try UtcTimestamp(json: created_atValue)
+        guard let filenameValue = object.removeValue(forKey: "filename") else { throw ContractError.invalid("Missing filename") }
+        filename = try filenameValue.requireString()
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let kindValue = object.removeValue(forKey: "kind") else { throw ContractError.invalid("Missing kind") }
+        kind = try kindValue.requireString()
+        guard let metadataValue = object.removeValue(forKey: "metadata") else { throw ContractError.invalid("Missing metadata") }
+        metadata = try metadataValue.requireObject()
+        guard let mime_typeValue = object.removeValue(forKey: "mime_type") else { throw ContractError.invalid("Missing mime_type") }
+        mime_type = try mime_typeValue.requireString()
+        guard let schema_versionValue = object.removeValue(forKey: "schema_version") else { throw ContractError.invalid("Missing schema_version") }
+        schema_version = try schema_versionValue.requireUInt64()
+        guard schema_version == 1 else { throw ContractError.invalid("Unsupported schema_version") }
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        guard let sha256Value = object.removeValue(forKey: "sha256") else { throw ContractError.invalid("Missing sha256") }
+        sha256 = try sha256Value.requireString()
+        guard let size_bytesValue = object.removeValue(forKey: "size_bytes") else { throw ContractError.invalid("Missing size_bytes") }
+        size_bytes = try size_bytesValue.requireUInt64()
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["created_at"] = created_at.json
+        object["filename"] = .string(filename)
+        object["id"] = .string(id)
+        object["kind"] = .string(kind)
+        object["metadata"] = .object(metadata)
+        object["mime_type"] = .string(mime_type)
+        object["schema_version"] = .integer(String(schema_version))
+        object["session_id"] = .string(session_id)
+        object["sha256"] = .string(sha256)
+        object["size_bytes"] = .integer(String(size_bytes))
+        object["stream_id"] = .string(stream_id)
+        return .object(object)
+    }
+}
+
+public struct AudioSegmentInput: ContractModel, Equatable, Sendable {
+    public var data_base64: String
+    public var frequency_hz: UInt64
+    public var id: String
+    public var interval: TimeInterval
+    public var mode: String
+    public var sha256: String
+    public var stream_id: String
+    public var extra: JSONObject
+    public init(data_base64: String, frequency_hz: UInt64, id: String, interval: TimeInterval, mode: String, sha256: String, stream_id: String, extra: JSONObject = [:]) {
+        self.data_base64 = data_base64
+        self.frequency_hz = frequency_hz
+        self.id = id
+        self.interval = interval
+        self.mode = mode
+        self.sha256 = sha256
+        self.stream_id = stream_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let data_base64Value = object.removeValue(forKey: "data_base64") else { throw ContractError.invalid("Missing data_base64") }
+        data_base64 = try data_base64Value.requireString()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let intervalValue = object.removeValue(forKey: "interval") else { throw ContractError.invalid("Missing interval") }
+        interval = try TimeInterval(json: intervalValue)
+        guard let modeValue = object.removeValue(forKey: "mode") else { throw ContractError.invalid("Missing mode") }
+        mode = try modeValue.requireString()
+        guard let sha256Value = object.removeValue(forKey: "sha256") else { throw ContractError.invalid("Missing sha256") }
+        sha256 = try sha256Value.requireString()
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["data_base64"] = .string(data_base64)
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["id"] = .string(id)
+        object["interval"] = interval.json
+        object["mode"] = .string(mode)
+        object["sha256"] = .string(sha256)
+        object["stream_id"] = .string(stream_id)
+        return .object(object)
+    }
+}
+
 public struct Candidate: ContractModel, Equatable, Sendable {
     public var bandwidth_hz: Int64?
     public var center_frequency_hz: UInt64
@@ -556,6 +677,96 @@ public struct Sweep: ContractModel, Equatable, Sendable {
         object["session_id"] = .string(session_id)
         if let value = settings { object["settings"] = .object(value) }
         object["stream_id"] = .string(stream_id)
+        return .object(object)
+    }
+}
+
+public struct SweepSummary: ContractModel, Equatable, Sendable {
+    public var id: String
+    public var interval: TimeInterval
+    public var level_unit: String
+    public var max_frequency_hz: UInt64
+    public var min_frequency_hz: UInt64
+    public var peak_frequency_hz: UInt64
+    public var peak_level: Double
+    public var point_count: UInt64
+    public var session_id: String
+    public var stream_id: String
+    public var extra: JSONObject
+    public init(id: String, interval: TimeInterval, level_unit: String, max_frequency_hz: UInt64, min_frequency_hz: UInt64, peak_frequency_hz: UInt64, peak_level: Double, point_count: UInt64, session_id: String, stream_id: String, extra: JSONObject = [:]) {
+        self.id = id
+        self.interval = interval
+        self.level_unit = level_unit
+        self.max_frequency_hz = max_frequency_hz
+        self.min_frequency_hz = min_frequency_hz
+        self.peak_frequency_hz = peak_frequency_hz
+        self.peak_level = peak_level
+        self.point_count = point_count
+        self.session_id = session_id
+        self.stream_id = stream_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let intervalValue = object.removeValue(forKey: "interval") else { throw ContractError.invalid("Missing interval") }
+        interval = try TimeInterval(json: intervalValue)
+        guard let level_unitValue = object.removeValue(forKey: "level_unit") else { throw ContractError.invalid("Missing level_unit") }
+        level_unit = try level_unitValue.requireString()
+        guard let max_frequency_hzValue = object.removeValue(forKey: "max_frequency_hz") else { throw ContractError.invalid("Missing max_frequency_hz") }
+        max_frequency_hz = try max_frequency_hzValue.requireUInt64()
+        guard let min_frequency_hzValue = object.removeValue(forKey: "min_frequency_hz") else { throw ContractError.invalid("Missing min_frequency_hz") }
+        min_frequency_hz = try min_frequency_hzValue.requireUInt64()
+        guard let peak_frequency_hzValue = object.removeValue(forKey: "peak_frequency_hz") else { throw ContractError.invalid("Missing peak_frequency_hz") }
+        peak_frequency_hz = try peak_frequency_hzValue.requireUInt64()
+        guard let peak_levelValue = object.removeValue(forKey: "peak_level") else { throw ContractError.invalid("Missing peak_level") }
+        peak_level = try peak_levelValue.requireDouble()
+        guard let point_countValue = object.removeValue(forKey: "point_count") else { throw ContractError.invalid("Missing point_count") }
+        point_count = try point_countValue.requireUInt64()
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["id"] = .string(id)
+        object["interval"] = interval.json
+        object["level_unit"] = .string(level_unit)
+        object["max_frequency_hz"] = .integer(String(max_frequency_hz))
+        object["min_frequency_hz"] = .integer(String(min_frequency_hz))
+        object["peak_frequency_hz"] = .integer(String(peak_frequency_hz))
+        object["peak_level"] = .number(peak_level)
+        object["point_count"] = .integer(String(point_count))
+        object["session_id"] = .string(session_id)
+        object["stream_id"] = .string(stream_id)
+        return .object(object)
+    }
+}
+
+public struct SweepSummaryPage: ContractModel, Equatable, Sendable {
+    public var items: [SweepSummary]
+    public var next_cursor: String?
+    public var extra: JSONObject
+    public init(items: [SweepSummary], next_cursor: String? = nil, extra: JSONObject = [:]) {
+        self.items = items
+        self.next_cursor = next_cursor
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let itemsValue = object.removeValue(forKey: "items") else { throw ContractError.invalid("Missing items") }
+        items = try itemsValue.requireArray().map { try SweepSummary(json: $0) }
+        guard let next_cursorValue = object.removeValue(forKey: "next_cursor") else { throw ContractError.invalid("Missing next_cursor") }
+        next_cursor = next_cursorValue == .null ? nil : try next_cursorValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["items"] = .array(items.map { $0.json })
+        if let value = next_cursor { object["next_cursor"] = .string(value) } else { object["next_cursor"] = .null }
         return .object(object)
     }
 }

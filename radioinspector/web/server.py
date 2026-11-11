@@ -23,10 +23,11 @@ import math
 import mimetypes
 import queue
 import re
+import sys
 import tempfile
 import threading
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from functools import wraps
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from socketserver import TCPServer
@@ -61,7 +62,9 @@ from ..session_service import (
     SweepNotFoundError,
 )
 from ..session_analytics import analytics_summary
-from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
+from ..session_store import ArchiveCapacityExceededError, ArchiveReadBusy, SQLiteSessionStore
+from ..audio_segments import AudioSegmentConflict
+from ..runtime_bridge import RuntimeBridge, RuntimeBridgeError
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
@@ -84,6 +87,7 @@ from ..signals import SignalList
 from ..threshold import ThresholdLine
 
 STATIC_DIR = Path(__file__).parent / "static"
+MODERN_DIR = Path(__file__).parent / 'modern'
 
 
 def state_locked(method):
@@ -347,6 +351,7 @@ class Handler(BaseHTTPRequestHandler):
     state: ApplicationState
     sessions: SessionService
     workers: DeviceWorkerManager
+    runtime_bridge = None
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
@@ -507,9 +512,56 @@ class Handler(BaseHTTPRequestHandler):
             self.sessions.audio_stream_unsubscribe(session_id, stream_id, subscription)
 
 
-    def do_GET(self) -> None:  # noqa: N802
+    def _runtime_request(self, method):
+        if not self.path.startswith('/internal/runtime/'):
+            return False
+        bridge = self.runtime_bridge
+        self.close_connection = True
+        if bridge is None:
+            self._send_json({'error':{'code':'runtime_unavailable'}},404)
+            return True
         try:
-            self._get()
+            authorization = self.headers.get_all('Authorization', [])
+            bridge.authorize_control(self.client_address, authorization)
+            payload = None
+            if method == 'POST':
+                if self.headers.get_content_type() != 'application/json':
+                    raise RequestError('Runtime control requires application/json',415)
+                payload = self._read_bounded_analysis_request(4096, allow_empty=False)
+            status, value = bridge.control_response(method, self.path, peer=self.client_address,
+                                                     authorization=authorization, payload=payload)
+            raw = json_dumps(value).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(raw)))
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Connection','close')
+            self.end_headers()
+            try:
+                self.wfile.write(raw)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                if status == 202:
+                    bridge.response_not_flushed()
+                return True
+            if status == 202:
+                bridge.after_response_flushed()
+        except RuntimeBridgeError as exc:
+            self._send_json({'error':{'code':exc.code}}, exc.status)
+        except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
+            self._send_json({'error':{'code':'invalid_runtime_request'}},getattr(exc,'status',400))
+        return True
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self._runtime_request('GET'):
+            return
+        try:
+            path = urlparse(self.path).path.rstrip('/')
+            capture = path.startswith('/api/v1/sessions/') and path.endswith('/instrument/screen')
+            with self.runtime_bridge.mutation() if capture and self.runtime_bridge is not None else nullcontext():
+                self._get()
+        except RuntimeBridgeError as exc:
+            self._send_api_error(exc.status, exc.code, 'Core is closing; retry after reconnecting')
         except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
             if urlparse(self.path).path.startswith("/api/v1/"):
                 self._send_api_error(400, "invalid_request", str(exc))
@@ -523,6 +575,24 @@ class Handler(BaseHTTPRequestHandler):
 
         if route.startswith("/api/v1/"):
             self._api_v1_get(route, query)
+            return
+
+        if route == '/modern' or route.startswith('/modern/'):
+            relative = unquote(route[len('/modern/'):]) if route.startswith('/modern/') else ''
+            if not relative:
+                path = MODERN_DIR/'index.html'
+                if not path.is_file():
+                    self._send_json({'error':'Modern client assets are not built; the legacy UI is available at /'},503)
+                    return
+            else:
+                if '\\' in relative or '\0' in relative or any(part in ('.','..') for part in relative.split('/')):
+                    self.send_error(404,'Not found')
+                    return
+                path = MODERN_DIR/relative
+            if not path.resolve().is_relative_to(MODERN_DIR.resolve()) or not path.is_file():
+                self.send_error(404,'Not found')
+                return
+            self._send_file(path)
             return
 
         if route in ("/", "/index.html"):
@@ -583,8 +653,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802
+        if self._runtime_request('POST'):
+            return
         try:
             self._post()
+        except RuntimeBridgeError as exc:
+            self.close_connection = True
+            self._send_api_error(exc.status, exc.code, 'Core is closing; retry after reconnecting')
         except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
             self.close_connection = True
             status = getattr(exc, "status", 400)
@@ -639,7 +714,7 @@ class Handler(BaseHTTPRequestHandler):
             maximum = MAX_IMPORT_REQUEST_BYTES
             allow_empty = False
         elif (parts[:3] == ["api", "v1", "sessions"] and (
-                (len(parts) == 5 and parts[4] in ("sweeps", "observations"))
+                (len(parts) == 5 and parts[4] in ("sweeps", "observations", "audio-segments"))
                 or (len(parts) == 6 and parts[4] in ("sweeps", "observations") and parts[5] == "batch")
                 or (len(parts) == 6 and parts[4:] == ["phonogram", "frames"]))):
             maximum = MAX_MEASUREMENT_REQUEST_BYTES
@@ -647,6 +722,11 @@ class Handler(BaseHTTPRequestHandler):
         elif not route.startswith("/api/v1/"):
             allow_empty = False
         payload = self._read_bounded_analysis_request(maximum, allow_empty=allow_empty)
+
+        with self.runtime_bridge.mutation() if self.runtime_bridge is not None else nullcontext():
+            self._dispatch_post(route, payload)
+
+    def _dispatch_post(self, route, payload):
 
         if route.startswith("/api/v1/"):
             self._api_v1_post(route, payload)
@@ -700,6 +780,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_get(self, route: str, query: dict) -> None:
         try:
+            if route == "/api/v1/openapi.json":
+                from .openapi import document
+                self._send_json(document())
+                return
             from ..monitoring.api import dispatch
             if dispatch(self, "GET", route, query=query):
                 return
@@ -713,6 +797,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
+                capabilities["features"]["openapi_v1"] = True
                 capabilities["features"].update(self.workers.capabilities())
                 capabilities["features"]["monitoring_projects"] = True
                 capabilities["features"]["monitoring_guard"] = True
@@ -807,6 +892,16 @@ class Handler(BaseHTTPRequestHandler):
                     parts[3], methodology=methodology, limit=limit,
                 )
                 self._send_json(api_payload(result))
+                return
+            if len(parts) == 5 and parts[:3] == ['api','v1','sessions'] and parts[4] == 'sweep-summaries':
+                allowed = {'stream_id','limit','after','start','end','min_hz','max_hz'}
+                if set(query)-allowed or any(len(value) != 1 for value in query.values()):
+                    raise ValueError('Unknown or repeated summary query parameter')
+                values = {key:value[0] for key,value in query.items()}
+                for key in ('limit','min_hz','max_hz'):
+                    if key in values:
+                        values[key] = int(values[key])
+                self._send_json(api_payload(self.sessions.sweep_summaries(parts[3], **values)))
                 return
             if parts[:3] == ["api", "v1", "measurement-catalog"] and len(parts) == 3:
                 self._send_json(api_payload(self.sessions.measurement_catalog()))
@@ -1033,6 +1128,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.get_session(parts[3])))
                 return
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except ArchiveReadBusy as exc:
+            self._send_api_error(503, 'archive_read_busy', str(exc))
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
         except SweepNotFoundError as exc:
@@ -1095,6 +1192,10 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in ("candidates", "investigations")
             ):
                 parts[5] = unquote(parts[5])
+            if (len(parts) == 5 and parts[:3] == ['api','v1','sessions']
+                    and parts[4] == 'audio-segments'):
+                self._send_json(api_payload(self.sessions.ingest_audio_segment(parts[3], payload)), 201)
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1416,6 +1517,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "reference_name_conflict", str(exc))
         except ReferenceLimitReachedError as exc:
             self._send_api_error(409, "reference_limit_reached", str(exc))
+        except AudioSegmentConflict as exc:
+            self._send_api_error(409, 'audio_segment_conflict', str(exc))
         except ArchiveCapacityExceededError as exc:
             self._send_api_error(507, "archive_capacity_exceeded", str(exc))
         except SessionNotFoundError as exc:
@@ -1516,6 +1619,11 @@ def create_server(
     if archive_max_bytes is not None and not session_database:
         raise ValueError("archive_max_bytes требует session_database")
     with ExitStack() as cleanup:
+        bridge = RuntimeBridge.from_environment(session_database)
+        if bridge is not None and sessions is not None:
+            raise RuntimeBridgeError(500, 'runtime_requires_owned_archive')
+        if bridge is not None:
+            cleanup.enter_context(bridge)
         state = ApplicationState(database=database, library=library)
         cleanup.callback(state.close)
         if sessions is not None:
@@ -1582,6 +1690,7 @@ def create_server(
                 "automatic_detection": detection_scheduler,
                 "automatic_completion": completion_scheduler,
                 "control_scheduler": control_scheduler,
+                "runtime_bridge": bridge,
             },
         )
         httpd = ThreadingHTTPServer((host, port), handler)
@@ -1595,25 +1704,33 @@ def create_server(
         httpd.automatic_detection = detection_scheduler
         httpd.automatic_completion = completion_scheduler
         httpd.control_scheduler = control_scheduler
+        httpd.runtime_bridge = bridge
+        if bridge is not None:
+            bridge.attach(httpd, monitoring)
         resources = cleanup.pop_all()
         # Keep the original socket close inside ExitStack; the public close also
         # owns the resources constructed here, including private task storage.
         def close_owned_resources():
-            monitoring.close()
-            if task_scheduler is None:
-                control_scheduler.close()
-            if automatic_completion is None:
-                completion_scheduler.close()
-            if automatic_detection is None:
-                detection_scheduler.close()
-            if automatic_handoff is None:
-                automatic_scheduler.close()
-            instruments.close()
-            if workers is None:
-                worker_manager.close()
-            if worker_manager.active_count or worker_manager.pending_start_count:
-                raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
-            resources.close()
+            try:
+                monitoring.close()
+                if task_scheduler is None:
+                    control_scheduler.close()
+                if automatic_completion is None:
+                    completion_scheduler.close()
+                if automatic_detection is None:
+                    detection_scheduler.close()
+                if automatic_handoff is None:
+                    automatic_scheduler.close()
+                instruments.close()
+                if workers is None:
+                    worker_manager.close()
+                if worker_manager.active_count or worker_manager.pending_start_count:
+                    raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
+                resources.close()
+            except BaseException:
+                if bridge is not None:
+                    bridge.__exit__(*sys.exc_info())
+                raise
         httpd.resource_cleanup = resources
         httpd.server_close = close_owned_resources
         monitoring.start()
@@ -1651,6 +1768,7 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.monitoring.close()
         httpd.automatic_completion.close()
         httpd.automatic_detection.close()
         httpd.automatic_handoff.close()

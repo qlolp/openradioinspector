@@ -1,4 +1,4 @@
-//! Opt-in scale fixture contains synthetic two-point sources, never user measurements.
+//! Scale fixture contains synthetic two-point sources, never user measurements.
 use ori_archive::{Archive, ArchiveConfig, SweepQuery};
 use serde_json::json;
 
@@ -41,7 +41,6 @@ async fn indexed_ten_thousand_source_history_uses_bounded_pages() {
     indexed_history(10_000).await;
 }
 #[tokio::test]
-#[ignore = "explicit scale fixture: writes one million synthetic sources; no Pi performance claim"]
 async fn indexed_million_source_history_uses_bounded_pages() {
     indexed_history(1_000_000).await;
 }

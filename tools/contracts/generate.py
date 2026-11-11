@@ -44,6 +44,10 @@ def kind(schema):
     return next((v for v in value if v != "null"), "null") if isinstance(value, list) else value
 
 
+def nullable(schema):
+    return isinstance(schema.get('type'), list) and 'null' in schema['type']
+
+
 def enum_name(model, field):
     return {("DeviceStream", "role"): "DeviceRole", ("Candidate", "state"): "CandidateState"}.get((model, field), model + "".join(p.title() for p in field.split("_")))
 
@@ -77,9 +81,12 @@ def rust_models(schemas):
         for field, prop in schema["properties"].items():
             required = field in schema.get("required", [])
             ty = "T" if name == "Envelope" and field == "data" else "PlatformError" if name == "ErrorEnvelope" and field == "error" else rust_type(prop, name, field)
-            if not required:
+            if not required or nullable(prop):
                 ty = f"Option<{ty}>"
+            if not required:
                 lines += ['    #[serde(default, skip_serializing_if = "Option::is_none")]']
+            elif nullable(prop):
+                lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]']
             if field == "contract": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract")]']
             if field == "contract_version": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract_version")]' if required else '    #[serde(deserialize_with = "crate::codec::deserialize_optional_contract_version")]']
             lines += [f"    pub {field}: {ty},"]
@@ -151,12 +158,12 @@ def swift_models(schemas):
         lines += [f"public struct {name}: ContractModel, Equatable, Sendable {{"]
         for field, prop in schema["properties"].items():
             ty = "PlatformError" if name == "ErrorEnvelope" and field == "error" else swift_type(prop, name, field)
-            optional = field not in schema.get("required", [])
+            optional = field not in schema.get("required", []) or nullable(prop)
             lines += [f"    public var {field}: {ty}{'?' if optional else ''}"]
         parameters = []
         for field, prop in schema["properties"].items():
             ty = "PlatformError" if name == "ErrorEnvelope" and field == "error" else swift_type(prop, name, field)
-            optional = field not in schema.get("required", [])
+            optional = field not in schema.get("required", []) or nullable(prop)
             parameters.append(f"{field}: {ty}" + ("? = nil" if optional else ""))
         parameters.append("extra: JSONObject = [:]")
         lines += ["    public var extra: JSONObject", "    public init(" + ", ".join(parameters) + ") {"]
@@ -167,7 +174,10 @@ def swift_models(schemas):
             expr = "value"
             value = f"try PlatformError(json: {expr})" if name == "ErrorEnvelope" and field == "error" else swift_read(prop, expr, name, field)
             if required:
-                lines += [f'        guard let {field}Value = object.removeValue(forKey: "{field}") else {{ throw ContractError.invalid("Missing {field}") }}', f"        {field} = {value.replace('value', field+'Value')}"]
+                decoded = value.replace('value', field+'Value')
+                if nullable(prop):
+                    decoded = f'{field}Value == .null ? nil : {decoded}'
+                lines += [f'        guard let {field}Value = object.removeValue(forKey: "{field}") else {{ throw ContractError.invalid("Missing {field}") }}', f"        {field} = {decoded}"]
             else:
                 lines += [f'        if let value = object.removeValue(forKey: "{field}"), value != .null {{ {field} = {value} }} else {{ {field} = nil }}']
             if "const" in prop:
@@ -175,9 +185,11 @@ def swift_models(schemas):
                 lines += [f'        guard {field} == {condition}{" || " + field + " == nil" if not required else ""} else {{ throw ContractError.invalid("Unsupported {field}") }}']
         lines += ["        extra = object", "    }", "    public var json: JSONValue {", "        var object = extra"]
         for field, prop in schema["properties"].items():
-            expr = "value" if field not in schema.get("required", []) else field
+            expr = "value" if field not in schema.get("required", []) or nullable(prop) else field
             value = f"{expr}.json" if name == "ErrorEnvelope" and field == "error" else swift_write(prop, expr, name, field)
-            if field in schema.get("required", []): lines += [f'        object["{field}"] = {value}']
+            if field in schema.get("required", []) and nullable(prop):
+                lines += [f'        if let value = {field} {{ object["{field}"] = {value} }} else {{ object["{field}"] = .null }}']
+            elif field in schema.get("required", []): lines += [f'        object["{field}"] = {value}']
             else: lines += [f'        if let value = {field} {{ object["{field}"] = {value} }}']
         lines += ["        return .object(object)", "    }", "}", ""]
     return "\n".join(lines)

@@ -32,6 +32,8 @@ def _readonly(path):
 
 
 def _integrity(db):
+    from .observation_precision import check_extension, decode_level
+    check_extension(db)
     if db.execute('PRAGMA integrity_check(1)').fetchone() != ('ok',):
         raise ValueError('Archive integrity check failed')
     if db.execute('PRAGMA foreign_key_check').fetchone() is not None:
@@ -39,6 +41,12 @@ def _integrity(db):
     tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     if not {'sessions', 'streams', 'sweeps', 'observations', 'events'} <= tables:
         raise ValueError('Not an OpenRadioInspector archive')
+    if 'ori_observation_level_bits' in tables:
+        cursor = db.execute('''SELECT o.level,p.level_bits_le FROM ori_observation_level_bits p
+            JOIN observations o ON o.id=p.observation_id''')
+        while rows := cursor.fetchmany(128):
+            for stored, bits in rows:
+                decode_level(stored, bits)
     return tables
 
 

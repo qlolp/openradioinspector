@@ -61,8 +61,9 @@ wrong child. Tokens must be fresh per launch.
 `ORI_RUNTIME_DATA_DIR` selects the existing absolute data directory. Without
 that variable, the explicit fallback is the absolute
 `Path(session_database).parent`; memory-only startup therefore requires an
-explicit runtime data directory. A supplied session database must lie within
-that data directory. Relative runtime data paths, symlinks, unsafe file types,
+explicit runtime data directory. A supplied session database must have exactly
+that directory as its parent; nested data owners and hard-linked aliases are refused.
+Relative runtime data paths, symlinks, unsafe file types,
 public/wrong-owner Unix private state, hard-linked leases, and untrusted writable
 ancestors are refused. Unix state is `.ori-runtime/` mode 0700 and
 `writer.lock` mode 0600; no raw database is opened by this acquisition.

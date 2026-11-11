@@ -57,11 +57,11 @@ From `crates/ori-archive`, with the repository's Rust 1.99.1 toolchain:
 CARGO_BUILD_JOBS=2 cargo fmt --check
 CARGO_BUILD_JOBS=2 cargo clippy --locked --all-targets -- -D warnings
 CARGO_BUILD_JOBS=2 cargo test --locked -- --test-threads=2
-CARGO_BUILD_JOBS=2 cargo test --locked --test history_scale indexed_million -- --ignored --test-threads=1
+CARGO_BUILD_JOBS=2 cargo test --locked --test history_scale indexed_million -- --test-threads=1
 ```
 
 Focused real temporary SQLite tests cover original f64 bits/IDs/units/time, reserved JSON metadata, historical-row preservation, schema fail-closed behavior, exact UTF-16 ordering, atomic duplicate/FK/capacity/trigger rollback, concurrent batches and notices after commit, explicit overload, concurrent readers during a blocked writer, bounded 300-job stop, 12 MiB binary queue admission, exact WAV/hash, live-WAL backups, concurrent snapshot writes, corrupt recovery rejection, stale sidecar rejection, and portable secret/autostart removal. The default indexed-history fixture contains 10,000 sources; the explicit scale test creates 1,000,000 synthetic two-point sources and checks index selection and bounded summary pagination. This is a query/compatibility test, not a 4096-point throughput benchmark.
 
-Verified 2026-11-11: all 30 default tests passed; the separately invoked one-million-source test also passed (21.10 s including fixture creation/open/query checks). `cargo fmt --check` and strict all-target clippy passed. The opt-in test stays excluded from the default fast suite.
+Verified 2026-11-11: all 30 initial default tests passed; the separately invoked one-million-source test also passed (21.10 s including fixture creation/open/query checks). `cargo fmt --check` and strict all-target clippy passed. The integrated workspace runs the million-source query test by default too, so its release gate has no ignored cases. The 290-point performance target remains a separate benchmark.
 
 All verification uses synthetic data on this host. It does not prove Raspberry Pi performance, physical acquisition/audio wiring, abrupt power-loss survival or filesystem/hardware durability beyond SQLite FULL and the tested software commit/rollback behavior. The service must recover domain state, own devices and the cross-process lease, serialize HTTP JSON losslessly, and resynchronize lagged SSE consumers from durable cursors.

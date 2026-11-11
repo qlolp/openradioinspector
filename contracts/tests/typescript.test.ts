@@ -4,6 +4,11 @@ import {readFileSync} from 'node:fs';
 import {parseJSON, stringifyJSON, decodeSweep, decodeReceiverObservation, normalizeUTC, encodePathSegment, operationPath, encodeSweep, decodeEnvelope, decodeErrorEnvelope} from '../generated/typescript/index.ts';
 
 const fixtureText = readFileSync(new URL('../fixtures/measurement-v1.json', import.meta.url), 'utf8');
+test('integer minus zero matches legacy Python while explicit float retains sign', () => {
+    const value = parseJSON('{"integer":-0,"float":-0.0}') as any;
+    assert.equal(Object.is(value.integer, -0), false);
+    assert.equal(Object.is(value.float, -0), true);
+});
 const bits = (value: number): string => { const a = new DataView(new ArrayBuffer(8)); a.setFloat64(0,value); return a.getBigUint64(0).toString(16).padStart(16,'0'); };
 
 test('shared golden retains exact f64 bits, integerHz, IDs, UTC and original units', () => {

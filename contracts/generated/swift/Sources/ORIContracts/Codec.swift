@@ -212,7 +212,7 @@ public enum StrictJSON {
                 while let byte = current, (48...57).contains(byte) { index += 1 }
             }
             let token = String(decoding: bytes[start..<index],as: UTF8.self)
-            if !isFloat && token != "-0" { return .integer(token) }
+            if !isFloat { return .integer(token == "-0" ? "0" : token) }
             guard let value = Double(token), value.isFinite else { throw ContractError.invalid("Nonfinite JSON number") }
             return .number(value)
         }

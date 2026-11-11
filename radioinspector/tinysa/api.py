@@ -166,7 +166,10 @@ def dispatch(handler,method,route,payload=None,query=None):
     sid,stream=unquote(parts[3]),unquote(parts[5]);tail=parts[7:];service=handler.instruments
     client_key=handler.headers.get('X-Instrument-Client')
     try:
-        service.scope(sid,stream)
+        if method=='GET' and tail and tail[0]=='artifacts':
+            handler.sessions.instrument_context(sid,stream)
+        else:
+            service.scope(sid,stream)
         if method=='GET':
             if tail==['capabilities']:data=dict(capabilities=catalog(),status=service.state(sid,stream))
             elif tail in (['settings'],['control-lease']):data=service.state(sid,stream)
@@ -176,7 +179,7 @@ def dispatch(handler,method,route,payload=None,query=None):
                 handler._send_json(api_payload(service.submit(sid,stream,{'operation':'capture','parameters':{'save':False}})),202);return True
             elif tail==['artifacts']:data=dict(items=handler.sessions.list_instrument_artifacts(sid,stream,int((query or {}).get('limit',['100'])[0]),int((query or {}).get('offset',['0'])[0])))
             elif len(tail) in (2,3) and tail[0]=='artifacts':
-                item=handler.sessions.get_instrument_artifact(sid,stream,tail[1])
+                item=handler.sessions.get_instrument_artifact(sid,stream,unquote(tail[1]))
                 if len(tail)==3:
                     if tail[2]!='content':raise KeyError('Artifact route not found')
                     handler.send_response(200);handler.send_header('Content-Type',item['mime_type'])

@@ -411,7 +411,9 @@ impl JsonSyntax<'_> {
             return Err(Self::invalid("nonfinite JSON number"));
         }
         let number = if token == "-0" {
-            serde_json::Number::from_f64(-0.0).expect("finite zero")
+            // Python's legacy json.loads treats the integer token -0 as 0.
+            // An explicit -0.0 remains a signed floating-point measurement.
+            serde_json::Number::from(0)
         } else {
             token.parse()?
         };
@@ -632,4 +634,13 @@ pub fn encode_path_segment(id: &str) -> String {
         }
     }
     encoded
+}
+pub(crate) fn deserialize_required_nullable<'de, D, T>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }

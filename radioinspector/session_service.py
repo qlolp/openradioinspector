@@ -212,6 +212,8 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "sweep_summaries": True,
+                "audio_segment_ingest": True,
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
                 "three_sweep_thresholds": True,
@@ -1056,6 +1058,18 @@ class SessionService:
             start = bisect_right(items, after, key=lambda item: item[0])
             return copy.deepcopy(items[start:start + limit])
 
+    def sweep_summaries(self, session_id, **query):
+        from .sweep_summaries import query_parameters, sqlite_page, memory_page
+        filters, digest, cursor = query_parameters(session_id, **query)
+        limit = query.get('limit', 100)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, filters['stream_id'])
+            if self._store is None:
+                return memory_page(self._ingestion.get((session_id, None), []), filters, digest, cursor, limit)
+        # Source rows are immutable; the independent read transaction fixes the
+        # ingestion watermark without holding the application's writer lock.
+        return sqlite_page(self._store, filters, digest, cursor, limit)
+
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
     ) -> list[Sweep]:
@@ -1680,6 +1694,32 @@ class SessionService:
                 self._instrument_artifacts[item['id']]=item
                 self._instrument_artifact_bytes+=item['size_bytes']
         return summary(item)
+
+    def ingest_audio_segment(self, session_id, payload):
+        from .audio_segments import make_audio_segment, AudioSegmentConflict
+        from .tinysa.artifacts import summary
+        item = make_audio_segment(session_id, payload)
+        with self._lock:
+            stream = self.instrument_context(session_id, item['stream_id'])
+            if stream.role != DeviceRole.RECEIVER:
+                raise ValueError('Audio segment must belong to a receiver stream')
+            result = summary(item)
+            event = self._make_event_locked('audio_segment.received', session_id=session_id,
+                                            payload={'artifact':result})
+            if self._store is not None:
+                try:
+                    self._store.save_instrument_artifact(item, event=event)
+                except sqlite3.IntegrityError as exc:
+                    raise AudioSegmentConflict('Audio segment ID already exists or violates archive ownership') from exc
+            else:
+                if item['id'] in self._instrument_artifacts:
+                    raise AudioSegmentConflict('Audio segment ID already exists')
+                if len(self._instrument_artifacts) >= 64 or self._instrument_artifact_bytes+item['size_bytes'] > 32*1024*1024:
+                    raise ValueError('Memory artifact archive full; use SQLite or export existing artifacts')
+                self._instrument_artifacts[item['id']] = item
+                self._instrument_artifact_bytes += item['size_bytes']
+            self._publish_event_locked(event)
+            return copy.deepcopy(result)
 
     def get_instrument_artifact(self,session_id,stream_id,artifact_id):
         self.instrument_context(session_id,stream_id)

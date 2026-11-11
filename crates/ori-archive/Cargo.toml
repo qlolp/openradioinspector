@@ -5,8 +5,6 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
-[workspace]
-
 [dependencies]
 chrono = { version = "=0.4.45", features = ["serde"] }
 rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled", "functions", "backup", "hooks", "limits"] }
@@ -16,7 +14,3 @@ sha2 = "=0.11.1"
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-
-[profile.release]
-strip = true
-lto = "thin"

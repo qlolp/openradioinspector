@@ -87,7 +87,7 @@ export function parseJSON(input: string | Uint8Array, maxBytes = DEFAULT_MAX_BYT
     if (!match) throw new SyntaxError('Invalid JSON value');
     const token = match[0]; i+=token.length;
     if (!/[.eE]/.test(token)) {
-      if (token === '-0') return -0;
+      if (token === '-0') return 0;
       const integer = BigInt(token);
       return integer >= BigInt(Number.MIN_SAFE_INTEGER) && integer <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(integer) : integer;
     }

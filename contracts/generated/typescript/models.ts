@@ -4,6 +4,32 @@ export type {JSONValue, JSONObject, Integer} from './codec.ts';
 
 export type CandidateState = "new" | "queued" | "investigating" | "resolved" | "dismissed";
 export type DeviceRole = "spectrum_analyzer" | "receiver" | "simulator";
+export interface ArtifactSummary {
+  created_at: string;
+  filename: string;
+  id: string;
+  kind: string;
+  metadata: JSONObject;
+  mime_type: string;
+  schema_version: 1;
+  session_id: string;
+  sha256: string;
+  size_bytes: Integer;
+  stream_id: string;
+  [key: string]: unknown;
+}
+
+export interface AudioSegmentInput {
+  data_base64: string;
+  frequency_hz: Integer;
+  id: string;
+  interval: TimeInterval;
+  mode: string;
+  sha256: string;
+  stream_id: string;
+  [key: string]: unknown;
+}
+
 export interface Candidate {
   bandwidth_hz?: Integer | null;
   center_frequency_hz: Integer;
@@ -124,6 +150,26 @@ export interface Sweep {
   session_id: string;
   settings?: JSONObject;
   stream_id: string;
+  [key: string]: unknown;
+}
+
+export interface SweepSummary {
+  id: string;
+  interval: TimeInterval;
+  level_unit: string;
+  max_frequency_hz: Integer;
+  min_frequency_hz: Integer;
+  peak_frequency_hz: Integer;
+  peak_level: number;
+  point_count: Integer;
+  session_id: string;
+  stream_id: string;
+  [key: string]: unknown;
+}
+
+export interface SweepSummaryPage {
+  items: Array<SweepSummary>;
+  next_cursor: string | null;
   [key: string]: unknown;
 }
 

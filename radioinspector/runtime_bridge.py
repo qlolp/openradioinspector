@@ -155,10 +155,10 @@ class RuntimeBridge:
         else:
             raise RuntimeBridgeError(500, 'runtime_invalid_configuration')
         if database is not None:
-            try:
-                database.relative_to(directory)
-            except ValueError:
-                raise RuntimeBridgeError(500, 'runtime_database_outside_data_directory') from None
+            if database.parent != directory:
+                raise RuntimeBridgeError(500, 'runtime_database_outside_data_directory')
+            if database.exists() and database.stat().st_nlink != 1:
+                raise RuntimeBridgeError(500, 'runtime_unsafe_path')
         try:
             lease = _writer_lease(directory)
         except OSError as error:

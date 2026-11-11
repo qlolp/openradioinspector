@@ -4,6 +4,25 @@ use serde_json::Value;
 const FIXTURE: &[u8] = include_bytes!("../fixtures/measurement-v1.json");
 
 #[test]
+fn python_integer_zero_semantics_are_distinct_from_explicit_float_zero() {
+    let value = ori_contracts::parse_json_value(br#"{"integer":-0,"float":-0.0}"#, 1000).unwrap();
+    assert_eq!(value["integer"].to_string(), "0");
+    assert_eq!(
+        value["float"].as_f64().unwrap().to_bits(),
+        (-0.0_f64).to_bits()
+    );
+}
+
+#[test]
+fn required_nullable_cursor_round_trips_and_cannot_disappear() {
+    let payload = br#"{"items":[],"next_cursor":null}"#;
+    let value: ori_contracts::SweepSummaryPage = from_json_slice(payload, 1000).unwrap();
+    let round: Value = from_json_slice(&to_json_vec(&value).unwrap(), 1000).unwrap();
+    assert!(round.get("next_cursor").unwrap().is_null());
+    assert!(from_json_slice::<ori_contracts::SweepSummaryPage>(br#"{"items":[]}"#, 1000).is_err());
+}
+
+#[test]
 fn golden_preserves_measurements_and_normalizes_only_timestamps() {
     let fixture: Value = from_json_slice(FIXTURE, FIXTURE.len()).unwrap();
     let sweep: Sweep =

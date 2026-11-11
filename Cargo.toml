@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["clients/windows"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[workspace.metadata.ori]
+status = "candidate; Python remains the accepted default until parity and physical gates pass"

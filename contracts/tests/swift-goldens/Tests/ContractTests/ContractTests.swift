@@ -3,6 +3,17 @@ import Foundation
 import ORIContracts
 
 final class ContractTests: XCTestCase {
+    func testIntegerMinusZeroMatchesLegacyPythonSemantics() throws {
+        let json = try StrictJSON.parse(Data(#"{"integer":-0,"float":-0.0}"#.utf8))
+        XCTAssertEqual(json.object?["integer"], .integer("0"))
+        XCTAssertEqual(json.object?["float"]?.double?.bitPattern, (-0.0).bitPattern)
+    }
+    func testRequiredNullableCursorKeepsExplicitNull() throws {
+        let value = try StrictJSON.decode(SweepSummaryPage.self,from:Data(#"{"items":[],"next_cursor":null}"#.utf8))
+        let round = try StrictJSON.parse(StrictJSON.encode(value))
+        XCTAssertEqual(round.object?["next_cursor"], .null)
+        XCTAssertThrowsError(try StrictJSON.decode(SweepSummaryPage.self,from:Data(#"{"items":[]}"#.utf8)))
+    }
     private var fixture: Data { get throws { try Data(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures/measurement-v1.json")) } }
 
     func testSharedGoldenPreservesFloat64IDsUTCAndUnits() throws {
