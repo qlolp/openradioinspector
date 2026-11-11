@@ -2,8 +2,6 @@
 
 This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
 
-The Archive hook is included here. The matching Legacy hook arrives in stage 11, before Core binds the shared admission budget.
-
 The optional hooks let Core apply one admitted logical I/O budget to legacy
 snapshot preparation and recovery backup work. Archive and Legacy do not depend
 on Runtime. Their existing constructors, options, format and default pacing
