@@ -17,6 +17,24 @@ drain deadline fails closure rather than releasing the archive or writer lease.
 After the blocked work exits, the caller may retry this stage safely. Callers
 still own the normal `shutdown()`/serving-thread lifetime.
 
+SSE writes use a listener-scoped cooperative writer on the same unbuffered HTTP
+output, including response headers. Only that owned socket becomes nonblocking.
+Each send advances its exact returned byte count in chunks of at most 64 KiB;
+backpressure polls readiness for at most 50 ms before checking the original stop
+flag again. There is no frame deadline or change to ordinary request/body or
+device command timeouts. This avoids relying on `shutdown(SHUT_RDWR)` to interrupt
+an already blocking Winsock `sendall`, which the Windows jobs at `bdcc5e5` showed
+could remain pending beyond the unchanged five-second drain deadline.
+
+The handler restores the original socket timeout and exact output override
+before leaving its active scope. If no instance override existed, it removes
+the temporary attribute instead of retaining a self-bound method. A restoration
+failure remains visible and latches failed listener closure, so another close
+cannot turn incomplete cleanup into archive release. Both SSE routes retain a
+single-stream connection lifetime even though their wire headers say keep-alive;
+they do not parse another request after the stream ends. Socket shutdown remains
+a signal, without cross-thread descriptor closure or reuse.
+
 An owned `SessionService` closes after event streams drain. Its raw store close
 callback remains registered before construction, so a failed service constructor
 still closes SQLite. An injected service remains caller-owned: closing one
@@ -57,10 +75,18 @@ recorded neither successful completion nor a filtered disconnect error, so the
 hosted logs do not distinguish those outcomes. The fixture now sets
 the receiver buffer before connecting, fills the same socket with bounded
 nonblocking sends (at most 16 MiB within the existing two-second readiness
-bound), and requires observed backpressure. It restores blocking mode, verifies
-the real write stays pending, and requires shutdown to end that write with a
-disconnect error before archive closure and writer admission. Both small and
-larger requested send buffers run on every platform.
+bound), and requires observed backpressure. It then enters the production
+cooperative writer, verifies the real write stays pending, and requires shutdown
+to end that write with a disconnect error before archive closure and writer
+admission. Both small and larger requested send buffers run on every platform.
+
+A controlled Linux case models socket shutdown not interrupting that owned
+connection's write, while keeping the actual TCP backpressure, original stop
+flag, archive and drain barrier. It reproduced the hosted drain failure before
+the cooperative writer. Other real TCP cases check exact partial offsets after a
+readiness race, restoration after encoder failure, and sticky restoration errors.
+An independent real POST during an open SSE stream retains its ordinary socket
+and body timeout state.
 
 Startup regressions separately verify that constructor/bind failure closes the
 actual SQLite connection and permits a competing writer, while a real archive
@@ -71,9 +97,9 @@ larger send buffer; instrumentation confirmed that its single write completed
 before the pending-write assertion failed. These are synthetic lifecycle checks,
 not device or performance acceptance.
 
-The follow-up passed the full Linux/Python 3.12.14 release runner: 1,850 tests with
+The cooperative writer follow-up passed the full Linux/Python 3.12.14 release runner: 1,855 tests with
 zero skips, 10,045 synthetic endurance sweeps, all seven fixture archives
-unchanged, and no cleanup errors. Six focused startup/socket cases also passed
+unchanged, and no cleanup errors. All 21 focused writer/SSE cases also passed
 on Python 3.15.1. The original command and shutdown deadlines remain unchanged.
 Windows hosted execution of this follow-up remains required; local Linux
 verification does not establish Windows or macOS acceptance.
