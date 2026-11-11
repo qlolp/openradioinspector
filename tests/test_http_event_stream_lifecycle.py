@@ -2,16 +2,19 @@
 import http.client
 import json
 from pathlib import Path
+import select
 import sqlite3
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
 from radioinspector.runtime_bridge import RuntimeBridgeError
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
+from radioinspector.web.event_streams import peer_disconnected
 from radioinspector.web.server import create_server
 from radioinspector.writer_ownership import archive_writer_owner
 from tests.test_platform import session_payload
@@ -183,42 +186,90 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
         self.assertEqual(response.read(1), b'')
         self.assertFalse(state._subscribers)
 
-    def test_shutdown_unblocks_a_real_slow_socket_writer_before_archive_close(self):
+    def slow_socket_writer(self, send_buffer):
         server = self.server()
         service = server.session_service
         service.create_session(session_payload())
         writing, exited = threading.Event(), threading.Event()
+        outcomes, buffered = [], []
         original = server.RequestHandlerClass._stream_session_events
         def constrained(handler, after=0):
-            handler.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+            handler.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, send_buffer)
             write = handler.wfile.write
             def observed(data):
                 if len(data) < 500000:
                     return write(data)
-                writing.set()
                 try:
-                    return write(data)
+                    # SO_SNDBUF is a hint: Windows may accept a whole 1 MB
+                    # write immediately. Measure actual kernel backpressure
+                    # first, using bounded sends and the same owned TCP socket.
+                    connection = handler.connection
+                    previous_timeout = connection.gettimeout()
+                    total = 0
+                    deadline = time.monotonic() + 2
+                    connection.setblocking(False)
+                    try:
+                        while total < 16 * 1024 * 1024 and time.monotonic() < deadline:
+                            try:
+                                sent = connection.send(data[:16384])
+                            except BlockingIOError:
+                                if not select.select([], [connection], [], .05)[1]:
+                                    break
+                            else:
+                                if not sent:
+                                    raise AssertionError('synthetic socket closed before backpressure')
+                                total += sent
+                        else:
+                            raise AssertionError(f'synthetic socket never backpressured after {total} bytes')
+                    finally:
+                        connection.settimeout(previous_timeout)
+                    buffered.append(total)
+                    writing.set()
+                    result = write(data)
+                    outcomes.append(f'write completed with {result} bytes')
+                    return result
+                except BaseException as error:
+                    outcomes.append(error)
+                    raise
                 finally:
                     exited.set()
             handler.wfile.write = observed
             return original(handler, after)
         with patch.object(server.RequestHandlerClass, '_stream_session_events', constrained):
             connection = http.client.HTTPConnection(*server.server_address, timeout=2)
-            connection.connect()
+            self.addCleanup(connection.close)
+            # Set the receive window before the TCP handshake, so already
+            # advertised Windows receive capacity cannot defeat the constraint.
+            connection.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            connection.sock.settimeout(2)
             connection.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            connection.sock.connect(server.server_address)
             connection.request('GET', '/api/v1/events?after=1')
             response = connection.getresponse()
             self.connections.append((connection, response))
             self.assertEqual(response.status, 200)
             service.publish('future.synthetic', payload={'synthetic': 'x' * 1000000})
-            self.assertTrue(writing.wait(2))
-            self.assertFalse(exited.wait(.05), 'synthetic write did not fill its constrained socket')
+            self.assertTrue(writing.wait(2), f'synthetic backpressure was not observed: {outcomes!r}')
+            self.assertFalse(exited.wait(.05), f'synthetic write exited after buffering {buffered}: {outcomes!r}')
+            self.writer_is_busy(service._store.path)
             server.server_close()
         self.assertTrue(exited.is_set())
+        self.assertEqual(len(outcomes), 1, outcomes)
+        self.assertIsInstance(outcomes[0], OSError)
+        self.assertTrue(peer_disconnected(outcomes[0]), outcomes)
         self.assertFalse(service._stream_notifiers)
         self.assertTrue(service.event_stream_closed)
         owner = archive_writer_owner(service._store.path)
         owner.release_after_archive_closed()
+
+    def test_shutdown_unblocks_a_real_slow_socket_writer_before_archive_close(self):
+        self.slow_socket_writer(4096)
+
+    def test_slow_socket_shutdown_also_measures_larger_kernel_send_buffers(self):
+        # The original single 1 MB write can complete on this real TCP socket.
+        # Exercise the larger-buffer case on every OS, without assuming the OS
+        # grants this exact capacity or skipping when its cap is lower.
+        self.slow_socket_writer(2 * 1024 * 1024)
 
     def test_closing_one_server_preserves_injected_service_and_other_streams(self):
         store = SQLiteSessionStore(str(self.directory / 'injected.sqlite'))
@@ -276,27 +327,54 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
                 real_close(server.session_service._store)
                 server.archive_owner.release_after_archive_closed()
 
-    def test_session_constructor_failure_still_closes_the_raw_store(self):
-        path = str(self.directory / 'constructor' / 'archive.sqlite')
+    def startup_failure(self, phase, *, close_error=False):
+        path = str(self.directory / phase / 'archive.sqlite')
         stores, owners = [], []
+        real_close = SQLiteSessionStore.close
         def store(*args, **kwargs):
             result = SQLiteSessionStore(*args, **kwargs); stores.append(result); return result
         def owner(*args):
             result = archive_writer_owner(*args); owners.append(result); return result
+        target = 'SessionService' if phase == 'constructor' else 'ThreadingHTTPServer'
+        failure = ValueError if phase == 'constructor' else OSError
         try:
             with patch('radioinspector.web.server.SQLiteSessionStore', side_effect=store), \
                     patch('radioinspector.web.server.archive_writer_owner', side_effect=owner), \
-                    patch('radioinspector.web.server.SessionService', side_effect=ValueError('synthetic constructor failure')):
-                with self.assertRaisesRegex(ValueError, 'constructor failure'):
-                    create_server(host='127.0.0.1', port=0, session_database=path)
+                    patch('radioinspector.web.server.' + target, side_effect=failure('synthetic startup failure')):
+                if close_error:
+                    with patch.object(SQLiteSessionStore, 'close', side_effect=OSError('synthetic archive close failure')):
+                        with self.assertRaisesRegex(OSError, 'archive close failure'):
+                            create_server(host='127.0.0.1', port=0, session_database=path)
+                else:
+                    with self.assertRaisesRegex(failure, 'startup failure'):
+                        create_server(host='127.0.0.1', port=0, session_database=path)
             self.assertEqual(len(stores), 1)
-            with self.assertRaises(sqlite3.ProgrammingError):
-                stores[0]._connection.execute('SELECT 1')
+            if close_error:
+                self.assertEqual(stores[0]._connection.execute('SELECT 1').fetchone()[0], 1)
+                self.writer_is_busy(path)
+                with self.assertRaises(RuntimeBridgeError):
+                    owners[0].close()
+            else:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    stores[0]._connection.execute('SELECT 1')
+                # POSIX can unlink an open lock file, hiding the Windows cleanup
+                # failure. Actual competing admission must also be available.
+                replacement = archive_writer_owner(path)
+                replacement.release_after_archive_closed()
         finally:
             for item in stores:
-                item.close()
+                real_close(item)
             for item in owners:
                 item.release_after_archive_closed()
+
+    def test_session_constructor_failure_still_closes_the_raw_store(self):
+        self.startup_failure('constructor')
+
+    def test_bind_failure_releases_writer_only_after_successful_archive_cleanup(self):
+        self.startup_failure('bind')
+
+    def test_startup_archive_cleanup_failure_keeps_the_writer_owned(self):
+        self.startup_failure('bind', close_error=True)
 
 
 if __name__ == '__main__':
