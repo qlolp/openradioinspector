@@ -1,6 +1,10 @@
 use ori_archive::{Archive, ArchiveConfig, ArchiveError, EventDraft, Mutation};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    future::Future,
+    task::Poll,
+    time::{Duration, Instant},
+};
 fn fixture() -> Value {
     ori_archive::parse_json_value(
         include_bytes!("../../../contracts/fixtures/measurement-v1.json"),
@@ -41,16 +45,22 @@ async fn full_writer_queue_rejects_explicitly_readers_do_not_wait_for_the_writer
     let mut notices = archive.subscribe_commits();
     let blocker = rusqlite::Connection::open(&path).unwrap();
     blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
-    let one = archive.clone();
-    let first =
-        tokio::spawn(async move { one.append_sweeps(vec![source("accepted-first")]).await });
-    wait_until(|| {
-        archive.queue_status().retained_bytes > 0 && archive.queue_status().queued_operations == 0
+    // Poll through actual admission before inspecting queue state. A spawned
+    // task can reserve bytes before it increments queued_operations, which is
+    // not evidence that the writer has already dequeued its command.
+    let mut first = Box::pin(archive.append_sweeps(vec![source("accepted-first")]));
+    std::future::poll_fn(|context| {
+        assert!(first.as_mut().poll(context).is_pending());
+        Poll::Ready(())
     })
     .await;
-    let two = archive.clone();
-    let second =
-        tokio::spawn(async move { two.append_sweeps(vec![source("accepted-second")]).await });
+    wait_until(|| archive.queue_status().queued_operations == 0).await;
+    let mut second = Box::pin(archive.append_sweeps(vec![source("accepted-second")]));
+    std::future::poll_fn(|context| {
+        assert!(second.as_mut().poll(context).is_pending());
+        Poll::Ready(())
+    })
+    .await;
     wait_until(|| archive.queue_status().queued_operations == 1).await;
     assert!(matches!(
         archive.append_sweeps(vec![source("rejected-third")]).await,
@@ -71,8 +81,8 @@ async fn full_writer_queue_rejects_explicitly_readers_do_not_wait_for_the_writer
     assert!(read.is_some());
     assert!(archive.get_sweep("accepted-first").await.unwrap().is_none());
     blocker.execute_batch("COMMIT").unwrap();
-    first.await.unwrap().unwrap();
-    second.await.unwrap().unwrap();
+    first.await.unwrap();
+    second.await.unwrap();
     let notice = notices.recv().await.unwrap();
     assert_eq!(notice.first_sequence, 2);
     assert!(archive.get_sweep("accepted-first").await.unwrap().is_some());
