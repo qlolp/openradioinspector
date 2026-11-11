@@ -81,4 +81,3 @@ public struct PlatformTraceMesh: Equatable, Sendable {
         threshold = dashes
     }
 }
-
