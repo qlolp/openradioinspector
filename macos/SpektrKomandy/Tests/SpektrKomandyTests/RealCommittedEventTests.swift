@@ -15,6 +15,7 @@ final class RealCommittedEventTests: XCTestCase {
     private final class Fixture {
         let process = Process(), input = Pipe(), output = Pipe()
         private var buffered = Data()
+        private var closed = false
 
         init() throws {
             let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
@@ -33,6 +34,7 @@ final class RealCommittedEventTests: XCTestCase {
                                  "--source-root", source, "--count", count]
             process.environment = environment; process.standardInput = input; process.standardOutput = output
             try process.run()
+            FixtureProcessLifecycle.note("started", process: process, label: "committed-sse")
             try input.fileHandleForReading.close(); try output.fileHandleForWriting.close()
         }
 
@@ -63,16 +65,19 @@ final class RealCommittedEventTests: XCTestCase {
             let result = try reply()
             XCTAssertEqual(result["closed"] as? Bool, true)
             XCTAssertEqual(result["archive_unchanged"] as? Bool, true)
-            let deadline = Date().addingTimeInterval(5)
-            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
-            guard !process.isRunning else { throw FixtureError.failed("owned Python fixture survived EOF") }
-            process.waitUntilExit(); XCTAssertEqual(process.terminationStatus, 0)
+            FixtureProcessLifecycle.note("final-json-read", process: process, label: "committed-sse")
+            let status = try FixtureProcessLifecycle.waitForExit(process, label: "committed-sse")
+            XCTAssertEqual(status, 0)
+            closed = true
         }
         deinit {
             try? input.fileHandleForWriting.close()
-            if process.isRunning { process.terminate() }
-            if process.processIdentifier > 0 { process.waitUntilExit() }
-            try? output.fileHandleForReading.close()
+            if !closed && process.processIdentifier > 0 {
+                do {
+                    try FixtureProcessLifecycle.dispose(process, input: input.fileHandleForWriting,
+                                                        output: output.fileHandleForReading, label: "committed-sse")
+                } catch { XCTFail("owned SSE fixture cleanup failed: \(error)") }
+            } else { try? output.fileHandleForReading.close() }
         }
     }
 

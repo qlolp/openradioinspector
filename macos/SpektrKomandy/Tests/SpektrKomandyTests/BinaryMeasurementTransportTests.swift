@@ -15,14 +15,19 @@ final class BinaryMeasurementTransportTests: XCTestCase {
     private final class Fixture {
         let process=Process(),input=Pipe(),output=Pipe()
         private var buffered=Data()
+        private let label:String
+        private var closed=false
         private(set) var ready:[String:Any]=[:]
         init(mode:String="replay",count:Int=5,tls:Bool=false) throws {
+            label="binary-ws/\(mode)/\(tls ? "tls" : "plain")"
             let script=try XCTUnwrap(Bundle.module.url(forResource:"binary_event_fixture",withExtension:"py",subdirectory:"Fixtures"))
             process.executableURL=URL(fileURLWithPath:"/usr/bin/env")
             process.arguments=[ProcessInfo.processInfo.environment["ORI_NATIVE_BINARY_PYTHON"] ?? "python3","-u",script.path,"--mode",mode,"--count",String(count),"--reject-reverse-dns"]+(tls ? ["--tls"]:[])
             process.standardInput=input;process.standardOutput=output
             try process.run();try input.fileHandleForReading.close();try output.fileHandleForWriting.close()
+            FixtureProcessLifecycle.note("started",process:process,label:label)
             ready=try Self.read(process:process,output:output,buffered:&buffered)
+            FixtureProcessLifecycle.note("ready",process:process,label:label)
         }
         private static func read(process:Process,output:Pipe,buffered:inout Data) throws->[String:Any] {
             let deadline=Date().addingTimeInterval(5)
@@ -37,13 +42,24 @@ final class BinaryMeasurementTransportTests: XCTestCase {
         func command(_ command:String) throws->[String:Any] {try input.fileHandleForWriting.write(contentsOf:Data("{\"\(command)\":true}\n".utf8));return try Self.read(process:process,output:output,buffered:&buffered)}
         var url:String {ready["url"] as! String}
         func close() throws {
-            try input.fileHandleForWriting.close();let final=try Self.read(process:process,output:output,buffered:&buffered)
+            try input.fileHandleForWriting.close()
+            FixtureProcessLifecycle.note("stdin-eof",process:process,label:label)
+            let final=try Self.read(process:process,output:output,buffered:&buffered)
             XCTAssertEqual(final["closed"]as?Bool,true);XCTAssertEqual(final["source_unchanged"]as?Bool,true)
             XCTAssertEqual((final["stats"]as?[String:Any])?["mutations"]as?Int,0)
-            let deadline=Date().addingTimeInterval(5);while process.isRunning&&Date()<deadline{Thread.sleep(forTimeInterval:0.01)}
-            guard !process.isRunning else{throw FixtureError.failed("owned WS fixture survived EOF")};process.waitUntilExit();XCTAssertEqual(process.terminationStatus,0)
+            FixtureProcessLifecycle.note("final-json-read",process:process,label:label)
+            let status=try FixtureProcessLifecycle.waitForExit(process,label:label)
+            XCTAssertEqual(status,0)
+            closed=true
         }
-        deinit {try? input.fileHandleForWriting.close();if process.isRunning{process.terminate()};if process.processIdentifier>0{process.waitUntilExit()};try? output.fileHandleForReading.close()}
+        deinit {
+            try? input.fileHandleForWriting.close()
+            if !closed && process.processIdentifier>0 {
+                do {try FixtureProcessLifecycle.dispose(process,input:input.fileHandleForWriting,
+                        output:output.fileHandleForReading,label:label)}
+                catch {XCTFail("owned WS fixture cleanup failed: \(error)")}
+            } else {try? output.fileHandleForReading.close()}
+        }
     }
     private actor Recorder {
         var sequences:[UInt64]=[]

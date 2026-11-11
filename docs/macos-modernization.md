@@ -89,8 +89,40 @@ The first hosted SDK attempt failed six binary-fixture startup deadlines before
 transport tests could run. A controlled rejecting-DNS probe reproduced the
 fixture's unnecessary `HTTPServer.server_bind` reverse lookup. The fixture now
 binds numeric loopback directly and all SDK/native launches reject reverse DNS.
-The original five-second readiness bound and replay counts remain unchanged;
-this fixture fix requires a refreshed hosted macOS gate.
+The original five-second readiness bound and replay counts remain unchanged.
+
+### Bounded SDK fixture shutdown
+
+The later [PR149 macOS job](https://github.com/qlolp/openradioinspector/actions/runs/43060152297/job/130660183412)
+reached the wide-value binary transport test before timing out. Its preserved
+owned-xctest sample places the worker in `Fixture.close()` at
+`NSConcreteTask.waitUntilExit`, after the fixture had read its final JSON and
+passed the `!process.isRunning` guard. The partial buffered test log did not
+show that progress. This sample identifies the redundant second Foundation
+wait; it does not establish an inherited SIGTERM problem or a transport hang.
+
+Binary and committed-SSE test fixtures now observe exit within the existing
+five-second bound using monotonic time, then read the available termination
+status directly. They do not enter another Foundation run-loop wait. Failure
+teardown closes the fixture's stdin lifeline, requests termination through the
+exact owned `Process` when needed, and stops waiting at the same bounded
+deadline. Final JSON, unchanged source/archive, zero mutations and normal
+exit-status assertions remain. Short lifecycle markers go directly to stderr
+so another hosted failure retains the last fixture mode, PID and stage.
+
+A controlled regression launches a real child that exits with status zero,
+then stalls only its secondary wait. The old call failed the bounded test; the
+test explicitly releases even a regressed wait so it cannot hang CI. A second
+regression covers a termination request that never publishes exit. Production
+SDK transport code, the 1205-event binary replay, the documented five-sweep
+legacy SSE profile and the 600-second outer gate are unchanged.
+
+Linux Swift 6.4.2 verification passed the six real binary transport cases and
+both lifecycle regressions, then the full portable SDK: 301 XCTest plus 16
+Swift Testing tests, zero skips. All 14 SDK process fixtures exited with status
+zero; all seven HTTP fixtures stopped with unchanged archive hashes. These are
+synthetic Linux checks. The shutdown correction still requires a refreshed
+hosted macOS SDK/native/Xcode gate; hardware was not used.
 
 ```sh
 swift test --package-path macos/SpektrKomandy -j1 --filter BinaryMeasurement
