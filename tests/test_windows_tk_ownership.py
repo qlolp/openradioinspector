@@ -44,6 +44,7 @@ class InterpreterOwnershipSubprocessTests(unittest.TestCase):
 import os
 import threading
 import unittest
+gc.disable()
 from tests import test_windows_tk_lifecycle as lifecycle
 from tests.loopback_dns import local_loopback_names
 

@@ -1752,6 +1752,8 @@ class WindowsApp(TkTimerOwner):
         self._action_callbacks.clear()
         getattr(self, '_project_action_clients', {}).clear()
         self._refresh_running = self._action_running = False
+        from .tk_variables import release_variable_traces
+        release_variable_traces(self)
         self._executor.shutdown(wait=False, cancel_futures=True)
         while True:
             try:
