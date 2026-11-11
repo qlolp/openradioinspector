@@ -4,9 +4,15 @@ import XCTest
 final class FixtureProcessLifecycleTests: XCTestCase {
     /// Models the sampled Darwin state: Foundation has published !isRunning,
     /// but its secondary run-loop wait has not received a termination wakeup.
-    private final class ExitedProcessWithStalledWait: Process, @unchecked Sendable {
+    private final class ExitedProcessWithStalledWait: FixtureManagedProcess, @unchecked Sendable {
+        private let process: Process
         private let releaseWait = DispatchSemaphore(value: 0)
-        override func waitUntilExit() { releaseWait.wait() }
+        init(_ process: Process) { self.process = process }
+        var processIdentifier: Int32 { process.processIdentifier }
+        var isRunning: Bool { process.isRunning }
+        var terminationStatus: Int32 { process.terminationStatus }
+        func terminate() { process.terminate() }
+        func waitUntilExit() { releaseWait.wait() }
         func release() { releaseWait.signal() }
     }
 
@@ -21,10 +27,13 @@ final class FixtureProcessLifecycleTests: XCTestCase {
         }
     }
 
-    private final class RunningProcessAfterTerminationRequest: Process, @unchecked Sendable {
+    private final class RunningProcessAfterTerminationRequest: FixtureManagedProcess, @unchecked Sendable {
         private(set) var terminationRequested = false
-        override var isRunning: Bool { true }
-        override func terminate() { terminationRequested = true }
+        var processIdentifier: Int32 { 0 }
+        var isRunning: Bool { true }
+        var terminationStatus: Int32 { -1 }
+        func terminate() { terminationRequested = true }
+        func waitUntilExit() { XCTFail("unexpected unbounded secondary wait") }
     }
 
     func testFailureTeardownStopsAtItsDeadlineWithoutAnUnboundedWait() throws {
@@ -47,20 +56,23 @@ final class FixtureProcessLifecycleTests: XCTestCase {
     }
 
     func testAlreadyExitedProcessDoesNotWaitForAnotherFoundationRunLoopWakeup() throws {
-        let process = ExitedProcessWithStalledWait()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "exit 0"]
-        try process.run()
+        let owned = Process()
+        owned.executableURL = URL(fileURLWithPath: "/bin/sh")
+        owned.arguments = ["-c", "exit 0"]
+        try owned.run()
         let exitDeadline = ProcessInfo.processInfo.systemUptime + 5
-        while process.isRunning && ProcessInfo.processInfo.systemUptime < exitDeadline {
+        while owned.isRunning && ProcessInfo.processInfo.systemUptime < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
-        guard !process.isRunning else {
-            process.terminate()
+        guard !owned.isRunning else {
+            owned.terminate()
             XCTFail("owned regression child did not exit")
             return
         }
-        XCTAssertEqual(process.terminationStatus, 0)
+        XCTAssertEqual(owned.terminationStatus, 0)
+        // NSTask is a class cluster on Darwin. Wrap its real concrete object;
+        // only the secondary wait is replaced by the controlled stalled event.
+        let process = ExitedProcessWithStalledWait(owned)
         let outcome = Outcome()
         let completed = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {

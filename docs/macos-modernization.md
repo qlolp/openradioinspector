@@ -113,7 +113,9 @@ so another hosted failure retains the last fixture mode, PID and stage.
 A controlled regression launches a real child that exits with status zero,
 then stalls only its secondary wait. The old call failed the bounded test; the
 test explicitly releases even a regressed wait so it cannot hang CI. A second
-regression covers a termination request that never publishes exit. Production
+regression covers a termination request that never publishes exit. Plain Swift
+adapters wrap a normal `Process`; Darwin retains Foundation's concrete NSTask
+class-cluster implementation for the actual launch. Production
 SDK transport code, the 1205-event binary replay, the documented five-sweep
 legacy SSE profile and the 600-second outer gate are unchanged.
 

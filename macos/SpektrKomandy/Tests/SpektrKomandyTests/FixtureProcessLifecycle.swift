@@ -4,8 +4,18 @@ enum FixtureProcessLifecycleError: Error {
     case exitDeadline
 }
 
+protocol FixtureManagedProcess: AnyObject {
+    var processIdentifier: Int32 { get }
+    var isRunning: Bool { get }
+    var terminationStatus: Int32 { get }
+    func terminate()
+    func waitUntilExit()
+}
+
+extension Process: FixtureManagedProcess {}
+
 enum FixtureProcessLifecycle {
-    static func note(_ stage: String, process: Process, label: String?, status: Int32? = nil) {
+    static func note(_ stage: String, process: any FixtureManagedProcess, label: String?, status: Int32? = nil) {
         guard let label else { return }
         let boundedLabel = String(label.prefix(80)).replacingOccurrences(of: "\n", with: "_")
         let exit = status.map { " status=\($0)" } ?? ""
@@ -15,7 +25,7 @@ enum FixtureProcessLifecycle {
         try? FileHandle.standardError.write(contentsOf: Data(line.utf8))
     }
 
-    static func waitForExit(_ process: Process, timeout: TimeInterval = 5,
+    static func waitForExit(_ process: any FixtureManagedProcess, timeout: TimeInterval = 5,
                             label: String? = nil) throws -> Int32 {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while process.isRunning {
@@ -34,7 +44,7 @@ enum FixtureProcessLifecycle {
         return status
     }
 
-    static func dispose(_ process: Process, input: FileHandle, output: FileHandle,
+    static func dispose(_ process: any FixtureManagedProcess, input: FileHandle, output: FileHandle,
                         timeout: TimeInterval = 5, label: String? = nil) throws {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         defer { try? output.close() }
