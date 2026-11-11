@@ -1,0 +1,21 @@
+[package]
+name = "ori-session"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+description = "Canonical session lifecycle and supplied-result business rules"
+
+[dependencies]
+ori-archive = { path = "../ori-archive" }
+ori-contracts = { path = "../ori-contracts" }
+chrono = { version = "=0.4.45", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision", "raw_value"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+rand = "=0.8.8"
+unicode-normalization = "=0.1.22"
+unicode-general-category = "=0.6.0"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
