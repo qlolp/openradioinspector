@@ -25,8 +25,15 @@
     "category": "Utility",
     "shortDescription": "Receive-only spectrum monitoring client for the OpenRadioInspector core",
     "windows": {
-      "webviewInstallMode": { "type": "offlineInstaller", "silent": true },
-      "nsis": { "installMode": "currentUser", "displayLanguageSelector": false, "languages": ["English"] }
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": true,
+        "languages": ["Russian", "English"]
+      }
     }
   }
 }

@@ -93,3 +93,16 @@ describe('committed event stream', () => {
     expect(() => new FrameBuffer(0)).toThrow();
   });
 });
+
+it('keeps sequences above JS safe integers exact and accepts future event types', () => {
+  const gate = new SequenceGate(9007199254740992n);
+  expect(gate.accept(9007199254740993n)).toBe('accept');
+  expect(gate.accept(9007199254740995n)).toBe('gap');
+  expect(gate.last).toBe(9007199254740993n);
+  expect(() => gate.accept(Number.MAX_SAFE_INTEGER + 1)).toThrow();
+  const frame = parseFrame(
+    '{"contract":"openradioinspector-platform","contract_version":1,"data":{"sequence":9007199254740993,"event_type":"future.unlisted","payload":{}}}',
+  );
+  expect(frame.sequence).toBe(9007199254740993n);
+  expect(frame.invalidations).toEqual([]);
+});

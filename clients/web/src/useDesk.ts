@@ -1,6 +1,7 @@
+import { encodePathSegment } from './wire';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Api, ResourceScope } from './api';
-import { LiveStore } from './live';
+import { LiveStore, type LiveCheckpoint } from './live';
 import type { Connection } from './transport';
 import type {
   Allowed,
@@ -16,6 +17,10 @@ import type {
   Session,
   Sweep,
 } from './types';
+const checkpoints = new WeakMap<
+  Connection,
+  { id: symbol; projectId: string; state: LiveCheckpoint }
+>();
 
 export function remember(key: string, fallback: string): string {
   try {
@@ -35,7 +40,13 @@ export const message = (error: unknown) => (error instanceof Error ? error.messa
 
 export function useDesk(transport: Connection) {
   const api = useMemo(() => new Api(transport), [transport]);
-  const liveStore = useMemo(() => new LiveStore(transport), [transport]);
+  const restored = useMemo(() => {
+    const saved = checkpoints.get(transport);
+    const store = new LiveStore(transport);
+    if (saved) store.restore(saved.state);
+    return { store, projectId: saved?.projectId, checkpointId: saved?.id };
+  }, [transport]);
+  const liveStore = restored.store;
   const live = useSyncExternalStore(liveStore.subscribe, liveStore.getSnapshot);
   const [projects, setProjects] = useState<Project[]>([]),
     [sessions, setSessions] = useState<Session[]>([]);
@@ -52,7 +63,7 @@ export function useDesk(transport: Connection) {
     text: 'Receive-only workspace · core owns devices and archive',
   });
   const [busy, setBusy] = useState(false),
-    [connected, setConnected] = useState(!transport.native);
+    [connected, setConnected] = useState(!transport.native || transport.ready === true);
   const [projectsCursor, setProjectsCursor] = useState<string | null>(null);
   const [projectsHistory, setProjectsHistory] = useState<string[]>([]);
   const [connectionVersion, setConnectionVersion] = useState(0);
@@ -65,6 +76,7 @@ export function useDesk(transport: Connection) {
     mounted = useRef(true),
     projectAfter = useRef('');
   const project = guard?.project;
+  const scopeProject = useRef(restored.projectId);
 
   const loadProjects = useCallback(
     async (after = '', history: string[] = [], pin?: Project) => {
@@ -118,6 +130,7 @@ export function useDesk(transport: Connection) {
   );
 
   const resyncRunning = useRef(false),
+    resyncRequested = useRef(false),
     resyncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const seed = useCallback(
     async (p: Project, searchScope?: SearchStatus, signal?: AbortSignal) => {
@@ -128,14 +141,15 @@ export function useDesk(transport: Connection) {
       const stream =
         searchScope?.active && searchScope.stream_id ? searchScope.stream_id : p.analyzer_stream_id;
       liveStore.scope(sid, stream, p.receiver_stream_id, p.active_session_id);
+      if (!liveStore.needsSeed()) return;
       const [sweeps, observations] = await Promise.all([
         api.get<Sweep[]>(
-          `/sessions/${encodeURIComponent(sid)}/sweeps?` +
+          `/sessions/${encodePathSegment(sid)}/sweeps?` +
             new URLSearchParams({ stream_id: stream, limit: '1' }),
           signal,
         ),
         api.get<Observation[]>(
-          `/sessions/${encodeURIComponent(p.active_session_id)}/observations?` +
+          `/sessions/${encodePathSegment(p.active_session_id)}/observations?` +
             new URLSearchParams({ stream_id: p.receiver_stream_id, limit: '1' }),
           signal,
         ),
@@ -149,24 +163,33 @@ export function useDesk(transport: Connection) {
   projectRef.current = project;
   searchRef.current = search;
   const resync = useCallback(async () => {
-    if (resyncRunning.current || !mounted.current) return;
+    if (!mounted.current) return;
+    if (resyncRunning.current) {
+      resyncRequested.current = true;
+      return;
+    }
     resyncRunning.current = true;
     const epoch = connectionEpoch.current;
+    let cursor = liveStore.lastApplied();
     liveStore.stop();
     try {
       const value = await api.get<Health>('/health');
       if (!mounted.current || connectionEpoch.current !== epoch) return;
       setHealth(value);
-      const p = projectRef.current;
-      if (p) {
-        try {
-          await seed(p, searchRef.current, currentScope.current?.signal);
-        } catch (error) {
-          if ((error as Error).name !== 'AbortError') throw error;
+      if (BigInt(value.last_event_id) < BigInt(cursor)) {
+        cursor = value.last_event_id;
+        liveStore.resetArchive(cursor);
+        setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
+        const p = projectRef.current;
+        if (p) {
+          try {
+            await seed(p, searchRef.current, currentScope.current?.signal);
+          } catch (error) {
+            if ((error as Error).name !== 'AbortError') throw error;
+          }
         }
       }
-      if (mounted.current && connectionEpoch.current === epoch)
-        await liveStore.start(value.last_event_id);
+      if (mounted.current && connectionEpoch.current === epoch) await liveStore.start(cursor);
       await refresh(['status', 'events']);
     } catch (error) {
       if (
@@ -181,6 +204,13 @@ export function useDesk(transport: Connection) {
       }
     } finally {
       resyncRunning.current = false;
+      if (resyncRequested.current && mounted.current) {
+        resyncRequested.current = false;
+        clearTimeout(resyncTimer.current);
+        resyncTimer.current = setTimeout(() => {
+          void resync();
+        }, 250);
+      }
     }
   }, [api, liveStore, seed, refresh]);
 
@@ -195,10 +225,38 @@ export function useDesk(transport: Connection) {
       if (!mounted.current || connectionEpoch.current !== epoch) return;
       setHealth(h);
       setCapabilities(c);
+      transport.configureStream?.(c);
       setSessions(s);
+      const resume = liveStore.checkpoint();
+      let after = resume?.sequence ?? h.last_event_id;
+      if (BigInt(h.last_event_id) < BigInt(after)) {
+        after = h.last_event_id;
+        liveStore.resetArchive(after);
+        setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
+      }
       await loadProjects();
-      if (mounted.current && connectionEpoch.current === epoch)
-        await liveStore.start(h.last_event_id);
+      // Establish the current selected scope before replay, including a source
+      // search/session transition made by another operator while disconnected.
+      const id = selection.current;
+      if (resume && id) {
+        const [status, search] = await Promise.all([
+          api.project<GuardStatus>(id, 'status'),
+          api.project<SearchStatus>(id, 'search/status'),
+        ]);
+        if (!mounted.current || connectionEpoch.current !== epoch) return;
+        if (selection.current === id) {
+          setGuard(status);
+          setSearch(search);
+          const p = status.project;
+          liveStore.scope(
+            search.active && search.session_id ? search.session_id : p.active_session_id,
+            search.active && search.stream_id ? search.stream_id : p.analyzer_stream_id,
+            p.receiver_stream_id,
+            p.active_session_id,
+          );
+        }
+      }
+      if (mounted.current && connectionEpoch.current === epoch) await liveStore.start(after);
     } catch (error) {
       if (connectionEpoch.current === epoch) throw error;
     }
@@ -206,13 +264,24 @@ export function useDesk(transport: Connection) {
 
   useEffect(() => {
     mounted.current = true;
+    // Consume only after mount commits. An interrupted React render must not
+    // discard the last applied cursor or allocate an abandoned parsing worker.
+    if (restored.checkpointId && checkpoints.get(transport)?.id === restored.checkpointId)
+      checkpoints.delete(transport);
     return () => {
       mounted.current = false;
       scope.current.dispose();
       clearTimeout(resyncTimer.current);
+      const checkpoint = liveStore.checkpoint();
+      if (checkpoint)
+        checkpoints.set(transport, {
+          id: Symbol(),
+          projectId: selection.current,
+          state: checkpoint,
+        });
       liveStore.dispose();
     };
-  }, [liveStore]);
+  }, [liveStore, transport, restored.checkpointId]);
 
   useEffect(() => {
     if (connected)
@@ -228,7 +297,8 @@ export function useDesk(transport: Connection) {
     setEvents([]);
     setAllowed([]);
     setSearch(undefined);
-    liveStore.scope('', '', '');
+    if (scopeProject.current !== projectId) liveStore.scope('', '', '');
+    scopeProject.current = projectId;
     save('project', projectId);
     if (connected) void refresh();
   }, [projectId, connected, refresh, liveStore]);
@@ -274,7 +344,7 @@ export function useDesk(transport: Connection) {
         eventsReading = false;
       }
     }, 5000);
-    let previousLag = -1;
+    let previousLag: bigint | undefined;
     const healthTimer = setInterval(async () => {
       if (healthReading) return;
       healthReading = true;
@@ -282,10 +352,12 @@ export function useDesk(transport: Connection) {
         const h = await api.get<Health>('/health');
         if (!mounted.current) return;
         setHealth(h);
-        const cursor = liveStore.getSnapshot().sequence;
-        if (h.last_event_id < cursor || (h.last_event_id > cursor && previousLag === cursor))
+        const cursor = BigInt(liveStore.lastApplied());
+        const highWater = BigInt(h.last_event_id);
+        const applying = liveStore.isApplying();
+        if (highWater < cursor || (highWater > cursor && previousLag === cursor && !applying))
           void resync();
-        previousLag = h.last_event_id > cursor ? cursor : -1;
+        previousLag = highWater > cursor && !applying ? cursor : undefined;
       } catch {
         if (mounted.current) setHealth(undefined);
       } finally {
@@ -366,18 +438,18 @@ export function useDesk(transport: Connection) {
   const command = (path: string, body: unknown = {}, resources?: string[]) =>
     run(path.replaceAll('/', ' '), () => api.project(projectId, path, body), resources);
 
-  const connect = (node: string, token: string) =>
+  const connect = (node: string) =>
     run(
       'Connect node',
       async () => {
-        await transport.connect(node, token);
+        await transport.connect(node);
         connectionEpoch.current++;
         setConnectionVersion((value) => value + 1);
         scope.current.dispose();
         currentScope.current = null;
         selection.current = '';
         setProjectId('');
-        liveStore.stop();
+        liveStore.resetArchive();
         liveStore.scope('', '', '');
         setProjects([]);
         setSessions([]);

@@ -1,3 +1,4 @@
+import type { EventSequence } from './sequence';
 export interface Interval {
   started_at: string;
   ended_at: string;
@@ -7,15 +8,18 @@ export interface Sweep {
   session_id: string;
   stream_id: string;
   interval: Interval;
-  frequencies_hz: number[];
+  frequencies_hz: (number | bigint)[];
   levels: number[];
   level_unit: string;
   settings: Record<string, unknown>;
   display_only?: boolean;
   original_point_count?: number;
 }
-export interface DisplaySweep extends Sweep {
-  source_indices: number[];
+export type DisplayNumbers = number[] | Float64Array<ArrayBuffer>;
+export interface DisplaySweep extends Omit<Sweep, 'settings' | 'frequencies_hz' | 'levels'> {
+  frequencies_hz: DisplayNumbers;
+  levels: DisplayNumbers;
+  source_indices: number[] | Uint32Array<ArrayBuffer>;
   peak: { index: number; frequency_hz: number; level: number };
   display_only: true;
 }
@@ -24,7 +28,7 @@ export interface Observation {
   session_id: string;
   stream_id: string;
   interval: Interval;
-  frequency_hz: number;
+  frequency_hz: number | bigint;
   mode: string;
   level_unit: string;
   level?: number | null;
@@ -158,7 +162,7 @@ export interface Comparison {
 }
 export interface Health {
   status: string;
-  last_event_id: number;
+  last_event_id: EventSequence;
   sessions: number;
   running_sessions: number;
 }

@@ -1,9 +1,21 @@
 //! Native-only HTTP transport. No serial ports, hardware adapters, or archive access.
+#[cfg(windows)]
+pub mod credentials;
+mod json;
+mod websocket;
 use base64::Engine;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use std::time::Duration;
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 use tokio_util::sync::CancellationToken;
 use url::Url;
+pub use websocket::BinaryStreamConfig;
 
 const MAX_JSON: usize = 8_388_608;
 const MAX_AUDIO: usize = 33_554_432;
@@ -17,7 +29,19 @@ impl Bridge {
     pub fn legacy_url(&self) -> &str {
         self.node.as_str()
     }
+    pub fn legacy_browser_url(&self) -> String {
+        let mut url = self.node.clone();
+        if url.scheme() == "https" {
+            url.set_path("/modern/");
+            url.set_query(Some("open=legacy"));
+        }
+        url.to_string()
+    }
+
     pub fn new(node: &str, token: &str) -> Result<Self, String> {
+        if node.len() > 8192 {
+            return Err("Node URL exceeds client limit".into());
+        }
         let node = Url::parse(node).map_err(|_| "Invalid node URL")?;
         if !matches!(node.scheme(), "http" | "https")
             || node.host_str().is_none()
@@ -31,6 +55,15 @@ impl Bridge {
                 "Node must be an HTTP(S) origin without credentials, path, query or fragment"
                     .into(),
             );
+        }
+        let loopback = match node.host() {
+            Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        };
+        if node.scheme() == "http" && !loopback {
+            return Err("Remote nodes require trusted HTTPS; legacy HTTP is loopback only".into());
         }
         if token.len() > 4096 {
             return Err("Credential exceeds client limit".into());
@@ -81,10 +114,65 @@ impl Bridge {
     pub async fn request(
         &self,
         path: &str,
-        body: Option<serde_json::Value>,
+        body: Option<String>,
         audio: bool,
     ) -> Result<String, String> {
+        self.request_impl(path, body, audio, false).await
+    }
+    pub fn credential_origin(&self) -> String {
+        self.node.origin().ascii_serialization()
+    }
+    pub async fn pair_native(&self, code: &str, label: &str) -> Result<PairedNode, String> {
+        if self.node.scheme() != "https" {
+            return Err("Pairing requires trusted HTTPS".into());
+        }
+        if code.is_empty() || code.len() > 256 || label.trim().is_empty() || label.len() > 200 {
+            return Err("Invalid pairing code or client label".into());
+        }
+        #[derive(serde::Serialize)]
+        struct PairRequest<'a> {
+            pairing_code: &'a str,
+            label: &'a str,
+            client: &'static str,
+        }
+        let body = serde_json::to_string(&PairRequest {
+            pairing_code: code,
+            label,
+            client: "native",
+        })
+        .map_err(|_| "Could not encode pairing request")?;
+        let raw = self
+            .request_impl("/api/v1/security/pair", Some(body), false, true)
+            .await?;
+        let token = pair_token(&raw)?;
+        let bridge = Self::new(self.node.as_str(), &token)?;
+        Ok(PairedNode { bridge, token })
+    }
+    async fn request_impl(
+        &self,
+        path: &str,
+        body: Option<String>,
+        audio: bool,
+        allow_pair: bool,
+    ) -> Result<String, String> {
         let endpoint = self.endpoint(path)?;
+        let category = endpoint
+            .path()
+            .strip_prefix("/api/v1/")
+            .unwrap_or_default()
+            .split('/')
+            .next()
+            .unwrap_or_default();
+        if category.contains('%')
+            || (!allow_pair
+                && category.eq_ignore_ascii_case("security")
+                && !matches!(
+                    endpoint.path(),
+                    "/api/v1/security/status" | "/api/v1/security/credentials/current/revoke"
+                ))
+        {
+            return Err("Use the native pairing command for credential issuance".into());
+        }
         if audio
             && (body.is_some()
                 || !endpoint.path().starts_with("/api/v1/monitoring-projects/")
@@ -93,8 +181,13 @@ impl Bridge {
             return Err("Only project event audio is allowed".into());
         }
         let request = match body {
-            Some(value) if value.is_object() => self.client.post(endpoint).json(&value),
-            Some(_) => return Err("Core controls require a JSON object".into()),
+            Some(raw) => {
+                json::object(&raw, MAX_JSON)?;
+                self.client
+                    .post(endpoint)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .body(raw)
+            }
             None => self.client.get(endpoint),
         };
         let mut response = request
@@ -142,10 +235,41 @@ impl Bridge {
         }
     }
 
-    /// Reconnect with the last delivered sequence. The UI separately detects gaps and resyncs snapshots.
-    pub async fn events<F>(&self, mut after: u64, cancel: CancellationToken, mut deliver: F)
+    /// Compatibility callback for synchronous consumers. The desktop uses events_acked.
+    pub async fn events<F>(&self, after: u64, cancel: CancellationToken, mut deliver: F)
     where
         F: FnMut(StreamMessage) -> bool + Send,
+    {
+        self.events_acked(after, cancel, move |message| {
+            std::future::ready(deliver(message))
+        })
+        .await;
+    }
+
+    /// At most one frame crosses the native/WebView boundary before application ACK.
+    /// A reconnect cursor advances only after the callback confirms application.
+    pub async fn events_acked<F, A>(
+        &self,
+        mut after: u64,
+        cancel: CancellationToken,
+        mut deliver: F,
+    ) where
+        F: FnMut(StreamMessage) -> A + Send,
+        A: Future<Output = bool> + Send,
+    {
+        let mut delivery_id = 0;
+        self.events_sse(&mut after, &mut delivery_id, cancel, &mut deliver)
+            .await;
+    }
+    async fn events_sse<F, A>(
+        &self,
+        after: &mut u64,
+        delivery_id: &mut u64,
+        cancel: CancellationToken,
+        deliver: &mut F,
+    ) where
+        F: FnMut(StreamMessage) -> A + Send,
+        A: Future<Output = bool> + Send,
     {
         while !cancel.is_cancelled() {
             let mut endpoint = match self.endpoint("/api/v1/events") {
@@ -167,7 +291,8 @@ impl Bridge {
                     .and_then(|x| x.to_str().ok())
                     .is_some_and(|value| value.starts_with("text/event-stream"))
             {
-                if !deliver(StreamMessage::state("open")) {
+                if !tokio::select! { _ = cancel.cancelled() => return, ack = deliver(StreamMessage::state("open")) => ack }
+                {
                     return;
                 }
                 let mut decoder = SseDecoder::default();
@@ -177,18 +302,23 @@ impl Bridge {
                         Ok(Some(data)) => match decoder.push(&data) {
                             Ok(events) => {
                                 for data in events {
-                                    if let Ok(value) =
-                                        serde_json::from_str::<serde_json::Value>(&data)
-                                        && let Some(sequence) =
-                                            value.pointer("/data/sequence").and_then(|x| x.as_u64())
-                                    {
-                                        after = after.max(sequence);
-                                    }
-                                    if !deliver(StreamMessage {
+                                    let sequence = serde_json::from_str::<SequenceEnvelope>(&data)
+                                        .ok()
+                                        .map(|value| value.data.sequence);
+                                    *delivery_id = match delivery_id.checked_add(1) {
+                                        Some(id) => id,
+                                        None => return,
+                                    };
+                                    if !tokio::select! { _ = cancel.cancelled() => return, ack = deliver(StreamMessage {
                                         kind: "event".into(),
                                         data: Some(data),
-                                    }) {
+                                        delivery_id: Some(delivery_id.to_string()),
+                                    }) => ack }
+                                    {
                                         return;
+                                    }
+                                    if let Some(sequence) = sequence {
+                                        *after = (*after).max(sequence);
                                     }
                                 }
                             }
@@ -198,7 +328,8 @@ impl Bridge {
                     }
                 }
             }
-            if !deliver(StreamMessage::state("reconnecting")) {
+            if !tokio::select! { _ = cancel.cancelled() => return, ack = deliver(StreamMessage::state("reconnecting")) => ack }
+            {
                 return;
             }
             tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
@@ -206,17 +337,75 @@ impl Bridge {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct SequenceEnvelope {
+    data: Sequence,
+}
+#[derive(serde::Deserialize)]
+struct Sequence {
+    sequence: u64,
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct StreamMessage {
     pub kind: String,
     pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
 }
 impl StreamMessage {
     fn state(kind: &str) -> Self {
         Self {
             kind: kind.into(),
             data: None,
+            delivery_id: None,
         }
+    }
+}
+
+/// One outstanding delivery with a bounded acknowledgement queue. Stream identity
+/// is checked by the desktop runtime before this handle can be acknowledged.
+pub struct ApplicationAck {
+    expected: AtomicU64,
+    sender: tokio::sync::mpsc::Sender<u64>,
+}
+impl ApplicationAck {
+    pub fn channel() -> (Arc<Self>, tokio::sync::mpsc::Receiver<u64>) {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        (
+            Arc::new(Self {
+                expected: AtomicU64::new(0),
+                sender,
+            }),
+            receiver,
+        )
+    }
+    pub fn arm(&self, delivery_id: &str) -> Result<u64, String> {
+        let id = Self::parse(delivery_id)?;
+        self.expected
+            .compare_exchange(0, id, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "Native delivery already awaiting acknowledgement")?;
+        Ok(id)
+    }
+    pub fn acknowledge(&self, delivery_id: &str) -> Result<(), String> {
+        let id = Self::parse(delivery_id)?;
+        self.expected
+            .compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| "Stale native acknowledgement")?;
+        self.sender
+            .try_send(id)
+            .map_err(|_| "Native acknowledgement unavailable".to_owned())
+    }
+    fn parse(raw: &str) -> Result<u64, String> {
+        if raw.is_empty()
+            || raw.len() > 20
+            || raw.starts_with('0')
+            || !raw.bytes().all(|c| c.is_ascii_digit())
+        {
+            return Err("Invalid native acknowledgement".into());
+        }
+        raw.parse()
+            .map_err(|_| "Invalid native acknowledgement".into())
     }
 }
 
@@ -251,5 +440,51 @@ impl SseDecoder {
             }
         }
         Ok(events)
+    }
+}
+
+/// Native-only result; never serialize this credential to a webview or a log.
+pub struct PairedNode {
+    pub bridge: Bridge,
+    pub token: String,
+}
+fn pair_token(raw: &str) -> Result<String, String> {
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        contract: String,
+        contract_version: u64,
+        data: Data,
+    }
+    #[derive(serde::Deserialize)]
+    struct Data {
+        paired: bool,
+        credential: String,
+        token: String,
+    }
+    let envelope: Envelope = serde_json::from_str(raw)
+        .map_err(|_| "Pairing rejected. Check the operator code window.")?;
+    if envelope.contract != "openradioinspector-platform"
+        || envelope.contract_version != 1
+        || !envelope.data.paired
+        || envelope.data.credential != "bearer"
+        || envelope.data.token.is_empty()
+        || envelope.data.token.len() > 4096
+    {
+        return Err("Invalid native pairing response".into());
+    }
+    Ok(envelope.data.token)
+}
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+    #[test]
+    fn pairing_response_requires_an_explicit_native_bearer_credential() {
+        assert_eq!(pair_token(r#"{"contract":"openradioinspector-platform","contract_version":1,"data":{"paired":true,"credential":"bearer","token":"synthetic-only"}}"#).unwrap(),"synthetic-only");
+        for raw in [
+            r#"{"data":{"paired":true,"credential":"browser_cookie"}}"#,
+            r#"{"contract":"openradioinspector-platform","contract_version":1,"error":{"message":"rejected"}}"#,
+        ] {
+            assert!(pair_token(raw).is_err());
+        }
     }
 }

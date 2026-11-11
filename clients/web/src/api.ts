@@ -1,14 +1,28 @@
+import { encodePathSegment } from './wire';
 export interface Transport {
   request(path: string, body?: unknown, signal?: AbortSignal): Promise<unknown>;
+}
+export class ApiError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+  ) {
+    super(message.slice(0, 512));
+    this.name = 'ApiError';
+  }
 }
 export function unwrap<T>(value: unknown): T {
   const envelope = value as {
     contract?: string;
     contract_version?: number;
     data?: T;
-    error?: { message?: string };
+    error?: { code?: string; message?: string };
   };
-  if (envelope.error) throw Error(envelope.error.message || 'Core request failed');
+  if (envelope.error)
+    throw new ApiError(
+      envelope.error.code || 'request_failed',
+      envelope.error.message || 'Core request failed',
+    );
   if (
     envelope.contract !== 'openradioinspector-platform' ||
     envelope.contract_version !== 1 ||
@@ -31,7 +45,7 @@ export class Api {
     body?: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
-    const route = '/monitoring-projects/' + encodeURIComponent(id) + (path ? '/' + path : '');
+    const route = '/monitoring-projects/' + encodePathSegment(id) + (path ? '/' + path : '');
     return body === undefined ? this.get<T>(route, signal) : this.post<T>(route, body, signal);
   }
 }

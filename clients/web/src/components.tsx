@@ -1,10 +1,21 @@
+import { t, getLocale } from './i18n';
+import { normalizeUTC } from './wire';
 import { useEffect, useRef, type ReactNode } from 'react';
 
-export const hz = (value?: number | null) =>
-  value == null ? '—' : value.toLocaleString('en-US') + ' Hz';
-export const utc = (value?: string) => (value ? value.replace('T', ' ').replace('Z', ' UTC') : '—');
+export const hz = (value?: number | bigint | null) =>
+  value == null
+    ? '—'
+    : value.toLocaleString(getLocale() === 'ru' ? 'ru-RU' : 'en-US') + ' ' + t('Hz');
+export const utc = (value?: string) => {
+  if (!value) return '—';
+  try {
+    return normalizeUTC(value).replace('T', ' ').replace('Z', ' UTC');
+  } catch {
+    return t('Invalid UTC time');
+  }
+};
 export const titleCase = (value?: string) =>
-  value ? value.replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase()) : 'Unknown';
+  t(value ? value.replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase()) : 'Unknown');
 export function Modal({
   label,
   close,
@@ -28,7 +39,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      aria-label={label}
+      aria-label={t(label)}
       className={wide ? 'modal wide' : 'modal'}
       onCancel={(event) => {
         event.preventDefault();
@@ -56,8 +67,8 @@ export function Panel({
     <section className={'panel ' + className}>
       <div className="panel-heading">
         <div>
-          {eyebrow && <div className="eyebrow">{eyebrow}</div>}
-          <h2>{title}</h2>
+          {eyebrow && <div className="eyebrow">{t(eyebrow)}</div>}
+          <h2>{t(title)}</h2>
         </div>
         {aside}
       </div>

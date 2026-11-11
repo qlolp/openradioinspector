@@ -1,132 +1,8 @@
+export { Spectrum } from './spectrum';
+import { t } from './i18n';
 import { useEffect, useRef, useState } from 'react';
-import type { Comparison, DisplaySweep } from './types';
-
-export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparison?: Comparison }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current!;
-    let acknowledgement = 0;
-    let generation = 0;
-    function draw() {
-      const current = ++generation;
-      cancelAnimationFrame(acknowledgement);
-      delete canvas.dataset.sweepId;
-      const rect = canvas.getBoundingClientRect(),
-        scale = Math.min(devicePixelRatio || 1, 2);
-      canvas.width = Math.max(1, rect.width * scale);
-      canvas.height = Math.max(1, rect.height * scale);
-      const ctx = canvas.getContext('2d')!;
-      ctx.scale(scale, scale);
-      const w = rect.width,
-        h = rect.height,
-        left = 55,
-        right = w - 16,
-        top = 15,
-        bottom = h - 32;
-      const css = getComputedStyle(canvas),
-        muted = css.getPropertyValue('--muted').trim(),
-        grid = css.getPropertyValue('--line').trim();
-      ctx.font = '11px ui-monospace, monospace';
-      ctx.fillStyle = muted;
-      ctx.strokeStyle = grid;
-      ctx.lineWidth = 1;
-      for (let db = -120; db <= 0; db += 20) {
-        const y = bottom - ((db + 130) / 140) * (bottom - top);
-        ctx.beginPath();
-        ctx.moveTo(left, y);
-        ctx.lineTo(right, y);
-        ctx.stroke();
-        ctx.fillText(String(db), 10, y + 4);
-      }
-      const hz = sweep?.frequencies_hz,
-        low = hz?.[0] ?? 88000000,
-        high = hz?.at(-1) ?? 108000000;
-      const x = (value: number) => left + ((value - low) / (high - low || 1)) * (right - left);
-      const y = (value: number) => bottom - ((value + 130) / 140) * (bottom - top);
-      for (let i = 0; i <= 4; i++) {
-        const frequency = low + ((high - low) * i) / 4,
-          px = x(frequency);
-        ctx.strokeStyle = grid;
-        ctx.beginPath();
-        ctx.moveTo(px, top);
-        ctx.lineTo(px, bottom);
-        ctx.stroke();
-        ctx.fillStyle = muted;
-        ctx.textAlign = i === 4 ? 'right' : i === 0 ? 'left' : 'center';
-        ctx.fillText((frequency / 1e6).toFixed(3), px, h - 9);
-      }
-      const line = (frequencies: number[], levels: number[], color: string) => {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        for (let i = 0; i < levels.length; i++)
-          i
-            ? ctx.lineTo(x(frequencies[i]), y(levels[i]))
-            : ctx.moveTo(x(frequencies[i]), y(levels[i]));
-        ctx.stroke();
-      };
-      if (comparison?.compatible) {
-        const frequencies = comparison.items.map((p) => p.frequency_hz);
-        line(
-          frequencies,
-          comparison.items.map((p) => p.baseline_p95_dbm),
-          '#ce8a15',
-        );
-        line(
-          frequencies,
-          comparison.items.map((p) => p.baseline_p50_dbm),
-          '#6f8de6',
-        );
-      }
-      if (sweep) {
-        line(sweep.frequencies_hz, sweep.levels, css.getPropertyValue('--signal').trim());
-        ctx.fillStyle = css.getPropertyValue('--signal').trim();
-        const px = x(sweep.peak.frequency_hz),
-          py = y(sweep.peak.level);
-        ctx.beginPath();
-        ctx.arc(px, py, 3, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.fillStyle = muted;
-        ctx.textAlign = 'center';
-        ctx.fillText('Waiting for committed spectrum data', w / 2, h / 2);
-      }
-      if (sweep && rect.width > 0 && rect.height > 0) {
-        // Two animation frames provide a paint opportunity after this draw.
-        // Superseded draws cannot acknowledge a later source by accident.
-        acknowledgement = requestAnimationFrame(() => {
-          acknowledgement = requestAnimationFrame(() => {
-            if (generation === current) canvas.dataset.sweepId = sweep.id;
-          });
-        });
-      }
-    }
-    const observer = new ResizeObserver(draw);
-    observer.observe(canvas);
-    draw();
-    const theme = new MutationObserver(draw);
-    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    return () => {
-      generation++;
-      cancelAnimationFrame(acknowledgement);
-      delete canvas.dataset.sweepId;
-      observer.disconnect();
-      theme.disconnect();
-    };
-  }, [sweep, comparison]);
-  return (
-    <canvas
-      ref={ref}
-      className="spectrum"
-      role="img"
-      aria-label={
-        sweep
-          ? `Spectrum: peak ${sweep.peak.level} ${sweep.level_unit} at ${sweep.peak.frequency_hz} Hz`
-          : 'Spectrum waiting for measurements'
-      }
-    />
-  );
-}
+import type { DisplaySweep } from './types';
+import { waterfallPixels } from './spectrum-view';
 
 // A fixed ring texture receives only new rows. The renderer never uploads the whole history per frame.
 class WaterfallRenderer {
@@ -137,7 +13,6 @@ class WaterfallRenderer {
   private row = 0;
   private count = 0;
   private last = '';
-  private scratch = document.createElement('canvas');
   private fallback: CanvasRenderingContext2D;
   private height = 256;
   private width = 1024;
@@ -149,10 +24,10 @@ class WaterfallRenderer {
     this.gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
-    this.scratch.width = fallbackCanvas.width = this.width;
-    this.scratch.height = fallbackCanvas.height = this.height;
+    canvas.width = fallbackCanvas.width = this.width;
+    canvas.height = fallbackCanvas.height = this.height;
     this.fallback = fallbackCanvas.getContext('2d')!;
     this.initialize();
   }
@@ -202,40 +77,29 @@ class WaterfallRenderer {
       this.report('Canvas fallback');
     }
   }
-  lost() {
+  lost(rows: DisplaySweep[]) {
     this.report('Canvas fallback · graphics context lost');
+    this.last = '';
+    this.update(rows);
   }
   restore() {
     this.initialize();
   }
   update(rows: DisplaySweep[]) {
+    if (rows.length > this.height) rows = rows.slice(-this.height);
     const lastIndex = rows.findIndex((s) => s.id === this.last);
-    if (lastIndex < 0) {
+    const reset = lastIndex < 0;
+    if (reset) {
       this.row = this.count = 0;
-      this.fallback.clearRect(0, 0, this.width, this.height);
     }
     const pending = rows.slice(lastIndex + 1);
     const gl = this.gl && !this.gl.isContextLost() ? this.gl : null;
-    const scratch = this.scratch.getContext('2d')!;
-    for (const sweep of pending) {
-      const pixels = new Uint8Array(this.width * 4),
-        low = sweep.frequencies_hz[0],
-        high = sweep.frequencies_hz.at(-1)!;
-      let point = 0;
-      for (let x = 0; x < this.width; x++) {
-        const hz = low + ((high - low) * x) / (this.width - 1);
-        while (
-          point + 1 < sweep.levels.length &&
-          Math.abs(sweep.frequencies_hz[point + 1] - hz) <
-            Math.abs(sweep.frequencies_hz[point] - hz)
-        )
-          point++;
-        const heat = Math.max(0, Math.min(1, (sweep.levels[point] + 120) / 100));
-        pixels[x * 4] = Math.min(255, Math.max(0, heat - 0.42) * 440);
-        pixels[x * 4 + 1] = Math.min(255, heat * 390);
-        pixels[x * 4 + 2] = Math.max(35, 110 + heat * 140 - Math.max(0, heat - 0.6) * 500);
-        pixels[x * 4 + 3] = 255;
-      }
+    // Rebuild Canvas once from the bounded source rows after loss/scope change.
+    // While GL is active there is no hidden Canvas draw/copy/upload work.
+    const history = !gl && reset ? new Uint8ClampedArray(this.width * this.height * 4) : undefined;
+    for (let index = 0; index < pending.length; index++) {
+      const sweep = pending[index],
+        pixels = waterfallPixels(sweep, this.width);
       if (gl) {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texSubImage2D(
@@ -249,23 +113,21 @@ class WaterfallRenderer {
           gl.UNSIGNED_BYTE,
           pixels,
         );
+      } else if (history) history.set(pixels, (pending.length - 1 - index) * this.width * 4);
+      else {
+        this.fallback.drawImage(this.fallback.canvas, 0, 1);
+        this.fallback.putImageData(
+          new ImageData(new Uint8ClampedArray(pixels.buffer), this.width, 1),
+          0,
+          0,
+        );
       }
-      scratch.clearRect(0, 0, this.width, this.height);
-      scratch.drawImage(this.fallback.canvas, 0, 1);
-      this.fallback.clearRect(0, 0, this.width, this.height);
-      this.fallback.drawImage(this.scratch, 0, 0);
-      this.fallback.putImageData(
-        new ImageData(new Uint8ClampedArray(pixels.buffer), this.width, 1),
-        0,
-        0,
-      );
       this.row = (this.row + 1) % this.height;
       this.count = Math.min(this.height, this.count + 1);
       this.last = sweep.id;
     }
+    if (history) this.fallback.putImageData(new ImageData(history, this.width, this.height), 0, 0);
     if (gl && this.program) {
-      this.canvas.width = this.width;
-      this.canvas.height = this.height;
       gl.viewport(0, 0, this.width, this.height);
       gl.useProgram(this.program);
       gl.bindVertexArray(this.vertexArray);
@@ -295,7 +157,7 @@ export function Waterfall({ rows }: { rows: DisplaySweep[] }) {
     renderer.current = new WaterfallRenderer(element, fallback.current!, setMode);
     const lost = (event: Event) => {
       event.preventDefault();
-      renderer.current?.lost();
+      renderer.current?.lost(rowsRef.current);
     };
     const restored = () => {
       renderer.current?.restore();
@@ -318,14 +180,17 @@ export function Waterfall({ rows }: { rows: DisplaySweep[] }) {
       <div
         className="waterfall"
         role="img"
-        aria-label={`Waterfall, ${rows.length} committed rows, newest at top`}
+        aria-label={t('Waterfall, {count} committed rows, newest at top', { count: rows.length })}
       >
         <canvas ref={canvas} hidden={!mode.startsWith('WebGL2')} />
         <canvas ref={fallback} hidden={mode.startsWith('WebGL2')} />
       </div>
       <div className="chart-caption">
-        <span>UTC ↓ · newest first · display buffer {rows.length}/256</span>
-        <span data-testid="renderer-state">{mode}</span>
+        <span>
+          {t('UTC ↓ · newest first · display buffer') + ' '}
+          {rows.length}/256
+        </span>
+        <span data-testid="renderer-state">{t(mode)}</span>
       </div>
     </div>
   );

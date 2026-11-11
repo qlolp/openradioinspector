@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { useRef, useState } from 'react';
 import { receiveSession } from './api';
 import type { Desk } from './useDesk';
@@ -59,12 +60,16 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
     if (result) close();
   }
   return (
-    <Modal label="Prepare a receive-only project" close={close} wide>
-      <div className="eyebrow">NEW PROJECT · {step + 1} / 2</div>
-      <h2>Prepare a receive-only project</h2>
+    <Modal label={t('Prepare a receive-only project')} close={close} wide>
+      <div className="eyebrow">
+        {t('NEW PROJECT ·') + ' '}
+        {step + 1} / 2
+      </div>
+      <h2>{t('Prepare a receive-only project')}</h2>
       <p className="muted">
-        The core owns both instruments. Preparation saves your choices; collection starts only when
-        you explicitly request it.
+        {t(
+          'The core owns both instruments. Preparation saves your choices; collection starts only when you explicitly request it.',
+        )}
       </p>
       <form
         onSubmit={(event) => {
@@ -84,7 +89,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
           <>
             <div className="form-grid">
               <label>
-                Project name
+                {t('Project name')}
                 <input
                   required
                   value={form.name}
@@ -93,7 +98,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                 />
               </label>
               <label>
-                Site or location
+                {t('Site or location')}
                 <input
                   required
                   value={form.site}
@@ -103,9 +108,9 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
               </label>
             </div>
             <label>
-              Receive session
+              {t('Receive session')}
               <select value={form.session} onChange={(e) => update('session', e.target.value)}>
-                <option value="">Create a new two-instrument session</option>
+                <option value="">{t('Create a new two-instrument session')}</option>
                 {desk.sessions
                   .filter(
                     (s) =>
@@ -127,29 +132,31 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                     checked={form.simulator}
                     onChange={(e) => update('simulator', e.target.checked)}
                   />
-                  Use explicit simulators
+                  {t('Use explicit simulators')}
                 </label>
                 <p className="callout">
                   {form.simulator
-                    ? 'Synthetic receive data. This does not validate hardware.'
-                    : 'Conservative tinySA receive profile: 100 kHz–800 MHz, 2–290 points. No generator controls.'}
+                    ? t('Synthetic receive data. This does not validate hardware.')
+                    : t(
+                        'Conservative tinySA receive profile: 100 kHz–800 MHz, 2–290 points. No generator controls.',
+                      )}
                 </p>
                 {!form.simulator && (
                   <div className="form-grid">
                     <label>
-                      tinySA serial port
+                      {t('tinySA serial port')}
                       <input
                         required
-                        placeholder="/dev/ttyACM0 or COM3"
+                        placeholder={t('/dev/ttyACM0 or COM3')}
                         value={form.analyzerPort}
                         onChange={(e) => update('analyzerPort', e.target.value)}
                       />
                     </label>
                     <label>
-                      AR-DV1 serial port
+                      {t('AR-DV1 serial port')}
                       <input
                         required
-                        placeholder="/dev/ttyUSB0 or COM4"
+                        placeholder={t('/dev/ttyUSB0 or COM4')}
                         value={form.receiverPort}
                         onChange={(e) => update('receiverPort', e.target.value)}
                       />
@@ -158,7 +165,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                 )}
                 <div className="form-grid">
                   <label>
-                    Start frequency (Hz)
+                    {t('Start frequency (Hz)')}
                     <input
                       type="number"
                       min={100000}
@@ -170,7 +177,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                     />
                   </label>
                   <label>
-                    Stop frequency (Hz)
+                    {t('Stop frequency (Hz)')}
                     <input
                       type="number"
                       min={100000}
@@ -182,7 +189,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                     />
                   </label>
                   <label>
-                    Points
+                    {t('Points')}
                     <input
                       type="number"
                       min={2}
@@ -194,13 +201,13 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                     />
                   </label>
                   <label>
-                    Requested RBW
+                    {t('Requested RBW')}
                     <select
                       value={form.rbwHz}
                       onChange={(e) => update('rbwHz', Number(e.target.value))}
                     >
-                      <option value={10000}>10 kHz</option>
-                      <option value={30000}>30 kHz</option>
+                      <option value={10000}>{t('10 kHz')}</option>
+                      <option value={30000}>{t('30 kHz')}</option>
                     </select>
                   </label>
                 </div>
@@ -213,13 +220,13 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
               <strong>{form.name}</strong> · {form.site}
               <br />
               {form.session
-                ? 'Existing core session'
+                ? t('Existing core session')
                 : form.simulator
-                  ? 'Explicit synthetic profiles'
-                  : 'tinySA Ultra + AR-DV1 · receive only'}
+                  ? t('Explicit synthetic profiles')
+                  : t('tinySA Ultra + AR-DV1 · receive only')}
             </div>
             <label>
-              Antenna and receive path notes
+              {t('Antenna and receive path notes')}
               <textarea
                 required
                 maxLength={1000}
@@ -235,7 +242,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                 checked={form.receive}
                 onChange={(e) => update('receive', e.target.checked)}
               />
-              Receive path and antenna checked
+              {t('Receive path and antenna checked')}
             </label>
             <label className="check">
               <input
@@ -244,36 +251,36 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                 checked={form.location}
                 onChange={(e) => update('location', e.target.checked)}
               />
-              Location and ordinary RF environment checked
+              {t('Location and ordinary RF environment checked')}
             </label>
             <p className="muted">
-              After creating the project, run preflight, collect at least 20 sweeps over 60 seconds,
-              then confirm a baseline before arming. RF readback and hardware validation remain
-              unverified.
+              {t(
+                'After creating the project, run preflight, collect at least 20 sweeps over 60 seconds, then confirm a baseline before arming. RF readback and hardware validation remain unverified.',
+              )}
             </p>
           </>
         )}
         {error && (
           <p role="alert" className="error-text">
-            {error}
+            {t(error)}
           </p>
         )}
         {desk.action.state === 'Error' && (
           <p role="alert" className="error-text">
-            {desk.action.text}
+            {t(desk.action.text)}
           </p>
         )}
         <div className="actions">
           {step === 1 && !created.current && (
             <button type="button" onClick={() => setStep(0)}>
-              Back
+              {t('Back')}
             </button>
           )}
           <button className="primary" disabled={desk.busy}>
-            {step === 0 ? 'Next: receive path' : 'Create prepared project'}
+            {step === 0 ? t('Next: receive path') : t('Create prepared project')}
           </button>
           <button type="button" disabled={desk.busy} onClick={close}>
-            Cancel
+            {t('Cancel')}
           </button>
         </div>
       </form>

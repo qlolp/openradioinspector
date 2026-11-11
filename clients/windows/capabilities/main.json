@@ -4,5 +4,15 @@
   "description": "Local main window can use only the configured-node transport; no filesystem, shell, hardware or database IPC.",
   "windows": ["main"],
   "local": true,
-  "permissions": ["allow-connect-node", "allow-api-request", "allow-cancel-request", "allow-start-events", "allow-stop-events", "allow-open-legacy"]
+  "permissions": [
+    "allow-connect-node",
+    "allow-pair-node",
+    "allow-revoke-pairing",
+    "allow-api-request",
+    "allow-cancel-request",
+    "allow-start-events",
+    "allow-stop-events",
+    "allow-ack-event",
+    "allow-open-legacy"
+  ]
 }

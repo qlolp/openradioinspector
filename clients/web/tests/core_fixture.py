@@ -17,11 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from radioinspector.web.server import create_server
 from radioinspector.contracts import TimeInterval, format_time, utc_now
 from radioinspector.device_workers import TinySASimulator
+from binary_fixture import install as install_binary_fixture
 
 
 def main():
     with tempfile.TemporaryDirectory(prefix='ori-modern-browser-') as directory:
         server = create_server(port=18771, session_database=str(Path(directory) / 'archive.sqlite'))
+        install_binary_fixture(server)
         sessions, monitoring = server.session_service, server.monitoring
         session = sessions.create_session(dict(name='Synthetic receive pair', streams=[
             dict(device='tinySA Ultra', role='spectrum_analyzer', level_unit='dBm', port='sim://fixture-analyzer',

@@ -1,11 +1,37 @@
+import { openDesk, acceptLegacyCore } from './helpers';
 import { expect, test } from '@playwright/test';
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
+});
+
+test.afterEach(async ({ request }) => {
+  // Tests own this temporary loopback core. A failed UI assertion must still
+  // release its synthetic guard, leases and workers before the next case.
+  const base = 'http://127.0.0.1:18771/api/v1';
+  const projects = (await (await request.get(base + '/monitoring-projects')).json()).data.items;
+  const project = projects.find(
+    (item: any) => item.name === 'North laboratory' && item.site === 'Synthetic acceptance fixture',
+  );
+  if (!project) return;
+  const status = (
+    await (await request.get(base + '/monitoring-projects/' + project.id + '/status')).json()
+  ).data;
+  if (!status.active) return;
+  expect(project.profile.analyzer.settings.adapter).toBe('tinysa-sim');
+  expect(project.profile.receiver.settings.adapter).toBe('ardv1-sim');
+  const stopped = await request.post(base + '/monitoring-projects/' + project.id + '/disarm', {
+    data: {},
+  });
+  expect(stopped.ok(), await stopped.text()).toBe(true);
+});
 
 test('monitoring opens committed spectrum, arms safely, and preserves independent manual ownership', async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('./');
+  await openDesk(page);
   await expect(page.getByRole('heading', { name: 'Spectrum desk' })).toBeVisible();
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await expect(page.getByText('Quiet reference ready')).toBeVisible();
@@ -29,7 +55,7 @@ test('monitoring opens committed spectrum, arms safely, and preserves independen
 test('event original/audio are at most two actions away; history filters and comparison use core data', async ({
   page,
 }) => {
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   const eventRow = page.getByTestId('event-row').first();
   await eventRow.getByRole('button', { name: 'Details' }).click();
@@ -57,6 +83,8 @@ test('event original/audio are at most two actions away; history filters and com
     .getByRole('button', { name: 'Compare baseline' })
     .click();
   await expect(page.getByText('Baseline comparison · compatible')).toBeVisible();
+  await expect(page.getByText('Baseline P95', { exact: true })).toBeVisible();
+  await expect(page.getByText('Baseline P50', { exact: true })).toBeVisible();
   await page.getByLabel('Minimum frequency (Hz)').fill('200000000');
   await page.getByRole('button', { name: 'Load history', exact: true }).click();
   await expect(page.getByText('No sweeps match these filters')).toBeVisible();
@@ -65,7 +93,7 @@ test('event original/audio are at most two actions away; history filters and com
 test('receive-only preparation wizard creates a project without starting workers implicitly', async ({
   page,
 }) => {
-  await page.goto('./');
+  await openDesk(page);
   await page.getByRole('button', { name: 'Prepare project' }).click();
   const wizard = page.getByRole('dialog', { name: 'Prepare a receive-only project' });
   await wizard.getByLabel('Project name').fill('Browser prepared project');
@@ -84,7 +112,7 @@ test('receive-only preparation wizard creates a project without starting workers
 test('allowed ranges and narrow source search retain explicit analyzer ownership and restore broad coverage', async ({
   page,
 }) => {
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await page.getByLabel('Signal name').fill('Authorized laboratory beacon');
   await page.getByLabel('Allowed start (Hz)').fill('98500000');
@@ -118,7 +146,7 @@ test('offline assets and local workspace survive reload; screenshots include lig
   page.on('request', (r) => {
     if (!new URL(r.url()).hostname.match(/^(127\.0\.0\.1|localhost)$/)) external.push(r.url());
   });
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await page.getByRole('button', { name: 'Arm guard', exact: true }).click();
   await expect(page.getByTestId('guard-state')).toHaveText('Armed');
@@ -135,6 +163,7 @@ test('offline assets and local workspace survive reload; screenshots include lig
   await page.screenshot({ path: 'test-results/monitoring-dark.png', fullPage: true });
   await page.getByRole('button', { name: 'Research', exact: true }).click();
   await page.reload();
+  await acceptLegacyCore(page);
   await expect(page.getByRole('button', { name: 'Research', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -170,7 +199,7 @@ test('sequence gaps resynchronize explicitly and WebGL context loss uses the Can
       body: `id: ${after + 2}\nevent: device.state\ndata: ${JSON.stringify(frame)}\n\n`,
     });
   });
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await expect(page.getByText(/1 client sequence\/backlog gap/)).toBeVisible();
   await page.getByRole('button', { name: 'Arm guard', exact: true }).click();
@@ -198,7 +227,7 @@ test('256-row render buffers stay bounded without aggregate sweep refetches duri
   page,
   request,
 }) => {
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await expect(page.getByTestId('source-id')).not.toHaveText('Waiting for a committed sweep');
   const projects = await (
@@ -259,7 +288,12 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
   await page.addInitScript(() => {
     let source: EventSource | undefined;
     let id = 0,
-      node = '';
+      node = '',
+      streamId = '',
+      delivery = 0,
+      waiting = false;
+    let queue: string[] = [];
+    let send: () => void = () => {};
     (window as any).__TAURI_INTERNALS__ = {
       transformCallback: () => ++id,
       unregisterCallback: () => {},
@@ -270,11 +304,27 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
         }
         if (command === 'cancel_request' || command === 'open_legacy') return null;
         if (command === 'stop_events') {
-          source?.close();
+          if (args.streamId === streamId) {
+            source?.close();
+            queue = [];
+          }
+          return null;
+        }
+        if (command === 'ack_event') {
+          if (args.streamId !== streamId || args.deliveryId !== String(delivery))
+            throw Error('Stale synthetic native acknowledgement');
+          waiting = false;
+          send();
           return null;
         }
         if (command === 'api_request') {
-          if (node.includes('empty-core.example')) {
+          if (args.path === '/api/v1/security/status')
+            return JSON.stringify({
+              contract: 'openradioinspector-platform',
+              contract_version: 1,
+              data: { mode: 'legacy_loopback', pairing_required: false },
+            });
+          if (node.endsWith(':18888')) {
             if (args.path.includes('/monitoring-projects/') || args.path.includes('/sessions/'))
               return JSON.stringify({
                 contract: 'openradioinspector-platform',
@@ -301,13 +351,26 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
               : {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(args.body),
+                  body: args.body,
                 },
           );
           return response.text();
         }
         if (command === 'start_events') {
-          if (node.includes('empty-core.example')) {
+          streamId = args.streamId;
+          delivery = 0;
+          waiting = false;
+          queue = [];
+          send = () => {
+            if (waiting || !queue.length) return;
+            waiting = true;
+            args.channel.onmessage({
+              kind: 'event',
+              data: queue.shift(),
+              delivery_id: String(++delivery),
+            });
+          };
+          if (node.endsWith(':18888')) {
             source?.close();
             args.channel.onmessage({ kind: 'open' });
             return null;
@@ -326,9 +389,10 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
             'sweep.received',
             'observation.received',
           ])
-            source.addEventListener(type, (event) =>
-              args.channel.onmessage({ kind: 'event', data: (event as MessageEvent).data }),
-            );
+            source.addEventListener(type, (event) => {
+              queue.push((event as MessageEvent).data);
+              send();
+            });
           return null;
         }
         throw Error('Unexpected native command: ' + command);
@@ -336,7 +400,9 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
     };
   });
   await page.goto('./');
+  await page.getByLabel('Core node URL').fill('http://127.0.0.1:18771');
   await page.getByRole('button', { name: 'Connect node', exact: true }).click();
+  await acceptLegacyCore(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await page.getByRole('button', { name: 'Arm guard', exact: true }).click();
   await expect(page.getByTestId('guard-state')).toHaveText('Armed');
@@ -355,7 +421,10 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
       return current !== next && current !== 'Waiting for a committed sweep';
     })
     .toBe(true);
+  await page.getByRole('button', { name: 'Connection settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Change core node', exact: true }).click();
   await page.getByRole('button', { name: 'Connect node', exact: true }).click();
+  await acceptLegacyCore(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await expect(page.getByTestId('guard-state')).toHaveText('Armed');
   const second = await page.getByTestId('source-id').textContent();
@@ -366,8 +435,11 @@ test('native bridge lifecycle connects once and keeps the parser alive across co
     })
     .toBe(true);
   await page.getByRole('button', { name: 'Disarm guard', exact: true }).click();
-  await page.getByLabel('Node URL').fill('http://empty-core.example:8770');
+  await page.getByRole('button', { name: 'Connection settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Change core node', exact: true }).click();
+  await page.getByLabel('Core node URL').fill('http://127.0.0.1:18888');
   await page.getByRole('button', { name: 'Connect node', exact: true }).click();
+  await acceptLegacyCore(page);
   await expect(page.getByLabel('Project', { exact: true }).locator('option')).toHaveCount(1);
   await expect(page.getByTestId('guard-state')).toHaveText('Unavailable');
 });
@@ -376,7 +448,7 @@ test('changing project cancels an old status read and never restores its previou
   page,
   request,
 }) => {
-  await page.goto('./');
+  await openDesk(page);
   const projects = (
     await (await request.get('http://127.0.0.1:18772/api/v1/monitoring-projects')).json()
   ).data.items;
@@ -407,7 +479,7 @@ test('changing project cancels an old status read and never restores its previou
   await expect(page.getByText('Second synthetic scope', { exact: true })).toBeVisible();
 });
 
-test('changing project during gap snapshot recovery keeps the global subscription alive', async ({
+test('changing project during gap cursor recovery keeps the global subscription alive', async ({
   page,
   request,
 }) => {
@@ -419,7 +491,7 @@ test('changing project during gap snapshot recovery keeps the global subscriptio
     localStorage.setItem('ori-modern-project', id);
   }, north.id);
   let injected = false,
-    reads = 0,
+    recoveryHeld = false,
     release: () => void = () => {},
     seen: () => void = () => {};
   const held = new Promise<void>((resolve) => {
@@ -440,14 +512,15 @@ test('changing project during gap snapshot recovery keeps the global subscriptio
       body: `event: device.state\ndata: ${JSON.stringify({ contract: 'openradioinspector-platform', contract_version: 1, data: { sequence: after + 2, event_type: 'device.state', payload: {} } })}\n\n`,
     });
   });
-  await page.route('**/api/v1/sessions/*/sweeps?*', async (route) => {
-    if (++reads === 2) {
+  await page.route('**/api/v1/health', async (route) => {
+    if (injected && !recoveryHeld) {
+      recoveryHeld = true;
       seen();
       await held;
     }
     await route.continue().catch(() => {});
   });
-  await page.goto('./');
+  await openDesk(page);
   await page.getByLabel('Project', { exact: true }).selectOption({ label: 'North laboratory' });
   await expect(page.getByText(/1 client sequence\/backlog gap/)).toBeVisible();
   await waiting;

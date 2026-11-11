@@ -1,8 +1,10 @@
+import { t } from './i18n';
+import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
 import { historyQuery, type HistoryFilters } from './api';
 import { Spectrum } from './charts';
 import { Panel, hz, titleCase, utc } from './components';
-import { decimate } from './pipeline';
+import { prepareSweep, type UnsupportedSweep } from './pipeline';
 import type { Desk } from './useDesk';
 import type { Comparison, DisplaySweep, Page, Sweep } from './types';
 
@@ -20,6 +22,7 @@ export function Research({
     [after, setAfter] = useState(''),
     [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<DisplaySweep>(),
+    [unsupported, setUnsupported] = useState<UnsupportedSweep>(),
     [comparison, setComparison] = useState<Comparison>();
   const [role, setRole] = useState<'receiver' | 'analyzer'>('receiver');
   const [frequency, setFrequency] = useState('100000000'),
@@ -50,6 +53,7 @@ export function Research({
     setPast([]);
     setAfter('');
     setSelected(undefined);
+    setUnsupported(undefined);
     setComparison(undefined);
     setLoaded(false);
     setFilters({});
@@ -62,6 +66,14 @@ export function Research({
   const activeLease =
     !!lease && !expired && !lease.returning && !!remote && !remote.expired && !remote.returning;
   void leaseRevision;
+
+  function selectSource(source?: Sweep) {
+    const prepared = source ? prepareSweep(source) : {};
+    setSelected(prepared.sweep);
+    setUnsupported(prepared.unsupported);
+    setComparison(undefined);
+    return prepared.sweep;
+  }
 
   async function history(next = '', historyStack: string[] = []) {
     const id = desk.projectId,
@@ -84,8 +96,7 @@ export function Research({
         setPast(historyStack);
         setAfter(next);
         setLoaded(true);
-        setSelected(page.items[0] ? decimate(page.items[0]) : undefined);
-        setComparison(undefined);
+        selectSource(page.items[0]);
       },
       [],
     );
@@ -144,9 +155,9 @@ export function Research({
   return (
     <div className="research-grid">
       <Panel
-        title="Archive research"
-        eyebrow="IMMUTABLE MEASUREMENTS"
-        aside={<span className="badge">32 per page</span>}
+        title={t('Archive research')}
+        eyebrow={t('IMMUTABLE MEASUREMENTS')}
+        aside={<span className="badge">{t('32 per page')}</span>}
       >
         <form
           onSubmit={(event) => {
@@ -156,7 +167,7 @@ export function Research({
         >
           <div className="form-grid filters">
             <label>
-              From (UTC)
+              {t('From (UTC)')}
               <input
                 type="datetime-local"
                 value={filters.start || ''}
@@ -164,7 +175,7 @@ export function Research({
               />
             </label>
             <label>
-              Until (UTC)
+              {t('Until (UTC)')}
               <input
                 type="datetime-local"
                 value={filters.end || ''}
@@ -172,7 +183,7 @@ export function Research({
               />
             </label>
             <label>
-              Minimum frequency (Hz)
+              {t('Minimum frequency (Hz)')}
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -181,7 +192,7 @@ export function Research({
               />
             </label>
             <label>
-              Maximum frequency (Hz)
+              {t('Maximum frequency (Hz)')}
               <input
                 inputMode="numeric"
                 pattern="[0-9]*"
@@ -190,12 +201,12 @@ export function Research({
               />
             </label>
             <label>
-              Event source filter
+              {t('Event source filter')}
               <select
                 value={filters.event_id || ''}
                 onChange={(e) => setFilters((p) => ({ ...p, event_id: e.target.value }))}
               >
-                <option value="">All measurements</option>
+                <option value="">{t('All measurements')}</option>
                 {desk.events.map((event) => (
                   <option key={event.id} value={event.id}>
                     {hz(event.center_frequency_hz)} · {titleCase(event.kind)}
@@ -206,25 +217,38 @@ export function Research({
           </div>
           <div className="actions">
             <button className="primary" disabled={desk.busy || !desk.project}>
-              Load history
+              {t('Load history')}
             </button>
             <button
               type="button"
               disabled={desk.busy || !past.length}
               onClick={() => void history(past.at(-1), past.slice(0, -1))}
             >
-              Previous history page
+              {t('Previous history page')}
             </button>
             <button
               type="button"
               disabled={desk.busy || !cursor}
               onClick={() => void history(cursor!, [...past, after])}
             >
-              Next history page
+              {t('Next history page')}
             </button>
-            <span className="muted">Page {past.length + 1}</span>
+            <span className="muted">
+              {t('Page') + ' '}
+              {past.length + 1}
+            </span>
           </div>
         </form>
+        {unsupported && (
+          <div className="plot-unavailable" role="status" data-testid="research-unsupported-source">
+            <strong>{t('Source frequency outside supported display range')}</strong>
+            <p>{t('Original measurements remain available without numeric conversion.')}</p>
+            <p className="mono">{hz(unsupported.frequency_hz)}</p>
+            <button type="button" onClick={() => openOriginal(unsupported.id)}>
+              {t('Original sweep')}
+            </button>
+          </div>
+        )}
         {selected && (
           <>
             <Spectrum sweep={selected} comparison={comparison} />
@@ -232,11 +256,11 @@ export function Research({
               <span>
                 {comparison
                   ? comparison.compatible
-                    ? 'Baseline comparison · compatible'
-                    : comparison.reason
-                  : 'Display-only spectrum · original available'}
+                    ? t('Baseline comparison · compatible')
+                    : t(comparison.reason || '')
+                  : t('Display-only spectrum · original available')}
               </span>
-              <span>{comparison?.compatible && 'Current / median / p95'}</span>
+              <span>{comparison?.compatible && t('Current / median / p95')}</span>
             </div>
           </>
         )}
@@ -244,19 +268,22 @@ export function Research({
           {items.map((item) => (
             <div
               data-testid="history-row"
-              className={'history-row ' + (selected?.id === item.id ? 'selected' : '')}
+              className={
+                'history-row ' + ((selected?.id ?? unsupported?.id) === item.id ? 'selected' : '')
+              }
               key={item.id}
             >
               <button
                 className="text-button history-select"
                 onClick={() => {
-                  setSelected(decimate(item));
-                  setComparison(undefined);
+                  selectSource(item);
                 }}
               >
                 <span className="mono">{utc(item.interval.started_at)}</span>
                 <small>
-                  {item.original_point_count ?? item.levels.length} original points · {item.id}
+                  {item.original_point_count ?? item.levels.length}
+                  {' ' + t('original points ·') + ' '}
+                  {item.id}
                 </small>
               </button>
               <div className="actions">
@@ -266,62 +293,66 @@ export function Research({
                     void desk.run(
                       'Compare baseline',
                       async () => {
+                        if (!selectSource(item))
+                          throw Error('Source frequency outside supported display range');
                         const result = await desk.api.project<Comparison>(
                           desk.projectId,
-                          'history/' + encodeURIComponent(item.id) + '/comparison',
+                          'history/' + encodePathSegment(item.id) + '/comparison',
                         );
-                        setSelected(decimate(item));
                         setComparison(result);
                       },
                       [],
                     )
                   }
                 >
-                  Compare baseline
+                  {t('Compare baseline')}
                 </button>
                 <button disabled={desk.busy} onClick={() => openOriginal(item.id)}>
-                  Original
+                  {t('Original')}
                 </button>
               </div>
             </div>
           ))}
         </div>
-        {loaded && !items.length && <p className="empty">No sweeps match these filters</p>}
+        {loaded && !items.length && <p className="empty">{t('No sweeps match these filters')}</p>}
         {!loaded && (
           <p className="empty">
-            Choose a UTC or frequency range to inspect the archive. Raw measurements remain
-            unchanged.
+            {t(
+              'Choose a UTC or frequency range to inspect the archive. Raw measurements remain unchanged.',
+            )}
           </p>
         )}
       </Panel>
       <div className="side-stack">
-        <Panel title="Manual ownership" eyebrow="EXPLICIT · 30 SECOND LEASE">
+        <Panel title={t('Manual ownership')} eyebrow={t('EXPLICIT · 30 SECOND LEASE')}>
           <p className="muted">
-            Taking the analyzer pauses broad coverage. An expired lease keeps automation paused
-            until an explicit return or disarm.
+            {t(
+              'Taking the analyzer pauses broad coverage. An expired lease keeps automation paused until an explicit return or disarm.',
+            )}
           </p>
           <label>
-            Instrument role
+            {t('Instrument role')}
             <select value={role} onChange={(e) => setRole(e.target.value as typeof role)}>
-              <option value="receiver">AR-DV1 receiver</option>
-              <option value="analyzer">tinySA analyzer</option>
+              <option value="receiver">{t('AR-DV1 receiver')}</option>
+              <option value="analyzer">{t('tinySA analyzer')}</option>
             </select>
           </label>
           <p className="lease-state">
-            {titleCase(role)} lease ·{' '}
+            {t('{role} lease ·', { role: titleCase(role) })}{' '}
             {remote?.returning || lease?.returning
-              ? 'restoring'
+              ? t('restoring')
               : expired || remote?.expired
-                ? 'expired — explicit return required'
+                ? t('expired — explicit return required')
                 : activeLease
-                  ? 'active'
+                  ? t('active')
                   : remote
-                    ? 'owned by another client'
-                    : 'not held'}
+                    ? t('owned by another client')
+                    : t('not held')}
             {activeLease && (
               <span className="mono">
                 {' '}
-                · {Math.max(0, Math.ceil((lease!.expires - now) / 1000))} s
+                · {Math.max(0, Math.ceil((lease!.expires - now) / 1000))}
+                {' ' + t('s')}
               </span>
             )}
           </p>
@@ -330,16 +361,16 @@ export function Research({
               disabled={desk.busy || !desk.guard?.active || !!remote}
               onClick={() => void take()}
             >
-              Take {role} control
+              {t(role === 'receiver' ? 'Take receiver control' : 'Take analyzer control')}
             </button>
             <button disabled={desk.busy || !activeLease} onClick={() => void ownership('renew')}>
-              Renew lease
+              {t('Renew lease')}
             </button>
             <button
               disabled={desk.busy || !lease || !!lease.returning}
               onClick={() => void ownership('return')}
             >
-              Return {role}
+              {t(role === 'receiver' ? 'Return receiver' : 'Return analyzer')}
             </button>
           </div>
           {role === 'receiver' ? (
@@ -353,7 +384,7 @@ export function Research({
               }}
             >
               <label>
-                Tune frequency (Hz)
+                {t('Tune frequency (Hz)')}
                 <input
                   inputMode="numeric"
                   pattern="[0-9]+"
@@ -363,7 +394,7 @@ export function Research({
                 />
               </label>
               <label>
-                Receive mode
+                {t('Receive mode')}
                 <select value={mode} onChange={(e) => setMode(e.target.value)}>
                   {['FM', 'AM', 'AUTO'].map((value) => (
                     <option key={value}>{value}</option>
@@ -371,7 +402,7 @@ export function Research({
                 </select>
               </label>
               <button className="primary" disabled={desk.busy || !activeLease}>
-                Tune receiver
+                {t('Tune receiver')}
               </button>
             </form>
           ) : (
@@ -386,9 +417,9 @@ export function Research({
                 }}
               >
                 <label>
-                  Source event
+                  {t('Source event')}
                   <select required value={eventId} onChange={(e) => setEventId(e.target.value)}>
-                    <option value="">Choose a detected event</option>
+                    <option value="">{t('Choose a detected event')}</option>
                     {desk.events.map((e) => (
                       <option key={e.id} value={e.id}>
                         {hz(e.center_frequency_hz)} · {titleCase(e.kind)}
@@ -397,7 +428,7 @@ export function Research({
                   </select>
                 </label>
                 <label>
-                  Search span (Hz)
+                  {t('Search span (Hz)')}
                   <input
                     type="number"
                     min={1000}
@@ -412,7 +443,7 @@ export function Research({
                   className="primary"
                   disabled={desk.busy || !activeLease || desk.search?.active}
                 >
-                  Start narrow search
+                  {t('Start narrow search')}
                 </button>
               </form>
               <form
@@ -422,7 +453,7 @@ export function Research({
                 }}
               >
                 <label>
-                  Position label
+                  {t('Position label')}
                   <input
                     required
                     value={mark}
@@ -431,20 +462,27 @@ export function Research({
                   />
                 </label>
                 <button disabled={desk.busy || !activeLease || !desk.search?.active}>
-                  Mark position
+                  {t('Mark position')}
                 </button>
               </form>
             </>
           )}
         </Panel>
-        <Panel title="Source search" eyebrow={titleCase(desk.search?.coverage || 'stopped')}>
+        <Panel
+          title={t('Source search')}
+          eyebrow={titleCase(desk.search?.coverage || t('stopped'))}
+        >
           <p>
-            Maximum from core{' '}
-            <strong className="mono">{desk.search?.maximum_level ?? '—'} dBm</strong>
+            {t('Maximum from core')}{' '}
+            <strong className="mono">
+              {desk.search?.maximum_level ?? '—'}
+              {' ' + t('dBm')}
+            </strong>
           </p>
           <p className="muted">
-            {desk.search?.series.length || 0}/256 recent source sweeps · broad coverage{' '}
-            {desk.search?.coverage || 'stopped'}
+            {desk.search?.series.length || 0}
+            {t('/256 recent source sweeps · broad coverage')}{' '}
+            {desk.search?.coverage || t('stopped')}
           </p>
           {desk.search?.error && <p className="error-text">{desk.search.error}</p>}
           <ol className="marks">
@@ -453,7 +491,9 @@ export function Research({
                 {item.label}
                 <span className="mono">
                   {' '}
-                  {item.level} dBm · {hz(item.frequency_hz)}
+                  {item.level}
+                  {' ' + t('dBm ·') + ' '}
+                  {hz(item.frequency_hz)}
                 </span>
               </li>
             ))}

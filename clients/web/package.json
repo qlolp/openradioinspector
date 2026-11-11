@@ -13,6 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run --maxWorkers=2 --exclude 'e2e/**'",
     "test:e2e": "playwright test",
+    "test:interaction": "playwright test --config playwright.interaction.config.ts",
     "format:check": "prettier --check src tests/*.ts e2e *.ts *.json index.html"
   },
   "dependencies": {

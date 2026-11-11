@@ -8,7 +8,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 1000 },
     launchOptions: {
       executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
-      args: ['--no-sandbox'],
+      args: ['--no-sandbox', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'],
     },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

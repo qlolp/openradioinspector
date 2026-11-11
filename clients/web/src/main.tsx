@@ -1,11 +1,11 @@
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { ConnectionGate } from './ConnectionGate';
 import { connection } from './transport';
 import './styles.css';
 
 connection()
   .then((transport) =>
-    createRoot(document.getElementById('root')!).render(<App transport={transport} />),
+    createRoot(document.getElementById('root')!).render(<ConnectionGate transport={transport} />),
   )
   .catch(() => {
     document.getElementById('root')!.textContent =

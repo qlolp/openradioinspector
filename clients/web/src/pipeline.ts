@@ -1,11 +1,33 @@
+import { decodeFrame } from '../../../contracts/generated/typescript/measurement_stream.ts';
 import type { DisplaySweep, Observation, Sweep } from './types';
+import { observationValue, parseWire, sweepValue } from './wire';
+import type { JSONObject } from '../../../contracts/generated/typescript/index.ts';
+import { eventSequence, type EventSequence } from './sequence';
 
-// These copies are exclusively for rendering. No measurement/threshold calculation is done here.
-export function decimate(sweep: Sweep, limit = 2048): DisplaySweep {
+export type FrameInput = string | ArrayBuffer;
+export interface UnsupportedSweep {
+  id: string;
+  session_id: string;
+  stream_id: string;
+  interval: Sweep['interval'];
+  frequency_hz: bigint;
+  point_count: number;
+  level_unit: string;
+}
+type RenderSource = Omit<Sweep, 'frequencies_hz' | 'levels'> & {
+  frequencies_hz: (number | bigint)[] | BigUint64Array;
+  levels: number[] | Float64Array;
+};
+// Rendering copies only; never modify canonical source arrays or metadata.
+export function prepareSweep(
+  sweep: RenderSource,
+  limit = 2048,
+  typed = false,
+): { sweep?: DisplaySweep; unsupported?: UnsupportedSweep } {
   const { frequencies_hz: hz, levels } = sweep;
   if (
-    !Array.isArray(hz) ||
-    !Array.isArray(levels) ||
+    !(Array.isArray(hz) || hz instanceof BigUint64Array) ||
+    !(Array.isArray(levels) || levels instanceof Float64Array) ||
     !levels.length ||
     hz.length !== levels.length ||
     levels.length > 1_000_000 ||
@@ -13,22 +35,39 @@ export function decimate(sweep: Sweep, limit = 2048): DisplaySweep {
     limit < 3
   )
     throw Error('Invalid sweep dimensions');
-  let peak = 0;
+  let peak = 0,
+    outside: bigint | undefined;
   for (let i = 0; i < levels.length; i++) {
+    const frequency = hz[i];
     if (
       !Number.isFinite(levels[i]) ||
-      !Number.isSafeInteger(hz[i]) ||
-      hz[i] < 0 ||
-      (i > 0 && hz[i] < hz[i - 1])
+      !(typeof frequency === 'bigint'
+        ? frequency >= 0n
+        : Number.isSafeInteger(frequency) && frequency >= 0) ||
+      (i > 0 && frequency < hz[i - 1])
     )
       throw Error('Invalid sweep values');
+    if (typeof frequency === 'bigint' && frequency > BigInt(Number.MAX_SAFE_INTEGER))
+      outside ??= frequency;
     if (levels[i] > levels[peak]) peak = i;
   }
+  if (outside !== undefined)
+    return {
+      unsupported: {
+        id: sweep.id,
+        session_id: sweep.session_id,
+        stream_id: sweep.stream_id,
+        interval: { started_at: sweep.interval.started_at, ended_at: sweep.interval.ended_at },
+        frequency_hz: outside,
+        point_count: levels.length,
+        level_unit: sweep.level_unit,
+      },
+    };
   let indices: number[];
-  if (hz.length <= limit) indices = hz.map((_, i) => i);
+  if (hz.length <= limit) indices = Array.from({ length: hz.length }, (_, i) => i);
   else {
-    const chosen = new Set([0, hz.length - 1, peak]);
-    const buckets = limit - 3;
+    const chosen = new Set([0, hz.length - 1, peak]),
+      buckets = limit - 3;
     for (let b = 0; b < buckets; b++) {
       const first = Math.floor((b * hz.length) / buckets),
         end = Math.floor(((b + 1) * hz.length) / buckets);
@@ -38,22 +77,42 @@ export function decimate(sweep: Sweep, limit = 2048): DisplaySweep {
     }
     indices = [...chosen].sort((a, b) => a - b);
   }
+  // The full scan proved these Hz are exact safe integers before Number conversion.
+  const frequencies = indices.map((i) => Number(hz[i])),
+    selectedLevels = indices.map((i) => levels[i]);
   return {
-    ...sweep,
-    frequencies_hz: indices.map((i) => hz[i]),
-    levels: indices.map((i) => levels[i]),
-    source_indices: indices,
-    original_point_count: sweep.original_point_count ?? levels.length,
-    display_only: true,
-    peak: { index: peak, frequency_hz: hz[peak], level: levels[peak] },
+    sweep: {
+      id: sweep.id,
+      session_id: sweep.session_id,
+      stream_id: sweep.stream_id,
+      interval: { started_at: sweep.interval.started_at, ended_at: sweep.interval.ended_at },
+      level_unit: sweep.level_unit,
+      frequencies_hz: typed ? new Float64Array(frequencies) : frequencies,
+      levels: typed ? new Float64Array(selectedLevels) : selectedLevels,
+      source_indices: typed ? new Uint32Array(indices) : indices,
+      original_point_count:
+        typeof sweep.original_point_count === 'number' &&
+        Number.isSafeInteger(sweep.original_point_count) &&
+        sweep.original_point_count >= levels.length
+          ? sweep.original_point_count
+          : levels.length,
+      display_only: true,
+      peak: { index: peak, frequency_hz: Number(hz[peak]), level: levels[peak] },
+    },
   };
+}
+export function decimate(sweep: Sweep, limit = 2048): DisplaySweep {
+  const prepared = prepareSweep(sweep, limit);
+  if (!prepared.sweep) throw Error('Source frequency outside supported display range');
+  return prepared.sweep;
 }
 
 export interface Frame {
-  sequence: number;
+  sequence: EventSequence;
   event_type: string;
   session_id?: string;
   sweep?: DisplaySweep;
+  unsupported?: UnsupportedSweep;
   observation?: Observation;
   invalidations: string[];
 }
@@ -81,36 +140,65 @@ export const EVENT_TYPES = [
   'automatic_detection.policy_changed',
   'automatic_detection.candidate_created',
 ];
-export function parseFrame(raw: string): Frame {
-  if (raw.length > 8_388_608) throw Error('Event exceeds client limit');
-  const envelope = JSON.parse(raw);
+export function parseFrame(raw: FrameInput): Frame {
+  if (typeof raw === 'string' && raw.length > 8_388_608) throw Error('Event exceeds client limit');
+  const decoded = typeof raw === 'string' ? undefined : decodeFrame(new Uint8Array(raw));
+  const envelope = (decoded ? decoded.envelope : parseWire(raw as string)) as JSONObject;
   if (envelope.contract !== 'openradioinspector-platform' || envelope.contract_version !== 1)
     throw Error('Unsupported event contract');
-  const event = envelope.data;
-  if (
-    !Number.isSafeInteger(event?.sequence) ||
-    event.sequence < 1 ||
-    typeof event.event_type !== 'string'
-  )
-    throw Error('Invalid event sequence');
+  const event = envelope.data as JSONObject;
+  const sequence = decoded?.sequence ?? eventSequence(event?.sequence);
+  if (typeof event.event_type !== 'string') throw Error('Invalid event type');
   const frame: Frame = {
-    sequence: event.sequence,
+    sequence,
     event_type: event.event_type,
-    session_id: event.session_id,
+    session_id: event.session_id as string | undefined,
     invalidations: [],
   };
-  if (event.event_type === 'sweep.received') frame.sweep = decimate(event.payload.sweep);
-  else if (event.event_type === 'observation.received') {
-    const o = event.payload.observation;
+  if (event.event_type === 'sweep.received') {
+    const rawSweep = (event.payload as JSONObject).sweep;
+    if (decoded?.spectrum) {
+      // Validate known scalar/header fields with an actual first source point.
+      // Packed arrays stay typed and are never materialized as JSON arrays.
+      const arrays = decoded.spectrum;
+      const header = sweepValue({
+        ...(rawSweep as JSONObject),
+        frequencies_hz: [arrays.frequenciesHz[0]],
+        levels: [arrays.levels[0]],
+      });
+      Object.assign(
+        frame,
+        prepareSweep(
+          { ...header, frequencies_hz: arrays.frequenciesHz, levels: arrays.levels },
+          2048,
+          true,
+        ),
+      );
+    } else Object.assign(frame, prepareSweep(sweepValue(rawSweep), 2048, decoded !== undefined));
+  } else if (event.event_type === 'observation.received') {
+    const o = observationValue((event.payload as JSONObject).observation);
     if (
       !o?.id ||
       !o.interval?.started_at ||
-      !Number.isSafeInteger(o.frequency_hz) ||
+      !(typeof o.frequency_hz === 'bigint'
+        ? o.frequency_hz > 0n
+        : Number.isSafeInteger(o.frequency_hz) && o.frequency_hz > 0) ||
       !o.level_unit ||
       (o.level != null && !Number.isFinite(o.level))
     )
       throw Error('Invalid receiver observation');
-    frame.observation = o;
+    frame.observation = {
+      id: o.id,
+      session_id: o.session_id,
+      stream_id: o.stream_id,
+      interval: { started_at: o.interval.started_at, ended_at: o.interval.ended_at },
+      frequency_hz: o.frequency_hz,
+      mode: o.mode,
+      level_unit: o.level_unit,
+      level: o.level,
+      squelch_open: o.squelch_open,
+      decoded_mode: o.decoded_mode,
+    };
   } else if (event.event_type.startsWith('device.')) frame.invalidations = ['status'];
   else if (event.event_type.startsWith('session.')) frame.invalidations = ['sessions', 'status'];
   else if (event.event_type.startsWith('investigation.'))
@@ -119,15 +207,18 @@ export function parseFrame(raw: string): Frame {
 }
 
 export class SequenceGate {
-  constructor(public last = 0) {}
-  accept(sequence: number): 'duplicate' | 'accept' | 'gap' {
-    if (sequence <= this.last) return 'duplicate';
-    if (sequence !== this.last + 1) return 'gap';
+  constructor(public last: EventSequence = 0) {
+    eventSequence(last, true);
+  }
+  accept(sequence: EventSequence): 'duplicate' | 'accept' | 'gap' {
+    const exact = BigInt(eventSequence(sequence));
+    if (exact <= BigInt(this.last)) return 'duplicate';
+    if (exact !== BigInt(this.last) + 1n) return 'gap';
     this.last = sequence;
     return 'accept';
   }
-  reset(last: number) {
-    this.last = last;
+  reset(last: EventSequence) {
+    this.last = eventSequence(last, true);
   }
 }
 
@@ -142,6 +233,9 @@ export class FrameBuffer {
     if (this.session !== session || this.stream !== stream) this.rows = [];
     this.session = session;
     this.stream = stream;
+  }
+  clear() {
+    this.rows = [];
   }
   append(sweep: DisplaySweep) {
     if (

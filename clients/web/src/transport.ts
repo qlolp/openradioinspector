@@ -1,13 +1,26 @@
-import type { Transport } from './api';
-import { EVENT_TYPES } from './pipeline';
+import { unwrap, type Transport } from './api';
+import { subscribeEvents } from './sse';
+import type { EventSequence } from './sequence';
+import { responseValue, stringifyJSON } from './wire';
+import {
+  binaryStreamCapability,
+  subscribeBinaryEvents,
+  type BinaryStreamCapability,
+} from './websocket';
+import type { FrameInput } from './pipeline';
+import type { Capabilities } from './types';
 
 export interface Connection extends Transport {
   native: boolean;
-  connect(node: string, token: string): Promise<void>;
+  ready?: boolean;
+  connect(node: string): Promise<void>;
+  pair(code: string, label: string): Promise<void>;
+  revokePairing(): Promise<void>;
+  configureStream?(capabilities: Capabilities): void;
   subscribe(
-    after: number,
-    receive: (raw: string) => void,
-    state: (connected: boolean) => void,
+    after: EventSequence,
+    receive: (raw: FrameInput) => Promise<EventSequence | void> | void,
+    state: (connected: boolean, replayReason?: string) => void,
   ): Promise<() => void>;
   audio(path: string, signal?: AbortSignal): Promise<Blob>;
   openLegacy(): Promise<void>;
@@ -43,9 +56,31 @@ async function limitedResponse(
   return result;
 }
 
+let browserBinary: BinaryStreamCapability | undefined;
 export const browserConnection: Connection = {
   native: false,
   async connect() {},
+  configureStream(capabilities) {
+    browserBinary = binaryStreamCapability(capabilities);
+  },
+  async pair(code, label) {
+    const result = unwrap<{ paired: boolean; credential: string; token?: unknown }>(
+      await browserConnection.request('/api/v1/security/pair', {
+        pairing_code: code,
+        label,
+        client: 'browser',
+      }),
+    );
+    if (
+      result.paired !== true ||
+      result.credential !== 'browser_cookie' ||
+      Object.hasOwn(result, 'token')
+    )
+      throw Error('Invalid browser pairing response');
+  },
+  async revokePairing() {
+    unwrap(await browserConnection.request('/api/v1/security/credentials/current/revoke', {}));
+  },
   async openLegacy() {
     location.assign('/');
   },
@@ -59,13 +94,15 @@ export const browserConnection: Connection = {
       const response = await fetch(path, {
         method: body === undefined ? 'GET' : 'POST',
         headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : stringifyJSON(body),
+        credentials: 'same-origin',
+        mode: 'same-origin',
         signal: controller.signal,
         cache: 'no-store',
         redirect: 'error',
       });
       const raw = await limitedResponse(response, 8_388_608, controller.signal);
-      const value = JSON.parse(new TextDecoder().decode(raw));
+      const value = responseValue(path, raw) as { error?: unknown };
       if (!response.ok && !value.error) throw Error(`Core HTTP ${response.status}`);
       return value;
     } finally {
@@ -74,13 +111,15 @@ export const browserConnection: Connection = {
     }
   },
   async subscribe(after, receive, state) {
-    const source = new EventSource('/api/v1/events?after=' + after);
-    source.onopen = () => state(true);
-    source.onerror = () => state(false);
-    const listener = (event: Event) => receive((event as MessageEvent<string>).data);
-    source.onmessage = listener;
-    for (const name of EVENT_TYPES) source.addEventListener(name, listener);
-    return () => source.close();
+    const config = browserBinary;
+    if (config)
+      return subscribeBinaryEvents(after, async (bytes) => await receive(bytes), state, config, {
+        disable: () => {
+          if (browserBinary === config) browserBinary = undefined;
+        },
+        fallback: (cursor) => subscribeEvents(cursor, receive, state),
+      });
+    return subscribeEvents(after, receive, state);
   },
   async audio(path, signal) {
     const response = await fetch(path, { signal, cache: 'no-store', redirect: 'error' });
@@ -96,13 +135,23 @@ export async function connection(): Promise<Connection> {
   if (!('__TAURI_INTERNALS__' in window)) return browserConnection;
   const { invoke, Channel } = await import('@tauri-apps/api/core');
   let streamGeneration = 0;
+  let binary: BinaryStreamCapability | undefined;
   return {
     native: true,
+    configureStream(capabilities) {
+      binary = binaryStreamCapability(capabilities);
+    },
     async openLegacy() {
       await invoke('open_legacy');
     },
-    async connect(node, token) {
-      await invoke('connect_node', { node, token });
+    async connect(node) {
+      await invoke('connect_node', { node });
+    },
+    async pair(code, label) {
+      await invoke('pair_node', { pairingCode: code, label });
+    },
+    async revokePairing() {
+      await invoke('revoke_pairing');
     },
     async request(path, body, signal) {
       if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -115,29 +164,65 @@ export async function connection(): Promise<Connection> {
         const response = await invoke<string>('api_request', {
           requestId,
           path,
-          body: body ?? null,
+          body: body === undefined ? null : stringifyJSON(body),
           audio: false,
         });
         if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-        return JSON.parse(response);
+        return responseValue(path, response);
       } finally {
         signal?.removeEventListener('abort', cancel);
       }
     },
     async subscribe(after, receive, state) {
       const generation = ++streamGeneration;
-      const channel = new Channel<{ kind: string; data?: string }>();
+      const config = binary;
+      const streamId = crypto.randomUUID();
+      const channel = new Channel<{ kind: string; data?: string; delivery_id?: string }>();
       channel.onmessage = (message) => {
         if (generation !== streamGeneration) return;
-        if (message.kind === 'event' && message.data) receive(message.data);
-        else state(message.kind === 'open');
-      };
-      await invoke('start_events', { after, channel });
-      return () => {
-        if (generation === streamGeneration) {
-          streamGeneration++;
-          void invoke('stop_events').catch(() => {});
+        if ((message.kind === 'event' || message.kind === 'binary') && message.data) {
+          void (async () => {
+            try {
+              if (!message.delivery_id) throw Error('Missing native delivery acknowledgement');
+              if (message.kind === 'binary') {
+                if (!config || message.data!.length > Math.ceil(config.maxFrameBytes / 3) * 4)
+                  throw Error('Binary frame exceeds client limit');
+                const bytes = Uint8Array.from(atob(message.data!), (char) => char.charCodeAt(0));
+                if (bytes.byteLength > config.maxFrameBytes)
+                  throw Error('Binary frame exceeds client limit');
+                await receive(bytes.buffer);
+              } else await receive(message.data!);
+              if (generation === streamGeneration)
+                await invoke('ack_event', { streamId, deliveryId: message.delivery_id });
+            } catch (error) {
+              if (
+                message.kind === 'binary' &&
+                (error as Error).name !== 'AbortError' &&
+                binary === config
+              )
+                binary = undefined;
+              if (generation === streamGeneration) {
+                state(false, 'Native delivery interrupted — resynchronizing');
+                void invoke('stop_events', { streamId }).catch(() => {});
+              }
+            }
+          })();
+        } else {
+          if (message.kind === 'fallback' && binary === config) binary = undefined;
+          state(message.kind === 'open');
         }
+      };
+      await invoke('start_events', {
+        after: after.toString(),
+        streamId,
+        binary: config ? { max_frame_bytes: config.maxFrameBytes } : null,
+        channel,
+      });
+      return () => {
+        if (generation === streamGeneration) streamGeneration++;
+        // A late start response still owns its stream. The native ID check makes
+        // this cleanup safe even when a newer subscription has already started.
+        void invoke('stop_events', { streamId }).catch(() => {});
       };
     },
     async audio(path, signal) {
