@@ -33,13 +33,33 @@ final class CommittedEventTransportTests: XCTestCase {
             XCTAssertEqual(stub.request.url?.query, "after=42")
             XCTAssertEqual(stub.request.value(forHTTPHeaderField: "Last-Event-ID"), "42")
             stub.headers()
-            stub.send("id: 43\nevent: session.changed\ndata: {\"sequence\":43,\"event_type\":\"session.changed\",\"occurred_at\":\"2026-11-11T00:00:00Z\",\"payload\":{\"unknown_future_field\":true}}\n\n")
+            stub.send("id: 43\nevent: session.changed\ndata: {\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":{\"sequence\":43,\"event_type\":\"session.changed\",\"occurred_at\":\"2026-11-11T00:00:00Z\",\"payload\":{\"unknown_future_field\":true}}}\n\n")
             stub.finish(); request.fulfill()
         }
         let api = try client(); var events: [PlatformCommittedEvent] = []
         for try await event in try api.committedEvents(after: 42) { events.append(event) }
         await fulfillment(of: [request], timeout: 1)
         XCTAssertEqual(events.map(\.sequence), [43])
+    }
+
+    func testQueueOverrunDrainsItsValidatedPrefixBeforeReportingRecovery() async throws {
+        let cancelled = expectation(description: "bounded stream cancelled after queue overflow")
+        Stub.stopped = { cancelled.fulfill() }
+        Stub.respond = { stub in
+            stub.headers()
+            stub.send((1...70).map { sequence in
+                "id: \(sequence)\nevent: future.event\ndata: {\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":{\"sequence\":\(sequence),\"event_type\":\"future.event\",\"occurred_at\":\"2026-11-11T00:00:00Z\",\"payload\":{}}}\n\n"
+            }.joined())
+        }
+        let api = try client(), stream = try api.committedEvents(after: 0)
+        // No iterator runs until the producer has filled its 64-event queue.
+        await fulfillment(of: [cancelled], timeout: 1)
+        var received: [Int64] = []
+        do {
+            for try await event in stream { received.append(event.sequence) }
+            XCTFail("full queue did not request cursor recovery")
+        } catch { XCTAssertEqual(error as? PlatformEventError, .consumerOverrun) }
+        XCTAssertEqual(received, Array(1...64).map(Int64.init))
     }
 
     func testWatermarkReadsHealthEnvelopeAndRejectsNegativeCursor() async throws {

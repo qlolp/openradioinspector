@@ -13,6 +13,46 @@ final class CommittedEventTests: XCTestCase {
         var parser = PlatformEventParser(); return try XCTUnwrap(parser.append(Data(frame(sequence, id: id, session: session).utf8)).first)
     }
 
+    private func wrapped(_ frame: String, contract: String = "openradioinspector-platform", version: Int = 1) -> String {
+        let pieces = frame.components(separatedBy: "data: ")
+        let json = pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return pieces[0] + "data: {\"contract\":\"\(contract)\",\"contract_version\":\(version),\"data\":\(json)}\n\n"
+    }
+
+    func testRealAPIEnvelopeRetainsOriginalWireBytesAndFloatBits() throws {
+        let wire = wrapped(frame(7))
+        var parser = PlatformEventParser()
+        let value = try XCTUnwrap(parser.append(Data(wire.utf8)).first)
+        XCTAssertEqual(value.sequence, 7)
+        XCTAssertEqual(value.payload.sweep?.levels.map(\.bitPattern), [0xc059000000000000, 0x8000000000000000, 0xbff0000000000001])
+        XCTAssertEqual(value.sourceJSON, Data(wire.components(separatedBy: "data: ")[1].trimmingCharacters(in: .whitespacesAndNewlines).utf8))
+    }
+
+    func testStreamingDecoderDeliversBoundedPrefixBeforeMalformedTail() throws {
+        var parser = PlatformEventParser(), received: [Int64] = []
+        let frames = (1...70).map { wrapped(frame(Int64($0))) }.joined()
+        XCTAssertThrowsError(try parser.append(Data(frames.utf8)) { event in
+            guard received.count < 64 else { throw PlatformEventError.consumerOverrun }
+            received.append(event.sequence)
+        })
+        XCTAssertEqual(received, Array(1...64).map(Int64.init))
+        parser = PlatformEventParser(); received = []
+        XCTAssertThrowsError(try parser.append(Data((wrapped(frame(1)) + "id: 2\nevent: future\ndata: invalid\n\n").utf8)) {
+            received.append($0.sequence)
+        })
+        XCTAssertEqual(received, [1])
+    }
+
+    func testWrappedWrongContractOrVersionNeverFallsBackToBareEvent() throws {
+        for wire in [wrapped(frame(7), contract: "other"), wrapped(frame(7), version: 2),
+                     frame(7).replacingOccurrences(of: "\"sequence\":7", with: "\"contract\":\"other\",\"sequence\":7")] {
+            var parser = PlatformEventParser()
+            XCTAssertThrowsError(try parser.append(Data(wire.utf8))) { error in
+                XCTAssertEqual(error as? PlatformEventError, .malformedEvent)
+            }
+        }
+    }
+
     func testSSEChunksSplitUTF8CRLFAndHeartbeatWithoutLosingMeasurements() throws {
         var parser = PlatformEventParser(); var received: [PlatformCommittedEvent] = []
         let bytes = Data((": keep-alive\r\n\r\n" + frame(7) + frame(8, id: "next")).utf8)

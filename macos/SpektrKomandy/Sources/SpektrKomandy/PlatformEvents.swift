@@ -19,6 +19,31 @@ public struct PlatformCommittedEvent: Decodable, Equatable, Sendable {
     public let occurredAt: String
     public let sessionId: String?
     public let payload: Payload
+    /// Original SSE data document, including unknown fields and exact numeric
+    /// tokens. Do not reconstruct opaque JSON through floating-point values.
+    public fileprivate(set) var sourceJSON: Data? = nil
+    private enum CodingKeys: String, CodingKey { case sequence, eventType, occurredAt, sessionId, payload }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.sequence == rhs.sequence && lhs.eventType.utf8.elementsEqual(rhs.eventType.utf8) && lhs.occurredAt == rhs.occurredAt
+            && PlatformExactID.same(lhs.sessionId, rhs.sessionId) && lhs.payload == rhs.payload
+    }
+}
+
+private struct PlatformEventDocument: Decodable {
+    let event: PlatformCommittedEvent
+    private enum CodingKeys: String, CodingKey { case contract, contractVersion, data }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if values.contains(.contract) || values.contains(.contractVersion) || values.contains(.data) {
+            // A malformed/unsupported envelope must never be retried as a bare event.
+            event = try PlatformEnvelope<PlatformCommittedEvent>(from: decoder).data
+        } else {
+            // Compatibility for existing public parser callers. Real /api/v1
+            // cores use the versioned envelope; all envelope markers are strict.
+            event = try PlatformCommittedEvent(from: decoder)
+        }
+    }
 }
 
 /// Incremental UTF-8 SSE framing. Bounded even when a peer never sends a newline.
@@ -34,6 +59,16 @@ public struct PlatformEventParser: Sendable {
 
     public mutating func append(_ bytes: Data) throws -> [PlatformCommittedEvent] {
         var events: [PlatformCommittedEvent] = []
+        try append(bytes) { event in
+            guard events.count < 64 else { throw PlatformEventError.consumerOverrun }
+            events.append(event)
+        }
+        return events
+    }
+
+    /// Deliver each complete event before decoding the next. A large network
+    /// chunk cannot discard an already validated prefix when the queue fills.
+    mutating func append(_ bytes: Data, receive: (PlatformCommittedEvent) throws -> Void) throws {
         for byte in bytes {
             eventBytes += 1
             guard eventBytes <= maximumEventBytes else { throw PlatformEventError.oversizedEvent }
@@ -43,8 +78,8 @@ public struct PlatformEventParser: Sendable {
                 if !data.isEmpty {
                     data.removeLast() // SSE joins multiple data lines with a newline.
                     let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-                    let event: PlatformCommittedEvent
-                    do { event = try decoder.decode(PlatformCommittedEvent.self, from: data) }
+                    var event: PlatformCommittedEvent
+                    do { event = try decoder.decode(PlatformEventDocument.self, from: data).event }
                     catch { throw PlatformEventError.malformedEvent }
                     guard let id, Int64(id) == event.sequence, event.sequence > 0,
                           let type, type.utf8.elementsEqual(event.eventType.utf8),
@@ -59,8 +94,8 @@ public struct PlatformEventParser: Sendable {
                     if let observation = event.payload.observation, event.eventType == "observation.received" {
                         guard event.sessionId?.utf8.elementsEqual(observation.sessionId.utf8) == true else { throw PlatformEventError.malformedEvent }
                     }
-                    guard events.count < 64 else { throw PlatformEventError.consumerOverrun }
-                    events.append(event)
+                    event.sourceJSON = data
+                    try receive(event)
                 }
                 data.removeAll(keepingCapacity: true); id = nil; type = nil; eventBytes = 0
             } else if line.first != 58 {
@@ -77,7 +112,6 @@ public struct PlatformEventParser: Sendable {
             }
             line.removeAll(keepingCapacity: true)
         }
-        return events
     }
 }
 
@@ -183,11 +217,11 @@ private final class PlatformEventDelegate: NSObject, URLSessionDataDelegate, @un
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !finished else { return }
         do {
-            for event in try parser.append(data) {
+            try parser.append(data) { event in
                 switch continuation.yield(event) {
                 case .enqueued: break
                 case .dropped: throw PlatformEventError.consumerOverrun
-                case .terminated: session.invalidateAndCancel(); return
+                case .terminated: session.invalidateAndCancel(); throw CancellationError()
                 @unknown default: throw PlatformEventError.consumerOverrun
                 }
             }

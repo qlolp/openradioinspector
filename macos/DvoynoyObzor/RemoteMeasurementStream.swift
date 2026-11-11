@@ -8,11 +8,14 @@ final class RemoteMeasurementStream {
     private var revision = 0
     private var sessionID = ""
     private var streamID = ""
+    private var receiverStreamID: String?
     private(set) var measurements: PlatformLiveMeasurements?
     var isActive: Bool { task != nil && measurements != nil }
 
-    func matches(sessionID: String, streamID: String) -> Bool {
-        isActive && self.sessionID.utf8.elementsEqual(sessionID.utf8) && self.streamID.utf8.elementsEqual(streamID.utf8)
+    func matches(sessionID: String, streamID: String, receiverStreamID: String? = nil) -> Bool {
+        measurements != nil && PlatformExactID.same(self.sessionID, sessionID)
+            && PlatformExactID.same(self.streamID, streamID)
+            && PlatformExactID.same(self.receiverStreamID, receiverStreamID)
     }
 
     func stop() {
@@ -23,7 +26,7 @@ final class RemoteMeasurementStream {
                sweeps: [PlatformSweep], observation: PlatformObservation?,
                receive: @escaping @MainActor ([PlatformSweep], PlatformObservation?, Int64) async -> Void,
                recover: @escaping @MainActor (Error) async -> Void) {
-        stop(); self.sessionID = sessionID; self.streamID = streamID
+        stop(); self.sessionID = sessionID; self.streamID = streamID; self.receiverStreamID = receiverStreamID
         let requestRevision = revision
         measurements = PlatformLiveMeasurements(sessionID: sessionID, streamID: streamID, after: watermark, sweeps: sweeps, observation: observation, receiverStreamID: receiverStreamID)
         task = Task { [weak self] in
@@ -39,7 +42,9 @@ final class RemoteMeasurementStream {
                 throw PlatformError.connection("Поток событий завершён")
             } catch {
                 guard !Task.isCancelled, let self, requestRevision == self.revision else { return }
-                self.task = nil; self.measurements = nil
+                // Retain the last applied cursor and bounded cache. A health
+                // watermark on reconnect would skip committed but unseen rows.
+                self.task = nil
                 await recover(error)
             }
         }

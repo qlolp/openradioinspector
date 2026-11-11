@@ -34,10 +34,17 @@ separate views; the shared-core app does not instantiate those models.
   picker selections. Canonically equivalent IDs such as `é` and `e\u0301`
   remain distinct; the original String remains the value sent to the API.
 - While subscribed, periodic snapshots refresh metadata without fetching sweeps
-  or observations. Missing SSE support retains REST polling. Sequence gaps and
-  malformed delivery reseed from committed archive data. Buffer overrun leaves a
-  visible notice and switches to snapshot polling until UI reconnection.
+  or observations. Missing SSE support retains REST polling. Sequence gaps,
+  malformed delivery, queue overrun and interrupted connections retain the last
+  applied cursor and bounded cache, then replay after that cursor. Recovery never
+  substitutes the latest health watermark. Queue overrun leaves a visible notice;
+  each validated prefix is delivered before the producer reports overflow.
   Cancelling or closing the client closes its HTTP subscription only.
+- SSE data uses the standard contract-v1 API envelope. Unsupported or incomplete
+  envelopes are rejected without trying the bare-event compatibility path.
+  The public parser still accepts legacy bare events with no envelope markers.
+  `PlatformCommittedEvent.sourceJSON` retains the original data bytes, including
+  unknown event payloads, exact UTF-8 keys and large integer tokens.
 - SSE framing and decoding run on a serial URLSession delegate queue. Bounded
   display validation, envelopes, meshes, palette conversion and fallback bitmap
   preparation run outside the main actor. Request generations and cancellation
@@ -72,9 +79,10 @@ separate views; the shared-core app does not instantiate those models.
   legacy connection can omit this exchange. A revoked Bearer disconnects UI and
   requests pairing again without changing core worker/project state.
 
-Buffers are explicit: 64 queued events, 64 decoded events per input chunk,
+Buffers are explicit: 64 queued events, 64 events per array-parser call,
 1 MiB per SSE frame, 40 live sweeps, 16,384 display columns and up to 240 legacy
-waterfall rows. Overflow is an error/recovery path, not a silent data drop.
+waterfall rows. Streaming delivers one decoded event at a time without building
+an array for the whole network chunk. Overflow is a visible recovery path.
 The bounded legacy envelope/threshold display is preserved; authoritative
 comparison, occupancy, masks, detection and other analyses remain core API calls.
 
@@ -195,3 +203,35 @@ starting subprocesses or touching devices.
 Physical tinySA/AR-DV1/USB/audio acceptance, eight-hour and autonomous-node runs
 remain **not run**. macOS latency, frame-rate and memory targets remain
 **unmeasured**; portable correctness tests do not establish those resource gates.
+
+## Durable stream integration follow-up
+
+The baseline `8a3c771` subsequently passed all 12 OS/Python jobs, 285 SDK XCTest
+plus 16 Swift Testing tests, 168 native XCTest plus four Swift Testing tests,
+the actual Metal test path and the unsigned Swift 6 Xcode app build. The
+stream changes above are a separate follow-up and still require their own
+native Xcode CI; that baseline pass does not validate the new UI recovery code.
+
+The follow-up passed 287 portable SDK XCTest plus 16 Swift Testing tests, with
+zero skips and all seven owned fixture archives unchanged. Its additional real
+Python SSE fixture creates and reopens its own synthetic archive. Against
+integrated source `1376719ef33df368bf914b855e645f3128623a2b` (including durable
+replay `1663e49`), it delivered all 1,208 committed events from 1,205 sweeps in
+order, then passed another core restart and live handoff. It checks exact
+UTF-8 IDs, UTC microseconds, float64 bits, raw S-meter units, opaque JSON bytes,
+bounded delivery and archive invariance. The fixture stops at its owner's stdin
+EOF and opens no instrument. The default five-sweep profile also runs against
+the older Python core; the larger profile is explicit, with no skipped test:
+
+```sh
+ORI_NATIVE_SSE_SOURCE_ROOT=/absolute/path/to/integrated-checkout \
+ORI_NATIVE_SSE_SWEEPS=1205 \
+swift test --package-path macos/SpektrKomandy -j 2 --filter RealCommittedEventTests
+```
+
+This real Python fixture uses loopback HTTP compatibility. Wrapped SSE Bearer
+reuse and native cookie isolation are separately covered by controlled transport
+tests; this fixture does not establish operator-installed-CA or signed-app
+acceptance. Native regressions cover last-applied-cursor replay and metadata
+requests finishing after a newer frame; Linux can parse these UI sources and
+typecheck the portable stream adapter, but cannot execute the native tests.

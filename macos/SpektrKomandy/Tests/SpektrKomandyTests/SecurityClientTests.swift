@@ -103,7 +103,7 @@ final class SecurityClientTests: XCTestCase {
             XCTAssertFalse(request.httpShouldHandleCookies)
             let path = request.url!.path; lock.withLock { paths.append(path) }
             if path.hasSuffix("/events") {
-                stub.raw(Data("id: 1\nevent: session.changed\ndata: {\"sequence\":1,\"event_type\":\"session.changed\",\"occurred_at\":\"2026-11-11T00:00:00Z\",\"payload\":{}}\n\n".utf8), headers: ["Content-Type": "text/event-stream"])
+                stub.raw(Data("id: 1\nevent: session.changed\ndata: {\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":{\"sequence\":1,\"event_type\":\"session.changed\",\"occurred_at\":\"2026-11-11T00:00:00Z\",\"payload\":{}}}\n\n".utf8), headers: ["Content-Type": "text/event-stream"])
             } else if path.hasSuffix("/sample") { stub.raw(Data([1, 2, 3])) }
             else { try stub.reply([], headers: ["Set-Cookie": self.cookieHeader]) }
         }

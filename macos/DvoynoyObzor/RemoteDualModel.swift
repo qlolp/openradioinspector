@@ -435,15 +435,27 @@ final class RemoteDualModel: ObservableObject {
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             let streaming = measurementStream.isActive
-            // Read the watermark before the seed snapshot: replay closes the commit race.
-            let watermark = streamingEnabled && !streaming ? try? await client.eventWatermark() : nil
-            var snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false, includeMeasurements: !streaming)
-            if streaming, !measurementStream.matches(sessionID: id, streamID: snapshot.session.streams.first(where: { $0.isDbmAnalyzer })?.id ?? "") {
+            let retained = streamingEnabled ? measurementStream.measurements : nil
+            // Only a first connection seeds from health before its snapshot.
+            // Recovery resumes at the last applied cursor, even after core restart.
+            let watermark: Int64?
+            if streamingEnabled && !streaming {
+                if let retained { watermark = retained.cursor }
+                else { watermark = try? await client.eventWatermark() }
+            } else { watermark = nil }
+            var snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false, includeMeasurements: retained == nil)
+            guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
+                  PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
+            let latestCache = streamingEnabled ? measurementStream.measurements : nil
+            if latestCache != nil, !measurementStream.matches(sessionID: id,
+                streamID: snapshot.session.streams.first(where: { $0.isDbmAnalyzer })?.id ?? "",
+                receiverStreamID: snapshot.session.streams.first(where: { $0.isReceiver })?.id) {
                 measurementStream.stop()
                 await refreshSession(client)
                 return
             }
-            if let cached = measurementStream.measurements {
+            // Events may have arrived while metadata was in flight.
+            if let cached = latestCache {
                 snapshot.sweeps = cached.sweeps
                 snapshot.observations = cached.observation.map { [$0] } ?? []
             }
@@ -473,16 +485,21 @@ final class RemoteDualModel: ObservableObject {
                         self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")"
                     }, recover: { [weak self] reason in
                         guard let self, requestGeneration == self.generation, self.client === client else { return }
+                        if self.expireAuthorization(reason, client: client) { return }
                         self.eventStatus = "Восстановление потока отображения"
                         if let eventError = reason as? PlatformEventError {
                             self.eventGapNotice = "Пропуск доставки в этот UI. Отображение восстанавливается из архива; охрана продолжает работать."
                             if eventError == .consumerOverrun {
-                                self.streamingEnabled = false
-                                self.eventGapNotice = "Буфер отображения переполнен. Включён опрос снимков; переподключите UI для возврата к потоку. Охрана продолжает работать."
+                                self.eventGapNotice = "Буфер отображения переполнен. Продолжение из архива после последнего принятого события; охрана продолжает работать."
                             }
+                            // Bound retries for a permanently malformed peer.
+                            try? await Task.sleep(nanoseconds: 250_000_000)
+                            guard !Task.isCancelled, requestGeneration == self.generation, self.client === client,
+                                  PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID) else { return }
                             await self.refresh()
                         } else if case PlatformError.http(status: 404, code: _, message: _) = reason {
                             self.streamingEnabled = false
+                            self.measurementStream.stop()
                         }
                     })
             } else if !streamingEnabled || watermark == nil && !measurementStream.isActive {
