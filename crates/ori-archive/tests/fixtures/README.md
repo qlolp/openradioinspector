@@ -1,0 +1,1 @@
+Owned synthetic compatibility fixture. Generated with tests/generate_fixtures.py from foundations 96696a0. Schema v5, monitoring4, UTF-16, original offset time text, JSON -0 and one closed WAV. No real measurements or credentials.
