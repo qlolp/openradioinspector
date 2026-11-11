@@ -1,0 +1,14 @@
+{
+  "sole": {"$serde_json::private::Number": "1e999"},
+  "multiple": {"$serde_json::private::Number": "123", "ordinary": true},
+  "raw_value": {"$serde_json::private::RawValue": "{\"untrusted\":1e999}"},
+  "prefix_collision": {
+    "$serde_json::private::Number": "raw-key",
+    "$ori::escaped::$serde_json::private::Number": "literal-prefix",
+    "$ori::escaped::$ori::escaped::$serde_json::private::Number": "double-prefix"
+  },
+  "huge_integer": 18446744073709551616,
+  "negative_integer": -18446744073709551616,
+  "unicode": {"é": {"é": "ID/雪+%?"}, "é": "distinct"},
+  "negative_zero": -0.0
+}

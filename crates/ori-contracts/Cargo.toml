@@ -1,0 +1,16 @@
+[package]
+name = "ori-contracts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+
+[dependencies]
+serde = {version = "=1.0.229", features = ["derive"]}
+serde_json = {version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision"]}
+chrono = {version = "=0.4.45", default-features = false, features = ["std"]}
+thiserror = "=2.0.21"
+
+[[test]]
+name = "contract_codec"
+path = "../../contracts/tests/rust.rs"

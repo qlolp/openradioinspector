@@ -1,0 +1,13 @@
+{
+  "name": "@openradioinspector/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./index.ts",
+  "devDependencies": {
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json"
+  }
+}
