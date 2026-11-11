@@ -1,0 +1,13 @@
+{
+  "data_directory": "/var/lib/openradioinspector",
+  "backend": {
+    "name": "legacy-python",
+    "program": "/opt/openradioinspector/python/bin/radioinspector-core",
+    "args": ["--data-dir", "/var/lib/openradioinspector", "--host", "127.0.0.1", "--port", "8770"],
+    "environment": {},
+    "control_addr": "127.0.0.1:8770",
+    "ports": ["127.0.0.1:8770"],
+    "startup_timeout_ms": 120000,
+    "shutdown_timeout_ms": 120000
+  }
+}

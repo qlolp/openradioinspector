@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.openradioinspector.supervisor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/REPLACE_USER/Applications/OpenRadioInspector/runtime/bin/ori-supervisor</string>
+    <string>run</string>
+    <string>/Users/REPLACE_USER/Library/Application Support/OpenRadioInspector/supervisor.json</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/REPLACE_USER/Library/Application Support/OpenRadioInspector</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>Umask</key><integer>63</integer>
+  <key>ExitTimeOut</key><integer>150</integer>
+</dict>
+</plist>
