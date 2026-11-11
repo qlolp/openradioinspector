@@ -32,6 +32,7 @@ from functools import wraps
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from socketserver import TCPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import numpy as np
@@ -65,6 +66,7 @@ from ..session_analytics import analytics_summary
 from ..session_store import ArchiveCapacityExceededError, ArchiveReadBusy, SQLiteSessionStore
 from ..audio_segments import AudioSegmentConflict
 from ..runtime_bridge import RuntimeBridge, RuntimeBridgeError
+from ..writer_ownership import archive_writer_owner
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
@@ -85,6 +87,7 @@ from ..occupancy import efficiency_from_store, occupancy_from_store
 from ..panorama import PanoramaLibrary, PanoramaStore
 from ..signals import SignalList
 from ..threshold import ThresholdLine
+from .event_streams import EventStreams, peer_disconnected
 
 STATIC_DIR = Path(__file__).parent / "static"
 MODERN_DIR = Path(__file__).parent / 'modern'
@@ -877,8 +880,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(result))
                 return
             if (len(parts) == 7 and parts[:3] == ["api", "v1", "sessions"]
-                    and parts[4:6] == ["investigations", "by-id"]):
-                self._send_json(api_payload(self.sessions.get_investigation(parts[3], parts[6])))
+                    and parts[4] in ("candidates", "investigations") and parts[5] == "by-id"):
+                identifier = unquote(parts[6])
+                result = (self.sessions.get_candidate(parts[3], identifier)
+                          if parts[4] == "candidates"
+                          else self.sessions.get_investigation(parts[3], identifier))
+                self._send_json(api_payload(result))
+                return
+            if (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4] == "streams"):
+                try:
+                    stream = self.sessions.instrument_context(parts[3], parts[5])
+                except SessionNotFoundError:
+                    raise
+                except KeyError as exc:
+                    self._send_api_error(404, "stream_not_found", str(exc.args[0]))
+                    return
+                self._send_json(api_payload(stream))
                 return
             if (
                 len(parts) == 5
@@ -1542,60 +1560,100 @@ class Handler(BaseHTTPRequestHandler):
         """SSE с монотонным id и повторной выдачей после Last-Event-ID."""
         if after < 0:
             raise ValueError("Last-Event-ID должен быть неотрицательным")
-        subscriber_id, events = self.sessions.subscribe(after=after)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
+        self.close_connection = True
         try:
-            while True:
+            with self.event_streams.register(self.connection) as stream:
+                if stream is None:
+                    self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
+                    return
+                notifier = self.sessions.watch_commits()
+                stream.bind_wakeup(notifier)
                 try:
-                    event = events.get(timeout=15.0)
-                except queue.Empty:
-                    self.wfile.write(b": keep-alive\n\n")
-                    self.wfile.flush()
-                    continue
-                data = json_dumps(api_payload(event))
-                frame = (
-                    f"id: {event.sequence}\n"
-                    f"event: {event.event_type}\n"
-                    f"data: {data}\n\n"
-                )
-                self.wfile.write(frame.encode("utf-8"))
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
-            self.sessions.unsubscribe(subscriber_id)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Connection", "keep-alive")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.end_headers()
+                    heartbeat = time.monotonic()+15
+                    while not stream.stopped and not self.sessions.event_stream_closed:
+                        if stream.peer_closed():
+                            break
+                        # Clear before querying: the durable cursor covers wakes
+                        # coalesced by a concurrent archive commit.
+                        notifier.clear()
+                        if stream.stopped:
+                            break
+                        try:
+                            event = self.sessions.next_stream_event(after=after)
+                        except ArchiveReadBusy:
+                            event = None
+                        if stream.stopped:
+                            break
+                        if event is None:
+                            if time.monotonic() >= heartbeat:
+                                self.wfile.write(b": keep-alive\n\n")
+                                self.wfile.flush()
+                                heartbeat = time.monotonic()+15
+                            notifier.wait(.25)
+                            continue
+                        data = json_dumps(api_payload(event))
+                        frame = (
+                            f"id: {event.sequence}\n"
+                            f"event: {event.event_type}\n"
+                            f"data: {data}\n\n"
+                        )
+                        if stream.stopped:
+                            break
+                        self.wfile.write(frame.encode("utf-8"))
+                        self.wfile.flush()
+                        after = event.sequence
+                        heartbeat = time.monotonic()+15
+                finally:
+                    self.sessions.unwatch_commits(notifier)
+        except OSError as error:
+            if not peer_disconnected(error):
+                raise
 
     def _stream_events(self) -> None:
         """Потоковая выдача состояния по протоколу Server-Sent Events."""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.end_headers()
-
-        event = self.state.subscribe()
-        last_version = -1
+        self.close_connection = True
         try:
-            while True:
-                if event.wait(timeout=1.0):
-                    event.clear()
-                if self.state.version != last_version:
-                    last_version = self.state.version
-                    data = json_dumps(self.state.snapshot(include_waterfall=False))
-                    self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-                else:
-                    self.wfile.write(b": keep-alive\n\n")
-                    self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
-            self.state.unsubscribe(event)
+            with self.event_streams.register(self.connection) as stream:
+                if stream is None:
+                    self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
+                    return
+                event = self.state.subscribe()
+                stream.bind_wakeup(event)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Connection", "keep-alive")
+                    self.end_headers()
+                    last_version = -1
+                    while not stream.stopped:
+                        if stream.peer_closed():
+                            break
+                        if event.wait(timeout=1.0):
+                            event.clear()
+                        if stream.stopped:
+                            break
+                        if self.state.version != last_version:
+                            last_version = self.state.version
+                            data = json_dumps(self.state.snapshot(include_waterfall=False))
+                            frame = f"data: {data}\n\n".encode("utf-8")
+                        else:
+                            frame = b": keep-alive\n\n"
+                        if stream.stopped:
+                            break
+                        self.wfile.write(frame)
+                        self.wfile.flush()
+                finally:
+                    self.state.unsubscribe(event)
+        except OSError as error:
+            if not peer_disconnected(error):
+                raise
 
 
 def create_server(
@@ -1619,11 +1677,30 @@ def create_server(
     if archive_max_bytes is not None and not session_database:
         raise ValueError("archive_max_bytes требует session_database")
     with ExitStack() as cleanup:
+        archive_owner = None
         bridge = RuntimeBridge.from_environment(session_database)
         if bridge is not None and sessions is not None:
             raise RuntimeBridgeError(500, 'runtime_requires_owned_archive')
         if bridge is not None:
-            cleanup.enter_context(bridge)
+            owner = bridge
+        elif sessions is None:
+            archive_owner = archive_writer_owner(session_database)
+            if archive_owner is not None:
+                session_database = str(archive_owner.database_path)
+            owner = archive_owner
+        else:
+            owner = None
+        if owner is not None:
+            owner.__enter__()
+            def finish_writer_owner(error_type, error, traceback):
+                if error_type is None:
+                    # Every CURRENT resource closer succeeded. This server has
+                    # the proof needed after a previous pre-cleanup I/O refusal.
+                    owner.release_after_archive_closed()
+                else:
+                    owner.__exit__(error_type, error, traceback)
+                return False
+            cleanup.push(finish_writer_owner)
         state = ApplicationState(database=database, library=library)
         cleanup.callback(state.close)
         if sessions is not None:
@@ -1634,6 +1711,10 @@ def create_server(
             session_service = SessionService(store=store)
         else:
             session_service = SessionService()
+        if sessions is None:
+            # Keep the raw-store callback above for a failing SessionService
+            # constructor. This callback also closes its event stream flag.
+            cleanup.callback(session_service.close)
         if workers is not None and workers.sessions is not session_service:
             raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
         worker_manager = workers or DeviceWorkerManager(session_service)
@@ -1677,6 +1758,7 @@ def create_server(
                 book = task_book
             control_scheduler = TaskScheduler(book)
             cleanup.callback(control_scheduler.close)
+        event_streams = EventStreams()
         handler = type(
             "BoundHandler",
             (Handler,),
@@ -1691,10 +1773,12 @@ def create_server(
                 "automatic_completion": completion_scheduler,
                 "control_scheduler": control_scheduler,
                 "runtime_bridge": bridge,
+                "event_streams": event_streams,
             },
         )
         httpd = ThreadingHTTPServer((host, port), handler)
         cleanup.callback(httpd.server_close)
+        cleanup.callback(event_streams.close)
         httpd.daemon_threads = True
         httpd.session_service = session_service
         httpd.worker_manager = worker_manager
@@ -1705,13 +1789,34 @@ def create_server(
         httpd.automatic_completion = completion_scheduler
         httpd.control_scheduler = control_scheduler
         httpd.runtime_bridge = bridge
+        httpd.archive_owner = archive_owner
+        httpd.event_streams = event_streams
         if bridge is not None:
             bridge.attach(httpd, monitoring)
         resources = cleanup.pop_all()
+        close_lock = threading.RLock()
+        resources_closed = False
+        resource_cleanup_failed = False
         # Keep the original socket close inside ExitStack; the public close also
         # owns the resources constructed here, including private task storage.
         def close_owned_resources():
+            nonlocal resources_closed, resource_cleanup_failed
+            with close_lock:
+                if resources_closed:
+                    return
+                if resource_cleanup_failed:
+                    # ExitStack consumes callbacks even when one fails. An
+                    # empty second pass cannot prove that SQLite really closed.
+                    raise RuntimeError('Archive resource cleanup failed; explicit closure proof is required')
+                close_current_resources()
+
+        def close_current_resources():
+            nonlocal resources_closed, resource_cleanup_failed
+            stack_started = False
             try:
+                # No archive/state close occurs until this listener's admitted
+                # SSE readers and encoders have actually left their scopes.
+                event_streams.close()
                 monitoring.close()
                 if task_scheduler is None:
                     control_scheduler.close()
@@ -1726,12 +1831,20 @@ def create_server(
                     worker_manager.close()
                 if worker_manager.active_count or worker_manager.pending_start_count:
                     raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
+                stack_started = True
                 resources.close()
+                resources_closed = True
             except BaseException:
+                if stack_started:
+                    resource_cleanup_failed = True
                 if bridge is not None:
                     bridge.__exit__(*sys.exc_info())
+                if archive_owner is not None:
+                    archive_owner.__exit__(*sys.exc_info())
                 raise
-        httpd.resource_cleanup = resources
+        # Preserve the existing .close entrypoint without exposing an unguarded
+        # one-shot ExitStack path around the drain/proof checks.
+        httpd.resource_cleanup = SimpleNamespace(close=close_owned_resources)
         httpd.server_close = close_owned_resources
         monitoring.start()
         return httpd

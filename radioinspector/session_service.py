@@ -149,6 +149,10 @@ class SessionService:
         self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
         self._audio_hub = AudioStreamHub()
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
+        # HTTP streams retain only a wakeup flag per client. Committed event
+        # payloads come from the archive, without per-client copies on ingest.
+        self._stream_notifiers: set[threading.Event] = set()
+        self._event_stream_closed = threading.Event()
         self._sequence = 0
         self._subscriber_sequence = 0
         self._lock = threading.RLock()
@@ -1676,6 +1680,36 @@ class SessionService:
         with self._lock:
             self._subscribers.pop(subscriber_id, None)
 
+    def watch_commits(self) -> threading.Event:
+        """Register before reading history so a concurrent commit cannot be lost."""
+        notifier = threading.Event()
+        with self._lock:
+            self._stream_notifiers.add(notifier)
+        return notifier
+
+    def unwatch_commits(self, notifier: threading.Event) -> None:
+        with self._lock:
+            self._stream_notifiers.discard(notifier)
+
+    @property
+    def event_stream_closed(self) -> bool:
+        return self._event_stream_closed.is_set()
+
+    def next_stream_event(self, *, after: int) -> Optional[SessionEvent]:
+        """One source event at a time; persistent replay uses a short WAL reader."""
+        if after < 0:
+            raise ValueError("after должен быть неотрицательным")
+        if self._event_stream_closed.is_set():
+            return None
+        if self._store is not None and self._store.persistent:
+            return self._store.next_stream_event(after=after)
+        with self._lock:
+            if self._event_stream_closed.is_set():
+                return None
+            if self._store is not None:
+                return self._store.next_stream_event(after=after)
+            return next((copy.deepcopy(event) for event in self._events if event.sequence > after),None)
+
     def instrument_context(self, session_id, stream_id):
         session=self.get_session(session_id)
         stream=next((item for item in session.streams if item.id==stream_id),None)
@@ -1741,6 +1775,9 @@ class SessionService:
 
     def close(self) -> None:
         with self._lock:
+            self._event_stream_closed.set()
+            for notifier in self._stream_notifiers:
+                notifier.set()
             if self._store is not None:
                 self._store.close()
 
@@ -1818,6 +1855,8 @@ class SessionService:
         """Обновляет replay и подписчиков только после успешного commit архива."""
         self._sequence = event.sequence
         self._events.append(event)
+        for notifier in self._stream_notifiers:
+            notifier.set()
         if event.event_type.startswith(("session.", "candidate.", "investigation.", "device.")):
             self._trim_registry_cache_locked()
         for subscriber in self._subscribers.values():

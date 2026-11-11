@@ -11,6 +11,7 @@ import json
 import sqlite3
 import struct
 import threading
+from . import candidate_precision
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -107,6 +108,7 @@ class SQLiteSessionStore:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
                 from .observation_precision import check_extension, install_extension
                 check_extension(self._connection)
+                candidate_precision.check_extension(self._connection)
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
                 self._connection.execute("PRAGMA journal_mode = WAL")
@@ -121,6 +123,7 @@ class SQLiteSessionStore:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
                 self._create_schema()
                 install_extension(self._connection)
+                candidate_precision.install_extension(self._connection)
                 self._create_ingestion_schema(backfill=version < 6)
                 self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         except BaseException:
@@ -735,6 +738,15 @@ class SQLiteSessionStore:
             ).fetchall()
             return [self._event(row) for row in rows]
 
+    def next_stream_event(self, *, after: int) -> Optional[SessionEvent]:
+        """A bounded event read outside the persistent archive's writer lock."""
+        with self.read_snapshot() as connection:
+            row = connection.execute(
+                "SELECT * FROM events WHERE sequence > ? ORDER BY sequence LIMIT 1",
+                (after,),
+            ).fetchone()
+            return self._event(row) if row is not None else None
+
     def record_sweep(
         self, sweep: Sweep, *, event: Optional[SessionEvent] = None
     ) -> None:
@@ -1096,6 +1108,8 @@ class SQLiteSessionStore:
             ),
         )
 
+        candidate_precision.save(self._connection,candidate)
+
     def _write_investigation(
         self,
         investigation: Investigation,
@@ -1177,9 +1191,9 @@ class SQLiteSessionStore:
                 },
                 "center_frequency_hz": row["center_frequency_hz"],
                 "bandwidth_hz": row["bandwidth_hz"],
-                "peak_level": row["peak_level"],
+                "peak_level": candidate_precision.decode(row["peak_level"],row["peak_level_bits_le"]),
                 "level_unit": row["level_unit"],
-                "score": row["score"],
+                "score": candidate_precision.decode(row["score"],row["score_bits_le"]),
                 "observation_ids": json.loads(row["observation_ids_json"]),
                 "state": row["state"],
             }
@@ -1188,7 +1202,7 @@ class SQLiteSessionStore:
     def get_candidate(self, candidate_id: str) -> Optional[Candidate]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM candidates WHERE id = ?", (candidate_id,)
+                candidate_precision.SELECT+" WHERE c.id = ?", (candidate_id,)
             ).fetchone()
             return self._candidate(row) if row is not None else None
 
@@ -1205,7 +1219,7 @@ class SQLiteSessionStore:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM candidates" + where + " ORDER BY started_at, id", parameters,
+                candidate_precision.SELECT + where + " ORDER BY started_at, id", parameters,
             ).fetchall()
             return [self._candidate(row) for row in rows]
 
