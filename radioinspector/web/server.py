@@ -27,7 +27,7 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from functools import wraps
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from socketserver import TCPServer
@@ -1656,6 +1656,19 @@ class Handler(BaseHTTPRequestHandler):
                 raise
 
 
+@contextmanager
+def _startup_cleanup():
+    cleanup = ExitStack()
+    try:
+        yield cleanup
+    finally:
+        # A failed constructor/bind is not evidence that resource closure
+        # failed. Start unwinding without that original exception so the last
+        # writer-owner callback sees only errors from the actual closers.
+        # A closer failure still reaches the owner and retains its lease.
+        cleanup.close()
+
+
 def create_server(
     host: str = "127.0.0.1",
     port: int = 8770,
@@ -1676,7 +1689,7 @@ def create_server(
         raise ValueError("Передайте либо sessions, либо session_database, но не оба")
     if archive_max_bytes is not None and not session_database:
         raise ValueError("archive_max_bytes требует session_database")
-    with ExitStack() as cleanup:
+    with _startup_cleanup() as cleanup:
         archive_owner = None
         bridge = RuntimeBridge.from_environment(session_database)
         if bridge is not None and sessions is not None:

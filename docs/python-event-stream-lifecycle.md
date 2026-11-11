@@ -49,6 +49,35 @@ across three listeners. Header tests cover broken pipes, resets and simulated
 Windows aborted-send errors. The fixtures create only their own temporary
 archives and sockets; they open no hardware or existing data directory.
 
+The slow-writer fixture measures actual TCP backpressure before entering its
+blocking `wfile.write`. A requested socket buffer size does not prove that a
+single 1 MB write will block: all four Windows Python jobs at `7a67925` exited
+the write scope before the fixture's unchanged 50 ms assertion. The old scope
+recorded neither successful completion nor a filtered disconnect error, so the
+hosted logs do not distinguish those outcomes. The fixture now sets
+the receiver buffer before connecting, fills the same socket with bounded
+nonblocking sends (at most 16 MiB within the existing two-second readiness
+bound), and requires observed backpressure. It restores blocking mode, verifies
+the real write stays pending, and requires shutdown to end that write with a
+disconnect error before archive closure and writer admission. Both small and
+larger requested send buffers run on every platform.
+
+Startup regressions separately verify that constructor/bind failure closes the
+actual SQLite connection and permits a competing writer, while a real archive
+close failure retains ownership. On Linux, both successful-cleanup scenarios
+reproduced `runtime_writer_busy` before the fix. The original slow-write fixture
+also reproduced its Windows assertion on a real Linux TCP connection with a
+larger send buffer; instrumentation confirmed that its single write completed
+before the pending-write assertion failed. These are synthetic lifecycle checks,
+not device or performance acceptance.
+
+The follow-up passed the full Linux/Python 3.12.14 release runner: 1,850 tests with
+zero skips, 10,045 synthetic endurance sweeps, all seven fixture archives
+unchanged, and no cleanup errors. Six focused startup/socket cases also passed
+on Python 3.15.1. The original command and shutdown deadlines remain unchanged.
+Windows hosted execution of this follow-up remains required; local Linux
+verification does not establish Windows or macOS acceptance.
+
 The parent must run the full available Python release runner on the assembled
 candidate before publication. This focused profile is not a passing full-release
 gate or a physical/device, macOS or Windows acceptance claim.
