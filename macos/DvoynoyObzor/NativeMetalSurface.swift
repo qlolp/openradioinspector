@@ -93,7 +93,7 @@ struct NativeMetalPlot: NSViewRepresentable {
         view.needsDisplay = true
     }
     @MainActor
-    final class Coordinator: NSObject, @preconcurrency MTKViewDelegate {
+    final class Coordinator: NSObject, MTKViewDelegate {
         private var traces: [(MTLBuffer, Int)] = []
         private var dashes: (MTLBuffer, Int)?
         private var texture: MTLTexture?

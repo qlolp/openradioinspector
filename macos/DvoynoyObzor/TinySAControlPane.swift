@@ -41,18 +41,19 @@ struct TinySAWebControl: NSViewRepresentable {
             view.stopLoading(); view.navigationDelegate = nil
         }
     }
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKDownloadDelegate {
         let origin: URL
         init(origin: URL) { self.origin = origin }
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-                     decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
             guard let target = action.request.url,
                   target.scheme == origin.scheme, target.host == origin.host,
                   target.port == origin.port else { decisionHandler(.cancel); return }
             decisionHandler(action.shouldPerformDownload ? .download : .allow)
         }
         func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
-                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
             guard let target = response.response.url,
                   target.scheme == origin.scheme, target.host == origin.host,
                   target.port == origin.port else { decisionHandler(.cancel); return }
@@ -65,7 +66,7 @@ struct TinySAWebControl: NSViewRepresentable {
             download.delegate = self
         }
         func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
-                      suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+                      suggestedFilename: String, completionHandler: @escaping @MainActor @Sendable (URL?) -> Void) {
             let panel = NSSavePanel()
             panel.nameFieldStringValue = URL(fileURLWithPath: suggestedFilename).lastPathComponent
             panel.begin { result in completionHandler(result == .OK ? panel.url : nil) }

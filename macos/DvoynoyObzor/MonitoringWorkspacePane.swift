@@ -79,8 +79,8 @@ struct MonitoringWorkspacePane: View {
             confirm = false
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
         }
-        .onChange(of: workspace.selectedInput) { _ in workspace.audioConfirmed = false }
-        .onChange(of: workspace.audioEnabled) { _ in workspace.audioConfirmed = false }
+        .onChange(of: workspace.selectedInput) { _, _ in workspace.audioConfirmed = false }
+        .onChange(of: workspace.audioEnabled) { _, _ in workspace.audioConfirmed = false }
         .onDisappear { workspace.stopAudio(); workspace.stopOperations() }
         .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, value in
             let id = value.rawValue

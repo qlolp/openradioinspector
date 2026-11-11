@@ -91,21 +91,22 @@ final class RemoteDualModel: ObservableObject {
     @Published var taskCreatePending = false
     @Published var taskCancelStatus = "Queued ControlTask не отменена"
     @Published var taskCancelPending = false
-    @Published private(set) var comparisonSweeps: [PlatformSweep] = []
+    // The app-internal action extensions share these setters across source files.
+    @Published var comparisonSweeps: [PlatformSweep] = []
     @Published var comparisonSelectionID = ""
-    @Published private(set) var comparisonReference: PinnedSweepReference?
-    @Published private(set) var sweepComparison: PlatformSweepComparison?
-    @Published private(set) var sweepComparisonError: String?
-    @Published private(set) var sweepComparisonPending = false
+    @Published var comparisonReference: PinnedSweepReference?
+    @Published var sweepComparison: PlatformSweepComparison?
+    @Published var sweepComparisonError: String?
+    @Published var sweepComparisonPending = false
     @Published var referenceName = ""
     @Published var savedReferenceSelectionID = ""
-    @Published private(set) var referenceCatalog: PlatformSweepReferenceCatalog?
-    @Published private(set) var savedSweepReferences: [PlatformSweepReference] = []
-    @Published private(set) var referenceCatalogError: String?
-    @Published private(set) var referenceSaveStatus: String?
-    @Published private(set) var referenceWriteNotice: String?
-    @Published private(set) var referenceCatalogPending = false
-    @Published private(set) var referenceSavePending = false
+    @Published var referenceCatalog: PlatformSweepReferenceCatalog?
+    @Published var savedSweepReferences: [PlatformSweepReference] = []
+    @Published var referenceCatalogError: String?
+    @Published var referenceSaveStatus: String?
+    @Published var referenceWriteNotice: String?
+    @Published var referenceCatalogPending = false
+    @Published var referenceSavePending = false
     @Published var archiveCapacity: PlatformArchiveCapacity?
     @Published var archiveCapacityError: String?
     @Published var archiveAnalytics: PlatformAnalyticsSummary?
