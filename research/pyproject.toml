@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ori-research"
+version = "0.1.0"
+description = "Isolated, disposable snapshot analytics for OpenRadioInspector"
+license = "MIT"
+requires-python = "==3.15.*"
+dependencies = ["numpy==2.5.4", "duckdb==2.0.0", "pyarrow==26.0.1"]
+
+[project.scripts]
+ori-research = "ori_research.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

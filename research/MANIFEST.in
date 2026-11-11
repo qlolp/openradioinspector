@@ -1,0 +1,2 @@
+include .python-version requirements.lock build-requirements.lock
+recursive-include tests/fixtures *.json
