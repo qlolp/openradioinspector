@@ -1,0 +1,11 @@
+{
+  "source": "Python stdlib wave, signed int16 extremes; no hardware",
+  "sample_rate_hz": 24000,
+  "frames": 8,
+  "pcm_hex": "008000c0ffff00000100ff3ffe7fff7f",
+  "wav_hex": "524946463400000057415645666d74201000000001000100c05d000080bb0000020010006461746110000000008000c0ffff00000100ff3ffe7fff7f",
+  "wav_sha256": "47d0ae98bc7c0211d4ffc77c721519bfd94729bac02911eb97c3c3939b9f91c1",
+  "started_at": "2026-11-11T12:00:00.000000Z",
+  "ended_at": "2026-11-11T12:00:00.000333Z",
+  "started_unix_micros": 1794398400000000
+}
