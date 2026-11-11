@@ -1,6 +1,7 @@
 """Real owned HTTP streams must finish archive work before writer admission ends."""
 import http.client
 import json
+from contextlib import nullcontext
 from pathlib import Path
 import select
 import sqlite3
@@ -14,7 +15,7 @@ from unittest.mock import patch
 from radioinspector.runtime_bridge import RuntimeBridgeError
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
-from radioinspector.web.event_streams import peer_disconnected
+from radioinspector.web.event_streams import _ActiveStream, peer_disconnected
 from radioinspector.web.server import create_server
 from radioinspector.writer_ownership import archive_writer_owner
 from tests.test_platform import session_payload
@@ -186,56 +187,62 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
         self.assertEqual(response.read(1), b'')
         self.assertFalse(state._subscribers)
 
-    def slow_socket_writer(self, send_buffer):
+    def slow_socket_writer(self, send_buffer, *, shutdown_wakes=True):
         server = self.server()
         service = server.session_service
         service.create_session(session_payload())
         writing, exited = threading.Event(), threading.Event()
         outcomes, buffered = [], []
+        owned_connections, shutdowns = [], []
+        socket_shutdown = socket.socket.shutdown
+        def no_write_interrupt(connection, how):
+            if how == socket.SHUT_RDWR and any(connection is owned for owned in owned_connections):
+                shutdowns.append(how)
+                return
+            return socket_shutdown(connection, how)
         original = server.RequestHandlerClass._stream_session_events
         def constrained(handler, after=0):
+            owned_connections.append(handler.connection)
             handler.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, send_buffer)
-            write = handler.wfile.write
-            def observed(data):
-                if len(data) < 500000:
-                    return write(data)
-                try:
-                    # SO_SNDBUF is a hint: Windows may accept a whole 1 MB
-                    # write immediately. Measure actual kernel backpressure
-                    # first, using bounded sends and the same owned TCP socket.
-                    connection = handler.connection
-                    previous_timeout = connection.gettimeout()
-                    total = 0
-                    deadline = time.monotonic() + 2
-                    connection.setblocking(False)
-                    try:
-                        while total < 16 * 1024 * 1024 and time.monotonic() < deadline:
-                            try:
-                                sent = connection.send(data[:16384])
-                            except BlockingIOError:
-                                if not select.select([], [connection], [], .05)[1]:
-                                    break
-                            else:
-                                if not sent:
-                                    raise AssertionError('synthetic socket closed before backpressure')
-                                total += sent
-                        else:
-                            raise AssertionError(f'synthetic socket never backpressured after {total} bytes')
-                    finally:
-                        connection.settimeout(previous_timeout)
-                    buffered.append(total)
-                    writing.set()
-                    result = write(data)
-                    outcomes.append(f'write completed with {result} bytes')
-                    return result
-                except BaseException as error:
-                    outcomes.append(error)
-                    raise
-                finally:
-                    exited.set()
-            handler.wfile.write = observed
             return original(handler, after)
-        with patch.object(server.RequestHandlerClass, '_stream_session_events', constrained):
+        write = _ActiveStream.write
+        def observed(stream, data):
+            if len(data) < 500000:
+                return write(stream, data)
+            try:
+                # Measure real kernel backpressure, then enter the production
+                # cooperative writer. Do not reintroduce a blocking sendall
+                # outside the very path whose cancellation this test checks.
+                connection = stream.connection
+                self.assertEqual(connection.gettimeout(), 0.0)
+                total = 0
+                deadline = time.monotonic() + 2
+                while total < 16 * 1024 * 1024 and time.monotonic() < deadline:
+                    try:
+                        sent = connection.send(data[:16384])
+                    except BlockingIOError:
+                        if not select.select([], [connection], [], .05)[1]:
+                            break
+                    else:
+                        if not sent:
+                            raise AssertionError('synthetic socket closed before backpressure')
+                        total += sent
+                else:
+                    raise AssertionError(f'synthetic socket never backpressured after {total} bytes')
+                buffered.append(total)
+                writing.set()
+                result = write(stream, data)
+                outcomes.append(f'write completed with {result} bytes')
+                return result
+            except BaseException as error:
+                outcomes.append(error)
+                raise
+            finally:
+                exited.set()
+        shutdown_model = nullcontext() if shutdown_wakes else patch.object(
+            socket.socket, 'shutdown', new=no_write_interrupt)
+        with shutdown_model, patch.object(server.RequestHandlerClass, '_stream_session_events', constrained), \
+                patch.object(_ActiveStream, 'write', observed):
             connection = http.client.HTTPConnection(*server.server_address, timeout=2)
             self.addCleanup(connection.close)
             # Set the receive window before the TCP handshake, so already
@@ -254,6 +261,8 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
             self.writer_is_busy(service._store.path)
             server.server_close()
         self.assertTrue(exited.is_set())
+        if not shutdown_wakes:
+            self.assertEqual(shutdowns, [socket.SHUT_RDWR])
         self.assertEqual(len(outcomes), 1, outcomes)
         self.assertIsInstance(outcomes[0], OSError)
         self.assertTrue(peer_disconnected(outcomes[0]), outcomes)
@@ -270,6 +279,11 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
         # Exercise the larger-buffer case on every OS, without assuming the OS
         # grants this exact capacity or skipping when its cap is lower.
         self.slow_socket_writer(2 * 1024 * 1024)
+
+    def test_slow_socket_shutdown_drains_when_shutdown_does_not_interrupt_the_write(self):
+        # Model the hosted Windows result without replacing the real socket,
+        # production stop flag, archive, write, or drain barrier.
+        self.slow_socket_writer(4096, shutdown_wakes=False)
 
     def test_closing_one_server_preserves_injected_service_and_other_streams(self):
         store = SQLiteSessionStore(str(self.directory / 'injected.sqlite'))
@@ -307,6 +321,33 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
         self.assertFalse(service.event_stream_closed)
         self.assertEqual(service.get_session(session.id).state.value, 'running')
         self.assertEqual(service.health()['last_event_id'], 2)
+
+    def test_sse_socket_mode_does_not_change_an_independent_regular_post(self):
+        server = self.server()
+        self.connect(server)
+        observed = []
+        finished = threading.Event()
+        post = server.RequestHandlerClass.do_POST
+        def regular_post(handler):
+            before = (handler.connection.gettimeout(), 'write' in vars(handler.wfile))
+            try:
+                return post(handler)
+            finally:
+                observed.append((before, handler.connection.gettimeout(), 'write' in vars(handler.wfile)))
+                finished.set()
+        connection = http.client.HTTPConnection(*server.server_address, timeout=2)
+        try:
+            with patch.object(server.RequestHandlerClass, 'do_POST', regular_post):
+                connection.request('POST', '/api/v1/sessions', body=json.dumps(session_payload()),
+                                   headers={'Content-Type': 'application/json'})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 201)
+                session = json.loads(response.read())['data']
+                self.assertEqual(server.session_service.get_session(session['id']).id, session['id'])
+                self.assertTrue(finished.wait(2))
+            self.assertEqual(observed, [((None, False), None, False)])
+        finally:
+            connection.close()
 
     def test_failed_store_close_cannot_turn_empty_exitstack_into_success(self):
         path = str(self.directory / 'failed' / 'archive.sqlite')
