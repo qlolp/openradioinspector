@@ -11,6 +11,12 @@ separate views; the shared-core app does not instantiate those models.
 - The local monitoring/research selection persists in this client's preferences.
   A single monitoring model survives workspace changes. History and Pause view
   do not disarm the project, stop workers, or stop recording.
+- Remote nodes and separately supervised local services outlive this client.
+  The bundled Python compatibility helper has a different lifetime: its existing
+  stdin lifeline ends when the app process exits. The launcher explicitly marks
+  this helper and clears an inherited marker in remote mode. Native information
+  distinguishes that helper from an autonomous core service; selecting another
+  node removes the helper label. No service is installed or promoted by the UI.
 - Monitoring leads with spectrum, waterfall, raw AR-DV1 observations and separate
   core device, coverage, archive and delivery states. Research retains every
   existing analysis pane, workflows, exports, manual controls and search.
@@ -99,8 +105,19 @@ python -m tests.run_release_checks --swift --report-dir release-reports
 That runner owns synthetic fixtures and explicitly skips the physical tinySA
 probe. It must pass both Swift suites and the unsigned Xcode build, including
 Swift 6 UI migration diagnostics, before this work is called release complete.
-The standalone Linux release-runner attempt stopped at its display dependency
-gate; the parent integration run owns the full Python/Node/Tk gate.
+The first standalone Linux release-runner attempt stopped at its display
+dependency gate. A subsequent attempt with the owned display ran all 1,753
+Python tests with zero skips but failed five timing-sensitive checks (one
+failure, four errors). Focused reruns of all four affected methods passed,
+including instrumented fixture startup measurements of 0.201–0.252 seconds;
+the cause of the full-run failures is not established. The parent owns the
+quiet integrated Python/Node/Tk gate. Neither failed attempt is a passing gate.
+
+`python macos/ci/test_launcher.py -v` runs the shipped shell launcher with owned
+fake UI/core executables. It verifies that remote mode starts no local process
+and clears an inherited helper marker, while the bundled mode sets its marker,
+closes its lifeline and removes its private runtime directory on UI exit. It
+uses no hardware, archive or installed service.
 
 Physical tinySA/AR-DV1/USB/audio acceptance, eight-hour and autonomous-node runs
 remain **not run**. macOS latency, frame-rate and memory targets remain

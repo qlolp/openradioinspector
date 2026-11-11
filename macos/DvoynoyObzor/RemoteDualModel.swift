@@ -209,6 +209,14 @@ final class RemoteDualModel: ObservableObject {
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
     var thresholdDbm: Double? { parseUserNumber(threshold) }
+    var usesBundledLegacyHelper: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["ORI_BUNDLED_LEGACY_CORE"] == "1",
+              let owned = environment["ORI_LOCAL_CORE_URL"],
+              let ownedURL = try? PlatformBaseURL(owned),
+              let selectedURL = try? PlatformBaseURL(serverURL) else { return false }
+        return ownedURL == selectedURL
+    }
     var selectedCandidate: PlatformCandidate? {
         candidates.first(where: { PlatformExactID.same($0.id, selectedCandidateID) })
     }

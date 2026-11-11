@@ -29,6 +29,10 @@ struct NativeConnectionPane: View {
                     ForEach(model.sessions, id: \.exactID) { Text("\($0.name) · \($0.state)").tag($0.exactID) }
                 }.disabled(!model.connected || model.busy)
             }
+            if model.usesBundledLegacyHelper {
+                Label("Локальное вспомогательное ядро: завершается вместе с приложением. Для автономной охраны подключите отдельную службу ядра.", systemImage: "desktopcomputer")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             DisclosureGroup("Сеанс и приборы") {
                 HStack {
                     Button("Новый draft") { model.createSession(simulated: false) }
@@ -90,7 +94,9 @@ struct NativeContinuityBar: View {
                     Button("Понятно") { model.eventGapNotice = nil }
                 }.font(.caption)
             }
-            Text("Просмотр истории и пауза графика действуют только в этом клиенте. Охрана и запись продолжаются в ядре.")
+            Text(model.usesBundledLegacyHelper
+                 ? "История и пауза графика не останавливают охрану. Вспомогательное ядро работает, пока запущено приложение."
+                 : "Просмотр истории и пауза графика действуют только в этом клиенте. Охрана и запись продолжаются в ядре.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(.horizontal, 16).padding(.vertical, 8).background(Color.primary.opacity(0.04))
     }
