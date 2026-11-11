@@ -48,9 +48,9 @@ jobs:
       - name: Check Windows audio cancellation before the full suite
         if: runner.os == 'Windows'
         run: python -m unittest tests.test_windows_audio_stream.AudioCancellationTests
-      - name: Install headless Tk display on Linux
+      - name: Check selected Python and headless Tk display on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
+        run: python -m tools.ci.headless_bootstrap
       - name: Run Linux release checks with hidden Tk
         if: runner.os == 'Linux'
         run: xvfb-run -a python -m tests.run_release_checks --report-dir release-reports
@@ -68,11 +68,20 @@ jobs:
       # Only owned synthetic servers/archives, mocked COM and own PTYs are used.
       # Real receiver/analyzer acceptance remains separate and is not implied.
       # Windows permits explicit POSIX PTY, permission-bit and shell-launcher skips.
+      - name: Record CI status before artifact upload
+        if: always()
+        shell: bash
+        env:
+          CI_JOB_STATUS: ${{ job.status }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p release-reports
+          printf 'job_status=%.16s\nhead_sha=%.40s\n' "$CI_JOB_STATUS" "$CI_HEAD_SHA" > release-reports/ci-status.log
       - name: Preserve synthetic release diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-diagnostics-${{ matrix.os }}-py${{ matrix.python }}-attempt-${{ github.run_attempt }}
           path: release-reports/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
