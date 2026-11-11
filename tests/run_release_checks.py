@@ -764,7 +764,10 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
     failure: BaseException | None = None
     cleanup_errors = []
     with tempfile.TemporaryDirectory(prefix="ori-release-checks-") as temporary:
-        directory = Path(temporary)
+        # Canonicalize this owned root before passing it to children: macOS
+        # aliases /var through /private/var, and Windows may return an 8.3 path.
+        # Production writer ownership deliberately rejects symlink aliases.
+        directory = Path(temporary).resolve()
         # Some server tests use tempfile's default for their synthetic task book.
         # Give every fresh child a private temp root before it imports tempfile.
         child_temp = directory / "children"

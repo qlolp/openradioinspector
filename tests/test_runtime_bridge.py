@@ -134,7 +134,7 @@ class RuntimeBridgeTests(unittest.TestCase):
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.directory=Path(self.temporary.name)
+        self.directory=Path(self.temporary.name).resolve()
         self.database=self.directory/'archive.sqlite'
         self.env=dict(ORI_RUNTIME_CONTROL_TOKEN=TOKEN,ORI_RUNTIME_INSTANCE_ID=INSTANCE,
                       ORI_RUNTIME_DATA_DIR=str(self.directory))

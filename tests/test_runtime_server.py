@@ -21,7 +21,7 @@ class RuntimeServerTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.directory = Path(temporary.name)
+        self.directory = Path(temporary.name).resolve()
         self.env = dict(ORI_RUNTIME_CONTROL_TOKEN=TOKEN, ORI_RUNTIME_INSTANCE_ID=INSTANCE,
                         ORI_RUNTIME_DATA_DIR=str(self.directory))
         with patch.dict(os.environ,self.env):
@@ -85,7 +85,7 @@ class RuntimeServerTests(unittest.TestCase):
 class RuntimeLauncherTests(unittest.TestCase):
     def test_authenticated_shutdown_exits_owned_launcher_and_keeps_committed_archive(self):
         with tempfile.TemporaryDirectory() as temporary:
-            directory=Path(temporary)
+            directory=Path(temporary).resolve()
             ready=directory/'ready'
             environment=dict(os.environ,ORI_RUNTIME_CONTROL_TOKEN=TOKEN,
                              ORI_RUNTIME_INSTANCE_ID=INSTANCE,ORI_RUNTIME_DATA_DIR=str(directory))
@@ -95,6 +95,9 @@ class RuntimeLauncherTests(unittest.TestCase):
             try:
                 deadline=time.monotonic()+15
                 while not ready.exists() and process.poll() is None and time.monotonic()<deadline:time.sleep(.02)
+                if not ready.is_file() and process.poll() is not None:
+                    _stdout,stderr=process.communicate(timeout=5)
+                    self.fail('Owned launcher exited before readiness: '+stderr.decode(errors='replace'))
                 self.assertTrue(ready.is_file(),'Owned launcher did not become ready')
                 from urllib.request import Request,urlopen
                 base=ready.read_text().strip()

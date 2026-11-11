@@ -5,6 +5,7 @@ import sqlite3
 import struct
 import tempfile
 import unittest
+from contextlib import closing
 
 from radioinspector.session_service import SessionService
 from radioinspector.session_store import SQLiteSessionStore
@@ -43,7 +44,7 @@ class ObservationPrecisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)/'archive.sqlite'
             SQLiteSessionStore(str(path)).close()
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute('UPDATE ori_archive_schema SET version=2')
                 db.execute('PRAGMA journal_mode=DELETE')
             before = path.read_bytes()
