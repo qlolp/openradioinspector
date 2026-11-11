@@ -57,7 +57,10 @@ crossing executors have checked `Sendable` conformance. The native production ta
 with complete concurrency checking. Existing XCTest source compatibility remains
 Swift 5. The native semantic build and runtime are explicit remaining Xcode CI
 gates; configuring the mode alone is not a completed migration claim. The Xcode project registers each
-native source once and retains `MACOSX_DEPLOYMENT_TARGET=14.0`.
+native source once and retains `MACOSX_DEPLOYMENT_TARGET=14.0`. CI selects the
+published `xcode-27` runner inventory and verifies Xcode 27.2 / Swift 6.4.2;
+`macos-latest` currently defaults to Swift 6.3.3. Existing matrix entries and
+hardened action pins remain intact, with an additional fast unsigned native build.
 
 There is no wire-contract change. SDK additions are a committed-event stream,
 watermark reader, exact UTC timestamp/display adapters and the default-compatible
