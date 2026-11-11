@@ -53,10 +53,10 @@ comparison, occupancy, masks, detection and other analyses remain core API calls
 
 Both SwiftPM manifests require the Swift 6.4 toolchain. Portable SDK production
 sources compile in Swift 6 language mode; streamed measurement and display DTOs
-crossing executors have checked `Sendable` conformance. Native UI and existing XCTest sources temporarily
-retain Swift 5 language compatibility with complete UI concurrency checking.
-Enabling Swift 6 mode for the entire native target is an explicit remaining
-Xcode CI gate, not a completed migration claim. The Xcode project registers each
+crossing executors have checked `Sendable` conformance. The native production target is also configured for Swift 6 language mode
+with complete concurrency checking. Existing XCTest source compatibility remains
+Swift 5. The native semantic build and runtime are explicit remaining Xcode CI
+gates; configuring the mode alone is not a completed migration claim. The Xcode project registers each
 native source once and retains `MACOSX_DEPLOYMENT_TARGET=14.0`.
 
 There is no wire-contract change. SDK additions are a committed-event stream,

@@ -9,7 +9,7 @@ let package = Package(
     targets: [
         .target(name: "DvoynoyObzorSession", dependencies: ["SpektrKomandy"],
                 path: "DvoynoyObzor", exclude: ["DvoynoyObzorApp.swift"],
-                swiftSettings: [.swiftLanguageMode(.v5), .enableUpcomingFeature("StrictConcurrency")]),
+                swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(name: "DvoynoyObzorSessionTests", dependencies: ["DvoynoyObzorSession"],
                     path: "Tests", swiftSettings: [.swiftLanguageMode(.v5)])
     ]

@@ -301,7 +301,7 @@
 				<key>SDKROOT</key>
 				<string>macosx</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>DEBUG_INFORMATION_FORMAT</key>
 				<string>dwarf</string>
 				<key>ENABLE_TESTABILITY</key>
@@ -341,7 +341,7 @@
 				<key>SDKROOT</key>
 				<string>macosx</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>DEBUG_INFORMATION_FORMAT</key>
 				<string>dwarf-with-dsym</string>
 				<key>GCC_OPTIMIZATION_LEVEL</key>
@@ -401,7 +401,7 @@
 				<key>SWIFT_STRICT_CONCURRENCY</key>
 				<string>complete</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>ENABLE_TESTABILITY</key>
 				<string>YES</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
@@ -457,7 +457,7 @@
 				<key>SWIFT_STRICT_CONCURRENCY</key>
 				<string>complete</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
 				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>

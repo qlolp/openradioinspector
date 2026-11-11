@@ -102,9 +102,10 @@ swift test --package-path macos --filter SweepQualityModelTests
 ## Модернизация native-клиента
 
 Манифесты требуют Swift 6.4; проверяемый patch — Swift 6.4.2. SDK собирается в
-Swift 6 language mode. Native UI пока сохраняет Swift 5 compatibility с полными
-проверками concurrency; переход всего UI в Swift 6 и unsigned Xcode build —
-обязательный отдельный CI gate. Deployment target остаётся macOS 14.
+Swift 6 language mode. Native production target также настроен на Swift 6 с
+полными проверками concurrency; семантическая сборка UI, native тесты и unsigned
+Xcode build остаются обязательным CI gate. Исходники XCTest сохраняют Swift 5
+compatibility. Deployment target остаётся macOS 14.
 
 Новые portable SDK тесты проверяют общий measurement fixture, SSE/cursor,
 точный UTC, исходные единицы/float64, порядок поздних свипов, display mesh и
