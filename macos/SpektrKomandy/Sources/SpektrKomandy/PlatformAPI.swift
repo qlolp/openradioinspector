@@ -118,7 +118,35 @@ class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendab
     }
 }
 
-final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+protocol PlatformCompletingResponse: AnyObject, Sendable {
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)? { get set }
+    func cancel()
+}
+
+/// Both bounded HTTP readers share this continuation/transport lifetime. The
+/// start callback is synchronous; cancellation can race registration or resume.
+func platformAwaitResponse(_ delegate: any PlatformCompletingResponse,
+    invalidate: @Sendable () -> Void, start: @Sendable () -> Void) async throws -> (Data, URLResponse) {
+    let value: (Data, URLResponse) = try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.completion = { continuation.resume(with: $0) }
+            if Task.isCancelled { delegate.cancel() }
+            else { start() }
+        }
+    } onCancel: {
+        // URLSession need not emit a completion after an invalidation/resume
+        // race. Finish the once-safe continuation independently of transport.
+        delegate.cancel()
+        invalidate()
+    }
+    // A response can win the once-only callback just before cancellation.
+    // Do not publish that queued body from an operation cancelled before return.
+    try Task.checkCancellation()
+    return value
+}
+
+final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, PlatformCompletingResponse, @unchecked Sendable {
     private let maximumBytes: Int
     private var response: URLResponse?
     private var body = Data()
@@ -206,7 +234,7 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
 }
 
 /// Collects at most `limit` bytes of an endless delivery stream, then cancels.
-final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, PlatformCompletingResponse, @unchecked Sendable {
     private let limit: Int
     private var response: URLResponse?
     private var body = Data()
@@ -1221,23 +1249,9 @@ public final class PlatformClient: Sendable {
             configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
         )
         defer { session.invalidateAndCancel() }
-        return try await withTaskCancellationHandler {
-            if Task.isCancelled { throw CancellationError() }
-            return try await withCheckedThrowingContinuation { continuation in
-                let task = session.dataTask(with: request)
-                delegate.completion = { result in
-                    continuation.resume(with: result)
-                }
-                if Task.isCancelled {
-                    task.cancel()
-                    delegate.cancel()
-                } else {
-                    task.resume()
-                }
-            }
-        } onCancel: {
-            session.invalidateAndCancel()
-        }
+        let task = session.dataTask(with: request)
+        return try await platformAwaitResponse(delegate,
+            invalidate: { session.invalidateAndCancel() }, start: { task.resume() })
     }
 
     /// Bounded raw GET for endless delivery streams: collects at most `maxBytes`, then drops the connection.
@@ -1255,23 +1269,9 @@ public final class PlatformClient: Sendable {
                 configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
             )
             defer { session.invalidateAndCancel() }
-            (data, response) = try await withTaskCancellationHandler {
-                if Task.isCancelled { throw CancellationError() }
-                return try await withCheckedThrowingContinuation { continuation in
-                    let task = session.dataTask(with: request)
-                    delegate.completion = { result in
-                        continuation.resume(with: result)
-                    }
-                    if Task.isCancelled {
-                        task.cancel()
-                        delegate.cancel()
-                    } else {
-                        task.resume()
-                    }
-                }
-            } onCancel: {
-                session.invalidateAndCancel()
-            }
+            let task = session.dataTask(with: request)
+            (data, response) = try await platformAwaitResponse(delegate,
+                invalidate: { session.invalidateAndCancel() }, start: { task.resume() })
         }
         if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
            !platformSameOrigin(original, final) {
