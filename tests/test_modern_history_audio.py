@@ -12,6 +12,7 @@ import sqlite3
 from urllib.parse import quote, urlencode
 import wave
 import struct
+from contextlib import closing
 
 from radioinspector.web.server import create_server
 from radioinspector.session_store import SQLiteSessionStore
@@ -24,7 +25,7 @@ class ModernHistoryAudioTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.server = create_server(host='127.0.0.1', port=0,
-                                    session_database=str(Path(self.temporary.name)/'archive.sqlite'))
+                                    session_database=str(Path(self.temporary.name).resolve()/'archive.sqlite'))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.thread.join)
@@ -128,6 +129,16 @@ class ModernHistoryAudioTests(unittest.TestCase):
                 self.assertEqual(self.request('POST',self.base+'/audio-segments',request)[0],400)
                 self.assertEqual(self.server.session_service.events(),before)
 
+    def test_wav_declared_sample_format_must_match_mono_pcm16(self):
+        raw,payload=self.audio()
+        before=self.server.session_service.events()
+        for offset,encoded in ((34,struct.pack('<H',9)), (32,struct.pack('<H',4)), (28,struct.pack('<I',123))):
+            changed=raw[:offset]+encoded+raw[offset+len(encoded):]
+            request=dict(payload,data_base64=base64.b64encode(changed).decode('ascii'),sha256=hashlib.sha256(changed).hexdigest())
+            with self.subTest(offset=offset):
+                self.assertEqual(self.request('POST',self.base+'/audio-segments',request)[0],400)
+                self.assertEqual(self.server.session_service.events(),before)
+
     def test_audio_event_failure_rolls_back_artifact_before_publication(self):
         service=self.server.session_service
         db=service._store._connection
@@ -157,7 +168,7 @@ class SummaryStorageParityTests(unittest.TestCase):
                     if encoding == 'memory':store=None
                     else:
                         path=str(Path(temporary)/(encoding+'.sqlite'))
-                        with sqlite3.connect(path) as db:db.execute("PRAGMA encoding='"+encoding+"'")
+                        with closing(sqlite3.connect(path)) as db:db.execute("PRAGMA encoding='"+encoding+"'")
                         store=SQLiteSessionStore(path)
                     service=SessionService(store=store)
                     try:

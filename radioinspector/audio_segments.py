@@ -46,7 +46,15 @@ def make_audio_segment(session_id, payload):
         end = offset+8+size
         if end+(size % 2) > len(raw):
             raise ValueError('Incomplete WAV chunk or padding')
-        if kind == b'fmt ':formats += 1
+        if kind == b'fmt ':
+            formats += 1
+            if size < 16:
+                raise ValueError('Incomplete WAV format')
+            tag,channels,rate,byte_rate,alignment,bits = struct.unpack_from('<HHIIHH',raw,offset+8)
+            if channels != 1 or bits != 16 or alignment != 2 or byte_rate != rate*2:
+                raise ValueError('WAV format must consistently declare mono PCM16')
+            if tag == 0xfffe and (size < 40 or struct.unpack_from('<H',raw,offset+24)[0]+18 > size):
+                raise ValueError('Incomplete extensible WAV format')
         if kind == b'data':data_chunks += 1
         offset = end+(size % 2)
     if formats != 1 or data_chunks != 1:
