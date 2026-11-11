@@ -23,9 +23,11 @@ not inferred from a mutable server's route list.
 Feature requirements apply to the Rust candidate. For example, sweep summary
 pages require `sweep_summaries`, archive export requires
 `session_archive_export`, and task persistence requires `control_task_planning`.
-Enabling the scheduler additionally requires `control_task_execution` when
-the request contains `enabled: true`. Planning does not imply execution,
-physical device readiness or acquisition acceptance. The binary WebSocket
+Enabling the software scheduler additionally requires `control_task_scheduler`
+when the request contains `enabled: true`. Optional producer callbacks are
+advertised separately by `control_task_execution`; planning or enabling the
+software scheduler does not confirm physical device readiness or acquisition.
+The binary WebSocket
 requires the negotiated `ori.measurements.v1.protobuf` capability. A missing
 feature/capability excludes the operation; an unknown backend is an error.
 These descriptors guide client selection; the server still enforces policy.
