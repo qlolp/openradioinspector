@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 import select
 import socket
+import socketserver
 import ssl
 import struct
 import subprocess
@@ -166,11 +167,19 @@ def handler(state,trap_url):
 
 class Server(ThreadingHTTPServer):
     allow_reuse_address=True;daemon_threads=True
+    def server_bind(self):
+        # Synthetic numeric loopback needs no reverse DNS. HTTPServer's default
+        # getfqdn call can block fixture readiness on an isolated Darwin host.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name,self.server_port=self.server_address[:2]
     def handle_error(self,*args):pass
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument("--mode",default="replay");parser.add_argument("--count",type=int,default=5);parser.add_argument("--tls",action="store_true");args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("--mode",default="replay");parser.add_argument("--count",type=int,default=5);parser.add_argument("--tls",action="store_true");parser.add_argument("--reject-reverse-dns",action="store_true");args=parser.parse_args()
     if not 1<=args.count<=2000:raise ValueError("bounded fixture count")
+    if args.reject_reverse_dns:
+        def reject_reverse_dns(*_args):raise AssertionError("owned loopback fixture must not request reverse DNS")
+        socket.getfqdn=reject_reverse_dns
     state=State(args.mode,args.count)
     with tempfile.TemporaryDirectory(prefix="ori-native-binary-") as temporary:
         root=Path(temporary);source=root/"synthetic-source.bin";source.write_bytes(b"".join(state.records));before=hashlib.sha256(source.read_bytes()).hexdigest()

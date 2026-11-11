@@ -18,7 +18,7 @@ final class NativeBinaryMeasurementTests: XCTestCase {
         init(mode:String="mixed")throws {
             let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent()
             process.executableURL=URL(fileURLWithPath:"/usr/bin/env")
-            process.arguments=["python3","-u",root.appendingPathComponent("SpektrKomandy/Tests/SpektrKomandyTests/Fixtures/binary_event_fixture.py").path,"--mode",mode]
+            process.arguments=["python3","-u",root.appendingPathComponent("SpektrKomandy/Tests/SpektrKomandyTests/Fixtures/binary_event_fixture.py").path,"--mode",mode,"--reject-reverse-dns"]
             process.standardInput=input;process.standardOutput=output;try process.run()
             try input.fileHandleForReading.close();try output.fileHandleForWriting.close()
             url=try XCTUnwrap(reply()["url"]as?String)

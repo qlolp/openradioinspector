@@ -85,6 +85,13 @@ the fix. The regression also reproduced a queued success winning just before
 cancellation; a post-await cancellation check prevents that body from being
 published. The test explicitly releases a failed operation so it cannot hang CI.
 
+The first hosted SDK attempt failed six binary-fixture startup deadlines before
+transport tests could run. A controlled rejecting-DNS probe reproduced the
+fixture's unnecessary `HTTPServer.server_bind` reverse lookup. The fixture now
+binds numeric loopback directly and all SDK/native launches reject reverse DNS.
+The original five-second readiness bound and replay counts remain unchanged;
+this fixture fix requires a refreshed hosted macOS gate.
+
 ```sh
 swift test --package-path macos/SpektrKomandy -j1 --filter BinaryMeasurement
 # Full portable SDK requires all seven owned HTTP fixtures from the release runner.

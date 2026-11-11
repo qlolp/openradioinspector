@@ -19,7 +19,7 @@ final class BinaryMeasurementTransportTests: XCTestCase {
         init(mode:String="replay",count:Int=5,tls:Bool=false) throws {
             let script=try XCTUnwrap(Bundle.module.url(forResource:"binary_event_fixture",withExtension:"py",subdirectory:"Fixtures"))
             process.executableURL=URL(fileURLWithPath:"/usr/bin/env")
-            process.arguments=[ProcessInfo.processInfo.environment["ORI_NATIVE_BINARY_PYTHON"] ?? "python3","-u",script.path,"--mode",mode,"--count",String(count)]+(tls ? ["--tls"]:[])
+            process.arguments=[ProcessInfo.processInfo.environment["ORI_NATIVE_BINARY_PYTHON"] ?? "python3","-u",script.path,"--mode",mode,"--count",String(count),"--reject-reverse-dns"]+(tls ? ["--tls"]:[])
             process.standardInput=input;process.standardOutput=output
             try process.run();try input.fileHandleForReading.close();try output.fileHandleForWriting.close()
             ready=try Self.read(process:process,output:output,buffered:&buffered)
