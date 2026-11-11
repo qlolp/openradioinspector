@@ -78,6 +78,7 @@ jobs:
           workspaces: clients/windows
       - run: npm ci --prefix clients/web
       - run: npm ci --prefix clients/windows
+      - run: npm --prefix clients/web run build:native
       - run: cargo test --manifest-path clients/windows/Cargo.toml --locked
       - name: Build per-user offline WebView2 installer
         run: npm run build -- --ci -- --locked

@@ -96,6 +96,7 @@ caches of archive data or tokens.
 ```powershell
 npm ci --prefix clients/web
 npm ci --prefix clients/windows
+npm --prefix clients/web run build:native
 cd clients/windows
 cargo test --locked
 npm run build -- --ci -- --locked
