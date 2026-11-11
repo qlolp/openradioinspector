@@ -147,7 +147,8 @@ mod desktop {
             .ok_or("Connect a core node first")?
             .legacy_url()
             .to_owned();
-        webbrowser::open(&url).map_err(|_| "Could not open the core in the default browser")
+        webbrowser::open(&url)
+            .map_err(|_| "Could not open the core in the default browser".to_owned())
     }
     pub fn run() {
         tauri::Builder::default()
