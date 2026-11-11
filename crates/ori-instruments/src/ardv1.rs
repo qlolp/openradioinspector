@@ -33,6 +33,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     pub fn cancellation_handle(&self) -> CancellationHandle {
         self.connection.cancellation_handle()
     }
+    pub(crate) fn execution_scope(
+        &self,
+        check: ExecutionCheck,
+    ) -> Result<crate::transport::ExecutionScope> {
+        self.connection.execution_scope(check)
+    }
     pub fn state(&self) -> ReceiverState {
         let unknown = self.connection.tainted() || self.connection.closed();
         ReceiverState {

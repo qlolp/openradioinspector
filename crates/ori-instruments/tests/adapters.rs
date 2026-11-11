@@ -224,6 +224,447 @@ fn assert_drained(audit: &Arc<Mutex<Audit>>) {
     assert_eq!(audit.lock().unwrap().remaining, 0);
 }
 
+fn inspection_oracle() -> serde_json::Value {
+    serde_json::from_str(include_str!(
+        "../../../contracts/fixtures/instruments-inspection-v1.json"
+    ))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn inspect_is_query_only_cold_and_does_not_prepare_or_claim_input() {
+    let oracle = inspection_oracle();
+    let body = oracle["inspection"][0]["help_body"].as_str().unwrap();
+    let mut steps = setup()[..3].to_vec();
+    steps.push(Step::text("help", body));
+    steps.extend_from_slice(&setup()[3..]);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    let result = adapter.inspect().await.unwrap();
+    assert_eq!(result.state.device_mode, DeviceMode::Unknown);
+    assert!(!result.state.profile_verified);
+    assert!(result.state.control_profile_verified);
+    assert_eq!(result.state.settings_source, "unknown");
+    assert_eq!(
+        result.commands,
+        oracle["inspection"][0]["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        sent(&audit),
+        ["info\r", "version\r", "deviceid\r", "help\r"]
+    );
+    let count = sent(&audit).len();
+    assert!(matches!(
+        adapter
+            .acquire_raw(RawScanConfig {
+                start_hz: 100_000_000,
+                stop_hz: 101_000_000,
+                points: 3
+            })
+            .await,
+        Err(InstrumentError::UnsafeState(_))
+    ));
+    adapter.inspect().await.unwrap();
+    assert_eq!(sent(&audit).len(), count);
+    adapter.prepare().await.unwrap();
+    assert_eq!(adapter.state().device_mode, DeviceMode::Input);
+    assert!(adapter.state().profile_verified && adapter.state().control_profile_verified);
+    assert_eq!(sent(&audit).len(), 10);
+    assert_drained(&audit);
+}
+
+#[tokio::test]
+async fn prepared_inspect_matches_actual_python_help_regex_and_cache() {
+    for case in inspection_oracle()["inspection"].as_array().unwrap() {
+        let mut steps = setup();
+        steps.push(Step::text("help", case["help_body"].as_str().unwrap()));
+        let (wire, audit) = Scripted::new(steps);
+        let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+        adapter.prepare().await.unwrap();
+        assert!(!adapter.state().control_profile_verified);
+        let result = adapter.inspect().await.unwrap();
+        assert!(result.state.profile_verified && result.state.control_profile_verified);
+        assert_eq!(result.state.device_mode, DeviceMode::Input);
+        assert_eq!(result.state.settings_source, "command_acknowledged");
+        assert_eq!(
+            result.commands,
+            case["commands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>(),
+            "{}",
+            case["name"]
+        );
+        assert_eq!(&sent(&audit)[9..], ["help\r"]);
+        adapter.inspect().await.unwrap();
+        assert_eq!(sent(&audit).len(), 10);
+        if result.commands.is_empty() {
+            assert!(matches!(
+                adapter.read_rbw().await,
+                Err(InstrumentError::UnsupportedCommand(_))
+            ));
+        }
+        assert_drained(&audit);
+    }
+}
+
+#[tokio::test]
+async fn warm_and_cached_inspect_preserve_unknown_and_output_without_safe_off_surrogates() {
+    let mut steps = setup();
+    steps.push(help());
+    steps.push(Step::ack("pause"));
+    steps.extend(safe_off());
+    steps.extend([
+        Step::ack("output off"),
+        Step::ack("mode output"),
+        Step::ack("output off"),
+        Step::ack("freq 30000000"),
+    ]);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    adapter.invalidate_device_knowledge();
+    let result = adapter.inspect().await.unwrap();
+    assert_eq!(result.state.device_mode, DeviceMode::Unknown);
+    assert_eq!(result.state.settings_source, "unknown");
+    assert_eq!(sent(&audit).len(), 10);
+    adapter.execute(TinySaControl::EnterLab).await.unwrap();
+    adapter
+        .execute(TinySaControl::Set(Setting::OutputHz(30_000_000)))
+        .await
+        .unwrap();
+    assert_eq!(adapter.state().device_mode, DeviceMode::Output);
+    let count = sent(&audit).len();
+    assert_eq!(
+        adapter.inspect().await.unwrap().state.device_mode,
+        DeviceMode::Output
+    );
+    assert_eq!(sent(&audit).len(), count);
+    adapter.invalidate_device_knowledge();
+    assert_eq!(
+        adapter.inspect().await.unwrap().state.device_mode,
+        DeviceMode::Unknown
+    );
+    assert_eq!(sent(&audit).len(), count);
+    assert!(matches!(
+        adapter
+            .acquire_raw(RawScanConfig {
+                start_hz: 100_000_000,
+                stop_hz: 101_000_000,
+                points: 3
+            })
+            .await,
+        Err(InstrumentError::UnsafeState(_))
+    ));
+    assert_drained(&audit);
+}
+
+#[tokio::test]
+async fn inspect_malformed_identity_or_help_taints_without_retry_or_setup() {
+    for (command, bytes) in [
+        ("version", b"version\r\nother-firmware\r\nch> ".to_vec()),
+        ("help", b"help\r\n\xff\r\nch> ".to_vec()),
+        ("help", b"help\r\nbody\r\nch> wrong\r\nch> ".to_vec()),
+        ("help", b"help\r\ntruncated".to_vec()),
+    ] {
+        let mut steps = setup()[..3].to_vec();
+        if command == "version" {
+            steps[1] = Step::bytes(command, bytes);
+        } else {
+            let mut step = Step::bytes(command, bytes);
+            step.eof = true;
+            steps.push(step);
+        }
+        let (wire, audit) = Scripted::new(steps);
+        let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+        assert!(adapter.inspect().await.is_err());
+        assert!(adapter.state().restart_required);
+        assert_eq!(adapter.state().device_mode, DeviceMode::Unknown);
+        assert!(!adapter.state().profile_verified && !adapter.state().control_profile_verified);
+        let count = sent(&audit).len();
+        assert!(matches!(
+            adapter.inspect().await,
+            Err(InstrumentError::Tainted)
+        ));
+        assert!(matches!(
+            adapter.prepare().await,
+            Err(InstrumentError::Tainted)
+        ));
+        assert_eq!(sent(&audit).len(), count);
+        assert!(
+            sent(&audit)
+                .iter()
+                .all(|c| ["info\r", "version\r", "deviceid\r", "help\r"].contains(&c.as_str()))
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn inspect_actor_rechecks_queued_policy_and_keeps_cached_reads_immediate() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut steps = setup();
+    steps[0].fragments[0].0 = Duration::from_secs(1);
+    let (wire, audit) = Scripted::new(steps);
+    let actor = TinySaActor::spawn(
+        TinySa::new(wire, receive(), IoLimits::default()).unwrap(),
+        2,
+    )
+    .unwrap();
+    let first = actor.enqueue(TinySaRequest::Prepare).unwrap();
+    tokio::task::yield_now().await;
+    let allowed = Arc::new(AtomicBool::new(true));
+    let check = allowed.clone();
+    let query = actor
+        .enqueue_guarded(TinySaRequest::Inspect, move || {
+            if check.load(Ordering::SeqCst) {
+                Ok(())
+            } else {
+                Err(InstrumentError::PolicyDenied)
+            }
+        })
+        .unwrap();
+    allowed.store(false, Ordering::SeqCst);
+    let before = tokio::time::Instant::now();
+    assert_eq!(actor.state().device_mode, DeviceMode::Unknown);
+    assert_eq!(before.elapsed(), Duration::ZERO);
+    assert!(matches!(first.result().await.unwrap(), TinySaReply::Ready));
+    assert!(matches!(
+        query.result().await,
+        Err(InstrumentError::PolicyDenied)
+    ));
+    assert_eq!(sent(&audit).len(), 9);
+    assert!(!actor.state().control_profile_verified);
+    assert!(matches!(
+        actor
+            .enqueue(TinySaRequest::State)
+            .unwrap()
+            .result()
+            .await
+            .unwrap(),
+        TinySaReply::State(_)
+    ));
+    assert_drained(&audit);
+}
+
+#[tokio::test(start_paused = true)]
+async fn dropped_help_query_taints_and_inspection_reply_is_typed() {
+    let mut steps = setup();
+    let mut delayed_help = help();
+    delayed_help.fragments[0].0 = Duration::from_secs(10);
+    steps.push(delayed_help);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(1), adapter.inspect())
+            .await
+            .is_err()
+    );
+    assert!(adapter.state().restart_required && !adapter.state().control_profile_verified);
+    let count = sent(&audit).len();
+    assert!(matches!(
+        adapter.inspect().await,
+        Err(InstrumentError::Tainted)
+    ));
+    assert_eq!(sent(&audit).len(), count);
+    let mut steps = setup();
+    steps.push(help());
+    let (wire, _) = Scripted::new(steps);
+    let actor = TinySaActor::spawn(
+        TinySa::new(wire, receive(), IoLimits::default()).unwrap(),
+        1,
+    )
+    .unwrap();
+    actor
+        .enqueue(TinySaRequest::Prepare)
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    match actor
+        .enqueue(TinySaRequest::Inspect)
+        .unwrap()
+        .result()
+        .await
+        .unwrap()
+    {
+        TinySaReply::Inspection(value) => assert!(value.state.control_profile_verified),
+        other => panic!("wrong inspect reply: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn fresh_native_monitoring_projection_matches_actual_python_metadata_commands_and_bits() {
+    let oracle = inspection_oracle();
+    let mut evidence = Vec::new();
+    for case in oracle["sweeps"].as_array().unwrap() {
+        let mut steps = setup();
+        let rbw = case["rbw_hz"].as_u64().unwrap();
+        steps[7] = Step::ack(&format!("rbw {}", rbw / 1000));
+        let inspected = case["inspected"].as_bool().unwrap();
+        if inspected {
+            steps.push(Step::text(
+                "help",
+                oracle["inspection"][0]["help_body"].as_str().unwrap(),
+            ));
+        }
+        if case["name"] == "explicit-trace-dbm" {
+            steps.push(Step::ack("trace dBm"));
+        }
+        steps.push(Step::text(
+            "scan 100M 101M 3 3",
+            case["scan_body"].as_str().unwrap(),
+        ));
+        let (wire, audit) = Scripted::new(steps);
+        let mut adapter = TinySa::new(
+            wire,
+            ReceiveConfig {
+                rbw_hz: u32::try_from(rbw).unwrap(),
+                ..receive()
+            },
+            IoLimits::default(),
+        )
+        .unwrap();
+        adapter.prepare().await.unwrap();
+        if inspected {
+            adapter.inspect().await.unwrap();
+        }
+        if case["name"] == "explicit-trace-dbm" {
+            adapter
+                .execute(TinySaControl::Set(Setting::TraceUnit(TraceUnit::Dbm)))
+                .await
+                .unwrap();
+        }
+        let sample = adapter.poll_spectrum().await.unwrap();
+        let state = adapter.state();
+        let context = inspected.then(|| TinySaProvenanceContext {
+            connection_id: "0123456789abcdef0123456789abcdef".into(),
+            revision: case["sweep"]["settings"]["instrument"]["revision"]
+                .as_u64()
+                .unwrap(),
+        });
+        let mapped = legacy_monitoring_settings(&sample, &state, context.as_ref()).unwrap();
+        assert_eq!(mapped, case["sweep"]["settings"], "{}", case["name"]);
+        assert_eq!(
+            sample.frequencies_hz,
+            case["sweep"]["frequencies_hz"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            sample
+                .levels
+                .iter()
+                .map(|v| format!("{:016x}", v.to_bits()))
+                .collect::<Vec<_>>(),
+            case["level_bits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        );
+        let first_peak = (1..sample.levels.len()).fold(0, |best, index| {
+            if sample.levels[index] > sample.levels[best] {
+                index
+            } else {
+                best
+            }
+        });
+        assert_eq!(
+            first_peak,
+            case["first_peak_index"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            sample.frequencies_hz[first_peak],
+            case["peak_frequency_hz"].as_u64().unwrap()
+        );
+        assert_eq!(
+            format!("{:016x}", sample.levels[first_peak].to_bits()),
+            case["peak_level_bits"]
+        );
+        assert_eq!(sample.level_unit, case["sweep"]["level_unit"]);
+        assert_eq!(
+            sent(&audit)
+                .iter()
+                .map(|s| s.trim_end_matches('\r').to_owned())
+                .collect::<Vec<_>>(),
+            case["commands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert!(sample.interval.started_at <= sample.interval.ended_at);
+        assert_drained(&audit);
+        evidence.push(serde_json::json!({"name":case["name"],"frequencies_hz":sample.frequencies_hz,"levels":sample.levels,"level_unit":sample.level_unit,"settings":mapped,"operation_interval":sample.interval}));
+    }
+    if let Some(path) = std::env::var_os("ORI_INSPECTION_EVIDENCE") {
+        std::fs::write(path, serde_json::to_vec(&evidence).unwrap()).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn monitoring_projection_refuses_unproved_state_context_and_unmapped_source_metadata() {
+    let mut steps = setup();
+    steps.push(Step::text(
+        "scan 100M 101M 3 3",
+        "100000000 -0.0 0\r\n100500000 0.0 0\r\n101000000 -1 0\r\n",
+    ));
+    let (wire, _) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    let sample = adapter.poll_spectrum().await.unwrap();
+    let state = adapter.state();
+    assert!(legacy_monitoring_settings(&sample, &state, None).is_ok());
+    for mode in [DeviceMode::Unknown, DeviceMode::Output] {
+        let mut bad = state.clone();
+        bad.device_mode = mode;
+        assert!(legacy_monitoring_settings(&sample, &bad, None).is_err());
+    }
+    let mut bad = state.clone();
+    bad.settings_source = "unknown".into();
+    assert!(legacy_monitoring_settings(&sample, &bad, None).is_err());
+    let mut bad = state.clone();
+    bad.restart_required = true;
+    assert!(legacy_monitoring_settings(&sample, &bad, None).is_err());
+    let mut bad = state.clone();
+    bad.control_mode = ControlMode::Lab;
+    assert!(legacy_monitoring_settings(&sample, &bad, None).is_err());
+    let mut bad = state.clone();
+    bad.settings["rbw_hz"] = serde_json::json!(30000);
+    assert!(legacy_monitoring_settings(&sample, &bad, None).is_err());
+    for kind in [SpectrumKind::ProcessedTrace, SpectrumKind::ZeroSpan] {
+        let mut bad = sample.clone();
+        bad.kind = kind;
+        assert!(legacy_monitoring_settings(&bad, &state, None).is_err());
+    }
+    let mut bad = sample.clone();
+    bad.level_unit = "original-raw".into();
+    assert!(legacy_monitoring_settings(&bad, &state, None).is_err());
+    let mut bad = sample.clone();
+    bad.settings["unknown-nonvolatile-extension"] = serde_json::json!(1);
+    assert!(legacy_monitoring_settings(&bad, &state, None).is_err());
+    let mut bad = sample.clone();
+    bad.levels[0] = f64::NAN;
+    assert!(legacy_monitoring_settings(&bad, &state, None).is_err());
+    let context = TinySaProvenanceContext {
+        connection_id: "live-worker".into(),
+        revision: 0,
+    };
+    assert!(legacy_monitoring_settings(&sample, &state, Some(&context)).is_err());
+}
+
 #[tokio::test]
 async fn tinysa_golden_receive_keeps_integer_hz_f64_and_ack_provenance() {
     let mut steps = setup();

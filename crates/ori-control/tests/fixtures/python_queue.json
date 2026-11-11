@@ -1,0 +1,38 @@
+{
+  "source": "Real Python InstrumentOperations HTTP + DeviceWorkerManager + Controller + UltraWire; no hardware",
+  "omitted_then_stale": {
+    "states": [
+      "succeeded",
+      "succeeded",
+      "failed"
+    ],
+    "revisions": [
+      2,
+      3,
+      null
+    ],
+    "commands": [
+      "repeat 2",
+      "repeat 3"
+    ],
+    "explicit_revision": 1,
+    "admission_keys": [
+      "created_at",
+      "error",
+      "operation",
+      "operation_id",
+      "session_id",
+      "state",
+      "stream_id"
+    ]
+  },
+  "revoke_queued": {
+    "states": [
+      "succeeded",
+      "failed"
+    ],
+    "commands": [
+      "repeat 2"
+    ]
+  }
+}

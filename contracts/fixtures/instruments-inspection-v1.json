@@ -1,0 +1,1115 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "physical_validation": "not_run",
+  "source_sha256": {
+    "radioinspector/serial_instruments.py": "8843ade343d2ac52012278b4230dc5a90046a8ab3a663cd5ce63c1f9c868d8c6",
+    "radioinspector/tinysa/controller.py": "5cf66e6609a1ed130a1bcad63771a2a48c730505dcbed04dd88007d487f2884d",
+    "radioinspector/tinysa_profile.py": "1111ce5db347cff6218cd35371402f53207360ed93a3869a42a1f620ec612715",
+    "radioinspector/monitoring/detector.py": "b9027cc8c8abe2cdb3be42d34c58dce2407a6bea52b2f94db1185eda7d60a467"
+  },
+  "inspection": [
+    {
+      "name": "normal",
+      "prepare_commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off"
+      ],
+      "warm_commands": [
+        "help"
+      ],
+      "cached_commands": [],
+      "commands": [
+        "attenuate",
+        "calc",
+        "caloutput",
+        "capture",
+        "commands",
+        "data",
+        "deviceid",
+        "ext_gain",
+        "freq",
+        "frequencies",
+        "help",
+        "info",
+        "level",
+        "levelchange",
+        "lna",
+        "marker",
+        "menu",
+        "mode",
+        "modulation",
+        "output",
+        "pause",
+        "rbw",
+        "recall",
+        "refresh",
+        "release",
+        "repeat",
+        "resume",
+        "save",
+        "scan",
+        "scanraw",
+        "sd_delete",
+        "sd_list",
+        "sd_read",
+        "selftest",
+        "spur",
+        "status",
+        "sweep",
+        "text",
+        "touch",
+        "trace",
+        "trigger",
+        "ultra",
+        "version",
+        "zero"
+      ],
+      "status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "cached_status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "help_body": "commands: info version deviceid help output mode lna attenuate rbw calc pause resume capture touch release menu text refresh caloutput sweep scan scanraw zero frequencies data trace marker trigger repeat spur ultra ext_gain level freq modulation levelchange save recall sd_list sd_read sd_delete selftest status\r\n"
+    },
+    {
+      "name": "regex-token-boundaries",
+      "prepare_commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off"
+      ],
+      "warm_commands": [
+        "help"
+      ],
+      "cached_commands": [],
+      "commands": [
+        "commands",
+        "foo_bar",
+        "marker",
+        "per",
+        "scan"
+      ],
+      "status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "cached_status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "help_body": "commands: 2scan _marker UPper 99foo_bar MODE\r\n"
+    },
+    {
+      "name": "empty-help",
+      "prepare_commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off"
+      ],
+      "warm_commands": [
+        "help"
+      ],
+      "cached_commands": [],
+      "commands": [],
+      "status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "cached_status": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 0,
+        "connection_id": "0123456789abcdef0123456789abcdef",
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "help_body": ""
+    }
+  ],
+  "python_cold_inspect": {
+    "commands": [
+      "info",
+      "version",
+      "deviceid",
+      "output off",
+      "mode input",
+      "lna off",
+      "attenuate auto",
+      "rbw 10",
+      "calc off",
+      "help"
+    ],
+    "status": {
+      "mode": "monitoring",
+      "profile": "tinysa-ultra-zs405-control-v1",
+      "revision": 0,
+      "connection_id": "0123456789abcdef0123456789abcdef",
+      "settings_complete": false,
+      "profile_verified": true,
+      "settings": {
+        "start_hz": 100000000,
+        "stop_hz": 101000000,
+        "points": 3,
+        "rbw_hz": 10000,
+        "attenuation_db": "auto",
+        "lna": false,
+        "ultra": false,
+        "calculation": "off"
+      },
+      "settings_source": "command_acknowledged",
+      "settings_readback": false,
+      "device_mode": "input",
+      "device_mode_readback": false,
+      "generator_output_readback": false,
+      "hardware_validation": "not_run"
+    },
+    "rust_deliberate_query_only_commands": [
+      "info",
+      "version",
+      "deviceid",
+      "help"
+    ]
+  },
+  "sweeps": [
+    {
+      "name": "receive-initial",
+      "inspected": false,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -90.0,
+          -42.50000000000001,
+          -80.0
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-receive-initial",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-receive-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "off",
+          "generator_output_source": "command_acknowledged",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-receive-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "off",
+        "generator_output_source": "command_acknowledged",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "fingerprint": "6e94c2207071dbac7f9de0cbad568367292e83cf2222eabc0918531b1150e2da",
+      "level_bits": [
+        "c056800000000000",
+        "c045400000000001",
+        "c054000000000000"
+      ],
+      "first_peak_index": 1,
+      "peak_frequency_hz": 100500000,
+      "peak_level_bits": "c045400000000001",
+      "scan_body": "100000000 -90.0 0\r\n100500000 -42.50000000000001 0\r\n101000000 -80.0 0\r\n"
+    },
+    {
+      "name": "receive-30k",
+      "inspected": false,
+      "rbw_hz": 30000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 30",
+        "calc off",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -0.0,
+          1.0000000000000002,
+          -1e-300
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-receive-30k",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 30000,
+          "receive_profile": "tinysa-ultra-zs405-receive-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 30000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "off",
+          "generator_output_source": "command_acknowledged",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 30000,
+        "receive_profile": "tinysa-ultra-zs405-receive-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 30000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "off",
+        "generator_output_source": "command_acknowledged",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      },
+      "fingerprint": "28f1246f7873e6b50a3e3caabd041fd8da0fbd2063089ccd296fa9652f795ddd",
+      "level_bits": [
+        "8000000000000000",
+        "3ff0000000000001",
+        "81a56e1fc2f8f359"
+      ],
+      "first_peak_index": 1,
+      "peak_frequency_hz": 100500000,
+      "peak_level_bits": "3ff0000000000001",
+      "scan_body": "100000000 -0.0 0\r\n100500000 1.0000000000000002 0\r\n101000000 -1e-300 0\r\n"
+    },
+    {
+      "name": "control-inspected",
+      "inspected": true,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "help",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -90.0,
+          -42.50000000000001,
+          -80.0
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-control-inspected",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-control-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "unknown",
+          "generator_output_source": "no_physical_readback",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run",
+          "instrument": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "segment_id": "0123456789abcdef0123456789abcdef:0",
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run"
+          }
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-control-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "unknown",
+        "generator_output_source": "no_physical_readback",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run",
+        "instrument": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off"
+          },
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "settings_complete": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "fingerprint": "ac87850a8d359f5d017a4ff7fdea3582a5c0d860c0a68b420aeb11de88435359",
+      "level_bits": [
+        "c056800000000000",
+        "c045400000000001",
+        "c054000000000000"
+      ],
+      "first_peak_index": 1,
+      "peak_frequency_hz": 100500000,
+      "peak_level_bits": "c045400000000001",
+      "scan_body": "100000000 -90.0 0\r\n100500000 -42.50000000000001 0\r\n101000000 -80.0 0\r\n"
+    },
+    {
+      "name": "first-tied-peak",
+      "inspected": true,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "help",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -0.0,
+          0.0,
+          -1e-300
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-first-tied-peak",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-control-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "unknown",
+          "generator_output_source": "no_physical_readback",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run",
+          "instrument": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "segment_id": "0123456789abcdef0123456789abcdef:0",
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run"
+          }
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-control-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "unknown",
+        "generator_output_source": "no_physical_readback",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run",
+        "instrument": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off"
+          },
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "settings_complete": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "fingerprint": "ac87850a8d359f5d017a4ff7fdea3582a5c0d860c0a68b420aeb11de88435359",
+      "level_bits": [
+        "8000000000000000",
+        "0000000000000000",
+        "81a56e1fc2f8f359"
+      ],
+      "first_peak_index": 0,
+      "peak_frequency_hz": 100000000,
+      "peak_level_bits": "8000000000000000",
+      "scan_body": "100000000 -0.0 0\r\n100500000 0.0 0\r\n101000000 -1e-300 0\r\n"
+    },
+    {
+      "name": "middle-global-peak",
+      "inspected": true,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "help",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -90.0,
+          -10.0,
+          -80.0
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-middle-global-peak",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-control-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "unknown",
+          "generator_output_source": "no_physical_readback",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run",
+          "instrument": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "segment_id": "0123456789abcdef0123456789abcdef:0",
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run"
+          }
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-control-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "unknown",
+        "generator_output_source": "no_physical_readback",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run",
+        "instrument": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off"
+          },
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "settings_complete": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "fingerprint": "ac87850a8d359f5d017a4ff7fdea3582a5c0d860c0a68b420aeb11de88435359",
+      "level_bits": [
+        "c056800000000000",
+        "c024000000000000",
+        "c054000000000000"
+      ],
+      "first_peak_index": 1,
+      "peak_frequency_hz": 100500000,
+      "peak_level_bits": "c024000000000000",
+      "scan_body": "100000000 -90.0 0\r\n100500000 -10.0 0\r\n101000000 -80.0 0\r\n"
+    },
+    {
+      "name": "last-global-peak",
+      "inspected": true,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "help",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -90.0,
+          -80.0,
+          -10.0
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-last-global-peak",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-control-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "unknown",
+          "generator_output_source": "no_physical_readback",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run",
+          "instrument": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "segment_id": "0123456789abcdef0123456789abcdef:0",
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run"
+          }
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-control-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "unknown",
+        "generator_output_source": "no_physical_readback",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run",
+        "instrument": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off"
+          },
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "settings_complete": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "fingerprint": "ac87850a8d359f5d017a4ff7fdea3582a5c0d860c0a68b420aeb11de88435359",
+      "level_bits": [
+        "c056800000000000",
+        "c054000000000000",
+        "c024000000000000"
+      ],
+      "first_peak_index": 2,
+      "peak_frequency_hz": 101000000,
+      "peak_level_bits": "c024000000000000",
+      "scan_body": "100000000 -90.0 0\r\n100500000 -80.0 0\r\n101000000 -10.0 0\r\n"
+    },
+    {
+      "name": "explicit-trace-dbm",
+      "inspected": true,
+      "rbw_hz": 10000,
+      "commands": [
+        "info",
+        "version",
+        "deviceid",
+        "output off",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "rbw 10",
+        "calc off",
+        "help",
+        "trace dBm",
+        "scan 100M 101M 3 3"
+      ],
+      "sweep": {
+        "session_id": "inspection-session",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123456Z"
+        },
+        "frequencies_hz": [
+          100000000,
+          100500000,
+          101000000
+        ],
+        "levels": [
+          -90.0,
+          -42.50000000000001,
+          -80.0
+        ],
+        "level_unit": "dBm",
+        "id": "fixture-explicit-trace-dbm",
+        "settings": {
+          "adapter": "tinysa-serial",
+          "rbw_hz": 10000,
+          "receive_profile": "tinysa-ultra-zs405-control-v1",
+          "device_identity": {
+            "info": "tinySA Ultra ZS405",
+            "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+          },
+          "rbw_requested_hz": 10000,
+          "rbw_applied_state": "unknown",
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "sequence": 1,
+          "simulated": false,
+          "generator_output": "unknown",
+          "generator_output_source": "no_physical_readback",
+          "generator_output_readback": false,
+          "hardware_validation": "not_run",
+          "instrument": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 1,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "trace_unit": "dBm"
+            },
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "segment_id": "0123456789abcdef0123456789abcdef:1",
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run"
+          }
+        }
+      },
+      "stable_settings": {
+        "adapter": "tinysa-serial",
+        "rbw_hz": 10000,
+        "receive_profile": "tinysa-ultra-zs405-control-v1",
+        "device_identity": {
+          "info": "tinySA Ultra ZS405",
+          "firmware": "tinySA4_v1.4-235-gea71dfd\nHW Version:V0.4.5.1"
+        },
+        "rbw_requested_hz": 10000,
+        "rbw_applied_state": "unknown",
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "simulated": false,
+        "generator_output": "unknown",
+        "generator_output_source": "no_physical_readback",
+        "generator_output_readback": false,
+        "hardware_validation": "not_run",
+        "instrument": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off",
+            "trace_unit": "dBm"
+          },
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "settings_complete": false,
+          "hardware_validation": "not_run"
+        }
+      },
+      "fingerprint": "1a381878b50ce54fb209d542028bb77fa56f8461f375723fbe2d294d0caa9f75",
+      "level_bits": [
+        "c056800000000000",
+        "c045400000000001",
+        "c054000000000000"
+      ],
+      "first_peak_index": 1,
+      "peak_frequency_hz": 100500000,
+      "peak_level_bits": "c045400000000001",
+      "scan_body": "100000000 -90.0 0\r\n100500000 -42.50000000000001 0\r\n101000000 -80.0 0\r\n"
+    }
+  ]
+}

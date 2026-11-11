@@ -104,12 +104,21 @@ pub struct TinySaState {
     pub restart_required: bool,
     pub closed: bool,
     pub profile_verified: bool,
+    /// Identity plus framed help were queried on this owned connection. This
+    /// does not imply receive preparation, input mode, or any specific command.
+    #[serde(default)]
+    pub control_profile_verified: bool,
     pub settings_source: String,
     pub settings: Value,
     pub device_mode_readback: bool,
     pub generator_output_readback: bool,
     pub settings_readback: bool,
     pub hardware_validation: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TinySaInspection {
+    pub state: TinySaState,
+    pub commands: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OperationInterval {
@@ -395,19 +404,49 @@ pub struct WireCommand {
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TinySaControl {
     EnterLab,
+    /// Explicit new lease after release/expiry while the owned device stays lab.
+    /// Unlike EnterLab this requires that lab mode is already active.
+    ReenterLab,
     OutputOff,
     ResumeMonitoring,
     Set(Setting),
     Trace(TraceCommand),
     GeneratorSweep(GeneratorSweepConfig),
-    DeleteSd { filename: String, confirmed: bool },
+    DeleteSd {
+        filename: String,
+        confirmed: bool,
+    },
     Release,
     MenuHome,
-    Keypad { text: String },
-    Touch { x: u16, y: u16 },
-    SavePreset { slot: u8, confirmed: bool },
-    LoadPreset { slot: u8, confirmed: bool },
-    SelfTest { test: u8, confirmed: bool },
+    Keypad {
+        text: String,
+    },
+    Touch {
+        x: u16,
+        y: u16,
+    },
+    SavePreset {
+        slot: u8,
+        confirmed: bool,
+    },
+    LoadPreset {
+        slot: u8,
+        confirmed: bool,
+    },
+    SelfTest {
+        test: u8,
+        confirmed: bool,
+    },
+    ApplyReceivePreset(ReceivePreset),
+}
+
+/// One prevalidated receive-only preset, in original document setting order.
+/// Uses only the existing setting registry and documented combined sweep command.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReceivePreset {
+    pub settings: Vec<Setting>,
+    pub confirmed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

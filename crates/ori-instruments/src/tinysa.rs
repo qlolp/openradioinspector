@@ -18,6 +18,7 @@ pub struct TinySa<T> {
     commands: Option<HashSet<String>>,
     settings: Value,
     identity: Value,
+    identity_verified: bool,
     sequence: u64,
     output_frequency: bool,
     output_level: bool,
@@ -35,8 +36,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             control_mode: ControlMode::Monitoring,
             commands: None,
             settings: json!({"start_hz":receive.start_hz,"stop_hz":receive.stop_hz,"points":receive.points,"rbw_hz":receive.rbw_hz,
-                "attenuation_db":"auto","lna":false,"ultra":false,"calculation":"off","trace_unit":"dBm"}),
+                "attenuation_db":"auto","lna":false,"ultra":false,"calculation":"off"}),
             identity: json!({}),
+            identity_verified: false,
             sequence: 0,
             output_frequency: false,
             output_level: false,
@@ -46,6 +48,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
     }
     pub fn cancellation_handle(&self) -> CancellationHandle {
         self.connection.cancellation_handle()
+    }
+    pub(crate) fn execution_scope(
+        &self,
+        check: ExecutionCheck,
+    ) -> Result<crate::transport::ExecutionScope> {
+        self.connection.execution_scope(check)
     }
     pub fn state(&self) -> TinySaState {
         let unknown = self.connection.tainted() || self.connection.closed();
@@ -59,6 +67,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             restart_required: self.connection.tainted(),
             closed: self.connection.closed(),
             profile_verified: self.ready && !unknown,
+            control_profile_verified: self.identity_verified && self.commands.is_some() && !unknown,
             settings_source: if unknown { "unknown" } else { self.source }.into(),
             settings: self.settings.clone(),
             device_mode_readback: false,
@@ -104,20 +113,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             return Ok(());
         }
         let result = async {
-            let timeout = self.connection.limits.text_timeout;
-            let info = self.connection.text("info", timeout, false).await?;
-            let firmware = self.connection.text("version", timeout, false).await?;
-            let deviceid = self.connection.text("deviceid", timeout, false).await?;
-            self.identity = json!({"info":info,"firmware":firmware,"deviceid":deviceid});
-            let versions: Vec<&str> = firmware.trim().lines().collect();
-            if !info
-                .lines()
-                .any(|line| line.trim().eq_ignore_ascii_case("tinySA Ultra ZS405"))
-                || !(versions == [FIRMWARE] || versions == [FIRMWARE, "HW Version:V0.4.5.1"])
-                || deviceid.trim().is_empty()
-            {
-                return Err(InstrumentError::UnsupportedProfile(RECEIVE_PROFILE.into()));
-            }
+            self.verify_identity(RECEIVE_PROFILE).await?;
             for command in [
                 "output off".to_owned(),
                 "mode input".to_owned(),
@@ -137,19 +133,58 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         }
         Ok(())
     }
+    async fn verify_identity(&mut self, profile: &str) -> Result<()> {
+        self.connection.ensure()?;
+        if self.identity_verified {
+            return Ok(());
+        }
+        let timeout = self.connection.limits.text_timeout;
+        let info = self.connection.text("info", timeout, false).await?;
+        let firmware = self.connection.text("version", timeout, false).await?;
+        let deviceid = self.connection.text("deviceid", timeout, false).await?;
+        self.identity = json!({"info":info,"firmware":firmware,"deviceid":deviceid});
+        if !matches_identity(&info, &firmware) || deviceid.trim().is_empty() {
+            return Err(InstrumentError::UnsupportedProfile(profile.into()));
+        }
+        self.identity_verified = true;
+        Ok(())
+    }
+    /// Query-only inspection. Unlike Python's cold controller initialization,
+    /// this never prepares the receive path or establishes hardware input mode.
+    pub async fn inspect(&mut self) -> Result<TinySaInspection> {
+        self.connection.ensure()?;
+        if self.commands.is_none() {
+            let result = async {
+                self.verify_identity(CONTROL_PROFILE).await?;
+                let text = self
+                    .connection
+                    .text("help", self.connection.limits.text_timeout, false)
+                    .await?;
+                self.commands = Some(help_commands(&text));
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                return self.failed(error);
+            }
+        }
+        let mut commands: Vec<String> = self
+            .commands
+            .as_ref()
+            .expect("queried help")
+            .iter()
+            .cloned()
+            .collect();
+        commands.sort_unstable();
+        Ok(TinySaInspection {
+            state: self.state(),
+            commands,
+        })
+    }
     async fn capabilities(&mut self) -> Result<()> {
         self.prepare().await?;
         if self.commands.is_none() {
-            let text = self
-                .connection
-                .text("help", self.connection.limits.text_timeout, false)
-                .await?;
-            let words = text
-                .split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '_')
-                .filter(|word| word.starts_with(|c: char| c.is_ascii_lowercase()))
-                .map(str::to_owned)
-                .collect();
-            self.commands = Some(words);
+            self.inspect().await?;
         }
         Ok(())
     }
@@ -393,10 +428,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             .await?;
         Ok(DeviceTextSample {
             body,
-            level_unit: self.settings["trace_unit"]
-                .as_str()
-                .unwrap_or("unknown")
-                .into(),
+            level_unit: self.settings["trace_unit"].as_str().unwrap_or("dBm").into(),
             interval: OperationInterval {
                 started_at,
                 ended_at: now(),
@@ -483,6 +515,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         if let TinySaControl::Set(setting) = &control {
             self.validate_setting_context(setting)?;
         }
+        // Complete merged validation precedes even profile-query I/O.
+        let preset = if let TinySaControl::ApplyReceivePreset(request) = &control {
+            Some(self.receive_preset_plan(request)?)
+        } else {
+            None
+        };
         match &control {
             TinySaControl::EnterLab | TinySaControl::OutputOff | TinySaControl::Trace(_) => {}
             TinySaControl::Set(setting) if !setting_command(setting)?.requires_lab => {}
@@ -501,6 +539,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                     self.checked_ack("pause").await?;
                     self.safe_off().await?;
                     self.control_mode = ControlMode::Lab;
+                }
+                TinySaControl::ReenterLab => {
+                    self.require_command("output")?;
+                    self.checked_ack("pause").await?;
+                    self.safe_off().await?;
                 }
                 TinySaControl::OutputOff => self.safe_off().await?,
                 TinySaControl::ResumeMonitoring => {
@@ -526,6 +569,30 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                     self.control_mode = ControlMode::Monitoring;
                 }
                 TinySaControl::Set(setting) => self.apply_setting(setting).await?,
+                TinySaControl::ApplyReceivePreset(_) => {
+                    let (mut merged, commands) = preset.expect("validated preset plan");
+                    for wire in &commands {
+                        self.require_command(wire)?;
+                    }
+                    // Validate every supported command before the first mutation.
+                    for wire in ["output", "mode", "lna", "ultra", "sweep"] {
+                        self.require_command(wire)?;
+                    }
+                    self.safe_off().await?;
+                    for wire in commands {
+                        self.ack(&wire).await?;
+                    }
+                    self.receive.start_hz = merged["start_hz"].as_u64().unwrap();
+                    self.receive.stop_hz = merged["stop_hz"].as_u64().unwrap();
+                    self.receive.points = merged["points"].as_u64().unwrap() as u32;
+                    if let Some(rbw) = merged["rbw_hz"].as_u64() {
+                        self.receive.rbw_hz = rbw as u32;
+                    }
+                    // The safe-off ACK is known even if a prior lab setting was on.
+                    merged["output_enabled"] = json!(false);
+                    merged["caloutput_mhz"] = json!("off");
+                    self.settings = merged;
+                }
                 TinySaControl::Trace(command) => {
                     let wire = trace_command(&command)?;
                     self.checked_ack(&wire).await?;
@@ -614,6 +681,60 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         self.settings["output_enabled"] = json!(true);
         self.settings["generator_sweep"] = json!(request);
         Ok(())
+    }
+    fn receive_preset_plan(&self, request: &ReceivePreset) -> Result<(Value, Vec<String>)> {
+        validate_receive_preset(request)?;
+        let mut merged = self.settings.clone();
+        for setting in &request.settings {
+            let (key, value) = crate::settings::setting_value(setting)?;
+            merged[key] = value;
+        }
+        let start = merged["start_hz"].as_u64().unwrap_or(0);
+        let stop = merged["stop_hz"].as_u64().unwrap_or(0);
+        let points = merged["points"].as_u64().unwrap_or(0);
+        let maximum = if merged["ultra"] == true {
+            6_000_000_000
+        } else {
+            800_000_000
+        };
+        if start < 100_000 || start > stop || stop > maximum || !(2..=450).contains(&points) {
+            return Err(InstrumentError::InvalidRequest(
+                "invalid merged receive preset range/points".into(),
+            ));
+        }
+        if merged["lna"] == true
+            && merged["attenuation_db"] != 0
+            && merged["attenuation_db"] != "auto"
+        {
+            return Err(InstrumentError::InvalidRequest(
+                "receive preset LNA/attenuator conflict".into(),
+            ));
+        }
+        let mut commands = vec![
+            "mode input".into(),
+            "lna off".into(),
+            format!(
+                "ultra {}",
+                if merged["ultra"] == true { "on" } else { "off" }
+            ),
+            format!("sweep {start} {stop} {points}"),
+        ];
+        for setting in &request.settings {
+            if !matches!(
+                setting,
+                Setting::StartHz(_)
+                    | Setting::StopHz(_)
+                    | Setting::Points(_)
+                    | Setting::Ultra(_)
+                    | Setting::Lna(_)
+            ) {
+                commands.push(setting_command(setting)?.wire);
+            }
+        }
+        if merged["lna"] == true {
+            commands.push("lna on".into());
+        }
+        Ok((merged, commands))
     }
     fn validate_setting_context(&self, setting: &Setting) -> Result<()> {
         let error = |text: &str| InstrumentError::InvalidRequest(text.into());
@@ -762,6 +883,36 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         let closed = self.connection.close().await;
         off.and(closed)
     }
+}
+pub(crate) fn matches_identity(info: &str, firmware: &str) -> bool {
+    let versions: Vec<&str> = firmware.trim().lines().collect();
+    info.lines()
+        .any(|line| line.trim().eq_ignore_ascii_case("tinySA Ultra ZS405"))
+        && (versions == [FIRMWARE] || versions == [FIRMWARE, "HW Version:V0.4.5.1"])
+}
+/// Exactly Python re.findall(r'[a-z][a-z0-9_]*', text), including a letter
+/// following a leading digit/underscore and the lowercase suffix of a word.
+fn help_commands(text: &str) -> HashSet<String> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut words = HashSet::new();
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_lowercase() {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        index += 1;
+        while index < bytes.len()
+            && (bytes[index].is_ascii_lowercase()
+                || bytes[index].is_ascii_digit()
+                || bytes[index] == b'_')
+        {
+            index += 1;
+        }
+        words.insert(text[start..index].into());
+    }
+    words
 }
 fn validate_receive(config: ReceiveConfig) -> Result<()> {
     if !(100_000..=800_000_000).contains(&config.start_hz)
@@ -1090,7 +1241,30 @@ pub(crate) fn validate_control_request(control: &TinySaControl) -> Result<()> {
         TinySaControl::Set(setting) => {
             setting_command(setting)?;
         }
+        TinySaControl::ApplyReceivePreset(request) => validate_receive_preset(request)?,
         _ => {}
+    }
+    Ok(())
+}
+
+fn validate_receive_preset(request: &ReceivePreset) -> Result<()> {
+    if !request.confirmed || request.settings.len() > 29 {
+        return Err(InstrumentError::InvalidRequest(
+            "explicit receive preset confirmation required".into(),
+        ));
+    }
+    let mut seen = HashSet::new();
+    for setting in &request.settings {
+        let command = setting_command(setting)?;
+        let (key, _) = crate::settings::setting_value(setting)?;
+        if command.requires_lab
+            || matches!(setting, Setting::CenterHz(_) | Setting::SpanHz(_))
+            || !seen.insert(key)
+        {
+            return Err(InstrumentError::InvalidRequest(
+                "receive preset contains forbidden or duplicate setting".into(),
+            ));
+        }
     }
     Ok(())
 }

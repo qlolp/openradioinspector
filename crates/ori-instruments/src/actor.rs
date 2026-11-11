@@ -25,10 +25,12 @@ struct Envelope<C, R> {
     command: C,
     response: oneshot::Sender<Result<R>>,
     guard: Option<ExecutionGuard>,
+    check: Option<ExecutionCheck>,
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TinySaRequest {
     Prepare,
+    Inspect,
     Poll,
     AcquireRaw(RawScanConfig),
     CaptureScreen,
@@ -44,6 +46,7 @@ pub enum TinySaRequest {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TinySaReply {
     Ready,
+    Inspection(TinySaInspection),
     Spectrum(SpectrumSample),
     RawSpectrum(RawSpectrumSample),
     Screen(Vec<u8>),
@@ -80,6 +83,18 @@ impl TinySaActor {
                     let _ = request.response.send(Err(InstrumentError::PolicyDenied));
                     continue;
                 }
+                let _scope = match request
+                    .check
+                    .take()
+                    .map(|check| adapter.execution_scope(check))
+                    .transpose()
+                {
+                    Ok(scope) => scope,
+                    Err(_) => {
+                        let _ = request.response.send(Err(InstrumentError::PolicyDenied));
+                        continue;
+                    }
+                };
                 let closing = matches!(request.command, TinySaRequest::Close);
                 active.store(
                     matches!(
@@ -90,6 +105,7 @@ impl TinySaActor {
                 );
                 let result = match request.command {
                     TinySaRequest::Prepare => adapter.prepare().await.map(|_| TinySaReply::Ready),
+                    TinySaRequest::Inspect => adapter.inspect().await.map(TinySaReply::Inspection),
                     TinySaRequest::Poll => adapter.poll_spectrum().await.map(TinySaReply::Spectrum),
                     TinySaRequest::AcquireRaw(config) => adapter
                         .acquire_raw(config)
@@ -150,6 +166,15 @@ impl TinySaActor {
         validate_tinysa_request(&command)?;
         enqueue(&self.sender, command, Some(Box::new(guard)))
     }
+    /// Scope the original immutable receipt over every I/O poll in this request.
+    pub fn enqueue_checked(
+        &self,
+        command: TinySaRequest,
+        check: ExecutionCheck,
+    ) -> Result<Pending<TinySaReply>> {
+        validate_tinysa_request(&command)?;
+        enqueue_checked(&self.sender, command, check)
+    }
     /// Immediate cached state. A mutating exchange publishes unknown mode until
     /// its complete acknowledgement; status never waits behind a long scan.
     pub fn state(&self) -> TinySaState {
@@ -159,6 +184,10 @@ impl TinySaActor {
             state.settings_source = "unknown".into();
         }
         state.restart_required |= self.cancel.is_tainted();
+        if self.cancel.is_tainted() {
+            state.profile_verified = false;
+            state.control_profile_verified = false;
+        }
         state
     }
     pub fn cancel(&self) {
@@ -208,6 +237,18 @@ impl ArDv1Actor {
                     let _ = request.response.send(Err(InstrumentError::PolicyDenied));
                     continue;
                 }
+                let _scope = match request
+                    .check
+                    .take()
+                    .map(|check| adapter.execution_scope(check))
+                    .transpose()
+                {
+                    Ok(scope) => scope,
+                    Err(_) => {
+                        let _ = request.response.send(Err(InstrumentError::PolicyDenied));
+                        continue;
+                    }
+                };
                 let closing = matches!(request.command, ArDv1Request::Close);
                 active.store(
                     matches!(
@@ -255,6 +296,14 @@ impl ArDv1Actor {
     {
         enqueue(&self.sender, command, Some(Box::new(guard)))
     }
+    /// Scope the original immutable receipt over every I/O poll in this request.
+    pub fn enqueue_checked(
+        &self,
+        command: ArDv1Request,
+        check: ExecutionCheck,
+    ) -> Result<Pending<ArDv1Reply>> {
+        enqueue_checked(&self.sender, command, check)
+    }
     pub fn state(&self) -> ReceiverState {
         let mut state = self.snapshot.borrow().clone();
         if self.cancel.is_tainted() || self.mutating.load(Ordering::SeqCst) {
@@ -282,12 +331,28 @@ fn enqueue<C, R>(
     command: C,
     guard: Option<ExecutionGuard>,
 ) -> Result<Pending<R>> {
+    enqueue_inner(sender, command, guard, None)
+}
+fn enqueue_checked<C, R>(
+    sender: &mpsc::Sender<Envelope<C, R>>,
+    command: C,
+    check: ExecutionCheck,
+) -> Result<Pending<R>> {
+    enqueue_inner(sender, command, None, Some(check))
+}
+fn enqueue_inner<C, R>(
+    sender: &mpsc::Sender<Envelope<C, R>>,
+    command: C,
+    guard: Option<ExecutionGuard>,
+    check: Option<ExecutionCheck>,
+) -> Result<Pending<R>> {
     let (response, receiver) = oneshot::channel();
     sender
         .try_send(Envelope {
             command,
             response,
             guard,
+            check,
         })
         .map_err(|error| match error {
             mpsc::error::TrySendError::Full(_) => InstrumentError::QueueFull,

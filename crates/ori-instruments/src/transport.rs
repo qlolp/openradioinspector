@@ -3,16 +3,42 @@ use std::{
     future::poll_fn,
     pin::Pin,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    task::Poll,
+    task::{Context, Poll},
     time::Duration,
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf},
     sync::Notify,
 };
+
+/// The original Core-owned receipt. The callback must be quick, synchronous and
+/// nonblocking; it must validate the same authority rather than issue a new one.
+pub type ExecutionCheck = Arc<dyn Fn() -> Result<()> + Send + Sync + 'static>;
+
+#[derive(Debug)]
+struct ExecutionDenied;
+impl std::fmt::Display for ExecutionDenied {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("instrument execution policy denied")
+    }
+}
+impl std::error::Error for ExecutionDenied {}
+fn denied_io() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::PermissionDenied, ExecutionDenied)
+}
+fn instrument_io(error: std::io::Error) -> InstrumentError {
+    if error
+        .get_ref()
+        .is_some_and(|source| source.is::<ExecutionDenied>())
+    {
+        InstrumentError::PolicyDenied
+    } else {
+        InstrumentError::Io(error)
+    }
+}
 
 #[derive(Default)]
 struct Flags {
@@ -21,6 +47,92 @@ struct Flags {
     closed: AtomicBool,
     active: AtomicBool,
     notify: Notify,
+    execution_check: Mutex<Option<ExecutionCheck>>,
+}
+impl Flags {
+    fn authorize(&self) -> Result<()> {
+        let check = self
+            .execution_check
+            .lock()
+            .map_err(|_| InstrumentError::PolicyDenied)?
+            .clone();
+        // Never hold the slot lock while invoking caller-owned policy.
+        if check.is_some_and(|check| check().is_err()) {
+            Err(InstrumentError::PolicyDenied)
+        } else {
+            Ok(())
+        }
+    }
+    fn authorize_io(&self) -> std::io::Result<()> {
+        self.authorize().map_err(|_| denied_io())
+    }
+}
+pub(crate) struct ExecutionScope {
+    flags: Arc<Flags>,
+    previous: Option<ExecutionCheck>,
+}
+impl Drop for ExecutionScope {
+    fn drop(&mut self) {
+        let mut slot = self
+            .flags
+            .execution_check
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *slot = self.previous.take();
+    }
+}
+struct CheckedIo<T> {
+    inner: T,
+    flags: Arc<Flags>,
+}
+impl<T: AsyncRead + Unpin> AsyncRead for CheckedIo<T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        output: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        let result = Pin::new(&mut this.inner).poll_read(cx, output);
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        result
+    }
+}
+impl<T: AsyncWrite + Unpin> AsyncWrite for CheckedIo<T> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        let result = Pin::new(&mut this.inner).poll_write(cx, bytes);
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        result
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        let result = Pin::new(&mut this.inner).poll_flush(cx);
+        if let Err(error) = this.flags.authorize_io() {
+            return Poll::Ready(Err(error));
+        }
+        result
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // Resource shutdown is cleanup, not permission to send another command.
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
 }
 /// Cancels only this connection. Cancellation is permanent; create a new transport.
 #[derive(Clone)]
@@ -70,7 +182,7 @@ impl Drop for ExchangeGuard {
 }
 
 pub(crate) struct Connection<T> {
-    io: T,
+    io: CheckedIo<T>,
     stash: Vec<u8>,
     pub limits: IoLimits,
     flags: Arc<Flags>,
@@ -92,17 +204,35 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
                 "I/O bounds exceed supported limits".into(),
             ));
         }
+        let flags = Arc::new(Flags::default());
         Ok(Self {
-            io,
+            io: CheckedIo {
+                inner: io,
+                flags: flags.clone(),
+            },
             stash: Vec::new(),
             limits,
-            flags: Arc::new(Flags::default()),
+            flags,
         })
     }
     pub fn cancellation_handle(&self) -> CancellationHandle {
         CancellationHandle {
             flags: self.flags.clone(),
         }
+    }
+    pub(crate) fn execution_scope(&self, check: ExecutionCheck) -> Result<ExecutionScope> {
+        let previous = self
+            .flags
+            .execution_check
+            .lock()
+            .map_err(|_| InstrumentError::PolicyDenied)?
+            .replace(check);
+        let scope = ExecutionScope {
+            flags: self.flags.clone(),
+            previous,
+        };
+        self.flags.authorize()?;
+        Ok(scope)
     }
     pub fn tainted(&self) -> bool {
         self.flags.tainted.load(Ordering::SeqCst)
@@ -124,6 +254,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
     }
     fn begin(&self) -> Result<ExchangeGuard> {
         self.ensure()?;
+        self.flags.authorize()?;
         // Active is separate from taint so a dropped future poisons the connection.
         // The mutable adapter borrow prevents concurrent exchanges on one transport.
         self.flags.active.store(true, Ordering::SeqCst);
@@ -151,7 +282,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             let mut buffer = ReadBuf::new(&mut bytes);
             match Pin::new(&mut self.io).poll_read(cx, &mut buffer) {
                 Poll::Pending => Poll::Ready(Ok(())),
-                Poll::Ready(Err(error)) => Poll::Ready(Err(InstrumentError::Io(error))),
+                Poll::Ready(Err(error)) => Poll::Ready(Err(instrument_io(error))),
                 Poll::Ready(Ok(())) if buffer.filled().is_empty() => Poll::Ready(Err(
                     InstrumentError::Io(std::io::ErrorKind::UnexpectedEof.into()),
                 )),
@@ -170,12 +301,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             self.io.flush().await
         })
         .await
-        .map_err(|_| InstrumentError::Timeout)??;
+        .map_err(|_| InstrumentError::Timeout)?
+        .map_err(instrument_io)?;
         Ok(())
     }
     async fn chunk(&mut self, maximum: usize) -> Result<()> {
         let mut bytes = [0u8; 4096];
-        let count = self.io.read(&mut bytes).await?;
+        let count = self.io.read(&mut bytes).await.map_err(instrument_io)?;
         if count == 0 {
             return Err(InstrumentError::Io(
                 std::io::ErrorKind::UnexpectedEof.into(),
@@ -197,6 +329,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         }
         let mut output = Vec::with_capacity(count);
         while output.len() < count {
+            self.flags.authorize()?;
             if self.stash.is_empty() {
                 self.chunk(self.limits.max_binary_bytes.saturating_add(4096))
                     .await?;
@@ -231,6 +364,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
                 }
             })=>result.map_err(|_|InstrumentError::Timeout).and_then(|r|r),
         };
+        let result = result.and_then(|value| {
+            self.flags.authorize()?;
+            Ok(value)
+        });
         if result.is_ok() {
             guard.complete();
         }
@@ -256,6 +393,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
                 }
             })=>result.map_err(|_|InstrumentError::Timeout).and_then(|r|r),
         };
+        let result = result.and_then(|value| {
+            self.flags.authorize()?;
+            Ok(value)
+        });
         if result.is_ok() {
             guard.complete();
         }
@@ -286,6 +427,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
                 Ok(payload)
             })=>result.map_err(|_|InstrumentError::Timeout).and_then(|r|r),
         };
+        let result = result.and_then(|value| {
+            self.flags.authorize()?;
+            Ok(value)
+        });
         if result.is_ok() {
             guard.complete();
         }
