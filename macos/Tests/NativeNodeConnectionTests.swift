@@ -21,11 +21,24 @@ final class NativeNodeConnectionTests: XCTestCase {
         func rejectSaving() { failSave = true }
     }
     final class Stub: URLProtocol {
-        static var handle: ((Stub) throws -> Void)?
+        private static let lock = NSLock()
+        private static var handlers: [String: (Stub) throws -> Void] = [:]
+        static func register(host: String, handler: @escaping (Stub) throws -> Void) {
+            lock.withLock { handlers[host] = handler }
+        }
+        static func remove(_ hosts: Set<String>) {
+            lock.withLock { for host in hosts { handlers.removeValue(forKey: host) } }
+        }
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
-            do { try Self.handle?(self) } catch { client?.urlProtocol(self, didFailWithError: error) }
+            let handler = Self.lock.withLock {
+                request.url?.host.flatMap { Self.handlers[$0] }
+            }
+            do {
+                guard let handler else { throw URLError(.cancelled) }
+                try handler(self)
+            } catch { client?.urlProtocol(self, didFailWithError: error) }
         }
         override func stopLoading() {}
         func reply(_ value: Any, status: Int = 200, headers: [String: String] = [:]) throws {
@@ -76,13 +89,29 @@ final class NativeNodeConnectionTests: XCTestCase {
             try stub?.reply(["revoked": true])
         }
     }
-    private let server = "https://node.example"
-    override func tearDown() { Stub.handle = nil; super.tearDown() }
+    // Late background requests from another XCTest instance keep that fixture's
+    // origin. Routing by fixture origin keeps them out of the current recorder.
+    private let server = "https://node-\(UUID().uuidString.lowercased()).example"
+    private var fixtureHosts: Set<String> = []
+    private var sessions: [URLSession] = []
+    private func session(_ handler: @escaping (Stub) throws -> Void, server: String? = nil) -> URLSession {
+        let host = URL(string: server ?? self.server)!.host!
+        if fixtureHosts.insert(host).inserted { Stub.register(host: host, handler: handler) }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [Stub.self]
+        let session = URLSession(configuration: configuration)
+        sessions.append(session)
+        return session
+    }
+    override func tearDown() {
+        sessions.forEach { $0.invalidateAndCancel() }
+        Stub.remove(fixtureHosts)
+        sessions = []; fixtureHosts = []
+        super.tearDown()
+    }
     @MainActor private func model(_ store: MemoryStore, _ responses: Responses) -> NativeNodeConnectionModel {
-        Stub.handle = responses.handle
         return NativeNodeConnectionModel(store: store, makeClient: { server, credential in
-            let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
-            return try PlatformClient(baseURL: server, session: URLSession(configuration: configuration), credential: credential)
+            return try PlatformClient(baseURL: server, session: self.session(responses.handle, server: server), credential: credential)
         })
     }
 
@@ -169,7 +198,7 @@ final class NativeNodeConnectionTests: XCTestCase {
 
     @MainActor func testForgetIsLocalAndDoesNotDeleteAnotherNodesCredential() async throws {
         let store = MemoryStore(), responses = Responses()
-        let other = try PlatformBaseURL("https://other.example")
+        let other = try PlatformBaseURL("https://other-\(UUID().uuidString.lowercased()).example")
         try await store.save(.init(token: "synthetic-native-secret"), for: PlatformBaseURL(server))
         try await store.save(.init(token: "other-synthetic-secret"), for: other)
         let model = model(store, responses)
@@ -194,7 +223,7 @@ final class NativeNodeConnectionTests: XCTestCase {
 
     @MainActor func testLateRevocationCompletionCannotDisconnectANewerNodeConnection() async throws {
         let store = MemoryStore(), responses = Responses()
-        let newer = "https://other.example"
+        let newer = "https://other-\(UUID().uuidString.lowercased()).example"
         try await store.save(.init(token: "synthetic-native-secret"), for: PlatformBaseURL(server))
         try await store.save(.init(token: "synthetic-native-secret"), for: PlatformBaseURL(newer))
         let connection = model(store, responses), remote = RemoteDualModel()
@@ -227,12 +256,11 @@ final class NativeNodeConnectionTests: XCTestCase {
     @MainActor func testRevokedBearerDisconnectsOnlyUIAndRequestsPairingAgain() async throws {
         var requests: [URLRequest] = []
         let lock = NSLock()
-        Stub.handle = { stub in
+        let urlSession = session { stub in
             lock.withLock { requests.append(stub.request) }
             try stub.reply([:], status: 401)
         }
-        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
-        let client = try PlatformClient(baseURL: server, session: URLSession(configuration: configuration), credential: .init(token: "synthetic-native-secret"))
+        let client = try PlatformClient(baseURL: server, session: urlSession, credential: .init(token: "synthetic-native-secret"))
         let remote = RemoteDualModel(); remote.serverURL = server
         remote.connect(startPolling: false, using: client)
         defer { remote.disconnect() }
@@ -247,13 +275,12 @@ final class NativeNodeConnectionTests: XCTestCase {
 
     @MainActor func testMonitoringReusesAuthenticatedClientAndReplacesItAtSameEndpoint() async throws {
         let lock = NSLock(); var headers: [String] = []
-        Stub.handle = { stub in
+        let handle: (Stub) throws -> Void = { stub in
             lock.withLock { headers.append(stub.request.value(forHTTPHeaderField: "Authorization") ?? "missing") }
             try stub.reply([])
         }
         func client(_ token: String) throws -> PlatformClient {
-            let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
-            return try PlatformClient(baseURL: server, session: URLSession(configuration: configuration), credential: .init(token: token))
+            return try PlatformClient(baseURL: server, session: session(handle), credential: .init(token: token))
         }
         let workspace = MonitoringWorkspaceModel()
         workspace.configure(server, client: try client("first-synthetic-secret")); await workspace.load()
@@ -265,14 +292,26 @@ final class NativeNodeConnectionTests: XCTestCase {
         XCTAssertFalse(second.isEmpty); XCTAssertTrue(second.allSatisfy { $0 == "Bearer second-synthetic-secret" })
     }
 
+    @MainActor func testRequestsFromEarlierClientKeepTheirOriginalFixtureHandler() async throws {
+        let first = Responses(), second = Responses()
+        let otherServer = "https://other-\(UUID().uuidString.lowercased()).example"
+        let firstClient = try PlatformClient(baseURL: server, session: session(first.handle))
+        let secondClient = try PlatformClient(baseURL: otherServer, session: session(second.handle, server: otherServer))
+        // A previously created client's background request can begin after another
+        // test or client installs its fixture. It must not reach that fixture.
+        _ = try await firstClient.securityStatus()
+        _ = try await secondClient.securityStatus()
+        XCTAssertEqual(first.requestCount, 1)
+        XCTAssertEqual(second.requestCount, 1)
+    }
+
     @MainActor func testBrowserCookieIsInstalledInAnIsolatedNonpersistentWebKitStore() async throws {
         let store = WKWebsiteDataStore.nonPersistent()
         XCTAssertFalse(store.isPersistent)
-        Stub.handle = { stub in
+        let urlSession = session { stub in
             try stub.reply(["paired": true, "credential": "browser_cookie"], headers: ["Set-Cookie": "ori_session=synthetic-browser-secret; Path=/api; Secure; HttpOnly; SameSite=Strict"])
         }
-        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
-        let client = try PlatformClient(baseURL: server, session: URLSession(configuration: configuration), credential: .init(token: "synthetic-native-secret"))
+        let client = try PlatformClient(baseURL: server, session: urlSession, credential: .init(token: "synthetic-native-secret"))
         let session = try await client.browserSession()
         let cookie = try session.makeCookie()
         await store.httpCookieStore.setCookie(cookie)
