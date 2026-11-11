@@ -11,7 +11,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var projects: [MonitoringValue] = []
     @Published private(set) var projectPages = MonitoringProjectPageState()
     @Published var selected = "" {
-        didSet { if oldValue != selected { projectPages.select(selected); invalidateProject() } }
+        didSet { if !PlatformExactID.same(oldValue, selected) { projectPages.select(selected); invalidateProject() } }
     }
     @Published var status: MonitoringValue = .null
     @Published var preflight: MonitoringValue = .null
@@ -75,7 +75,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private var soundState = MonitoringAlertSoundState()
     private var researchRequests: [String: UUID] = [:]
     private var historyQuery = MonitoringHistoryQuery()
-    var selectedSweep: MonitoringHistoryRow? { rawSweep ?? history.first { $0.id == selectedSweepID } }
+    var selectedSweep: MonitoringHistoryRow? { rawSweep ?? history.first { PlatformExactID.same($0.id, selectedSweepID) } }
     private var player: AVAudioPlayer?
     private var client: PlatformClient?
     private var scope = ""
@@ -133,7 +133,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func configure(_ server: String) {
         let next = server
-        guard next != scope else { return }
+        guard !PlatformExactID.same(next, scope) else { return }
         scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
         do { client = server.isEmpty ? nil : try PlatformClient(baseURL: server) }
@@ -180,13 +180,13 @@ final class MonitoringWorkspaceModel: ObservableObject {
         defer { if requestID == token { pending = false } }
         do {
             let result = try await request(client, identifier)
-            guard current == revision, requestID == token, selected == identifier,
-                  eventID == nil || selectedEvent == eventID, !Task.isCancelled else { return false }
+            guard current == revision, requestID == token, PlatformExactID.same(selected, identifier),
+                  eventID == nil || PlatformExactID.same(selectedEvent, eventID), !Task.isCancelled else { return false }
             details = result.pretty
             apply(result)
             return true
         } catch {
-            if current == revision, requestID == token, selected == identifier, !Task.isCancelled {
+            if current == revision, requestID == token, PlatformExactID.same(selected, identifier), !Task.isCancelled {
                 self.error = error.localizedDescription
             }
             return false
@@ -196,7 +196,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func load() async {
         let currentScope = scope
         await reloadProjects()
-        guard scope == currentScope, !Task.isCancelled else { return }
+        guard PlatformExactID.same(scope, currentScope), !Task.isCancelled else { return }
         await loadAudioInputs()
     }
 
@@ -311,7 +311,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         guard !selected.isEmpty else { return }
         await run(request: { client, id in try await client.monitoringProject(id, resource: "events") }) { result in
             events = result["items"].items
-            if !events.contains(where: { $0["id"].text == selectedEvent }) {
+            if !events.contains(where: { PlatformExactID.same($0["id"].text, selectedEvent) }) {
                 selectedEvent = ""; event = .null; stopAudio()
             }
             notice = "Событий в текущей странице: \(events.count)."
@@ -339,8 +339,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
         do {
             let bytes = try await client.monitoringEventAudio(projectID: identifier, eventID: eventID)
-            guard current == revision, requestID == token, selected == identifier,
-                  selectedEvent == eventID, playbackRevision == playbackScope, !Task.isCancelled else { return }
+            guard current == revision, requestID == token, PlatformExactID.same(selected, identifier),
+                  PlatformExactID.same(selectedEvent, eventID), playbackRevision == playbackScope, !Task.isCancelled else { return }
             let playback = try AVAudioPlayer(data: bytes)
             guard playback.prepareToPlay(), playback.play() else {
                 throw PlatformError.invalidResponse("Не удалось воспроизвести WAV")
@@ -348,7 +348,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
             player = playback; hasPlayback = true
             audioNotice = String(format: "WAV загружен: %.1f с · %d байт", playback.duration, bytes.count)
         } catch {
-            if current == revision, requestID == token, selectedEvent == eventID,
+            if current == revision, requestID == token, PlatformExactID.same(selectedEvent, eventID),
                playbackRevision == playbackScope, !Task.isCancelled {
                 self.error = error.localizedDescription
             }
@@ -369,14 +369,14 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
         do {
             let result = try await request(client, projectID)
-            guard revision == generation, selected == projectID, researchRequests[channel] == token,
-                  eventID == nil || selectedEvent == eventID, sweepID == nil || selectedSweepID == sweepID,
+            guard revision == generation, PlatformExactID.same(selected, projectID), researchRequests[channel] == token,
+                  eventID == nil || PlatformExactID.same(selectedEvent, eventID), sweepID == nil || PlatformExactID.same(selectedSweepID, sweepID),
                   !Task.isCancelled else { return false }
             try apply(result)
             return true
         } catch {
-            if revision == generation, selected == projectID, researchRequests[channel] == token,
-               eventID == nil || selectedEvent == eventID, sweepID == nil || selectedSweepID == sweepID,
+            if revision == generation, PlatformExactID.same(selected, projectID), researchRequests[channel] == token,
+               eventID == nil || PlatformExactID.same(selectedEvent, eventID), sweepID == nil || PlatformExactID.same(selectedSweepID, sweepID),
                !Task.isCancelled { researchError = error.localizedDescription }
             return false
         }
@@ -420,7 +420,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func startSearch(eventID: String, span: String) async {
         guard !pending else { return }
         guard let lease = leases["analyzer"], lease.expiresAt > Date() else { researchError = "Нужно действующее ручное управление анализатором."; return }
-        guard !eventID.isEmpty, selectedEvent == eventID, let hz = Int64(span), hz > 0 else { researchError = "Выберите событие и целую положительную полосу Гц."; return }
+        guard !eventID.isEmpty, PlatformExactID.same(selectedEvent, eventID), let hz = Int64(span), hz > 0 else { researchError = "Выберите событие и целую положительную полосу Гц."; return }
         let current = revision
         let succeeded = await researchRequest("control", eventID: eventID, request: { client, id in
             try await client.monitoringControl(projectID: id, action: "search/start",
@@ -474,7 +474,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func loadSelectedSweep(sweepID: String, comparison: Bool) async {
-        guard !sweepID.isEmpty, selectedSweepID == sweepID else { return }
+        guard !sweepID.isEmpty, PlatformExactID.same(selectedSweepID, sweepID) else { return }
         if comparison, !researchPending.contains("sweep") { baselineComparison = .null }
         await researchRequest("sweep", sweepID: sweepID, request: { client, id in
             try await client.monitoringHistorySweep(projectID: id, sweepID: sweepID, comparison: comparison)
@@ -486,7 +486,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func loadSources(eventID: String, next: Bool) async {
         let after = next ? sourcesNext : nil
-        guard !eventID.isEmpty, selectedEvent == eventID, !next || after?.isEmpty == false else { return }
+        guard !eventID.isEmpty, PlatformExactID.same(selectedEvent, eventID), !next || after?.isEmpty == false else { return }
         await researchRequest("sources", eventID: eventID, request: { client, id in
             try await client.monitoringEventSources(projectID: id, eventID: eventID, limit: 64, after: after)
         }) { result in sources = result["items"].items; sourcesNext = result["next_cursor"].text }
@@ -497,7 +497,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         webhookSecret = ""
     }
 
-    func matchesOperations(endpoint: String, projectID: String) -> Bool { scope == endpoint && selected == projectID }
+    func matchesOperations(endpoint: String, projectID: String) -> Bool { PlatformExactID.same(scope, endpoint) && PlatformExactID.same(selected, projectID) }
 
     @discardableResult
     private func operationsRequest(
@@ -513,15 +513,15 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
         do {
             let result = try await request(client, projectID)
-            guard revision == generation, operationsRevision == viewGeneration, selected == projectID,
-                  operationsRequests[channel] == token, eventID == nil || selectedEvent == eventID, !Task.isCancelled else { return false }
+            guard revision == generation, operationsRevision == viewGeneration, PlatformExactID.same(selected, projectID),
+                  operationsRequests[channel] == token, eventID == nil || PlatformExactID.same(selectedEvent, eventID), !Task.isCancelled else { return false }
             operationsErrors[channel] = nil
             // These responses never write the general diagnostic JSON, especially settings.
             apply(result)
             return true
         } catch {
-            if revision == generation, operationsRevision == viewGeneration, selected == projectID,
-               operationsRequests[channel] == token, eventID == nil || selectedEvent == eventID, !Task.isCancelled {
+            if revision == generation, operationsRevision == viewGeneration, PlatformExactID.same(selected, projectID),
+               operationsRequests[channel] == token, eventID == nil || PlatformExactID.same(selectedEvent, eventID), !Task.isCancelled {
                 operationsErrors[channel] = error.localizedDescription
                 if channel == "storage" { storage = .null }
             }
@@ -689,12 +689,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func reviewEvent(eventID: String, disposition: String, comment: String) async {
-        guard selectedEvent == eventID else { return }
+        guard PlatformExactID.same(selectedEvent, eventID) else { return }
         await operationsRequest("event-review", eventID: eventID, request: { client, id in
             try await client.monitoringReviewEvent(projectID: id, eventID: eventID, disposition: disposition, comment: comment)
         }) { result in
             event = result
-            if let index = events.firstIndex(where: { $0["id"].text == eventID }) { events[index] = result }
+            if let index = events.firstIndex(where: { PlatformExactID.same($0["id"].text, eventID) }) { events[index] = result }
             operationsNotice = "Решение оператора сохранено."
         }
     }

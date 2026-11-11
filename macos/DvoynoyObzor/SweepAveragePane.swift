@@ -185,7 +185,7 @@ struct RemoteSweepAveragePane: View {
                     Text("Закреплено: \(model.sources.count) · source_ids: \(model.sources.map(\.id).joined(separator: ", "))")
                     Text("UTC эталона: \(model.pinnedUTC)")
                     DisclosureGroup("Зафиксированные источники и настройки") {
-                        ForEach(model.sources) { source in
+                        ForEach(model.sources, id: \.exactID) { source in
                             Text("\(source.id) · UTC \(source.interval.startedAt) — \(source.interval.endedAt)\n\(averageSettingsText(source.settings ?? [:]))")
                         }
                     }

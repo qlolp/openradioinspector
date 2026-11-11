@@ -108,9 +108,9 @@ struct RemoteFrequencyCounterPane: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Измерение частоты пика архивного dBm свипа в окне. Параболическая интерполяция только при равномерной сетке и пике внутри окна; иначе — сам бин пика. Погрешность: граница max(разрешение, сетка)/2. Это производная оценка по записанным данным, не показание аппаратного счётчика.")
                     .font(.caption).foregroundStyle(.secondary)
-                Picker("Архивный dBm свип", selection: $model.draft.sweepID) {
-                    ForEach(model.sweeps, id: \.id) { sweep in
-                        Text(sweep.id).tag(sweep.id)
+                Picker("Архивный dBm свип", selection: $model.draft.sweepID.exactID) {
+                    ForEach(model.sweeps, id: \.exactID) { sweep in
+                        Text(sweep.id).tag(sweep.exactID)
                     }
                 }
                 HStack {

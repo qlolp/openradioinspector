@@ -201,7 +201,7 @@ extension PlatformClient {
                       }) else { throw PlatformError.invalidResponse("Ожидались целые индексы, частоты и счётчики") }
             })
         try Task.checkCancellation()
-        guard result.sessionId == sessionID, result.sweep.id == sweepID,
+        guard PlatformExactID.same(result.sessionId, sessionID), PlatformExactID.same(result.sweep.id, sweepID),
               result.mask == (try PlatformSpectralMask.submitted(maskJSON)) else {
             throw PlatformError.invalidResponse("Сервер вернул другой свип или маску")
         }

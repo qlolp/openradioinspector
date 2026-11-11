@@ -135,7 +135,7 @@ extension PlatformClient {
                     URLQueryItem(name: "margin_db", value: String(marginDb))], expectedStatuses: [200]
         )
         try Task.checkCancellation()
-        guard result.sessionId == sessionID, result.sweep.id == sweepID,
+        guard PlatformExactID.same(result.sessionId, sessionID), PlatformExactID.same(result.sweep.id, sweepID),
               result.parameters.windowPoints == windowPoints, result.parameters.marginDb == marginDb else {
             throw PlatformError.invalidResponse("Сервер вернул порог другого свипа или других параметров")
         }

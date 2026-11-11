@@ -118,6 +118,7 @@
 				<string>FB00CF9BBC44BF54A7C87FBA</string>
 				<string>F246B92705E08DB0DA1E364F</string>
 				<string>344EBD4222C4BC603E37ACC6</string>
+				<string>D26047F0CC171E7664B20C4C</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -203,6 +204,7 @@
 				<string>4F708C98C182EB76143D5E47</string>
 				<string>0479BC5D4BECD2EB338D08C9</string>
 				<string>7B4B1B0D03F1586C913F6B82</string>
+				<string>58D26228C4127B4A5310F91B</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -1173,6 +1175,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>344EBD4222C4BC603E37ACC6</string>
+		</dict>
+		<key>D26047F0CC171E7664B20C4C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>ExactIDSelection.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>58D26228C4127B4A5310F91B</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>D26047F0CC171E7664B20C4C</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

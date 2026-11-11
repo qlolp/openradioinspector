@@ -330,6 +330,19 @@ final class PlatformAPITests: XCTestCase {
         )
     }
 
+    func testSessionPathsRetainDistinctUTF8SpellingsWithoutChangingReturnedIDs() async throws {
+        var paths: [String] = []; let lock = NSLock()
+        let client = try client { request in
+            let path = request.url!.absoluteString
+            lock.withLock { paths.append(path) }
+            let id = path.hasSuffix("%C3%A9") ? "é" : "e\u{301}"
+            return (self.response(request.url!), self.envelope("{\"id\":\"" + id + "\",\"name\":\"synthetic\",\"state\":\"running\",\"streams\":[]}"))
+        }
+        let composed = try await client.getSession("é"), decomposed = try await client.getSession("e\u{301}")
+        XCTAssertEqual(Array(composed.id.utf8), [195, 169]); XCTAssertEqual(Array(decomposed.id.utf8), [101, 204, 129])
+        XCTAssertEqual(lock.withLock { paths }, ["https://example.test/root/api/v1/sessions/%C3%A9", "https://example.test/root/api/v1/sessions/e%CC%81"])
+    }
+
     func testStreamingMetadataSnapshotDoesNotRefetchMeasurements() async throws {
         let lock = NSLock(); var measurementReads = 0
         let client = try client { request in

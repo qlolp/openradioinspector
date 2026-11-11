@@ -24,9 +24,9 @@ struct NativeConnectionPane: View {
                     Button("Отключить UI") { model.disconnect() }
                     Button("Обновить") { Task { await model.reloadSessions() } }
                 } else { Button("Подключить") { model.connect() } }
-                Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession)) {
-                    Text("Не выбран").tag("")
-                    ForEach(model.sessions) { Text("\($0.name) · \($0.state)").tag($0.id) }
+                Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession).exactID) {
+                    Text("Не выбран").tag(PlatformExactID(""))
+                    ForEach(model.sessions, id: \.exactID) { Text("\($0.name) · \($0.state)").tag($0.exactID) }
                 }.disabled(!model.connected || model.busy)
             }
             DisclosureGroup("Сеанс и приборы") {
@@ -78,7 +78,7 @@ struct NativeContinuityBar: View {
                 } else { Label("Состояние архива неизвестно", systemImage: "externaldrive.badge.questionmark") }
             }
             HStack {
-                ForEach(model.session?.streams ?? []) { stream in
+                ForEach(model.session?.streams ?? [], id: \.exactID) { stream in
                     Text("\(stream.device) · \(deviceState(stream.state))")
                 }
                 Spacer()

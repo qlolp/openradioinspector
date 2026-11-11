@@ -81,8 +81,8 @@ public struct PlatformSweepReferenceCatalog: Decodable, Equatable, Sendable {
               streamId == nil || !streamId!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ["sqlite", "memory"].contains(storageMode), (storageMode == "sqlite" || !persistent),
               limit == 100, items.count <= limit,
-              Set(items.map(\.id)).count == items.count, Set(items.map(\.name)).count == items.count,
-              items.allSatisfy({ $0.sessionId == sessionId && (streamId == nil || $0.streamId == streamId) }) else {
+              Set(items.map(\.exactID)).count == items.count, Set(items.map(\.name)).count == items.count,
+              items.allSatisfy({ PlatformExactID.same($0.sessionId, sessionId) && (streamId == nil || PlatformExactID.same($0.streamId, streamId)) }) else {
             throw DecodingError.dataCorruptedError(forKey: .items, in: values, debugDescription: "Некорректный каталог опорных свипов")
         }
     }
@@ -109,7 +109,7 @@ extension PlatformClient {
             query: streamID.map { [URLQueryItem(name: "stream_id", value: $0)] } ?? [], expectedStatuses: [200]
         )
         try Task.checkCancellation()
-        guard catalog.sessionId == sessionID, catalog.streamId == streamID else {
+        guard PlatformExactID.same(catalog.sessionId, sessionID), PlatformExactID.same(catalog.streamId, streamID) else {
             throw PlatformError.invalidResponse("Сервер вернул каталог другого сеанса или потока")
         }
         return catalog
@@ -127,7 +127,7 @@ extension PlatformClient {
             "/sessions/\(Self.segment(sessionID))/sweep-references", body: Body(name: normalized, sweepId: sweepID), expectedStatuses: [200, 201]
         )
         try Task.checkCancellation()
-        guard record.sessionId == sessionID, record.sweepId == sweepID, record.name == normalized else {
+        guard PlatformExactID.same(record.sessionId, sessionID), PlatformExactID.same(record.sweepId, sweepID), record.name == normalized else {
             throw PlatformError.invalidResponse("Сервер вернул другой сохранённый опорный свип")
         }
         return record

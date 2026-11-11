@@ -93,6 +93,18 @@ final class CommittedEventTests: XCTestCase {
         XCTAssertEqual(live.cursor, 3)
     }
 
+    func testBoundedReplayRetainsDistinctUnicodeIDsThroughDeduplicationAndEviction() throws {
+        var live = PlatformLiveMeasurements(sessionID: "s", streamID: "a", after: 0, capacity: 2)
+        _ = try live.apply(event(1, id: "é"))
+        _ = try live.apply(event(2, id: "e\u{301}"))
+        XCTAssertEqual(live.sweeps.map { Array($0.id.utf8) }, [[101, 204, 129], [195, 169]])
+        XCTAssertEqual(try live.apply(event(3, id: "e\u{301}")), .duplicate)
+        _ = try live.apply(event(4, id: "z"))
+        XCTAssertEqual(live.sweeps.map { Array($0.id.utf8) }, [[122], [195, 169]])
+        XCTAssertEqual(live.sweeps.count, 2)
+        XCTAssertEqual(live.cursor, 4)
+    }
+
     func testSnapshotReplayUsesByteExactIDsAndDoesNotAppendDuplicateSweep() throws {
         let first = try event(1, id: "é").payload.sweep!
         var live = PlatformLiveMeasurements(sessionID: "s", streamID: "a", after: 1, sweeps: [first])

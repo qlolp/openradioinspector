@@ -8,7 +8,7 @@ extension RemoteDualModel {
         guard !spectrumPresentation.paused else { return }
         do {
             guard let analyzer, analyzer.isDbmAnalyzer,
-                  let sweep = spectrumPresentation.sweeps.last, sweep.streamId == analyzer.id, sweep.levelUnit == "dBm",
+                  let sweep = spectrumPresentation.sweeps.last, PlatformExactID.same(sweep.streamId, analyzer.id), sweep.levelUnit == "dBm",
                   let index = sweep.levels.indices.max(by: { sweep.levels[$0] < sweep.levels[$1] }) else {
                 throw PlatformError.invalidCommand("Нет фактического dBm sweep для создания кандидата")
             }
@@ -155,16 +155,16 @@ extension RemoteDualModel {
         Task {
             do {
                 let summary = try await client.analyticsSummary(sessionID: sessionID)
-                guard requestGeneration == generation, sessionID == selectedSessionID,
+                guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                       self.client === client else { return }
                 archiveAnalytics = summary
             } catch {
-                guard requestGeneration == generation, sessionID == selectedSessionID,
+                guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                       self.client === client else { return }
                 archiveAnalytics = nil
                 archiveAnalyticsError = describeSession(error)
             }
-            guard requestGeneration == generation, sessionID == selectedSessionID,
+            guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                   self.client === client else { return }
             archiveAnalyticsPending = false
         }
@@ -192,15 +192,15 @@ extension RemoteDualModel {
                 let result = try await client.exportArchive(
                     sessionID: sessionID, destination: destination
                 )
-                guard requestGeneration == generation, sessionID == selectedSessionID,
+                guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                       self.client === client else { return }
                 archiveExportStatus = "NDJSON сохранён: \(result.sweeps) sweeps, \(result.observations) observations · \(result.fileURL.lastPathComponent)"
             } catch {
-                guard requestGeneration == generation, sessionID == selectedSessionID,
+                guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                       self.client === client else { return }
                 archiveExportStatus = "NDJSON не сохранён: \(describeSession(error))"
             }
-            guard requestGeneration == generation, sessionID == selectedSessionID,
+            guard requestGeneration == generation, PlatformExactID.same(sessionID, selectedSessionID),
                   self.client === client else { return }
             archiveExportPending = false
         }
@@ -383,8 +383,8 @@ extension RemoteDualModel {
                 candidates: snapshot.candidates, ready: !snapshot.workflowErrors.contains { $0.hasPrefix("candidates:") })
         } else { frequencyRounding.reset() }
 
-        frequencyRaster.configure(client: (connectedServerURL == serverURL ? client : nil),
-            scope: connectedServerURL == serverURL
+        frequencyRaster.configure(client: (PlatformExactID.same(connectedServerURL, serverURL) ? client : nil),
+            scope: PlatformExactID.same(connectedServerURL, serverURL)
                 ? .init(server: serverURL, session: selectedSessionID) : nil,
             candidates: snapshot.candidates)
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL),
@@ -415,10 +415,10 @@ extension RemoteDualModel {
             taskSchedulerTasksError = snapshot.taskSchedulerTasksError
         }
         workflowErrors = snapshot.workflowErrors
-        if !candidates.contains(where: { $0.id == selectedCandidateID }) {
+        if !candidates.contains(where: { PlatformExactID.same($0.id, selectedCandidateID) }) {
             selectedCandidateID = candidates.first(where: { $0.state == "new" })?.id ?? candidates.first?.id ?? ""
         }
-        if !investigations.contains(where: { $0.id == selectedInvestigationID }) {
+        if !investigations.contains(where: { PlatformExactID.same($0.id, selectedInvestigationID) }) {
             selectedInvestigationID = investigations.first(where: {
                 ["queued", "tuning", "listening", "decoding"].contains($0.state)
             })?.id ?? investigations.first?.id ?? ""

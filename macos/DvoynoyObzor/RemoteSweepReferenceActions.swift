@@ -6,7 +6,7 @@ import SpektrKomandy
 extension RemoteDualModel {
     var currentReferenceScope: ReferenceScope? {
         guard connected, connectedServerURL == serverURL, !selectedSessionID.isEmpty,
-              session?.id == selectedSessionID, let stream = analyzer?.id else { return nil }
+              PlatformExactID.same(session?.id, selectedSessionID), let stream = analyzer?.id else { return nil }
         return ReferenceScope(server: serverURL, session: selectedSessionID, stream: stream)
     }
 
@@ -22,18 +22,18 @@ extension RemoteDualModel {
     var canSaveSweepReference: Bool {
         guard let scope = currentReferenceScope, let reference = comparisonReference else { return false }
         return !referenceRequestPending && !uncertainReferenceScopes.contains(scope)
-            && reference.sessionId == scope.session && reference.streamId == scope.stream
+            && PlatformExactID.same(reference.sessionId, scope.session) && PlatformExactID.same(reference.streamId, scope.stream)
             && (try? normalizedSweepReferenceName(referenceName)) != nil
     }
     var canUseSavedReference: Bool {
         guard let scope = currentReferenceScope else { return false }
         return savedSweepReferences.contains {
-            $0.id == savedReferenceSelectionID && $0.sessionId == scope.session && $0.streamId == scope.stream
+            PlatformExactID.same($0.id, savedReferenceSelectionID) && PlatformExactID.same($0.sessionId, scope.session) && PlatformExactID.same($0.streamId, scope.stream)
         }
     }
 
     func useSavedSweepReference() {
-        guard canUseSavedReference, let record = savedSweepReferences.first(where: { $0.id == savedReferenceSelectionID }) else { return }
+        guard canUseSavedReference, let record = savedSweepReferences.first(where: { PlatformExactID.same($0.id, savedReferenceSelectionID) }) else { return }
         cancelSweepComparison()
         comparisonReference = PinnedSweepReference(record)
     }
@@ -49,7 +49,7 @@ extension RemoteDualModel {
                 guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
                 self.referenceCatalog = catalog
                 self.savedSweepReferences = catalog.items
-                if !catalog.items.contains(where: { $0.id == self.savedReferenceSelectionID }) {
+                if !catalog.items.contains(where: { PlatformExactID.same($0.id, self.savedReferenceSelectionID) }) {
                     self.savedReferenceSelectionID = catalog.items.first?.id ?? ""
                 }
                 self.referenceCatalogError = nil
@@ -81,10 +81,10 @@ extension RemoteDualModel {
             do {
                 let record = try await client.saveSweepReference(sessionID: scope.session, sweepID: reference.id, name: name)
                 guard let self, !Task.isCancelled, self.referenceRequestMatches(scope, revision, client) else { return }
-                guard record.streamId == scope.stream else {
+                guard PlatformExactID.same(record.streamId, scope.stream) else {
                     throw PlatformError.invalidResponse("Сервер вернул опорный свип другого потока")
                 }
-                self.savedSweepReferences.removeAll { $0.id == record.id }
+                self.savedSweepReferences.removeAll { PlatformExactID.same($0.id, record.id) }
                 self.savedSweepReferences.append(record)
                 self.savedSweepReferences.sort { $0.createdAt < $1.createdAt }
                 self.savedReferenceSelectionID = record.id
@@ -164,7 +164,7 @@ extension RemoteDualModel {
     }
 
     var canPinComparisonReference: Bool {
-        currentReferenceScope != nil && comparisonSweeps.contains(where: { $0.id == comparisonSelectionID })
+        currentReferenceScope != nil && comparisonSweeps.contains(where: { PlatformExactID.same($0.id, comparisonSelectionID) })
     }
 
     var canCompareSweep: Bool {
@@ -172,8 +172,8 @@ extension RemoteDualModel {
     }
 
     func pinComparisonReference() {
-        guard currentReferenceScope != nil, let selected = comparisonSweeps.first(where: { $0.id == comparisonSelectionID }),
-              selected.sessionId == selectedSessionID, selected.streamId == analyzer?.id,
+        guard currentReferenceScope != nil, let selected = comparisonSweeps.first(where: { PlatformExactID.same($0.id, comparisonSelectionID) }),
+              PlatformExactID.same(selected.sessionId, selectedSessionID), PlatformExactID.same(selected.streamId, analyzer?.id),
               selected.levelUnit == "dBm" else { return }
         cancelSweepComparison()
         comparisonReference = PinnedSweepReference(selected)
@@ -226,9 +226,9 @@ extension RemoteDualModel {
     /// Explicit only: polling never moves the pinned reference or refreshes its comparison.
     func compareLatestSweep() {
         guard currentReferenceScope != nil, let client, let reference = comparisonReference,
-              let target = comparisonSweeps.last, reference.sessionId == selectedSessionID,
-              target.sessionId == selectedSessionID, reference.streamId == analyzer?.id,
-              target.streamId == reference.streamId else { return }
+              let target = comparisonSweeps.last, PlatformExactID.same(reference.sessionId, selectedSessionID),
+              PlatformExactID.same(target.sessionId, selectedSessionID), PlatformExactID.same(reference.streamId, analyzer?.id),
+              PlatformExactID.same(target.streamId, reference.streamId) else { return }
         cancelSweepComparison()
         let revision = comparisonRevision
         let requestGeneration = generation
@@ -243,9 +243,9 @@ extension RemoteDualModel {
                 )
                 guard let self, !Task.isCancelled, revision == self.comparisonRevision,
                       requestGeneration == self.generation, connection == self.connectionGeneration,
-                      self.client === client, self.selectedSessionID == sessionID,
-                      self.analyzer?.id == streamID else { return }
-                guard result.streamId == streamID else {
+                      self.client === client, PlatformExactID.same(self.selectedSessionID, sessionID),
+                      PlatformExactID.same(self.analyzer?.id, streamID) else { return }
+                guard PlatformExactID.same(result.streamId, streamID) else {
                     throw PlatformError.invalidResponse("Сервер вернул сравнение другого потока")
                 }
                 self.sweepComparison = result
@@ -253,8 +253,8 @@ extension RemoteDualModel {
             } catch {
                 guard let self, !Task.isCancelled, revision == self.comparisonRevision,
                       requestGeneration == self.generation, connection == self.connectionGeneration,
-                      self.client === client, self.selectedSessionID == sessionID,
-                      self.analyzer?.id == streamID else { return }
+                      self.client === client, PlatformExactID.same(self.selectedSessionID, sessionID),
+                      PlatformExactID.same(self.analyzer?.id, streamID) else { return }
                 self.sweepComparison = nil
                 switch error {
                 case PlatformError.http(status: 404, code: _, message: _):

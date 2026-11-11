@@ -90,9 +90,9 @@ struct RemoteSweepQualityPane: View {
     var body: some View {
         GroupBox("Качество архивного свипа · эвристический отчёт") {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Архивный свип", selection: Binding(get: { model.source?.id ?? "" }, set: { model.select(id: $0) })) {
-                    Text("Выберите свип").tag("")
-                    ForEach(model.choices) { Text($0.id).tag($0.id) }
+                Picker("Архивный свип", selection: Binding(get: { model.source?.id ?? "" }, set: { model.select(id: $0) }).exactID) {
+                    Text("Выберите свип").tag(PlatformExactID(""))
+                    ForEach(model.choices, id: \.exactID) { Text($0.id).tag($0.exactID) }
                 }
                 if let source = model.source {
                     Text("Источник: \(source.id) · \(source.streamId) · UTC \(source.interval.startedAt) — \(source.interval.endedAt)").font(.caption)

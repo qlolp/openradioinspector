@@ -155,7 +155,7 @@ final class MeasurementResultsModel: ObservableObject {
                       record.interval == body.interval else {
                     throw PlatformError.invalidResponse("Сервер вернул другой результат измерения")
                 }
-                self.items = self.items.filter { $0.id != record.id } + [record]
+                self.items = self.items.filter { !PlatformExactID.same($0.id, record.id) } + [record]
                 self.infoText = "Результат \(record.id) записан: \(record.methodology) / \(record.resultCode)."
                 self.finish()
             } catch {
@@ -225,7 +225,7 @@ struct RemoteMeasurementResultsPane: View {
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 4) {
-                            ForEach(model.items, id: \.id) { record in
+                            ForEach(model.items, id: \.exactID) { record in
                                 Text(describe(record))
                             }
                         }

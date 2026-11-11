@@ -106,7 +106,7 @@ struct MonitoringHistoryTimeline: View {
                             context.fill(Path(CGRect(x: x, y: y, width: max(1, endX - x), height: max(1, bottom - y))),
                                          with: .color(Color(red: rgb.red, green: rgb.green, blue: rgb.blue)))
                         }
-                        if row.id == selected {
+                        if PlatformExactID.same(row.id, selected) {
                             let startX = (Double(row.frequenciesHz.first ?? 0) - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
                             let endX = (Double(row.frequenciesHz.last ?? 0) - lowerFrequency) / (upperFrequency - lowerFrequency) * size.width
                             context.stroke(Path(CGRect(x: startX, y: y, width: max(2, endX - startX), height: max(2, bottom - y))),

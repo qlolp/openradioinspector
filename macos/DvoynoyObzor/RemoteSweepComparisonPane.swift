@@ -12,10 +12,10 @@ struct RemoteSweepComparisonPane: View {
     var body: some View {
         GroupBox("Сравнение архивных свипов · dB") {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Опорный свип из snapshot", selection: $model.comparisonSelectionID) {
-                    if model.comparisonSweeps.isEmpty { Text("Нет dBm свипов").tag("") }
-                    ForEach(model.comparisonSweeps) { sweep in
-                        Text("\(sweep.id) · \(sweep.interval.startedAt)").tag(sweep.id)
+                Picker("Опорный свип из snapshot", selection: $model.comparisonSelectionID.exactID) {
+                    if model.comparisonSweeps.isEmpty { Text("Нет dBm свипов").tag(PlatformExactID("")) }
+                    ForEach(model.comparisonSweeps, id: \.exactID) { sweep in
+                        Text("\(sweep.id) · \(sweep.interval.startedAt)").tag(sweep.exactID)
                     }
                 }
                 Button("Закрепить опорный свип") { model.pinComparisonReference() }
@@ -85,10 +85,10 @@ struct RemoteSweepComparisonPane: View {
                 Text("\(model.savedSweepReferences.count) в потоке · максимум \(catalog.limit) на сеанс")
                     .font(.caption)
             }
-            Picker("Сохранённый опорный свип", selection: $model.savedReferenceSelectionID) {
-                if model.savedSweepReferences.isEmpty { Text("Нет записей").tag("") }
-                ForEach(model.savedSweepReferences) { record in
-                    Text("\(record.name) · \(record.sweepId)").tag(record.id)
+            Picker("Сохранённый опорный свип", selection: $model.savedReferenceSelectionID.exactID) {
+                if model.savedSweepReferences.isEmpty { Text("Нет записей").tag(PlatformExactID("")) }
+                ForEach(model.savedSweepReferences, id: \.exactID) { record in
+                    Text("\(record.name) · \(record.sweepId)").tag(record.exactID)
                 }
             }
             Button("Использовать сохранённый опорный свип") { model.useSavedSweepReference() }

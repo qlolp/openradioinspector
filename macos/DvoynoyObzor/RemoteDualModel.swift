@@ -209,10 +209,10 @@ final class RemoteDualModel: ObservableObject {
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
     var thresholdDbm: Double? { parseUserNumber(threshold) }
     var selectedCandidate: PlatformCandidate? {
-        candidates.first(where: { $0.id == selectedCandidateID })
+        candidates.first(where: { PlatformExactID.same($0.id, selectedCandidateID) })
     }
     var selectedInvestigation: PlatformInvestigation? {
-        investigations.first(where: { $0.id == selectedInvestigationID })
+        investigations.first(where: { PlatformExactID.same($0.id, selectedInvestigationID) })
     }
 
     func configureAuxiliaryStreams(client: PlatformClient?, session: PlatformSession?) {
@@ -237,7 +237,7 @@ final class RemoteDualModel: ObservableObject {
 
     func worker(for streamID: String?) -> PlatformWorker? {
         guard let streamID else { return nil }
-        return workers.first(where: { $0.streamId == streamID })
+        return workers.first(where: { PlatformExactID.same($0.streamId, streamID) })
     }
 
     func connect(startPolling: Bool = true) {
@@ -294,7 +294,7 @@ final class RemoteDualModel: ObservableObject {
             let loaded = try await client.listSessions()
             guard requestGeneration == generation, self.client === client else { return }
             sessions = loaded
-            if selectedSessionID.isEmpty || !loaded.contains(where: { $0.id == selectedSessionID }) {
+            if selectedSessionID.isEmpty || !loaded.contains(where: { PlatformExactID.same($0.id, selectedSessionID) }) {
                 selectedSessionID = loaded.first?.id ?? ""
                 clearMeasurements()
             }
@@ -545,13 +545,13 @@ final class RemoteDualModel: ObservableObject {
         Task {
             do {
                 _ = try await operation(client, id)
-                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+                guard requestGeneration == generation, self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
                 await refresh()
             } catch {
-                guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+                guard requestGeneration == generation, self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
                 errorText = describeSession(error)
             }
-            guard requestGeneration == generation, self.client === client, id == selectedSessionID else { return }
+            guard requestGeneration == generation, self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
             busy = false
         }
     }
@@ -641,7 +641,7 @@ final class RemoteDualModel: ObservableObject {
         if let scope = currentReferenceScope, scope != loadedReferenceScope {
             refreshSweepReferences()
         }
-        if !selectedSweeps.contains(where: { $0.id == comparisonSelectionID }) {
+        if !selectedSweeps.contains(where: { PlatformExactID.same($0.id, comparisonSelectionID) }) {
             comparisonSelectionID = selectedSweeps.last?.id ?? ""
         }
         latestObservation = snapshot.observations.last

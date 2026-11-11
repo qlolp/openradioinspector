@@ -23,7 +23,10 @@ separate views; the shared-core app does not instantiate those models.
   seed snapshot, then consumes `/api/v1/events?after=cursor`. Replay deduplicates
   exact UTF-8 IDs. The global cursor includes foreign-session/metadata events;
   only selected streams update this client's display. Late commits preserve the
-  archive's UTC start-time / raw UTF-8 ID ordering.
+  archive's UTC start-time / raw UTF-8 ID ordering. `PlatformExactID` supplies
+  byte-based keys for project/event maps, deduplication, SwiftUI lists and
+  picker selections. Canonically equivalent IDs such as `é` and `e\u0301`
+  remain distinct; the original String remains the value sent to the API.
 - While subscribed, periodic snapshots refresh metadata without fetching sweeps
   or observations. Missing SSE support retains REST polling. Sequence gaps and
   malformed delivery reseed from committed archive data. Buffer overrun leaves a
@@ -68,7 +71,7 @@ than Foundation's historical calendar cutover.
 ## Verification and remaining gates
 
 Implemented behavior is verified with synthetic data. The official Swift 6.4.2
-Debian 13 toolchain passed 267 SDK XCTest tests and 16 Swift Testing tests with
+Debian 13 toolchain passed 274 SDK XCTest tests and 16 Swift Testing tests with
 zero skips using owned synthetic HTTP fixtures on 2026-11-11. All seven fixtures
 stopped and their archives remained unchanged. Without those fixtures, the same eight optional HTTP smoke tests skip
 on both baseline `604b206` and this branch; no new SDK skip was introduced.

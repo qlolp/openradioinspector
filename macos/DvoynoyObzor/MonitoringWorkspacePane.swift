@@ -74,23 +74,25 @@ struct MonitoringWorkspacePane: View {
             .frame(maxHeight: mode == .monitoring ? 300 : 440)
         }
         .padding(.horizontal)
-        .task(id: server) { workspace.configure(server); await workspace.load() }
-        .onChange(of: workspace.selected) { _ in
+        .task(id: PlatformExactID(server)) { workspace.configure(server); await workspace.load() }
+        .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
             confirm = false
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
         }
         .onChange(of: workspace.selectedInput) { _ in workspace.audioConfirmed = false }
         .onChange(of: workspace.audioEnabled) { _ in workspace.audioConfirmed = false }
         .onDisappear { workspace.stopAudio(); workspace.stopOperations() }
-        .onChange(of: workspace.project["active_session_id"].text) { id in
+        .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, value in
+            let id = value.rawValue
             if let next = sessionFollow.sessionToFollow(endpoint: server, projectID: workspace.selected, activeSessionID: id) { onProjectSession(next) }
         }
-        .onChange(of: workspace.selectedEvent) { _ in verdict = "unreviewed"; verdictComment = "" }
-        .onChange(of: workspace.event) { value in
+        .onChange(of: PlatformExactID(workspace.selectedEvent)) { _, _ in verdict = "unreviewed"; verdictComment = "" }
+        .onChange(of: [PlatformExactID(workspace.event["id"].text), PlatformExactID(workspace.event["disposition"].text), PlatformExactID(workspace.event["operator_comment"].text)]) { _, _ in
+            let value = workspace.event
             verdict = value["disposition"].text.isEmpty ? "unreviewed" : value["disposition"].text
             verdictComment = value["operator_comment"].text
         }
-        .task(id: server + "|" + workspace.selected) {
+        .task(id: [PlatformExactID(server), PlatformExactID(workspace.selected)]) {
             let endpoint = server, projectID = workspace.selected
             guard !endpoint.isEmpty, !projectID.isEmpty, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
             await workspace.loadOperationsSettings()
@@ -110,7 +112,7 @@ struct MonitoringWorkspacePane: View {
                 do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
             }
         }
-        .task(id: server + "|" + workspace.selected + "|preflight|" + String(preparationExpanded)) {
+        .task(id: [PlatformExactID(server), PlatformExactID(workspace.selected), PlatformExactID("preflight"), PlatformExactID(String(preparationExpanded))]) {
             let endpoint = server, projectID = workspace.selected
             guard preparationExpanded, !endpoint.isEmpty, !projectID.isEmpty else { return }
             while !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) {
@@ -118,7 +120,7 @@ struct MonitoringWorkspacePane: View {
                 do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
             }
         }
-        .task(id: server + "|" + workspace.selected + "|" + String(searchExpanded)) {
+        .task(id: [PlatformExactID(server), PlatformExactID(workspace.selected), PlatformExactID(String(searchExpanded))]) {
             guard searchExpanded, !workspace.selected.isEmpty else { return }
             while !Task.isCancelled {
                 if workspace.search["active"].bool != true && workspace.coverage != "restoring" {
@@ -143,10 +145,10 @@ struct MonitoringWorkspacePane: View {
                     Button("Обновить проекты") { workspace.perform { await workspace.reloadProjects() } }
                         .disabled(server.isEmpty || workspace.pending)
                 }
-                Picker("Проект", selection: $workspace.selected) {
-                    Text("Не выбран").tag("")
-                    ForEach(Array(workspace.projects.enumerated()), id: \.offset) { _, p in
-                        Text(p["name"].text + " · " + p["site"].text).tag(p["id"].text)
+                Picker("Проект", selection: $workspace.selected.exactID) {
+                    Text("Не выбран").tag(PlatformExactID(""))
+                    ForEach(workspace.projects, id: \.exactID) { p in
+                        Text(p["name"].text + " · " + p["site"].text).tag(PlatformExactID(p["id"].text))
                     }
                 }
                 HStack {
@@ -400,7 +402,7 @@ struct MonitoringWorkspacePane: View {
                 if workspace.alerts.isEmpty { Text("Оповещений нет или страница ещё не получена.").font(.caption) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(Array(workspace.alerts.enumerated()), id: \.offset) { _, item in
+                        ForEach(workspace.alerts, id: \.exactID) { item in
                             alertRow(item)
                         }
                     }
@@ -573,8 +575,8 @@ struct MonitoringWorkspacePane: View {
                 Text(workspace.historyDescription).font(.caption)
                 if !workspace.history.isEmpty {
                     MonitoringHistoryTimeline(rows: workspace.history, selected: workspace.selectedSweepID, select: workspace.selectSweep)
-                    Picker("Свип истории", selection: Binding(get: { workspace.selectedSweepID }, set: workspace.selectSweep)) {
-                        ForEach(workspace.history) { row in Text("\(MonitoringCurveChart.utc(row.startedAt.timeIntervalSince1970)) · \(row.id)").tag(row.id) }
+                    Picker("Свип истории", selection: Binding(get: { workspace.selectedSweepID }, set: workspace.selectSweep).exactID) {
+                        ForEach(workspace.history, id: \.exactID) { row in Text("\(MonitoringCurveChart.utc(row.startedAt.timeIntervalSince1970)) · \(row.id)").tag(row.exactID) }
                     }
                 }
                 if let sweep = workspace.selectedSweep {
@@ -644,7 +646,7 @@ struct MonitoringWorkspacePane: View {
                 if workspace.events.isEmpty { Text("Список событий пуст или ещё не загружен.").font(.caption) }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(workspace.events.enumerated()), id: \.offset) { _, item in
+                        ForEach(workspace.events, id: \.exactID) { item in
                             Button { workspace.perform { await workspace.showEvent(item["id"].text) } } label: {
                                 VStack(alignment: .leading) {
                                     Text("\(label(item["kind"].text)) · \(item["center_frequency_hz"].scalar) Гц · \(label(item["state"].text))")

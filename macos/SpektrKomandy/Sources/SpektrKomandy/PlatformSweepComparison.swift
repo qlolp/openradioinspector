@@ -127,8 +127,8 @@ extension PlatformClient {
                     URLQueryItem(name: "target_id", value: targetID)]
         )
         try Task.checkCancellation()
-        guard result.sessionId == sessionID,
-              result.reference.id == referenceID, result.target.id == targetID else {
+        guard PlatformExactID.same(result.sessionId, sessionID),
+              PlatformExactID.same(result.reference.id, referenceID), PlatformExactID.same(result.target.id, targetID) else {
             throw PlatformError.invalidResponse("Сервер вернул сравнение других архивных свипов")
         }
         return result

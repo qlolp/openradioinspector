@@ -142,9 +142,9 @@ struct RemoteUltraPane: View {
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
-                Picker("Поток фонограммы / обмена", selection: $model.auxiliaryStreamID) {
-                    ForEach(model.session?.streams ?? [], id: \.id) { stream in
-                        Text("\(stream.device) · \(stream.id) · \(stream.levelUnit)").tag(stream.id)
+                Picker("Поток фонограммы / обмена", selection: $model.auxiliaryStreamID.exactID) {
+                    ForEach(model.session?.streams ?? [], id: \.exactID) { stream in
+                        Text("\(stream.device) · \(stream.id) · \(stream.levelUnit)").tag(stream.exactID)
                     }
                 }.disabled(model.session?.streams.isEmpty ?? true)
                 RemotePhonogramPane(model: model.phonogram)

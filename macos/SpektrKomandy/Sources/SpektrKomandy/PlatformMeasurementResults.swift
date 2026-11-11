@@ -26,7 +26,7 @@ public struct PlatformMethodologyEntry: Decodable, Equatable, Sendable {
 
 /// One archived measurement result: the methodology is explicit, the verdict
 /// code is stored apart from the numeric values.
-public struct PlatformMeasurementResult: Decodable, Equatable, Sendable {
+public struct PlatformMeasurementResult: Decodable, Equatable, Identifiable, Sendable {
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
     public static let resultCodes = ["norm", "not_norm", "not_measured"]
     public let id: String
