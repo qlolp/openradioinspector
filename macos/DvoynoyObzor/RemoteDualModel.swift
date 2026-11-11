@@ -443,7 +443,7 @@ final class RemoteDualModel: ObservableObject {
             }
             workers = snapshot.workers
             measurementSnapshot = snapshot
-            await applyMeasurements(snapshot)
+            guard await applyMeasurements(snapshot) else { return }
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
@@ -456,7 +456,7 @@ final class RemoteDualModel: ObservableObject {
                               PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID), var latest = self.measurementSnapshot else { return }
                         latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
                         self.measurementSnapshot = latest
-                        await self.applyMeasurements(latest)
+                        guard await self.applyMeasurements(latest) else { return }
                         guard requestGeneration == self.generation, self.client === client else { return }
                         self.eventStatus = "SSE · принято событие \(cursor)"
                         self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")"
@@ -623,11 +623,21 @@ final class RemoteDualModel: ObservableObject {
         completionFormInitialized = false
     }
 
-    private func applyMeasurements(_ snapshot: PlatformSnapshot) async {
+    private func applyMeasurements(_ snapshot: PlatformSnapshot) async -> Bool {
         let selectedSweeps = snapshot.sweeps.filter {
             PlatformThreeSweepThresholds.sameID($0.sessionId, selectedSessionID)
                 && PlatformThreeSweepThresholds.sameID($0.streamId, analyzer?.id) && $0.levelUnit == "dBm"
         }
+        let requestGeneration = generation, sourceClient = client
+        let scope: PlatformSpectrumPresentation.Scope?
+        if PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id,
+           PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
+            scope = .init(server: serverURL, session: selectedSessionID, stream: stream)
+        } else { scope = nil }
+        // Analysis sources are readiness signals used by the UI and callers. Publish
+        // them only after the corresponding off-main display preparation finishes.
+        guard await prepareSpectrum(scope: scope, incoming: snapshot.sweeps),
+              requestGeneration == generation, sourceClient === client else { return false }
         comparisonSweeps = selectedSweeps
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
             sweepContext.configure(client: client,
@@ -654,12 +664,7 @@ final class RemoteDualModel: ObservableObject {
             comparisonSelectionID = selectedSweeps.last?.id ?? ""
         }
         latestObservation = snapshot.observations.last
-        let scope: PlatformSpectrumPresentation.Scope?
-        if PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id,
-           PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
-            scope = .init(server: serverURL, session: selectedSessionID, stream: stream)
-        } else { scope = nil }
-        await prepareSpectrum(scope: scope, incoming: snapshot.sweeps)
+        return true
     }
 
     func toggleSpectrumPause() {
@@ -678,7 +683,7 @@ final class RemoteDualModel: ObservableObject {
         spectrumClippedCount = spectrumPresentation.clippedCount
         if let frame = try? NativeSpectrumFrame(sweeps: spectrumPresentation.sweeps, threshold: thresholdDbm ?? -80) { publish(frame) }
     }
-    private func prepareSpectrum(scope: PlatformSpectrumPresentation.Scope?, incoming: [PlatformSweep]) async {
+    private func prepareSpectrum(scope: PlatformSpectrumPresentation.Scope?, incoming: [PlatformSweep]) async -> Bool {
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
         let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
@@ -688,9 +693,10 @@ final class RemoteDualModel: ObservableObject {
             return (next, frame, next.clippedCount)
         }
         let result = try? await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
-        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped) = result else { return }
+        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped) = result else { return false }
         spectrumPresentation = next; spectrumClippedCount = clipped
         if let frame { publish(frame) }
+        return true
     }
 
     private func publish(_ frame: NativeSpectrumFrame) {

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import XCTest
 import SpektrKomandy
 @testable import DvoynoyObzorSession
@@ -84,6 +85,28 @@ final class NativeStreamingModelTests: XCTestCase {
         try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertTrue(model.current.isEmpty)
         XCTAssertEqual(responses.mutations, 0)
+    }
+    @MainActor func testAnalysisSourcesArePublishedAfterTheirDisplayFrameIsReady() async throws {
+        let responses = Responses()
+        Stub.handle = responses.handle
+        let model = RemoteDualModel(makeClient: { url in
+            let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
+            return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
+        })
+        var observed = false
+        let subscription = model.$comparisonSweeps.sink { sweeps in
+            guard !sweeps.isEmpty else { return }
+            observed = true
+            XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
+            XCTAssertEqual(model.waterfall.rows.count, 1)
+        }
+        defer { subscription.cancel(); model.disconnect() }
+        model.connect(startPolling: false)
+        try await wait { model.sweepAverage.target != nil }
+        XCTAssertTrue(observed)
+        let revision = model.waterfallRevision
+        await model.refresh()
+        XCTAssertEqual(model.waterfallRevision, revision, "An identical refresh must not add a waterfall frame")
     }
     @MainActor func testPauseFreezesOnlyDisplayWhileCommittedFramesContinueAndResumeUsesNewest() async throws {
         let responses = Responses(), model = try await connected(responses)
