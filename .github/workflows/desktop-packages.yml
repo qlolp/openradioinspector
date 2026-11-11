@@ -123,7 +123,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget)'
+          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget|SecurityClientTests)'
+      - name: Native Keychain pairing and isolated WebKit cookie regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path macos -j 2 --filter '(NativeNodeConnectionTests|NativeCredentialStoreTests)' --skip DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
       - name: Compile native app in Swift 6 mode
         shell: bash
         run: |

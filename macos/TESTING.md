@@ -9,8 +9,8 @@ python -m tests.run_release_checks --swift
 Runner поднимает собственные HTTP-фикстуры и временные архивы, запускает Python,
 Node, Tk, обе Swift-suite и unsigned Xcode build; затем проверяет остановку
 серверов и неизменность архивов. Физический tinySA smoke явно исключён.
-Оборудование для этого прогона не требуется. Новые тесты `Swift Testing`
-требуют Swift 6 / Xcode 16 или новее; это не меняет минимальную macOS приложения.
+Оборудование для этого прогона не требуется. Текущие манифесты требуют Swift 6.4;
+CI выбирает Xcode 27.2 / Swift 6.4.2. Минимальная macOS приложения остаётся 14.
 
 Для локального измерения покрытия SDK из корня репозитория:
 
@@ -96,8 +96,9 @@ swift test --package-path macos/SpektrKomandy --filter SweepQualityTests
 swift test --package-path macos --filter SweepQualityModelTests
 ```
 
-В Linux-среде разработки этого среза Swift/Xcode отсутствуют; добавление тестов
-и проверка diff не означают успешной компиляции или аппаратной проверки.
+В Linux-среде первоначального среза SweepQuality Swift/Xcode отсутствовали;
+добавление тестов и проверка diff не означали успешной компиляции или
+аппаратной проверки.
 
 ## Модернизация native-клиента
 
@@ -113,3 +114,32 @@ compatibility. Deployment target остаётся macOS 14.
 macOS. `ORI_NATIVE_RENDERER=canvas` выбирает native fallback для ручной проверки.
 Подробности и непройденные аппаратные/resource gates:
 [macos-modernization.md](../docs/macos-modernization.md).
+
+## Сопряжение с TLS-узлом
+
+```sh
+swift test --package-path macos/SpektrKomandy -j 2 --filter SecurityClientTests
+swift test --package-path macos -j 2 --filter '(NativeNodeConnectionTests|NativeCredentialStoreTests)' --skip DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
+```
+
+Portable тесты проверяют ограниченный запрос кода, повторное использование
+Bearer в HTTP/SSE/audio, отсутствие native-cookie, безопасный обмен браузерной
+сессии, маскирование секретов в descriptions/reflection и отказ без перехода
+на HTTP при синтетической ошибке сертификата. Ввод кода не открывает окно
+сопряжения на ядре; его явно открывает оператор.
+
+Native тесты проверяют preflight/явное подтверждение старого API только после
+404, поздний ответ после закрытия UI, ошибку сохранения, отзыв/локальное
+забывание, независимость окон и замену authenticated client на том же узле.
+Вызовы Security проверяются подменами; дополнительно создаётся и удаляется
+одна собственная синтетическая запись со случайным account в login Keychain.
+Существующие учётные данные, search list, lock state и access controls не меняются.
+WebKit тест использует реальный непостоянный cookie store с синтетическим
+HttpOnly-cookie. Это не проверка физического узла или пользовательского интерфейса.
+
+Вручную остаётся проверить подписанный app/login Keychain и подключение к
+TLS-узлу с установленным оператором CA. Сертификаты принимаются только по
+системному доверию; обхода проверки нет. Token не сохраняется в UserDefaults,
+логи, URL или JavaScript. Отзыв доступа — отдельное действие; закрытие UI не
+останавливает отдельную службу ядра и не снимает охрану. Локальный bundled
+Python helper явно помечен: он живёт только до завершения app-процесса.

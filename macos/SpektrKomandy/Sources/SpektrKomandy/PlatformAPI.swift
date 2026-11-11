@@ -30,6 +30,7 @@ extension PlatformError: LocalizedError {
 
 public struct PlatformBaseURL: Equatable, Sendable {
     public let root: URL
+    public var isLoopback: Bool { root.host.map(platformLoopbackHost) ?? false }
     private let apiRootPath: String
 
     public init(_ text: String) throws {
@@ -43,6 +44,7 @@ public struct PlatformBaseURL: Equatable, Sendable {
         guard components.user == nil, components.password == nil else {
             throw PlatformError.invalidURL("Учётные данные в адресе сервера не поддерживаются")
         }
+        components.scheme = scheme
         if scheme == "http", !platformLoopbackHost(components.host!) {
             throw PlatformError.invalidURL("Для не-loopback сервера требуется https://")
         }
@@ -564,7 +566,7 @@ public struct PlatformSnapshot: Equatable, Sendable {
     public var workflowErrors: [String] = []
 }
 
-private struct PlatformEnvelope<Value: Decodable>: Decodable {
+struct PlatformEnvelope<Value: Decodable>: Decodable {
     let data: Value
 
     private enum CodingKeys: String, CodingKey, Sendable {
@@ -708,23 +710,51 @@ private func platformValidateNDJSON(
 public final class PlatformClient: Sendable {
     public let baseURL: PlatformBaseURL
     private let session: URLSession
+    private let credential: PlatformBearerCredential?
     private let usesInjectedSession: Bool
-    var eventSessionConfiguration: URLSessionConfiguration { session.configuration }
+    var eventSessionConfiguration: URLSessionConfiguration { Self.cookieFreeConfiguration(session.configuration) }
+    public var hasBearerCredential: Bool { credential != nil }
     private let maximumResponseBytes = 2_000_000
 
-    public init(baseURL: String, session: URLSession? = nil) throws {
+    public init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
+        guard credential == nil || self.baseURL.root.scheme == "https" else {
+            throw PlatformError.invalidURL("Сопряжённый клиент требует HTTPS")
+        }
+        self.credential = credential
         if let session {
             self.session = session
             self.usesInjectedSession = true
         } else {
             self.session = URLSession(
-                configuration: .ephemeral,
+                configuration: Self.cookieFreeConfiguration(.ephemeral),
                 delegate: PlatformRedirectGuard(),
                 delegateQueue: nil
             )
             self.usesInjectedSession = false
         }
+    }
+
+    private static func cookieFreeConfiguration(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.httpAdditionalHeaders = configuration.httpAdditionalHeaders?.filter {
+            let name = String(describing: $0.key).lowercased()
+            return name != "cookie" && name != "authorization"
+        }
+        return configuration
+    }
+
+    /// Every native delivery path uses one explicit credential policy. WebKit's
+    /// exchanged HttpOnly cookie belongs to its separate nonpersistent store.
+    func authorize(_ request: inout URLRequest) throws {
+        guard let url = request.url, platformSameOrigin(baseURL.root, url) else {
+            throw PlatformError.invalidURL("Запрос к другому origin отклонён")
+        }
+        request.httpShouldHandleCookies = false
+        request.setValue(nil, forHTTPHeaderField: "Cookie")
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        credential?.authorize(&request)
     }
 
     deinit {
@@ -884,6 +914,7 @@ public final class PlatformClient: Sendable {
         request.httpMethod = "GET"
         request.timeoutInterval = 30
         request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+        try authorize(&request)
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent("ori-export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -898,7 +929,7 @@ public final class PlatformClient: Sendable {
             downloadConfiguration = .ephemeral
         }
         let downloadSession = URLSession(
-            configuration: downloadConfiguration, delegate: delegate, delegateQueue: nil
+            configuration: Self.cookieFreeConfiguration(downloadConfiguration), delegate: delegate, delegateQueue: nil
         )
         defer { downloadSession.finishTasksAndInvalidate() }
         let response: URLResponse?
@@ -1098,8 +1129,8 @@ public final class PlatformClient: Sendable {
         method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
         timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        let responseLimit = method == "GET" && path.hasSuffix("/sweeps")
-            ? 16 * 1024 * 1024 : maximumResponseBytes
+        let responseLimit = path.hasPrefix("/security/") ? 4096 : (method == "GET" && path.hasSuffix("/sweeps")
+            ? 16 * 1024 * 1024 : maximumResponseBytes)
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
@@ -1110,6 +1141,7 @@ public final class PlatformClient: Sendable {
             request.httpBody = try encoder.encode(body)
             request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         }
+        try authorize(&request)
         let data: Data
         let response: URLResponse
         do {
@@ -1161,7 +1193,7 @@ public final class PlatformClient: Sendable {
         if Task.isCancelled { throw CancellationError() }
         let delegate = PlatformResponseDelegate(maximumBytes: maximumBytes)
         let session = URLSession(
-            configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+            configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
         )
         defer { session.invalidateAndCancel() }
         return try await withTaskCancellationHandler {
@@ -1186,6 +1218,8 @@ public final class PlatformClient: Sendable {
     /// Bounded raw GET for endless delivery streams: collects at most `maxBytes`, then drops the connection.
     func receivePrefix(_ request: URLRequest, maxBytes: Int) async throws -> (Data, URLResponse) {
         if Task.isCancelled { throw CancellationError() }
+        var request = request
+        try authorize(&request)
         let data: Data
         let response: URLResponse
         if usesInjectedSession {
@@ -1193,7 +1227,7 @@ public final class PlatformClient: Sendable {
         } else {
             let delegate = PlatformPrefixDelegate(limit: maxBytes)
             let session = URLSession(
-                configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+                configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
             )
             defer { session.invalidateAndCancel() }
             (data, response) = try await withTaskCancellationHandler {

@@ -131,13 +131,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
         }
     }
 
-    func configure(_ server: String) {
+    func configure(_ server: String, client suppliedClient: PlatformClient?) {
         let next = server
-        guard !PlatformExactID.same(next, scope) else { return }
+        guard !PlatformExactID.same(next, scope) || client !== suppliedClient else { return }
         scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
-        do { client = server.isEmpty ? nil : try PlatformClient(baseURL: server) }
-        catch { client = nil; self.error = error.localizedDescription }
+        client = server.isEmpty ? nil : suppliedClient
     }
 
     private func invalidateProject() {

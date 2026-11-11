@@ -10,6 +10,7 @@ enum NativeWorkspace: String, CaseIterable, Identifiable {
 
 struct NativeConnectionPane: View {
     @ObservedObject var model: RemoteDualModel
+    @ObservedObject var connection: NativeNodeConnectionModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -19,16 +20,23 @@ struct NativeConnectionPane: View {
                     .foregroundStyle(model.connected ? Color.green : Color.secondary)
             }
             HStack {
-                TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(model.connected)
+                TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(model.connected || connection.isBusy)
                 if model.connected {
-                    Button("Отключить UI") { model.disconnect() }
+                    Button("Отключить UI") { connection.cancel(); model.disconnect() }
                     Button("Обновить") { Task { await model.reloadSessions() } }
-                } else { Button("Подключить") { model.connect() } }
+                } else {
+                    Button("Подключить") {
+                        let endpoint = model.serverURL
+                        Task { accept(await connection.preflight(server: endpoint)) }
+                    }.disabled(connection.isBusy)
+                }
                 Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession).exactID) {
                     Text("Не выбран").tag(PlatformExactID(""))
                     ForEach(model.sessions, id: \.exactID) { Text("\($0.name) · \($0.state)").tag($0.exactID) }
                 }.disabled(!model.connected || model.busy)
             }
+            securityControls
+            ErrorLine(text: model.errorText)
             if model.usesBundledLegacyHelper {
                 Label("Локальное вспомогательное ядро: завершается вместе с приложением. Для автономной охраны подключите отдельную службу ядра.", systemImage: "desktopcomputer")
                     .font(.caption).foregroundStyle(.secondary)
@@ -50,6 +58,59 @@ struct NativeConnectionPane: View {
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.horizontal, 16).padding(.vertical, 10)
+            .onChange(of: PlatformExactID(model.serverURL)) { _, _ in connection.cancel() }
+            .onChange(of: model.authorizationRequired) { _, expired in
+                if expired { connection.authenticationExpired(server: model.serverURL) }
+            }
+    }
+
+    @ViewBuilder private var securityControls: some View {
+        if connection.isBusy {
+            HStack {
+                ProgressView("Проверка доступа к узлу…").controlSize(.small)
+                Button("Отмена") { connection.cancel() }
+            }
+        }
+        if connection.phase == .pairingRequired {
+            Text("Установите CA узла из доверенного источника в системную связку ключей. Оператор открывает короткое окно сопряжения на ядре; приложение не открывает его автоматически.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                SecureField("Код сопряжения", text: $connection.pairingCode).frame(maxWidth: 220)
+                TextField("Имя этого клиента", text: $connection.label).frame(maxWidth: 220)
+                Button("Сопрячь этот Mac") {
+                    let endpoint = model.serverURL
+                    Task { accept(await connection.pair(server: endpoint)) }
+                }
+                    .disabled(connection.pairingCode.isEmpty || connection.label.isEmpty)
+            }.textFieldStyle(.roundedBorder)
+        }
+        if connection.phase == .legacyConfirmation {
+            Button("Подключиться к старому API без сопряжения") { accept(connection.confirmLegacy(server: model.serverURL)) }
+        }
+        HStack {
+            if !connection.message.isEmpty {
+                Text(connection.message).font(.caption).foregroundStyle(connection.phase == .failed ? Color.red : Color.secondary)
+            }
+            Spacer()
+            if connection.authorizedNode?.access == .pairedTLS, model.connected {
+                Button("Отозвать это сопряжение", role: .destructive) {
+                    let endpoint = model.serverURL
+                    Task { if await connection.revokeCurrent(server: endpoint) { model.disconnect() } }
+                }.disabled(connection.isBusy)
+            }
+            if connection.phase != .idle {
+                Button("Забыть на этом Mac") {
+                    let endpoint = model.serverURL
+                    connection.cancel()
+                    model.disconnect()
+                    Task { _ = await connection.forget(server: endpoint) }
+                }.disabled(connection.isBusy)
+            }
+        }
+    }
+    private func accept(_ node: NativeAuthorizedNode?) {
+        guard let node, connection.accepts(node), node.server == PlatformExactID(model.serverURL) else { return }
+        model.connect(using: node.client)
     }
 }
 

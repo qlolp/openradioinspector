@@ -147,6 +147,7 @@ extension PlatformClient {
         var request = URLRequest(url: try baseURL.endpoint(path: "/events", query: [.init(name: "after", value: String(cursor))]))
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue(String(cursor), forHTTPHeaderField: "Last-Event-ID")
+        try authorize(&request)
         // The core sends heartbeats every 15 s. Do not extend normal request timeouts.
         return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             let delegate = PlatformEventDelegate(continuation: continuation)

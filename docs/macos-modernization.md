@@ -48,6 +48,29 @@ separate views; the shared-core app does not instantiate those models.
   Each renderer permits one GPU command in flight, avoiding CPU writes into active texture
   storage. Unsupported Metal/pipeline creation uses native Canvas/bitmap views.
   Set `ORI_NATIVE_RENDERER=canvas` locally to exercise that fallback.
+- Native connection preflight consumes the additive security status/pair/revoke
+  APIs. Pairing submits one explicit code during an operator-opened core window;
+  the app does not open that window. HTTPS uses system trust and the operator's
+  installed CA, with no certificate bypass or plaintext fallback. A 404 status
+  endpoint requires explicit legacy confirmation for this UI connection.
+- Bearer credentials live in the macOS login Keychain, scoped to the normalized
+  node origin/base path. A separate actor performs Security calls; no token is
+  copied into preferences, logs, URLs or JavaScript. Credentials have redacted
+  descriptions/reflection. The login Keychain supports the unsigned app without
+  entitlement-dependent fallback; entries do not synchronize. Access failure
+  stops pairing rather than retaining a memory-only credential. Revocation
+  matches a credential fingerprint atomically so an old window cannot erase a
+  newer window's saved credential. Explicit forgetting is local; UI close does
+  neither revocation nor disarm.
+- One authenticated SDK client is shared by monitoring, research, metadata,
+  SSE, bounded audio reads and archive exports. Native cookie processing is
+  disabled. Opening the lab explicitly exchanges Bearer for the core's bounded
+  browser-session response and validates its single host-only Secure/HttpOnly/
+  SameSite=Strict `/api` cookie. The cookie is installed in a nonpersistent
+  WebKit store before public program HTML loads. Closing/superseding preparation
+  cannot navigate later. Only an accepted loopback or explicitly confirmed
+  legacy connection can omit this exchange. A revoked Bearer disconnects UI and
+  requests pairing again without changing core worker/project state.
 
 Buffers are explicit: 64 queued events, 64 decoded events per input chunk,
 1 MiB per SSE frame, 40 live sweeps, 16,384 display columns and up to 240 legacy
@@ -59,18 +82,20 @@ comparison, occupancy, masks, detection and other analyses remain core API calls
 
 Both SwiftPM manifests require the Swift 6.4 toolchain. Portable SDK production
 sources compile in Swift 6 language mode; streamed measurement and display DTOs
-crossing executors have checked `Sendable` conformance. The native production target is also configured for Swift 6 language mode
-with complete concurrency checking. Existing XCTest source compatibility remains
-Swift 5. The native semantic build and runtime are explicit remaining Xcode CI
-gates; configuring the mode alone is not a completed migration claim. The Xcode project registers each
+crossing executors have checked `Sendable` conformance. The native production
+target also uses Swift 6 language mode with complete concurrency checking.
+Existing XCTest source compatibility remains Swift 5. The production native
+semantic build and runtime tests passed in Xcode CI at `4a462f3`; the subsequent
+pairing/Keychain/WebKit slice requires its own Xcode CI pass. The project registers each
 native source once and retains `MACOSX_DEPLOYMENT_TARGET=14.0`. CI selects the
 published `xcode-27` runner inventory and verifies Xcode 27.2 / Swift 6.4.2;
 `macos-latest` currently defaults to Swift 6.3.3. Existing matrix entries and
 hardened action pins remain intact, with an additional fast unsigned native build.
 
-There is no wire-contract change. SDK additions are a committed-event stream,
+The measurement contract is unchanged. SDK additions are a committed-event stream,
 watermark reader, exact UTC timestamp/display adapters and the default-compatible
-`includeMeasurements` snapshot option. Raw measurement strings, integer Hz,
+`includeMeasurements` snapshot option, plus an optional immutable Bearer
+credential and consumers for the frozen additive security APIs. Raw measurement strings, integer Hz,
 S-meter units and floating-point values remain unchanged. The shared synthetic
 `contracts/fixtures/measurement-v1.json` tests microseconds, offset-to-UTC
 interpretation, UTF-8 IDs, negative zero and the float64 nextafter bit pattern.
@@ -79,8 +104,8 @@ than Foundation's historical calendar cutover.
 
 ## Verification and remaining gates
 
-Implemented behavior is verified with synthetic data. The official Swift 6.4.2
-Debian 13 toolchain passed 274 SDK XCTest tests and 16 Swift Testing tests with
+Portable behavior is verified with synthetic data. The official Swift 6.4.2
+Debian 13 toolchain passed 282 SDK XCTest tests and 16 Swift Testing tests with
 zero skips using owned synthetic HTTP fixtures on 2026-11-11. All seven fixtures
 stopped and their archives remained unchanged. Without those fixtures, the same eight optional HTTP smoke tests skip
 on both baseline `604b206` and this branch; no new SDK skip was introduced.
@@ -91,11 +116,28 @@ archive ordering, raw units, float64 bits, exact UTC, extreme scales, single
 points, preservation of narrow peaks, texture wrap, one-row updates and palette
 invalidation. Native tests additionally cover real model streaming/recovery,
 Pause/Live continuity, late disconnect delivery and Metal pixel orientation.
+The new portable security tests cover explicit/bounded pairing, response
+validation/redaction, Bearer reuse, cookie isolation, unsafe cookie rejection
+and a simulated certificate failure without plaintext retry.
+
+At `4a462f3`, [native CI job 130402051279](https://github.com/qlolp/openradioinspector/actions/runs/42984380635/job/130402051279)
+passed the full macOS gate: 1,753 Python/Node/Tk tests with zero skips, the
+10,045-sweep synthetic seven-day scenario, 277 SDK XCTest plus 16 Swift Testing
+tests, 153 native XCTest plus four Swift Testing tests, and the unsigned Xcode
+build. All seven fixture archives were unchanged and stopped. The Metal API
+pixel path passed; the bitmap-fallback branch was not taken on that host.
+No Swift compiler warnings were reported. This evidence predates the separate
+pairing slice: its native Keychain query/state/WK-cookie tests and semantic
+build are pending Xcode CI. Keychain tests inject Security calls and also
+exercise one random, owned synthetic account in the login Keychain, removing
+it afterwards. They do not read existing credentials or change Keychain
+search lists, lock state or access controls. A signed-app/login-Keychain acceptance
+and an operator-installed-CA connection remain separate manual gates.
 
 On Linux, native sources pass Swift syntax parsing, the pure native stream/frame
 adapters typecheck in Swift 6 mode, and `tests.test_xcode_sources` passes. Linux
-cannot build or run Combine/AppKit/SwiftUI/Metal; no native UI build, GPU pixel
-run or application usability result is claimed here. Run the full native gate
+cannot build or run Combine/AppKit/SwiftUI/Metal; local parsing does not verify
+new native code or application usability. Run the full native gate
 on macOS with Xcode 27.2 / Swift 6.4.2:
 
 ```sh

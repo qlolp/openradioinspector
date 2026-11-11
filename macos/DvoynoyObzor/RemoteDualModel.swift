@@ -48,6 +48,7 @@ final class RemoteDualModel: ObservableObject {
     private var auxiliarySession: PlatformSession?
     @Published var workers: [PlatformWorker] = []
     @Published var connected = false
+    @Published var authorizationRequired = false
     @Published var busy = false
     @Published var status = "Сервер не подключён"
     @Published var errorText: String?
@@ -249,17 +250,18 @@ final class RemoteDualModel: ObservableObject {
         return workers.first(where: { PlatformExactID.same($0.streamId, streamID) })
     }
 
-    func connect(startPolling: Bool = true) {
+    func connect(startPolling: Bool = true, using preparedClient: PlatformClient? = nil) {
         measurementStream.stop(); measurementSnapshot = nil; eventGapNotice = nil
         frequencyRounding.reset()
         do {
-            client = try makeClient(serverURL)
+            client = try preparedClient ?? makeClient(serverURL)
             resetComparisonScope()
             connectedServerURL = serverURL
             connectionGeneration += 1
             archiveCapacity = nil
             archiveCapacityError = nil
             connected = true
+            authorizationRequired = false
             errorText = nil
             status = "Сервер подключён; приборные порты остаются у ядра"
             generation += 1
@@ -288,6 +290,7 @@ final class RemoteDualModel: ObservableObject {
         client = nil
         configureAuxiliaryStreams(client: nil, session: nil)
         connected = false
+        authorizationRequired = false
         busy = false
         session = nil
         sessions = []
@@ -310,6 +313,7 @@ final class RemoteDualModel: ObservableObject {
             await refresh()
         } catch {
             guard requestGeneration == generation, self.client === client else { return }
+            if expireAuthorization(error, client: client) { return }
             clearSpectrumPresentation()
             errorText = describeSession(error)
         }
@@ -481,6 +485,7 @@ final class RemoteDualModel: ObservableObject {
             live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
+            if expireAuthorization(error, client: client) { return }
             sweepAverage.reset()
             threeSweepThresholds.reset()
             sweepContext.reset()
@@ -489,6 +494,14 @@ final class RemoteDualModel: ObservableObject {
             clearSpectrumPresentation()
             errorText = describeSession(error)
         }
+    }
+
+    private func expireAuthorization(_ error: Error, client: PlatformClient) -> Bool {
+        guard client.hasBearerCredential, case PlatformError.http(status: 401, code: _, message: _) = error else { return false }
+        disconnect()
+        authorizationRequired = true
+        errorText = "Доступ этого Mac отозван или истёк. Выполните сопряжение заново; охрана ядра не изменена."
+        return true
     }
 
     func startSession() { performSessionAction { try await $0.startSession($1) } }

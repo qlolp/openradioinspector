@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var model = RemoteDualModel()
     @StateObject private var workspace = MonitoringWorkspaceModel()
+    @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
 
@@ -17,7 +18,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 175, ideal: 205, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                NativeConnectionPane(model: model)
+                NativeConnectionPane(model: model, connection: nodeConnection)
                 NativeContinuityBar(model: model, workspace: workspace)
                 RemoteArchiveCapacityPane(model: model).padding(.horizontal, 16)
                 VSplitView {
@@ -27,7 +28,7 @@ struct ContentView: View {
                     }.frame(minHeight: 400)
                     VStack(spacing: 8) {
                         // One model and one view identity survive local workspace changes.
-                        MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", sessionID: model.selectedSessionID,
+                        MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, sessionID: model.selectedSessionID,
                             workspace: workspace, mode: mode, onProjectSession: { id in
                                 model.selectSession(id)
                                 Task { await model.reloadSessions() }
@@ -44,8 +45,9 @@ struct ContentView: View {
         .frame(minWidth: 1150, minHeight: 850)
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: $model.showTinySAControl) {
-            RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "")
+            RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
+                client: model.client, access: nodeConnection.authorizedNode?.access)
         }
-        .background(WindowCloseObserver { model.disconnect() })
+        .background(WindowCloseObserver { nodeConnection.cancel(); model.disconnect() })
     }
 }

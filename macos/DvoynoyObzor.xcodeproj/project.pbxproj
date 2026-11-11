@@ -119,6 +119,8 @@
 				<string>F246B92705E08DB0DA1E364F</string>
 				<string>344EBD4222C4BC603E37ACC6</string>
 				<string>D26047F0CC171E7664B20C4C</string>
+				<string>2CAD5477F3553E0B19E81B1A</string>
+				<string>C7C9B75D6A4D5226CEB52BAE</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -205,6 +207,8 @@
 				<string>0479BC5D4BECD2EB338D08C9</string>
 				<string>7B4B1B0D03F1586C913F6B82</string>
 				<string>58D26228C4127B4A5310F91B</string>
+				<string>D52538672991B848A5192077</string>
+				<string>15DCCACA39B584D9B4B4AFAB</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -1193,6 +1197,42 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>D26047F0CC171E7664B20C4C</string>
+		</dict>
+		<key>2CAD5477F3553E0B19E81B1A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeCredentialStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>D52538672991B848A5192077</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>2CAD5477F3553E0B19E81B1A</string>
+		</dict>
+		<key>C7C9B75D6A4D5226CEB52BAE</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeNodeConnectionModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>15DCCACA39B584D9B4B4AFAB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>C7C9B75D6A4D5226CEB52BAE</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

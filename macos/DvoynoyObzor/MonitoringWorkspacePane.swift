@@ -6,8 +6,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 import SpektrKomandy
 
+private struct MonitoringConnectionIdentity: Hashable {
+    let server: PlatformExactID
+    let client: ObjectIdentifier?
+}
+
 struct MonitoringWorkspacePane: View {
     let server: String
+    let client: PlatformClient?
     let sessionID: String
     @ObservedObject var workspace: MonitoringWorkspaceModel
     var mode: NativeWorkspace = .monitoring
@@ -74,7 +80,9 @@ struct MonitoringWorkspacePane: View {
             .frame(maxHeight: mode == .monitoring ? 300 : 440)
         }
         .padding(.horizontal)
-        .task(id: PlatformExactID(server)) { workspace.configure(server); await workspace.load() }
+        .task(id: MonitoringConnectionIdentity(server: PlatformExactID(server), client: client.map(ObjectIdentifier.init))) {
+            workspace.configure(server, client: client); await workspace.load()
+        }
         .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
             confirm = false
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
