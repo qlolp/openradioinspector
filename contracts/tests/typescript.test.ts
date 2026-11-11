@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import './history_runtime.test.ts';
 import {parseJSON, stringifyJSON, decodeSweep, decodeReceiverObservation, normalizeUTC, encodePathSegment, operationPath, encodeSweep, decodeEnvelope, decodeErrorEnvelope} from '../generated/typescript/index.ts';
+import {decodeSecurityStatus, encodeSecurityStatus, decodeBrowserPairing, decodeNativePairing,
+    decodeMeasurementWebSocket, encodeMeasurementWebSocket, decodeSweepSummaryPage,
+    selectRuntimeOperations, runtimeOperations} from '../generated/typescript/runtime.ts';
 
 const fixtureText = readFileSync(new URL('../fixtures/measurement-v1.json', import.meta.url), 'utf8');
 test('integer minus zero matches legacy Python while explicit float retains sign', () => {
@@ -10,6 +14,50 @@ test('integer minus zero matches legacy Python while explicit float retains sign
     assert.equal(Object.is(value.float, -0), true);
 });
 const bits = (value: number): string => { const a = new DataView(new ArrayBuffer(8)); a.setFloat64(0,value); return a.getBigUint64(0).toString(16).padStart(16,'0'); };
+
+test('runtime fixtures reuse strict codecs and retain exact DTO fields and future metadata', () => {
+    const fixture=parseJSON(readFileSync(new URL('../fixtures/runtime-v1.json',import.meta.url),'utf8')) as any;
+    const status=decodeSecurityStatus(fixture.security_status);
+    assert.equal(status.mode,'legacy_loopback'); assert.equal(status.pairing_required,false);
+    const round=decodeSecurityStatus(parseJSON(encodeSecurityStatus(status))) as any;
+    assert.equal(round.future_metadata.big,18446744073709551615n);
+    assert.equal(bits(round.future_metadata.negative_zero),'8000000000000000');
+    assert.equal(bits(round.future_metadata.adjacent),'bff0000000000001');
+    assert.equal(round.future_metadata['é'],1); assert.equal(round.future_metadata['e\u0301'],2);
+    assert.equal(round.future_metadata['$serde_json::private::Number'],'literal');
+    assert.equal(decodeBrowserPairing(fixture.browser_pairing).credential,'browser_cookie');
+    assert.equal(decodeNativePairing(fixture.native_pairing).token,'synthetic-fixture-never-a-valid-credential');
+    const socket=decodeMeasurementWebSocket(fixture.websocket_descriptor);
+    assert.equal(socket.path,'/api/v1/events/ws'); assert.equal(socket.subprotocol,'ori.measurements.v1.protobuf');
+    socket.max_frame_bytes=18446744073709551615n;
+    assert.equal(decodeMeasurementWebSocket(parseJSON(encodeMeasurementWebSocket(socket))).max_frame_bytes,18446744073709551615n);
+    const page=decodeSweepSummaryPage(fixture.summary_page);
+    assert.equal(page.next_cursor,null); assert.equal(bits(page.items[0]!.peak_level),'8000000000000000');
+});
+
+test('runtime backend and request feature selection fails closed', () => {
+    assert.equal(runtimeOperations.find(op=>op.operation_id==='post_api_v1_security_pair')!.max_request_bytes,4096);
+    assert.deepEqual(runtimeOperations.find(op=>op.operation_id==='get_api_v1_sessions_id_sweep_summaries')!.path_parameters,['id']);
+    assert.deepEqual(runtimeOperations.find(op=>op.operation_id==='get_api_v1_events_ws')!.query,['after']);
+    const ids=(backend:string,features:string[]=[],capabilities:string[]=[],request:any={})=>selectRuntimeOperations(backend,features,capabilities,request).map(op=>op.operation_id);
+    assert.throws(()=>ids('unknown'));
+    assert.equal(ids('python-legacy').length,135);
+    assert.ok(!ids('python-legacy').includes('get_api_v1_security_status'));
+    assert.ok(ids('rust-candidate').includes('get_api_v1_security_status'));
+    assert.ok(!ids('rust-candidate').includes('get_api_v1_sessions_id_sweep_summaries'));
+    assert.ok(ids('rust-candidate',['sweep_summaries']).includes('get_api_v1_sessions_id_sweep_summaries'));
+    assert.ok(!ids('rust-candidate').includes('get_api_v1_events_ws'));
+    assert.ok(ids('rust-candidate',[],['ori.measurements.v1.protobuf']).includes('get_api_v1_events_ws'));
+    assert.ok(!ids('rust-candidate',['control_task_planning'],[],{enabled:true}).includes('post_api_v1_task_scheduler'));
+    assert.ok(ids('rust-candidate',['control_task_planning'],[],{enabled:false}).includes('post_api_v1_task_scheduler'));
+    assert.ok(ids('rust-candidate',['control_task_planning','control_task_scheduler'],[],{enabled:true}).includes('post_api_v1_task_scheduler'));
+    assert.ok(!ids('rust-candidate',['control_task_planning','control_task_execution'],[],{enabled:true}).includes('post_api_v1_task_scheduler'));
+});
+
+test('runtime WebSocket descriptors reject an unknown protocol version', () => {
+    const fixture=parseJSON(readFileSync(new URL('../fixtures/runtime-v1.json',import.meta.url),'utf8')) as any;
+    assert.throws(()=>decodeMeasurementWebSocket({...fixture.websocket_descriptor,version:2}));
+});
 
 test('shared golden retains exact f64 bits, integerHz, IDs, UTC and original units', () => {
     const fixture = parseJSON(fixtureText) as any;

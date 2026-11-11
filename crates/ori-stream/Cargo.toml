@@ -1,0 +1,15 @@
+[package]
+name = "ori-stream"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+ori-contracts = { path = "../ori-contracts" }
+prost = { version = "=0.14.5", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision", "raw_value"] }
+thiserror = "=2.0.21"
+
+[dev-dependencies]
+sha2 = "=0.11.1"

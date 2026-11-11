@@ -4,6 +4,9 @@
 The authoritative input is radioinspector.web.openapi.document(). --schema-source
 accepts that Python module in another checkout, or a captured OpenAPI JSON file.
 --check computes all outputs in memory and never rewrites stale files.
+The default also composes the reviewed runtime-extension-v1.json supplement.
+--variant baseline keeps the original output set; --variant rust-candidate
+emits only additive runtime artifacts. Neither changes the Python server.
 """
 from __future__ import annotations
 import argparse
@@ -11,6 +14,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -35,17 +39,56 @@ def load_document(source: Path | None):
     return module.document()
 
 
+def non_null(schema):
+    """Only the reviewed nullable reference pair needs union code generation."""
+    if 'anyOf' not in schema:
+        return schema
+    branches = schema['anyOf']
+    if isinstance(branches, list) and len(branches) == 2:
+        references = [item for item in branches if isinstance(item, dict) and set(item) == {'$ref'}]
+        if len(references) == 1 and {'type': 'null'} in branches:
+            return references[0]
+    raise ValueError('Unsupported generated union; expected one reference and null')
+
+
 def ref_name(schema):
-    return schema.get("$ref", "").rsplit("/", 1)[-1]
+    return non_null(schema).get("$ref", "").rsplit("/", 1)[-1]
 
 
 def kind(schema):
-    value = schema.get("type")
+    value = non_null(schema).get("type")
     return next((v for v in value if v != "null"), "null") if isinstance(value, list) else value
 
 
 def nullable(schema):
-    return isinstance(schema.get('type'), list) and 'null' in schema['type']
+    return ('anyOf' in schema and non_null(schema) is not schema or
+            isinstance(schema.get('type'), list) and 'null' in schema['type'])
+
+
+def integer_type(schema):
+    explicit = schema.get('format')
+    if explicit is not None:
+        if explicit not in ('int64', 'uint64'):
+            raise ValueError('Unsupported integer format: ' + str(explicit))
+        return 'i64' if explicit == 'int64' else 'u64'
+    # Preserve the legacy baseline exactly. New runtime fields use formats.
+    return 'i64' if isinstance(schema.get('type'), list) else 'u64'
+
+
+def integer_bounds(schema):
+    if kind(schema) != 'integer' or schema.get('format') not in ('int64', 'uint64'):
+        return []
+    low, high = (-(1 << 63), (1 << 63) - 1) if schema['format'] == 'int64' else (0, (1 << 64) - 1)
+    bounds = []
+    for key, limit, comparator in [('minimum', low, '<'), ('maximum', high, '>')]:
+        value = schema.get(key, limit)
+        if type(value) is not int or not low <= value <= high:
+            raise ValueError('Integer schema bound exceeds exact ' + schema['format'])
+        if value != limit:
+            bounds.append((comparator, value))
+    if schema.get('minimum', low) > schema.get('maximum', high):
+        raise ValueError('Reversed integer schema bounds')
+    return bounds
 
 
 def enum_name(model, field):
@@ -58,22 +101,26 @@ def enums(schemas):
 
 
 def rust_type(schema, model="", field=""):
+    schema = non_null(schema)
     if "$ref" in schema:
         return ref_name(schema)
     if "enum" in schema:
         return enum_name(model, field)
     if kind(schema) == "array": return "Vec<" + rust_type(schema.get("items", {})) + ">"
     return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String",
-            "integer": "i64" if isinstance(schema.get("type"), list) else "u64",
+            "integer": integer_type(schema) if kind(schema) == 'integer' else "u64",
             "number": "f64", "boolean": "bool", "object": "JSONObject"}.get(kind(schema), "serde_json::Value")
 
 
-def rust_models(schemas):
-    lines = ["// " + HEADER, "use serde::{Deserialize, Serialize};", "use crate::UtcTimestamp;", "pub type JSONObject = std::collections::BTreeMap<String, serde_json::Value>;", ""]
+def rust_models(schemas, include_common=True):
+    lines = ["// " + HEADER, "use serde::{Deserialize, Serialize};"]
+    if include_common or any(prop.get('format') == 'date-time' for schema in schemas.values() for prop in schema.get('properties', {}).values()):
+        lines += ["use crate::UtcTimestamp;"]
+    lines += ["pub type JSONObject = std::collections::BTreeMap<String, serde_json::Value>;", ""]
     for name, values in enums(schemas).items():
         lines += ["#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]", f"pub enum {name} {{"]
         for value in values:
-            lines += [f'    #[serde(rename = "{value}")]', "    " + "".join(p.title() for p in value.split("_")) + ","]
+            lines += [f'    #[serde(rename = "{value}")]', "    " + "".join(p.title() for p in re.split('[^a-zA-Z0-9]+', value)) + ","]
         lines += ["}", f"impl crate::RestoreKeys for {name} {{ fn restore_keys(&mut self) {{}} }}", ""]
     for name, schema in schemas.items():
         if name == "JSONObject": continue
@@ -85,8 +132,12 @@ def rust_models(schemas):
                 ty = f"Option<{ty}>"
             if not required:
                 lines += ['    #[serde(default, skip_serializing_if = "Option::is_none")]']
-            elif nullable(prop):
+            elif nullable(prop) and (include_common or not integer_bounds(prop)):
                 lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]']
+            if not include_common and integer_bounds(prop):
+                lines += [f'    #[serde(deserialize_with = "runtime_integer_{name.lower()}_{field}")]']
+            if not include_common and 'const' in prop:
+                lines += [f'    #[serde(deserialize_with = "runtime_const_{name.lower()}_{field}")]']
             if field == "contract": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract")]']
             if field == "contract_version": lines += ['    #[serde(deserialize_with = "crate::codec::deserialize_contract_version")]' if required else '    #[serde(deserialize_with = "crate::codec::deserialize_optional_contract_version")]']
             lines += [f"    pub {field}: {ty},"]
@@ -96,21 +147,51 @@ def rust_models(schemas):
         lines += [f"impl{generic} crate::RestoreKeys for {target} {{", "    fn restore_keys(&mut self) {", "        crate::RestoreKeys::restore_keys(&mut self.extra);"]
         for field, prop in schema["properties"].items():
             # Scalars have no map keys; only nested models/open JSON need a walk.
-            if field == "data" and name == "Envelope" or "$ref" in prop or kind(prop) == "object" or kind(prop) == "array" and ("$ref" in prop.get("items", {}) or kind(prop.get("items", {})) == "object"):
+            if field == "data" and name == "Envelope" or ref_name(prop) or kind(prop) == "object" or kind(prop) == "array" and (ref_name(prop.get("items", {})) or kind(prop.get("items", {})) == "object"):
                 lines += [f"        crate::RestoreKeys::restore_keys(&mut self.{field});"]
         lines += ["    }", "}", ""]
-    lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", "pub struct PlatformError {", "    pub code: String,", "    pub message: String,", '    #[serde(default, flatten)]', "    pub extra: JSONObject,", "}", "", "impl crate::RestoreKeys for PlatformError { fn restore_keys(&mut self) { crate::RestoreKeys::restore_keys(&mut self.extra); } }", "", "impl<T> Envelope<T> {", "    pub fn new(data: T) -> Self {", '        Self { contract: crate::CONTRACT_NAME.into(), contract_version: crate::CONTRACT_VERSION, data, extra: JSONObject::new() }', "    }", "}", ""]
+        if not include_common:
+            for field, prop in schema['properties'].items():
+                bounds = integer_bounds(prop)
+                if not bounds:
+                    continue
+                scalar = rust_type(prop, name, field)
+                optional = field not in schema.get('required', []) or nullable(prop)
+                ty = f'Option<{scalar}>' if optional else scalar
+                target = 'v' if optional else 'value'
+                condition = (f'!({bounds[0][1]}..={bounds[1][1]}).contains(&{target})' if len(bounds) == 2 else
+                             ' || '.join(f'{target} {operator} {value}' for operator, value in bounds))
+                invalid = f'value.is_some_and(|v| {condition})' if optional else condition
+                lines += [f"fn runtime_integer_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{ty}, D::Error> {{",
+                          f'    let value: {ty} = Deserialize::deserialize(deserializer)?;',
+                          f'    if {invalid} {{ return Err(serde::de::Error::custom("Integer outside schema bounds")); }}',
+                          '    Ok(value)', '}', '']
+            for field, prop in schema['properties'].items():
+                if 'const' not in prop: continue
+                if prop.get('type') not in ('boolean', 'integer', 'string') or 'enum' in prop or field not in schema.get('required', []):
+                    raise ValueError('Unsupported runtime constant model field')
+                ty = rust_type(prop, name, field)
+                mismatch = '!value' if prop['const'] is True else 'value' if prop['const'] is False else f"value != {json.dumps(prop['const'])}"
+                lines += [f"fn runtime_const_{name.lower()}_{field}<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<{ty}, D::Error> {{",
+                          f"    let value = {ty}::deserialize(deserializer)?;",
+                          f"    if {mismatch} {{ return Err(serde::de::Error::custom(\"Unsupported runtime value\")); }}",
+                          "    Ok(value)", "}", ""]
+    if include_common:
+        lines += ["#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]", "pub struct PlatformError {", "    pub code: String,", "    pub message: String,", '    #[serde(default, flatten)]', "    pub extra: JSONObject,", "}", "", "impl crate::RestoreKeys for PlatformError { fn restore_keys(&mut self) { crate::RestoreKeys::restore_keys(&mut self.extra); } }", "", "impl<T> Envelope<T> {", "    pub fn new(data: T) -> Self {", '        Self { contract: crate::CONTRACT_NAME.into(), contract_version: crate::CONTRACT_VERSION, data, extra: JSONObject::new() }', "    }", "}", ""]
     return "\n".join(lines)
 
 
 def ts_type(schema, model="", field=""):
-    if "$ref" in schema: return ref_name(schema)
-    if "enum" in schema: return enum_name(model, field)
-    if kind(schema) == "array": return f"Array<{ts_type(schema.get('items', {}))}>"
-    return {"string": "string", "integer": "Integer", "number": "number", "boolean": "boolean", "object": "JSONObject"}.get(kind(schema), "JSONValue") + (" | null" if isinstance(schema.get("type"), list) and "null" in schema["type"] else "")
+    suffix = ' | null' if nullable(schema) else ''
+    schema = non_null(schema)
+    if "$ref" in schema: return ref_name(schema) + suffix
+    if "enum" in schema: return enum_name(model, field) + suffix
+    if kind(schema) == "array": return f"Array<{ts_type(schema.get('items', {}))}>" + suffix
+    if kind(schema) == 'integer': integer_type(schema)
+    return {"string": "string", "integer": "Integer", "number": "number", "boolean": "boolean", "object": "JSONObject"}.get(kind(schema), "JSONValue") + suffix
 
 
-def ts_models(schemas):
+def ts_models(schemas, include_common=True):
     lines = ["// " + HEADER, "import type {JSONValue, JSONObject, Integer} from './codec.ts';", "export type {JSONValue, JSONObject, Integer} from './codec.ts';", ""]
     for name, values in enums(schemas).items():
         lines += [f"export type {name} = " + " | ".join(json.dumps(v) for v in values) + ";"]
@@ -122,18 +203,21 @@ def ts_models(schemas):
             if "const" in prop: ty = json.dumps(prop["const"])
             lines += [f"  {field}{'' if field in schema.get('required', []) else '?'}: {ty};"]
         lines += ["  [key: string]: unknown;", "}", ""]
-    lines += ["export interface PlatformError {code: string; message: string; [key: string]: unknown;}"]
+    if include_common: lines += ["export interface PlatformError {code: string; message: string; [key: string]: unknown;}"]
     return "\n".join(lines) + "\n"
 
 
 def swift_type(schema, model="", field=""):
+    schema = non_null(schema)
     if "$ref" in schema: return ref_name(schema)
     if "enum" in schema: return enum_name(model, field)
     if kind(schema) == "array": return "[" + swift_type(schema.get("items", {})) + "]"
-    return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String", "integer": "Int64" if isinstance(schema.get("type"), list) else "UInt64", "number": "Double", "boolean": "Bool", "object": "JSONObject"}.get(kind(schema), "JSONValue")
+    integer = 'Int64' if kind(schema) == 'integer' and integer_type(schema) == 'i64' else 'UInt64'
+    return {"string": "UtcTimestamp" if schema.get("format") == "date-time" else "String", "integer": integer, "number": "Double", "boolean": "Bool", "object": "JSONObject"}.get(kind(schema), "JSONValue")
 
 
 def swift_read(prop, expr, model="", field=""):
+    prop = non_null(prop)
     if "$ref" in prop: return f"try {ref_name(prop)}(json: {expr})"
     if "enum" in prop: return f"try {enum_name(model, field)}(json: {expr})"
     if kind(prop) == "array": return f"try {expr}.requireArray().map {{ {swift_read(prop['items'], '$0')} }}"
@@ -142,18 +226,20 @@ def swift_read(prop, expr, model="", field=""):
 
 
 def swift_write(prop, expr, model="", field=""):
+    prop = non_null(prop)
     if "$ref" in prop or "enum" in prop or swift_type(prop, model, field) == "UtcTimestamp": return f"{expr}.json"
     if kind(prop) == "array": return f".array({expr}.map {{ {swift_write(prop['items'], '$0')} }})"
     return {"string": f".string({expr})", "integer": f".integer(String({expr}))", "number": f".number({expr})", "boolean": f".bool({expr})", "object": f".object({expr})"}.get(kind(prop), expr)
 
 
-def swift_models(schemas):
+def swift_models(schemas, include_common=True):
     lines = ["// " + HEADER, "import Foundation", ""]
     for name, values in enums(schemas).items():
         lines += [f"public enum {name}: String, Sendable, Codable, CaseIterable {{"]
-        for value in values: lines += [f'    case {value} = "{value}"']
+        for value in values: lines += [f'    case {re.sub("[^a-zA-Z0-9_]", "_", value)} = "{value}"']
         lines += ["    public init(json: JSONValue) throws {", '        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }', "        self = value", "    }", "    public var json: JSONValue { .string(rawValue) }", "}", ""]
-    for name, schema in {**schemas, "PlatformError": {"properties": {"code": {"type": "string"}, "message": {"type": "string"}}, "required": ["code", "message"]}}.items():
+    common = {"PlatformError": {"properties": {"code": {"type": "string"}, "message": {"type": "string"}}, "required": ["code", "message"]}} if include_common else {}
+    for name, schema in {**schemas, **common}.items():
         if name == "JSONObject": continue
         lines += [f"public struct {name}: ContractModel, Equatable, Sendable {{"]
         for field, prop in schema["properties"].items():
@@ -180,6 +266,12 @@ def swift_models(schemas):
                 lines += [f'        guard let {field}Value = object.removeValue(forKey: "{field}") else {{ throw ContractError.invalid("Missing {field}") }}', f"        {field} = {decoded}"]
             else:
                 lines += [f'        if let value = object.removeValue(forKey: "{field}"), value != .null {{ {field} = {value} }} else {{ {field} = nil }}']
+            if not include_common and integer_bounds(prop):
+                comparisons = ' && '.join(f'value {">=" if operator == "<" else "<="} {bound}' for operator, bound in integer_bounds(prop))
+                if not required or nullable(prop):
+                    lines += [f'        if let value = {field} {{ guard {comparisons} else {{ throw ContractError.invalid("Integer outside schema bounds") }} }}']
+                else:
+                    lines += [f'        guard {comparisons.replace("value ", field + " ")} else {{ throw ContractError.invalid("Integer outside schema bounds") }}']
             if "const" in prop:
                 condition = json.dumps(prop["const"], ensure_ascii=False)
                 lines += [f'        guard {field} == {condition}{" || " + field + " == nil" if not required else ""} else {{ throw ContractError.invalid("Unsupported {field}") }}']
@@ -251,9 +343,19 @@ def main():
     parser.add_argument("--schema-source", type=Path)
     parser.add_argument("--output-root", type=Path, default=ROOT)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--variant", choices=("all", "baseline", "rust-candidate"), default="all")
+    parser.add_argument("--runtime-extension", type=Path)
     args = parser.parse_args()
     try:
-        outputs = render(load_document(args.schema_source))
+        document = load_document(args.schema_source)
+        outputs = render(document) if args.variant in ("all", "baseline") else {}
+        if args.variant in ("all", "rust-candidate") or args.runtime_extension is not None:
+            from runtime_contract import load_extension, compose_runtime_document
+            from runtime_render import render_runtime
+            extension = load_extension(args.runtime_extension) if args.runtime_extension else load_extension()
+            runtime = compose_runtime_document(document, extension)
+            if args.variant in ("all", "rust-candidate"):
+                outputs.update(render_runtime(runtime, extension, sys.modules[__name__]))
     except (OSError, ValueError, ImportError) as error:
         print(f"contract generation failed: {error}", file=sys.stderr)
         return 2

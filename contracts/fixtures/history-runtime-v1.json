@@ -1,0 +1,159 @@
+{
+  "request": {
+    "operation": "occupancy",
+    "filters": {
+      "session_id": "history-é-é/雪",
+      "stream_id": "receiver+one/%",
+      "started_at_us": -9223372036854775808,
+      "ended_at_us": 9223372036854775807,
+      "min_frequency_hz": 0,
+      "max_frequency_hz": 9223372036854775807
+    },
+    "page_size": 500,
+    "threshold": {
+      "value": -0.0,
+      "unit": "s_meter_count"
+    }
+  },
+  "job": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "operation": "occupancy",
+    "phase": "completed",
+    "source_boundary": 18446744073709551615,
+    "source_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "result_available": true,
+    "enforcement": {
+      "process_tree_termination": true,
+      "hard_memory": false,
+      "hard_io": false,
+      "hard_cache_quota": false,
+      "hard_temp_quota": false,
+      "sampled_rss": true,
+      "future": {
+        "é": 1,
+        "é": 2,
+        "$serde_json::private::Number": "literal",
+        "$ori::escaped::$serde_json::private::Number": "literal-prefix",
+        "negative_zero": -0.0,
+        "adjacent": -1.0000000000000002,
+        "big": 18446744073709551616
+      }
+    },
+    "failure": null
+  },
+  "failed_job": {
+    "id": "fedcba9876543210fedcba9876543210",
+    "operation": "summary",
+    "phase": "failed",
+    "source_boundary": null,
+    "source_sha256": null,
+    "result_available": false,
+    "enforcement": null,
+    "failure": {
+      "code": "source_record_invalid",
+      "retryable": false
+    }
+  },
+  "result": {
+    "data": {
+      "rows": [
+        {
+          "kind": "observation",
+          "frequency_hz": 9223372036854775807,
+          "level_unit": "s_meter_count",
+          "occupancy_ratio": -0.0
+        }
+      ],
+      "next_cursor": "opaque-cursor-é/%+",
+      "cache_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "é": 1,
+      "é": 2,
+      "$serde_json::private::Number": "result-key"
+    },
+    "metrics": {
+      "io_bytes": 18446744073709551615,
+      "negative_zero": -0.0,
+      "adjacent": -1.0000000000000002,
+      "é": 1,
+      "é": 2,
+      "$serde_json::private::Number": "metrics-key"
+    },
+    "enforcement": {
+      "process_tree_termination": true,
+      "hard_memory": false,
+      "hard_io": false,
+      "hard_cache_quota": false,
+      "hard_temp_quota": false,
+      "sampled_rss": true,
+      "future": {
+        "é": 1,
+        "é": 2,
+        "$serde_json::private::Number": "result-enforcement-key"
+      }
+    }
+  },
+  "page_request": {
+    "cursor": "opaque-cursor-é/%+"
+  },
+  "viewport_query": {
+    "session_id": "history-é-é/雪",
+    "stream_id": "spectrum/one",
+    "min_frequency_hz": 0,
+    "max_frequency_hz": 9223372036854775807,
+    "columns": 1024,
+    "rows": 32,
+    "start_us": -9223372036854775808,
+    "end_us": 9223372036854775807,
+    "cursor": null
+  },
+  "viewport_cursor": {
+    "boundary": 18446744073709551615,
+    "query_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "after": {
+      "started_at": "1969-12-31T23:59:59.999999Z",
+      "id": "sweep-é/雪"
+    }
+  },
+  "viewport_page": {
+    "derived": true,
+    "boundary": 18446744073709551615,
+    "cache_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "rows": [
+      {
+        "measurement_id": "sweep-é/雪",
+        "started_at_us": -9223372036854775808,
+        "ended_at_us": 9223372036854775807,
+        "level_unit": "s_meter_count",
+        "settings_sha256": null,
+        "cells": [
+          {
+            "bucket": 0,
+            "frequency_hz": 0,
+            "level": -0.0,
+            "point_index": 0
+          },
+          {
+            "bucket": 1023,
+            "frequency_hz": 9223372036854775807,
+            "level": -1.0000000000000002,
+            "point_index": 65535
+          }
+        ]
+      }
+    ],
+    "quality": {
+      "incomplete_settings": true,
+      "heterogeneous": false,
+      "frequency_gaps": true,
+      "paged": true
+    },
+    "next_cursor": {
+      "boundary": 18446744073709551615,
+      "query_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "after": {
+        "started_at": "1969-12-31T23:59:59.999999Z",
+        "id": "sweep-é/雪"
+      }
+    }
+  }
+}

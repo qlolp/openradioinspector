@@ -1,0 +1,7 @@
+{
+  "baseline_schema_sha256": "7694d876cdd29cf82824b7dd3c750bb9033b9f530c69468fb6cc35ddf9e70bc9",
+  "extension_sha256": "854e550b9609ecb89e2aa305de079a092711a21cd5e724cb5861f5ce1f08c46d",
+  "extension_version": 1,
+  "runtime_schema_sha256": "5cda6595ed9bc9b194d76fc0a74a9e8dba26846a2b46f5a831b26f5d4e33d19d",
+  "variant": "rust-candidate"
+}

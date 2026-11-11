@@ -2,6 +2,324 @@ use ori_contracts::{ReceiverObservation, Sweep, from_json_slice, normalize_utc, 
 use serde_json::Value;
 
 const FIXTURE: &[u8] = include_bytes!("../fixtures/measurement-v1.json");
+const RUNTIME_FIXTURE: &[u8] = include_bytes!("../fixtures/runtime-v1.json");
+const HISTORY_FIXTURE: &[u8] = include_bytes!("../fixtures/history-runtime-v1.json");
+
+#[test]
+fn history_signed_time_nullable_unsigned_boundary_and_nested_metadata_are_exact() {
+    use ori_contracts::runtime::{HistoryJob, HistoryJobResult, HistoryRequest};
+    let f: Value = from_json_slice(HISTORY_FIXTURE, HISTORY_FIXTURE.len()).unwrap();
+    let request: HistoryRequest =
+        from_json_slice(&to_json_vec(&f["request"]).unwrap(), 10000).unwrap();
+    let filters = request.filters.as_ref().unwrap();
+    assert_eq!(filters.started_at_us, Some(i64::MIN));
+    assert_eq!(filters.ended_at_us, Some(i64::MAX));
+    assert_eq!(filters.max_frequency_hz, Some(i64::MAX));
+    assert_eq!(
+        request.threshold.as_ref().unwrap().value.to_bits(),
+        (-0.0_f64).to_bits()
+    );
+    let request: HistoryRequest = from_json_slice(&to_json_vec(&request).unwrap(), 10000).unwrap();
+    assert_eq!(
+        request.filters.unwrap().session_id.as_deref(),
+        Some("history-é-e\u{301}/雪")
+    );
+    let job: HistoryJob = from_json_slice(&to_json_vec(&f["job"]).unwrap(), 10000).unwrap();
+    assert_eq!(job.source_boundary, Some(u64::MAX));
+    let job: HistoryJob = from_json_slice(&to_json_vec(&job).unwrap(), 10000).unwrap();
+    assert_eq!(job.source_boundary, Some(u64::MAX));
+    assert!(job.failure.is_none());
+    let future = &job.enforcement.unwrap().extra["future"];
+    assert_eq!(future["é"], 1);
+    assert_eq!(future["e\u{301}"], 2);
+    assert_eq!(future["$serde_json::private::Number"], "literal");
+    assert_eq!(
+        future["$ori::escaped::$serde_json::private::Number"],
+        "literal-prefix"
+    );
+    assert_eq!(future["big"].to_string(), "18446744073709551616");
+    assert_eq!(
+        future["negative_zero"].as_f64().unwrap().to_bits(),
+        (-0.0_f64).to_bits()
+    );
+    assert_eq!(
+        future["adjacent"].as_f64().unwrap().to_bits(),
+        0xbff0000000000001
+    );
+    let failed: HistoryJob =
+        from_json_slice(&to_json_vec(&f["failed_job"]).unwrap(), 10000).unwrap();
+    assert!(failed.source_boundary.is_none() && failed.enforcement.is_none());
+    assert_eq!(failed.failure.unwrap().code, "source_record_invalid");
+    let output: HistoryJobResult =
+        from_json_slice(&to_json_vec(&f["result"]).unwrap(), 10000).unwrap();
+    let output: HistoryJobResult = from_json_slice(&to_json_vec(&output).unwrap(), 10000).unwrap();
+    assert_eq!(output.metrics["io_bytes"].as_u64(), Some(u64::MAX));
+    assert_eq!(
+        output.metrics["negative_zero"].as_f64().unwrap().to_bits(),
+        (-0.0_f64).to_bits()
+    );
+    assert_eq!(
+        output.metrics["$serde_json::private::Number"],
+        "metrics-key"
+    );
+    assert_eq!(
+        output.enforcement.extra["future"]["$serde_json::private::Number"],
+        "result-enforcement-key"
+    );
+    assert_eq!(output.data["é"], 1);
+    assert_eq!(output.data["e\u{301}"], 2);
+}
+
+#[test]
+fn history_viewport_retains_original_source_identity_unit_point_and_float_bits() {
+    use ori_contracts::runtime::{HistoryViewportPage, HistoryViewportQuery};
+    let f: Value = from_json_slice(HISTORY_FIXTURE, HISTORY_FIXTURE.len()).unwrap();
+    let query: HistoryViewportQuery =
+        from_json_slice(&to_json_vec(&f["viewport_query"]).unwrap(), 10000).unwrap();
+    assert_eq!(
+        (query.start_us, query.end_us),
+        (Some(i64::MIN), Some(i64::MAX))
+    );
+    assert!(query.cursor.is_none());
+    let page: HistoryViewportPage =
+        from_json_slice(&to_json_vec(&f["viewport_page"]).unwrap(), 10000).unwrap();
+    let page: HistoryViewportPage = from_json_slice(&to_json_vec(&page).unwrap(), 10000).unwrap();
+    assert!(page.derived);
+    assert_eq!(page.boundary, u64::MAX);
+    let row = &page.rows[0];
+    assert_eq!((row.started_at_us, row.ended_at_us), (i64::MIN, i64::MAX));
+    assert_eq!(row.measurement_id, "sweep-e\u{301}/雪");
+    assert_eq!(row.level_unit, "s_meter_count");
+    assert!(row.settings_sha256.is_none());
+    assert_eq!(row.cells[0].level.to_bits(), (-0.0_f64).to_bits());
+    assert_eq!(row.cells[1].level.to_bits(), 0xbff0000000000001);
+    assert_eq!(
+        (row.cells[1].frequency_hz, row.cells[1].point_index),
+        (i64::MAX, 65535)
+    );
+    let cursor = page.next_cursor.unwrap();
+    assert_eq!(cursor.boundary, u64::MAX);
+    assert_eq!(
+        cursor.after.started_at.as_str(),
+        "1969-12-31T23:59:59.999999Z"
+    );
+}
+
+#[test]
+fn history_integer_formats_reject_overflow_missing_required_null_and_negative_frequency() {
+    use ori_contracts::runtime::{HistoryJob, HistoryRequest};
+    for token in ["-1", "18446744073709551616"] {
+        let f = std::str::from_utf8(HISTORY_FIXTURE)
+            .unwrap()
+            .replace("18446744073709551615", token);
+        let f: Value = from_json_slice(f.as_bytes(), f.len()).unwrap();
+        assert!(from_json_slice::<HistoryJob>(&to_json_vec(&f["job"]).unwrap(), 10000).is_err());
+    }
+    let mut f: Value = from_json_slice(HISTORY_FIXTURE, HISTORY_FIXTURE.len()).unwrap();
+    f["job"].as_object_mut().unwrap().remove("source_boundary");
+    assert!(from_json_slice::<HistoryJob>(&to_json_vec(&f["job"]).unwrap(), 10000).is_err());
+    f["request"]["filters"]["min_frequency_hz"] = serde_json::json!(-1);
+    assert!(
+        from_json_slice::<HistoryRequest>(&to_json_vec(&f["request"]).unwrap(), 10000).is_err()
+    );
+    f["request"]["filters"]["min_frequency_hz"] = serde_json::json!(0);
+    for token in ["-9223372036854775809", "9223372036854775808"] {
+        let request = String::from_utf8(to_json_vec(&f["request"]).unwrap())
+            .unwrap()
+            .replace("-9223372036854775808", token);
+        assert!(from_json_slice::<HistoryRequest>(request.as_bytes(), 10000).is_err());
+    }
+    for page_size in [0, 501] {
+        f["request"]["page_size"] = serde_json::json!(page_size);
+        assert!(
+            from_json_slice::<HistoryRequest>(&to_json_vec(&f["request"]).unwrap(), 10000).is_err()
+        );
+    }
+    for columns in [0, 1025] {
+        f["viewport_query"]["columns"] = serde_json::json!(columns);
+        assert!(
+            from_json_slice::<ori_contracts::runtime::HistoryViewportQuery>(
+                &to_json_vec(&f["viewport_query"]).unwrap(),
+                10000
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn history_operations_require_their_independent_route_feature() {
+    use ori_contracts::runtime::{JSONObject, select_operations};
+    let empty = JSONObject::new();
+    let ids =
+        |features: &[&str]| select_operations("rust-candidate", features, &[], &empty).unwrap();
+    assert!(
+        !ids(&[])
+            .iter()
+            .any(|op| op.operation_id == "post_api_v1_history_jobs")
+    );
+    assert!(
+        ids(&["derived_history_jobs"])
+            .iter()
+            .any(|op| op.operation_id == "post_api_v1_history_jobs")
+    );
+    assert!(
+        !ids(&["derived_history_jobs"])
+            .iter()
+            .any(|op| op.operation_id == "get_api_v1_history_waterfall")
+    );
+    assert!(
+        ids(&["derived_history_viewport"])
+            .iter()
+            .any(|op| op.operation_id == "get_api_v1_history_waterfall")
+    );
+    assert!(
+        !select_operations("python-legacy", &[], &[], &empty)
+            .unwrap()
+            .iter()
+            .any(|op| op.operation_id == "post_api_v1_history_jobs")
+    );
+}
+
+#[test]
+fn runtime_dtos_preserve_exact_values_and_existing_summary_schema() {
+    use ori_contracts::runtime::{
+        BrowserPairing, MeasurementWebSocket, NativePairing, SecurityStatus,
+    };
+    let fixture: Value = from_json_slice(RUNTIME_FIXTURE, RUNTIME_FIXTURE.len()).unwrap();
+    let status: SecurityStatus =
+        from_json_slice(&to_json_vec(&fixture["security_status"]).unwrap(), 10000).unwrap();
+    assert!(!status.pairing_required);
+    let round: Value = from_json_slice(&to_json_vec(&status).unwrap(), 10000).unwrap();
+    assert_eq!(round["mode"], "legacy_loopback");
+    assert_eq!(round["future_metadata"]["big"].as_u64(), Some(u64::MAX));
+    assert_eq!(
+        round["future_metadata"]["negative_zero"]
+            .as_f64()
+            .unwrap()
+            .to_bits(),
+        (-0.0_f64).to_bits()
+    );
+    assert_eq!(
+        round["future_metadata"]["adjacent"]
+            .as_f64()
+            .unwrap()
+            .to_bits(),
+        0xbff0000000000001
+    );
+    assert_eq!(round["future_metadata"]["é"], 1);
+    assert_eq!(round["future_metadata"]["e\u{301}"], 2);
+    assert_eq!(
+        round["future_metadata"]["$serde_json::private::Number"],
+        "literal"
+    );
+    let _: BrowserPairing =
+        from_json_slice(&to_json_vec(&fixture["browser_pairing"]).unwrap(), 10000).unwrap();
+    let native: NativePairing =
+        from_json_slice(&to_json_vec(&fixture["native_pairing"]).unwrap(), 10000).unwrap();
+    assert_eq!(native.token, "synthetic-fixture-never-a-valid-credential");
+    let mut socket: MeasurementWebSocket = from_json_slice(
+        &to_json_vec(&fixture["websocket_descriptor"]).unwrap(),
+        10000,
+    )
+    .unwrap();
+    assert_eq!(socket.path, "/api/v1/events/ws");
+    socket.max_frame_bytes = u64::MAX;
+    let socket: MeasurementWebSocket =
+        from_json_slice(&to_json_vec(&socket).unwrap(), 10000).unwrap();
+    assert_eq!(socket.max_frame_bytes, u64::MAX);
+    let page: ori_contracts::SweepSummaryPage =
+        from_json_slice(&to_json_vec(&fixture["summary_page"]).unwrap(), 10000).unwrap();
+    assert_eq!(page.next_cursor, None);
+    assert_eq!(page.items[0].peak_level.to_bits(), (-0.0_f64).to_bits());
+}
+
+#[test]
+fn runtime_backend_and_request_features_fail_closed() {
+    use ori_contracts::runtime::{JSONObject, select_operations};
+    let canonical: Value = from_json_slice(
+        ori_contracts::RUNTIME_OPENAPI_V1_JSON.as_bytes(),
+        ori_contracts::RUNTIME_OPENAPI_V1_JSON.len(),
+    )
+    .unwrap();
+    assert_eq!(canonical["x-ori-contract-variant"], "rust-candidate");
+    assert_eq!(
+        canonical["paths"]["/api/v1/security/status"]["get"]["operationId"],
+        "get_api_v1_security_status"
+    );
+    assert_eq!(
+        ori_contracts::runtime::OPERATIONS
+            .iter()
+            .find(|op| op.operation_id == "post_api_v1_security_pair")
+            .unwrap()
+            .max_request_bytes,
+        Some(4096)
+    );
+    assert_eq!(
+        ori_contracts::runtime::OPERATIONS
+            .iter()
+            .find(|op| op.operation_id == "get_api_v1_sessions_id_sweep_summaries")
+            .unwrap()
+            .path_parameters,
+        ["id"]
+    );
+    let empty = JSONObject::new();
+    assert!(select_operations("unknown", &[], &[], &empty).is_err());
+    assert_eq!(
+        select_operations("python-legacy", &[], &[], &empty)
+            .unwrap()
+            .len(),
+        135
+    );
+    let available = select_operations("rust-candidate", &[], &[], &empty).unwrap();
+    assert!(
+        available
+            .iter()
+            .any(|op| op.operation_id == "get_api_v1_security_status")
+    );
+    assert!(
+        !available
+            .iter()
+            .any(|op| op.operation_id == "get_api_v1_events_ws")
+    );
+    assert!(
+        select_operations("rust-candidate", &["sweep_summaries"], &[], &empty)
+            .unwrap()
+            .iter()
+            .any(|op| op.operation_id == "get_api_v1_sessions_id_sweep_summaries")
+    );
+    assert!(
+        select_operations(
+            "rust-candidate",
+            &[],
+            &["ori.measurements.v1.protobuf"],
+            &empty
+        )
+        .unwrap()
+        .iter()
+        .any(|op| op.operation_id == "get_api_v1_events_ws")
+    );
+    let request = JSONObject::from([("enabled".into(), Value::Bool(true))]);
+    assert!(
+        !select_operations("rust-candidate", &["control_task_planning"], &[], &request)
+            .unwrap()
+            .iter()
+            .any(|op| op.operation_id == "post_api_v1_task_scheduler")
+    );
+}
+
+#[test]
+fn runtime_websocket_descriptor_refuses_unknown_protocol_version() {
+    let mut fixture: Value = from_json_slice(RUNTIME_FIXTURE, RUNTIME_FIXTURE.len()).unwrap();
+    fixture["websocket_descriptor"]["version"] = Value::from(2);
+    assert!(
+        from_json_slice::<ori_contracts::runtime::MeasurementWebSocket>(
+            &to_json_vec(&fixture["websocket_descriptor"]).unwrap(),
+            10000
+        )
+        .is_err()
+    );
+}
 
 #[test]
 fn python_integer_zero_semantics_are_distinct_from_explicit_float_zero() {

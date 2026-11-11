@@ -1,0 +1,67 @@
+{
+  "security_status": {
+    "mode": "legacy_loopback",
+    "pairing_required": false,
+    "future_metadata": {
+      "big": 18446744073709551615,
+      "negative_zero": -0.0,
+      "adjacent": -1.0000000000000002,
+      "é": 1,
+      "é": 2,
+      "$serde_json::private::Number": "literal"
+    }
+  },
+  "browser_pairing": {
+    "paired": true,
+    "credential": "browser_cookie"
+  },
+  "native_pairing": {
+    "paired": true,
+    "credential": "bearer",
+    "token": "synthetic-fixture-never-a-valid-credential"
+  },
+  "websocket_descriptor": {
+    "version": 1,
+    "transport": "websocket",
+    "encoding": "protobuf",
+    "path": "/api/v1/events/ws",
+    "subprotocol": "ori.measurements.v1.protobuf",
+    "max_frame_bytes": 16842752,
+    "future_metadata": {
+      "big": 18446744073709551615,
+      "negative_zero": -0.0,
+      "adjacent": -1.0000000000000002,
+      "é": 1,
+      "é": 2,
+      "$serde_json::private::Number": "literal"
+    }
+  },
+  "summary_page": {
+    "items": [
+      {
+        "id": "fixture-sweep-α",
+        "session_id": "fixture-сессия",
+        "stream_id": "spectrum/one",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223456Z"
+        },
+        "level_unit": "dBm",
+        "point_count": 4,
+        "min_frequency_hz": 100000001,
+        "max_frequency_hz": 100000004,
+        "peak_frequency_hz": 100000002,
+        "peak_level": -0.0
+      }
+    ],
+    "next_cursor": null,
+    "future_metadata": {
+      "big": 18446744073709551615,
+      "negative_zero": -0.0,
+      "adjacent": -1.0000000000000002,
+      "é": 1,
+      "é": 2,
+      "$serde_json::private::Number": "literal"
+    }
+  }
+}
