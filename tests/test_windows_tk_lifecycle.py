@@ -110,6 +110,33 @@ class WindowsTimerLifecycleTests(unittest.TestCase):
         self.app.action_var = Mock()
         self.app.connection_var = Mock()
 
+    def test_shutdown_releases_variable_traces_in_owned_nested_panels(self):
+        import tkinter as tk
+        from radioinspector.windows.sweep_references import NamedReferenceCatalog
+
+        self.app.workspace_var = tk.StringVar(master=self.root.interpreter, value='monitoring')
+        panel = NamedReferenceCatalog.__new__(NamedReferenceCatalog)
+        panel.selected_var = tk.StringVar(master=self.root.interpreter, value='source')
+        panel.app = self.app
+        self.app.owned_catalog = panel
+        variables = (self.app.workspace_var, panel.selected_var)
+        def dispose_variables():
+            # These real Variables are owned by this Tcl-only fixture. Detach
+            # their native references before TclRoot.dispose releases the
+            # interpreter on its creator thread, even if app/panel cycles live.
+            for variable in variables:
+                variable._tk = None
+                variable._root = None
+        self.addCleanup(dispose_variables)
+        changes = []
+        for variable in variables:
+            variable.trace_add('write', lambda *_args, owner=self.app: changes.append(owner._closed))
+        self.app._shutdown()
+        self.assertEqual(self.app.workspace_var.trace_info(), [])
+        self.assertEqual(panel.selected_var.trace_info(), [])
+        self.app.workspace_var.set('research')
+        self.assertEqual(changes, [])
+
     def test_manual_drains_and_polls_keep_one_pending_timer_each(self):
         self.assertEqual(len(self.root.pending()), 2)
         for _ in range(5):
@@ -592,6 +619,7 @@ class HiddenTkTimerLifecycleTests(unittest.TestCase):
         self.assertIn("hidden scheduler lifecycle complete", output)
 
     def _exercise_real_scheduler_root_close_and_destroy(self):
+        import gc
         import tkinter as tk
         from tkinter import ttk
         from radioinspector.windows.scheduler_app import SchedulerWindowsApp
@@ -642,11 +670,15 @@ class HiddenTkTimerLifecycleTests(unittest.TestCase):
                     child = ttk.Frame(root)
                     child.destroy()
                     self.assertFalse(app._closed)
+                    variables = [item for item in gc.get_objects()
+                        if isinstance(item, tk.Variable) and item._tk is root.tk]
                     if direct_destroy:
                         root.destroy()
                     else:
                         app.close()
                     self.assertTrue(app._closed)
+                    self.assertFalse(any(variable.trace_info() for variable in variables),
+                                     'Closed GUI must not retain Tcl callbacks/owner cycles')
                     self.assertTrue(all(panel.closed for panel in panels))
                     self.assertTrue(all(not panel._tk_timers.pending for panel in panels))
                     self.assertEqual(app._tk_timers.pending, {})

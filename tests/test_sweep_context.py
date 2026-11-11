@@ -482,7 +482,7 @@ class ContextHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, payload=None, *, raw=None, path=None, method="POST"):
-        if raw is None:
+        if raw is None and method != "GET":
             raw = json.dumps(request_body() if payload is None else payload).encode()
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         try:

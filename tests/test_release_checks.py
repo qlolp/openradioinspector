@@ -690,15 +690,16 @@ class IsolatedTkHarnessTests(unittest.TestCase):
                                             unexpected_skips=[[self.case_id, "unexpected"]]), returncode=1)
         self.assertFalse(result.wasSuccessful())
 
-    def test_only_five_named_classes_are_wrapped_and_lifecycle_is_unchanged(self):
+    def test_only_named_native_classes_are_wrapped_and_lifecycle_is_unchanged(self):
         expected_classes = {
             "tests.test_windows_release_flows.WindowsReleaseFlowTests",
             "tests.test_windows_sweep_context.ActualTkHTTPTests",
             "tests.test_windows_three_thresholds.ActualTkHTTPTests",
             "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
             "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+            "tests.test_windows_monitoring.MonitoringTkTests",
         }
-        self.assertEqual(release.MACOS_TK_CLASSES, expected_classes)
+        self.assertEqual(release.NATIVE_TK_CLASSES, expected_classes)
         cases = []
         for name in sorted(expected_classes):
             case = unittest.FunctionTestCase(lambda: None)
@@ -711,7 +712,7 @@ class IsolatedTkHarnessTests(unittest.TestCase):
             case.id = lambda name=name: name + ".test_owned"
             unchanged.append(case)
         suite = release.isolate_tk_cases(unittest.TestSuite([unittest.TestSuite(cases), *unchanged]))
-        self.assertEqual(suite.countTestCases(), 7)
+        self.assertEqual(suite.countTestCases(), len(expected_classes) + len(unchanged))
         self.assertEqual(list(release._case_ids(suite)), [case.id() for case in cases + unchanged])
         self.assertTrue(all(isinstance(case, release.IsolatedTkTest) for case in next(iter(suite))))
         for actual, original in zip(list(suite)[1:], unchanged):
@@ -915,6 +916,19 @@ if __name__ == "__main__":
     unittest.main()
 
 class IsolatedTkProcessTests(unittest.TestCase):
+    def test_native_monitoring_is_isolated_without_moving_tcl_lifetime_checks(self):
+        gui = unittest.defaultTestLoader.loadTestsFromName(
+            'tests.test_windows_monitoring.MonitoringTkTests.test_event_items_never_replace_project_selector')
+        headless = unittest.defaultTestLoader.loadTestsFromName(
+            'tests.test_windows_tk_lifecycle.WindowsTimerLifecycleTests.test_close_before_first_tick_cancels_tcl_callbacks')
+        before = list(gui)[0]
+        isolated = list(release.isolate_tk_cases(gui))[0]
+        self.assertIsInstance(isolated, release.IsolatedTkTest,
+                              'Native Tk graphs must not survive into acquisition worker GC')
+        self.assertEqual(isolated.id(), before.id())
+        original = list(headless)[0]
+        self.assertIs(list(release.isolate_tk_cases(headless))[0], original)
+
     def test_child_runs_exact_named_case_and_reports_success(self):
         case = release.IsolatedTkTest('tests.test_release_v040.AbsolutePowerTests.test_dbw_and_dbm_report_the_same_physical_power')
         result = unittest.TestResult()

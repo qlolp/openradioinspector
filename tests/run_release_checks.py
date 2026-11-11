@@ -142,13 +142,16 @@ class DiagnosticTestResult(unittest.TextTestResult):
         self._event("stop", test, time.monotonic())
 
 
-# Keep lifecycle/worker-GC regressions in-process: they deliberately reuse Tk.
-MACOS_TK_CLASSES = frozenset({
+# Keep Tcl-only lifecycle/worker-GC regressions in-process: they deliberately
+# verify creator-thread disposal. Real GUI graphs belong to a fresh process;
+# delayed native interpreter GC on an acquisition thread aborts on all OSes.
+NATIVE_TK_CLASSES = frozenset({
     "tests.test_windows_release_flows.WindowsReleaseFlowTests",
     "tests.test_windows_sweep_context.ActualTkHTTPTests",
     "tests.test_windows_three_thresholds.ActualTkHTTPTests",
     "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
     "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+    "tests.test_windows_monitoring.MonitoringTkTests",
 })
 TK_CASE_TIMEOUT = 90
 
@@ -208,7 +211,7 @@ def isolate_tk_cases(suite):
             result.addTest(isolate_tk_cases(item))
         else:
             result.addTest(IsolatedTkTest(item.id())
-                           if item.id().rsplit(".", 1)[0] in MACOS_TK_CLASSES else item)
+                           if item.id().rsplit(".", 1)[0] in NATIVE_TK_CLASSES else item)
     return result
 
 
@@ -228,8 +231,7 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
                 raise ReleaseCheckError("Single-test selection must resolve to exactly the requested case")
         else:
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
-            if sys.platform == "darwin" or os.environ.get("ORI_RELEASE_ISOLATE_TK") == "1":
-                suite = isolate_tk_cases(suite)
+            suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
