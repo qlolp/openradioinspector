@@ -1,0 +1,40 @@
+{
+  "fixture_version": 1,
+  "synthetic": true,
+  "session": {
+    "id": "fixture-сессия",
+    "name": "Synthetic measurement compatibility",
+    "streams": [
+      {"id": "spectrum/one", "device": "synthetic-tinySA", "role": "spectrum_analyzer", "level_unit": "dBm"},
+      {"id": "receiver+one", "device": "synthetic-AR-DV1", "role": "receiver", "level_unit": "s_meter_count"}
+    ]
+  },
+  "sweep": {
+    "id": "fixture-sweep-α",
+    "session_id": "fixture-сессия",
+    "stream_id": "spectrum/one",
+    "interval": {"started_at": "2026-11-11T15:00:00.123456+03:00", "ended_at": "2026-11-11T15:00:00.223456+03:00"},
+    "frequencies_hz": [100000001, 100000002, 100000003, 100000004],
+    "levels": [-100.125, -0.0, -1.0000000000000002, -32.75],
+    "level_unit": "dBm",
+    "settings": {"adapter": "synthetic-contract", "generator_output": false, "rbw_hz": 10000}
+  },
+  "observation": {
+    "id": "fixture-observation-α",
+    "session_id": "fixture-сессия",
+    "stream_id": "receiver+one",
+    "interval": {"started_at": "2026-11-11T12:00:00.123456Z", "ended_at": "2026-11-11T12:00:00.223456Z"},
+    "frequency_hz": 100000003,
+    "mode": "FM",
+    "level": 137.0,
+    "level_unit": "s_meter_count",
+    "squelch_open": true,
+    "decoded_mode": null,
+    "audio_uri": null,
+    "metadata": {"hardware_validated": false, "source": "synthetic-contract"}
+  },
+  "expected": {
+    "started_at_utc": "2026-11-11T12:00:00.123456Z",
+    "levels_f64_be": ["c059080000000000", "8000000000000000", "bff0000000000001", "c040600000000000"]
+  }
+}

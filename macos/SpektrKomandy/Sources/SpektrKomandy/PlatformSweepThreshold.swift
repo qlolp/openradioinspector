@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PlatformSweepThresholdParameters: Decodable, Equatable {
+public struct PlatformSweepThresholdParameters: Decodable, Equatable, Sendable {
     public let method: String
     public let windowPoints: Int
     public let marginDb: Double
@@ -18,7 +18,7 @@ public struct PlatformSweepThresholdParameters: Decodable, Equatable {
     }
 }
 
-public struct PlatformSweepThresholdRegion: Decodable, Equatable, Identifiable {
+public struct PlatformSweepThresholdRegion: Decodable, Equatable, Identifiable, Sendable {
     public let startIndex: Int
     public let endIndex: Int
     public let startFrequencyHz: Int64
@@ -31,7 +31,7 @@ public struct PlatformSweepThresholdRegion: Decodable, Equatable, Identifiable {
 }
 
 /// Read-only core calculation. Raw levels and derived dBm threshold / dB excess stay separate.
-public struct PlatformSweepThreshold: Decodable, Equatable {
+public struct PlatformSweepThreshold: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let sweep: PlatformComparisonSweep
@@ -47,7 +47,7 @@ public struct PlatformSweepThreshold: Decodable, Equatable {
     public let exceedancePoints: Int
     public let regionCount: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, sweep, frequenciesHz, parameters, baselineLevels, thresholdLevels
         case levelUnit, excessLevels, deltaUnit, regions, points, exceedancePoints, regionCount
     }

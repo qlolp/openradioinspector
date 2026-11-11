@@ -20,7 +20,7 @@ public func normalizedSweepReferenceName(_ text: String) throws -> String {
     return name
 }
 
-public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
+public struct PlatformSweepReference: Decodable, Equatable, Identifiable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -31,7 +31,7 @@ public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
     public let levelUnit: String
     public let points: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, streamId, sweepId, name, createdAt, interval, levelUnit, points
     }
 
@@ -56,7 +56,7 @@ public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
     }
 }
 
-public struct PlatformSweepReferenceCatalog: Decodable, Equatable {
+public struct PlatformSweepReferenceCatalog: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String?
     public let storageMode: String
@@ -64,7 +64,7 @@ public struct PlatformSweepReferenceCatalog: Decodable, Equatable {
     public let limit: Int
     public let items: [PlatformSweepReference]
 
-    private enum CodingKeys: String, CodingKey { case sessionId, streamId, storageMode, persistent, limit, items }
+    private enum CodingKeys: String, CodingKey, Sendable { case sessionId, streamId, storageMode, persistent, limit, items }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try values.decode(String.self, forKey: .sessionId)
@@ -117,7 +117,7 @@ extension PlatformClient {
 
     /// Never automatically retries a write. A canceled/failed transport can have committed on the server.
     public func saveSweepReference(sessionID: String, sweepID: String, name: String) async throws -> PlatformSweepReference {
-        struct Body: Encodable { let name: String; let sweepId: String }
+        struct Body: Encodable, Sendable { let name: String; let sweepId: String }
         guard [sessionID, sweepID].allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             throw PlatformError.invalidCommand("Нужны ID сеанса и архивного свипа")
         }

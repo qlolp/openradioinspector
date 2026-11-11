@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PlatformCandidate: Decodable, Identifiable, Equatable {
+public struct PlatformCandidate: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let sessionId: String
     public let sourceStreamId: String
@@ -13,7 +13,7 @@ public struct PlatformCandidate: Decodable, Identifiable, Equatable {
     public let observationIds: [String]
     public let state: String
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, sourceStreamId, interval, centerFrequencyHz
         case bandwidthHz, peakLevel, levelUnit, score, observationIds, state
     }
@@ -41,7 +41,7 @@ public struct PlatformCandidate: Decodable, Identifiable, Equatable {
     }
 }
 
-public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
+public struct PlatformInvestigation: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let candidateId: String
     public let targetStreamId: String
@@ -56,7 +56,7 @@ public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
     public let resultObservationIds: [String]
     public let error: String?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, candidateId, targetStreamId, targetFrequencyHz, state, priority, mode
         case createdAt, startedAt, listeningStartedAt, endedAt, resultObservationIds, error
     }
@@ -85,7 +85,7 @@ public struct PlatformInvestigation: Decodable, Identifiable, Equatable {
     }
 }
 
-public struct PlatformAutomaticPolicy: Decodable, Equatable {
+public struct PlatformAutomaticPolicy: Decodable, Equatable, Sendable {
     public let enabled: Bool
     public let intervalSeconds: Double?
     public let streamId: String?
@@ -101,7 +101,7 @@ public struct PlatformAutomaticPolicy: Decodable, Equatable {
     public let minimumObservations: Int?
 }
 
-public struct PlatformAutomaticRuntime: Decodable, Equatable {
+public struct PlatformAutomaticRuntime: Decodable, Equatable, Sendable {
     public let lastResult: String?
     public let lastError: String?
     public let sweepsProcessed: Int?
@@ -115,7 +115,7 @@ public struct PlatformAutomaticRuntime: Decodable, Equatable {
     public let skippedInvestigations: Int?
 }
 
-public struct PlatformAutomaticStatus: Decodable, Equatable {
+public struct PlatformAutomaticStatus: Decodable, Equatable, Sendable {
     public let policy: PlatformAutomaticPolicy
     public let runtime: PlatformAutomaticRuntime
     public let schedulerAlive: Bool
@@ -126,7 +126,7 @@ public struct PlatformAutomaticStatus: Decodable, Equatable {
     public let automaticFailOrCancel: Bool?
 }
 
-public struct PlatformTaskRuntime: Decodable, Equatable {
+public struct PlatformTaskRuntime: Decodable, Equatable, Sendable {
     public let lastResult: String?
     public let lastError: String?
     public let lastTaskName: String?
@@ -135,13 +135,13 @@ public struct PlatformTaskRuntime: Decodable, Equatable {
     public let abortedTasks: Int?
 }
 
-public struct PlatformTaskCounters: Decodable, Equatable {
+public struct PlatformTaskCounters: Decodable, Equatable, Sendable {
     public let total: Int
     public let running: Int
     public let completed: Int
 }
 
-public struct PlatformTaskSchedulerStatus: Decodable, Equatable {
+public struct PlatformTaskSchedulerStatus: Decodable, Equatable, Sendable {
     public let enabled: Bool
     public let schedulerAlive: Bool
     public let policyPersistent: Bool
@@ -150,7 +150,7 @@ public struct PlatformTaskSchedulerStatus: Decodable, Equatable {
     public let tasks: PlatformTaskCounters
 }
 
-public struct PlatformControlTask: Decodable, Equatable {
+public struct PlatformControlTask: Decodable, Equatable, Sendable {
     public let name: String
     public let status: String
     public let startAt: String?
@@ -158,7 +158,7 @@ public struct PlatformControlTask: Decodable, Equatable {
     public let equipment: String
 }
 
-public struct PlatformControlTaskDraft: Encodable {
+public struct PlatformControlTaskDraft: Encodable, Sendable {
     public let name: String
     public let taskFile: String
     public let startAt: String
@@ -198,11 +198,11 @@ public struct PlatformControlTaskDraft: Encodable {
     }
 }
 
-private struct PlatformControlTaskList: Decodable {
+private struct PlatformControlTaskList: Decodable, Sendable {
     let items: [PlatformControlTask]
     let count: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case items, count
     }
 
@@ -256,7 +256,7 @@ private enum PlatformWorkflowValidation {
     }
 }
 
-public struct PlatformCandidateDraft: Encodable {
+public struct PlatformCandidateDraft: Encodable, Sendable {
     public let sourceStreamId: String
     public let interval: PlatformInterval
     public let centerFrequencyHz: Int64
@@ -292,7 +292,7 @@ public struct PlatformCandidateDraft: Encodable {
     }
 }
 
-public struct PlatformInvestigationDraft: Encodable {
+public struct PlatformInvestigationDraft: Encodable, Sendable {
     public let targetStreamId: String
     public let targetFrequencyHz: Int64
     public let mode: String?
@@ -310,7 +310,7 @@ public struct PlatformInvestigationDraft: Encodable {
     }
 }
 
-public struct PlatformDetectionPolicyDraft: Encodable {
+public struct PlatformDetectionPolicyDraft: Encodable, Sendable {
     public let enabled: Bool?
     public let intervalSeconds: Double
     public let streamId: String?
@@ -319,7 +319,7 @@ public struct PlatformDetectionPolicyDraft: Encodable {
     public let cooldownSeconds: Double
     public let maxCandidatesPerSweep: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case enabled, intervalSeconds, streamId, thresholdDbm
         case dedupBandwidthHz, cooldownSeconds, maxCandidatesPerSweep
     }
@@ -349,7 +349,7 @@ public struct PlatformDetectionPolicyDraft: Encodable {
     }
 }
 
-public struct PlatformHandoffPolicyDraft: Encodable {
+public struct PlatformHandoffPolicyDraft: Encodable, Sendable {
     public let enabled: Bool?
     public let intervalSeconds: Double
     public let minimumPriority: Int
@@ -357,7 +357,7 @@ public struct PlatformHandoffPolicyDraft: Encodable {
     public let maxConsecutiveFailures: Int
     public let retryDelaySeconds: Double
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case enabled, intervalSeconds, minimumPriority, receiverStreamId
         case maxConsecutiveFailures, retryDelaySeconds
     }
@@ -385,14 +385,14 @@ public struct PlatformHandoffPolicyDraft: Encodable {
     }
 }
 
-public struct PlatformCompletionPolicyDraft: Encodable {
+public struct PlatformCompletionPolicyDraft: Encodable, Sendable {
     public let enabled: Bool?
     public let intervalSeconds: Double
     public let minimumListeningSeconds: Double
     public let minimumObservations: Int
     public let receiverStreamId: String?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case enabled, intervalSeconds, minimumListeningSeconds, minimumObservations, receiverStreamId
     }
 
@@ -417,12 +417,12 @@ public struct PlatformCompletionPolicyDraft: Encodable {
     }
 }
 
-public struct PlatformEnabledDraft: Encodable {
+public struct PlatformEnabledDraft: Encodable, Sendable {
     public let enabled: Bool
     public init(enabled: Bool) { self.enabled = enabled }
 }
 
-private struct PlatformEmptyBody: Encodable {}
+private struct PlatformEmptyBody: Encodable, Sendable {}
 
 public extension PlatformClient {
     func listCandidates(sessionID: String) async throws -> [PlatformCandidate] {
@@ -466,7 +466,7 @@ public extension PlatformClient {
             throw PlatformError.invalidCommand("Полуавтоматический handoff требует явного confirm=true")
         }
         let id = try PlatformWorkflowValidation.text(investigationID, "Investigation ID")
-        struct Body: Encodable { let investigationId: String; let confirm: Bool }
+        struct Body: Encodable, Sendable { let investigationId: String; let confirm: Bool }
         return try await post(
             "/sessions/\(Self.segment(sessionID))/investigations/start-next",
             body: Body(investigationId: id, confirm: true)
@@ -489,7 +489,7 @@ public extension PlatformClient {
         sessionID: String, investigationID: String, error: String
     ) async throws -> PlatformInvestigation {
         let reason = try PlatformWorkflowValidation.text(error, "Причина сбоя")
-        struct Body: Encodable { let error: String }
+        struct Body: Encodable, Sendable { let error: String }
         return try await investigationAction(
             sessionID: sessionID, investigationID: investigationID, action: "fail",
             body: Body(error: reason)

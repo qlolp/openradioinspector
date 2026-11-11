@@ -1,6 +1,6 @@
 import Foundation
 
-private struct SigListKey: CodingKey {
+private struct SigListKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -15,14 +15,14 @@ private func sigListExactKeys(_ decoder: Decoder, _ expected: Set<String>) throw
 }
 
 /// One exported signal list: exactly the importable fields, nothing else.
-public struct PlatformSignalList: Codable, Equatable {
+public struct PlatformSignalList: Codable, Equatable, Sendable {
     public static let maximumEntries = 256
     public let format: String
     public let formatVersion: Int
     public let name: String
     public let frequencyUnit: String
     public let entries: [PlatformSignalListEntry]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case format, formatVersion, name, frequencyUnit, entries
     }
     public func canonicalData() throws -> Data {
@@ -50,14 +50,14 @@ public struct PlatformSignalList: Codable, Equatable {
 }
 
 /// One observed signal: frequency, bandwidth, level and the interval it was seen in.
-public struct PlatformSignalListEntry: Codable, Equatable {
+public struct PlatformSignalListEntry: Codable, Equatable, Sendable {
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
     public let frequencyHz: Int64
     public let bandwidthHz: Int64?
     public let interval: PlatformInterval
     public let levelUnit: String
     public let peakLevel: Double?
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case frequencyHz, bandwidthHz, interval, levelUnit, peakLevel
     }
     public func encode(to encoder: Encoder) throws {
@@ -89,20 +89,20 @@ public struct PlatformSignalListEntry: Codable, Equatable {
 }
 
 /// Export result; the list itself carries only importable fields.
-public struct PlatformSignalListExport: Decodable, Equatable {
+public struct PlatformSignalListExport: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let exported: Int
     public let list: PlatformSignalList
 }
 
 /// Import result; imported candidates always start as ``new``.
-public struct PlatformSignalListImport: Decodable, Equatable {
+public struct PlatformSignalListImport: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let imported: Int
     public let candidateIds: [String]
     public let name: String
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, imported, candidateIds, name
     }
     public init(from decoder: Decoder) throws {
@@ -134,7 +134,7 @@ extension PlatformClient {
               !listJSON.isEmpty, listJSON.utf8.count <= 262_144 else {
             throw PlatformError.invalidCommand("Некорректный запрос импорта списка сигналов")
         }
-        struct Body: Encodable {
+        struct Body: Encodable, Sendable {
             let streamId: String
             let listJson: String
         }

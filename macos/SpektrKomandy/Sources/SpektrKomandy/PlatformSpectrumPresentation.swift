@@ -1,7 +1,7 @@
 import Foundation
 
 /// Rendering-only bounds. Never rewrites source measurements.
-public struct PlatformSpectrumScale: Equatable {
+public struct PlatformSpectrumScale: Equatable, Sendable {
     public let lower: Double
     public let upper: Double
     public init?(lower: Double, upper: Double) {
@@ -29,12 +29,15 @@ public struct PlatformSpectrumScale: Equatable {
 }
 
 /// A bounded, local display snapshot, independent of acquisition and transport.
-public struct PlatformSpectrumPresentation {
-    public struct Scope: Equatable {
+public struct PlatformSpectrumPresentation: Sendable {
+    public struct Scope: Equatable, Hashable, Sendable {
         public let server: String
         public let session: String
         public let stream: String
         public init(server: String, session: String, stream: String) { self.server = server; self.session = session; self.stream = stream }
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(Data(server.utf8)); hasher.combine(Data(session.utf8)); hasher.combine(Data(stream.utf8))
+        }
         public static func == (a: Self, b: Self) -> Bool {
             PlatformSpectrumPresentation.same(a.server, b.server) && PlatformSpectrumPresentation.same(a.session, b.session) && PlatformSpectrumPresentation.same(a.stream, b.stream)
         }

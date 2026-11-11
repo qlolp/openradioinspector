@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.4
 import PackageDescription
 
 let package = Package(
@@ -8,10 +8,11 @@ let package = Package(
         .library(name: "SpektrKomandy", targets: ["SpektrKomandy"]),
     ],
     targets: [
-        .target(name: "SpektrKomandy"),
+        .target(name: "SpektrKomandy", swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(
             name: "SpektrKomandyTests",
-            dependencies: ["SpektrKomandy"]
+            dependencies: ["SpektrKomandy"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
 )

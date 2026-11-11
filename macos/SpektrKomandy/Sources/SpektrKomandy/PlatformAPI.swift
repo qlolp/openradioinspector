@@ -3,7 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum PlatformError: Error, Equatable {
+public enum PlatformError: Error, Equatable, Sendable {
     case invalidURL(String)
     case connection(String)
     case http(status: Int, code: String, message: String)
@@ -28,7 +28,7 @@ extension PlatformError: LocalizedError {
     }
 }
 
-public struct PlatformBaseURL: Equatable {
+public struct PlatformBaseURL: Equatable, Sendable {
     public let root: URL
     private let apiRootPath: String
 
@@ -350,7 +350,7 @@ final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     }
 }
 
-public struct PlatformInterval: Codable, Equatable {
+public struct PlatformInterval: Codable, Equatable, Sendable {
     public let startedAt: String
     public let endedAt: String
     public init(startedAt: String, endedAt: String) {
@@ -358,7 +358,7 @@ public struct PlatformInterval: Codable, Equatable {
     }
 }
 
-public struct PlatformStream: Decodable, Identifiable, Equatable {
+public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let device: String
     public let role: String
@@ -375,21 +375,21 @@ public struct PlatformStream: Decodable, Identifiable, Equatable {
     }
 }
 
-public struct PlatformSession: Decodable, Identifiable, Equatable {
+public struct PlatformSession: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let state: String
     public let streams: [PlatformStream]
 }
 
-public struct PlatformWorker: Decodable, Equatable {
+public struct PlatformWorker: Decodable, Equatable, Sendable {
     public let streamId: String
     public let state: String
     public let alive: Bool
     public let lastError: String?
 }
 
-public struct PlatformSweep: Decodable, Identifiable, Equatable {
+public struct PlatformSweep: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -399,7 +399,7 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     public let levelUnit: String
     public let settings: [String: PlatformComparisonSetting]?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit, settings
     }
 
@@ -425,7 +425,7 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     }
 }
 
-public struct PlatformObservation: Decodable, Identifiable, Equatable {
+public struct PlatformObservation: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -438,24 +438,24 @@ public struct PlatformObservation: Decodable, Identifiable, Equatable {
     public let decodedMode: String?
 }
 
-public struct PlatformTuned: Decodable, Equatable {
+public struct PlatformTuned: Decodable, Equatable, Sendable {
     public let frequencyHz: Int64
     public let mode: String
 }
 
-public struct PlatformTuneResult: Decodable, Equatable {
+public struct PlatformTuneResult: Decodable, Equatable, Sendable {
     public let tuned: PlatformTuned
     public let worker: PlatformWorker
 }
 
-public struct PlatformPeak: Decodable, Equatable {
+public struct PlatformPeak: Decodable, Equatable, Sendable {
     public let sweepId: String
     public let frequencyHz: Int64
     public let level: Double
     public let levelUnit: String
 }
 
-public struct PlatformSweepSummary: Decodable, Equatable {
+public struct PlatformSweepSummary: Decodable, Equatable, Sendable {
     public let count: Int
     public let firstStartedAt: String?
     public let lastStartedAt: String?
@@ -464,7 +464,7 @@ public struct PlatformSweepSummary: Decodable, Equatable {
     public let latestPeak: PlatformPeak?
 }
 
-public struct PlatformObservationSummary: Decodable, Equatable {
+public struct PlatformObservationSummary: Decodable, Equatable, Sendable {
     public let count: Int
     public let firstStartedAt: String?
     public let lastStartedAt: String?
@@ -475,7 +475,7 @@ public struct PlatformObservationSummary: Decodable, Equatable {
     public let squelchOpenRatio: Double?
 }
 
-public struct PlatformAnalyticsSummary: Decodable, Equatable {
+public struct PlatformAnalyticsSummary: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String?
     public let archiveWide: Bool
@@ -484,9 +484,9 @@ public struct PlatformAnalyticsSummary: Decodable, Equatable {
 }
 
 /// Global archive status. Byte counts describe the logical SQLite database, not disk free space.
-public struct PlatformArchiveCapacity: Decodable, Equatable {
-    public enum StorageMode: String, Decodable { case sqlite, memory }
-    public enum State: String, Decodable { case unlimited, ok, warning, full, unavailable }
+public struct PlatformArchiveCapacity: Decodable, Equatable, Sendable {
+    public enum StorageMode: String, Decodable, Sendable { case sqlite, memory }
+    public enum State: String, Decodable, Sendable { case unlimited, ok, warning, full, unavailable }
 
     public let storageMode: StorageMode
     public let databaseBytes: Int64?
@@ -497,7 +497,7 @@ public struct PlatformArchiveCapacity: Decodable, Equatable {
     public let measurementWritesBlocked: Bool
     public let automaticDeletion: Bool
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case storageMode, databaseBytes, maxDatabaseBytes, remainingBytes, state
         case warningThreshold, measurementWritesBlocked, automaticDeletion
     }
@@ -535,14 +535,14 @@ public struct PlatformArchiveCapacity: Decodable, Equatable {
     }
 }
 
-public struct PlatformArchiveExport: Equatable {
+public struct PlatformArchiveExport: Equatable, Sendable {
     public let sessionId: String
     public let fileURL: URL
     public let sweeps: Int
     public let observations: Int
 }
 
-public struct PlatformSnapshot: Equatable {
+public struct PlatformSnapshot: Equatable, Sendable {
     public var session: PlatformSession
     public var workers: [PlatformWorker]
     public var sweeps: [PlatformSweep]
@@ -567,7 +567,7 @@ public struct PlatformSnapshot: Equatable {
 private struct PlatformEnvelope<Value: Decodable>: Decodable {
     let data: Value
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case contract, contractVersion, data
     }
 
@@ -582,19 +582,19 @@ private struct PlatformEnvelope<Value: Decodable>: Decodable {
     }
 }
 
-private struct PlatformErrorEnvelope: Decodable {
-    struct Detail: Decodable { let code: String; let message: String }
+private struct PlatformErrorEnvelope: Decodable, Sendable {
+    struct Detail: Decodable, Sendable { let code: String; let message: String }
     let error: Detail
 }
 
-private struct EmptyBody: Encodable {}
+private struct EmptyBody: Encodable, Sendable {}
 
-private struct SessionDraft: Encodable {
+private struct SessionDraft: Encodable, Sendable {
     let name: String
     let streams: [StreamDraft]
 }
 
-public enum PlatformSettingValue: Encodable, Equatable {
+public enum PlatformSettingValue: Encodable, Equatable, Sendable {
     case string(String)
     case integer(Int)
     case floating(Double)
@@ -611,7 +611,7 @@ public enum PlatformSettingValue: Encodable, Equatable {
     }
 }
 
-private struct StreamDraft: Encodable {
+private struct StreamDraft: Encodable, Sendable {
     let device: String
     let role: String
     let levelUnit: String
@@ -628,12 +628,12 @@ private func platformArchiveCount(_ response: URLResponse, name: String) throws 
     return value
 }
 
-private struct PlatformArchiveHeader: Decodable {
+private struct PlatformArchiveHeader: Decodable, Sendable {
     let format: String
     let formatVersion: Int
     let sessionID: String
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case format
         case formatVersion = "format_version"
         case sessionID = "session_id"
@@ -704,10 +704,12 @@ private func platformValidateNDJSON(
     }
 }
 
-public final class PlatformClient {
+/// Immutable configuration; URLSession provides synchronized concurrent requests.
+public final class PlatformClient: Sendable {
     public let baseURL: PlatformBaseURL
     private let session: URLSession
     private let usesInjectedSession: Bool
+    var eventSessionConfiguration: URLSessionConfiguration { session.configuration }
     private let maximumResponseBytes = 2_000_000
 
     public init(baseURL: String, session: URLSession? = nil) throws {
@@ -851,7 +853,7 @@ public final class PlatformClient {
         guard !selectedMode.isEmpty else {
             throw PlatformError.invalidCommand("Режим не должен быть пустым")
         }
-        struct Body: Encodable { let frequencyHz: Int64; let mode: String }
+        struct Body: Encodable, Sendable { let frequencyHz: Int64; let mode: String }
         return try await post(
             Self.streamPath(sessionID: sessionID, streamID: streamID, action: "tune"),
             body: Body(frequencyHz: frequencyHz, mode: selectedMode)
@@ -952,20 +954,20 @@ public final class PlatformClient {
 
     // UI clients that poll global capacity independently can avoid a duplicate request.
     public func snapshot(
-        sessionID: String, includeArchiveCapacity: Bool = true
+        sessionID: String, includeArchiveCapacity: Bool = true, includeMeasurements: Bool = true
     ) async throws -> PlatformSnapshot {
         let session = try await getSession(sessionID)
         async let workersRequest: [PlatformWorker] = get(
             "/sessions/\(Self.segment(sessionID))/workers"
         )
-        async let sweepsRequest: [PlatformSweep] = measurementsWithResponseFallback(
+        async let sweepsRequest: [PlatformSweep] = includeMeasurements ? measurementsWithResponseFallback(
             kind: "sweeps", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isDbmAnalyzer })?.id
-        )
-        async let observationsRequest: [PlatformObservation] = measurements(
+        ) : []
+        async let observationsRequest: [PlatformObservation] = includeMeasurements ? measurements(
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
-        )
+        ) : []
         var workflowErrors: [String] = []
         let candidates: [PlatformCandidate]
         do {

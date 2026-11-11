@@ -1,6 +1,6 @@
 import Foundation
 
-private struct ResultKey: CodingKey {
+private struct ResultKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -15,7 +15,7 @@ private func resultExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws
 }
 
 /// The methodology catalog: ids, titles, original tables and exact value fields.
-public struct PlatformMethodologyEntry: Decodable, Equatable {
+public struct PlatformMethodologyEntry: Decodable, Equatable, Sendable {
     public let methodology: String
     public let title: String
     public let originalTable: String
@@ -26,7 +26,7 @@ public struct PlatformMethodologyEntry: Decodable, Equatable {
 
 /// One archived measurement result: the methodology is explicit, the verdict
 /// code is stored apart from the numeric values.
-public struct PlatformMeasurementResult: Decodable, Equatable {
+public struct PlatformMeasurementResult: Decodable, Equatable, Sendable {
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
     public static let resultCodes = ["norm", "not_norm", "not_measured"]
     public let id: String
@@ -38,7 +38,7 @@ public struct PlatformMeasurementResult: Decodable, Equatable {
     public let interval: PlatformInterval
     public let values: [String: Double]
     public let createdAt: String
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, streamId, methodology, resultCode, frequencyHz
         case interval, values, createdAt
     }
@@ -71,7 +71,7 @@ public struct PlatformMeasurementResult: Decodable, Equatable {
 }
 
 /// Client-side request body; the core owns the final validation.
-public struct PlatformMeasurementResultDraft: Encodable {
+public struct PlatformMeasurementResultDraft: Encodable, Sendable {
     public let methodology: String
     public let resultCode: String
     public let frequencyHz: Int64

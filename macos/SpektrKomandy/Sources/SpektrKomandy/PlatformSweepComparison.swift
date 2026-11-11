@@ -1,7 +1,7 @@
 import Foundation
 
 /// Recorded JSON provenance, including unknown extension keys. Never coerces a boolean to a number.
-public indirect enum PlatformComparisonSetting: Decodable, Equatable {
+public indirect enum PlatformComparisonSetting: Decodable, Equatable, Sendable {
     case string(String), number(Double), boolean(Bool), array([Self]), object([String: Self]), null
 
     public init(from decoder: Decoder) throws {
@@ -24,7 +24,7 @@ public indirect enum PlatformComparisonSetting: Decodable, Equatable {
     }
 }
 
-public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable {
+public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable, Sendable {
     public let id: String
     public let interval: PlatformInterval
     public let levels: [Double]
@@ -40,13 +40,13 @@ public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable {
     }
 }
 
-public struct PlatformComparisonExtremum: Decodable, Equatable {
+public struct PlatformComparisonExtremum: Decodable, Equatable, Sendable {
     public let frequencyHz: Int64
     public let deltaDb: Double
 }
 
 /// Server-computed target minus reference. Raw dBm levels remain separate from derived dB.
-public struct PlatformSweepComparison: Decodable, Equatable {
+public struct PlatformSweepComparison: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let reference: PlatformComparisonSweep
@@ -58,7 +58,7 @@ public struct PlatformSweepComparison: Decodable, Equatable {
     public let minChange: PlatformComparisonExtremum
     public let points: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, reference, target, frequenciesHz, deltaLevels, deltaUnit
         case maxIncrease, minChange, points
     }

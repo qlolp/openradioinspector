@@ -1,6 +1,6 @@
 import Foundation
 
-public struct PlatformThreeThresholdLine: Decodable, Equatable, Identifiable {
+public struct PlatformThreeThresholdLine: Decodable, Equatable, Identifiable, Sendable {
     public let id: String
     public let levelDbm: Double
     public let excessLevels: [Double]
@@ -10,7 +10,7 @@ public struct PlatformThreeThresholdLine: Decodable, Equatable, Identifiable {
 }
 
 /// Three independent core calculations. The order and IDs are identities, not a level ranking.
-public struct PlatformThreeSweepThresholds: Decodable, Equatable {
+public struct PlatformThreeSweepThresholds: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let sweep: PlatformComparisonSweep
@@ -22,7 +22,7 @@ public struct PlatformThreeSweepThresholds: Decodable, Equatable {
     public let points: Int
     public let lines: [PlatformThreeThresholdLine]
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, sweep, frequenciesHz, method, comparison, levelUnit, deltaUnit, points, lines
     }
 
@@ -138,7 +138,7 @@ func exactRecordedSettings(_ left: [String: PlatformComparisonSetting], _ right:
 extension PlatformClient {
     /// Explicit read-only POST; no events, commands, archive writes or polling-triggered analysis.
     public func threeSweepThresholds(sessionID: String, sweepID: String, levelsDbm: [Double]) async throws -> PlatformThreeSweepThresholds {
-        struct Body: Encodable { let sweepId: String; let levelsDbm: [Double] }
+        struct Body: Encodable, Sendable { let sweepId: String; let levelsDbm: [Double] }
         guard threeScopeID(sessionID), threeSweepID(sweepID), PlatformThreeSweepThresholds.validLevels(levelsDbm) else {
             throw PlatformError.invalidCommand("Нужны ID сеанса, ID свипа до 128 символов и ровно три конечных уровня dBm")
         }

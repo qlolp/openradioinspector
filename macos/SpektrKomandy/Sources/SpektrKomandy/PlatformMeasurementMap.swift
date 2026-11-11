@@ -1,14 +1,14 @@
 import Foundation
 
 /// One measurement-map request: the portable artifact text alone.
-public struct PlatformMeasurementMapRequest: Encodable {
+public struct PlatformMeasurementMapRequest: Encodable, Sendable {
     public let mapJson: String
     public init(mapJson: String) { self.mapJson = mapJson }
 }
 
 /// The built map: GeoJSON FeatureCollection plus a summary of the supplied points.
 public struct PlatformMeasurementMap: Decodable, Equatable {
-    public struct Summary: Decodable, Equatable {
+    public struct Summary: Decodable, Equatable, Sendable {
         public let pointCount: Int
         public let sectorCount: Int
         public let bbox: [String: Double]

@@ -1,6 +1,6 @@
 import Foundation
 
-private struct DvbKey: CodingKey {
+private struct DvbKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -15,7 +15,7 @@ private func dvbExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws {
 }
 
 /// One DVB-T parameter evaluation: verdicts on entered numbers, never a measurement.
-public struct PlatformDvbEvaluation: Decodable, Equatable {
+public struct PlatformDvbEvaluation: Decodable, Equatable, Sendable {
     public static let guardIntervals = ["1/32", "1/16", "1/8", "1/4"]
     public static let codeRates = ["1/2", "2/3", "3/4", "5/6", "7/8"]
     public static let parameterFields = ["mer_db", "ber_after_viterbi", "ber_after_rs"]
@@ -29,7 +29,7 @@ public struct PlatformDvbEvaluation: Decodable, Equatable {
     public let thresholds: [String: Double]
     public let verdicts: [String: Bool]
     public let values: [String: Double]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, methodology, resultCode, guardInterval, codeRate
         case parameters, thresholds, verdicts, values
     }
@@ -68,7 +68,7 @@ public struct PlatformDvbEvaluation: Decodable, Equatable {
 }
 
 /// Client-side request body; the core owns the final validation.
-public struct PlatformDvbEvaluationRequest: Encodable {
+public struct PlatformDvbEvaluationRequest: Encodable, Sendable {
     public let parameters: [String: Double]
     public let thresholds: [String: Double]
     public let guardInterval: String

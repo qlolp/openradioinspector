@@ -1,19 +1,22 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
-private struct AudioStreamErrorEnvelope: Decodable {
-    struct Detail: Decodable { let code: String; let message: String }
+private struct AudioStreamErrorEnvelope: Decodable, Sendable {
+    struct Detail: Decodable, Sendable { let code: String; let message: String }
     let error: Detail
 }
 
 /// Runtime status of the network audio fan-out; delivery only, nothing recorded.
-public struct PlatformAudioStreamStatus: Decodable, Equatable {
+public struct PlatformAudioStreamStatus: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let subscribers: Int
     public let maxSubscribers: Int
     public let queuedBlocks: Int
     public let droppedBlocks: Int
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, subscribers, maxSubscribers, queuedBlocks, droppedBlocks
     }
     public init(from decoder: Decoder) throws {
@@ -36,7 +39,7 @@ public struct PlatformAudioStreamStatus: Decodable, Equatable {
 }
 
 /// One bounded PCM sample read from the live delivery stream.
-public struct PlatformAudioStreamSample: Equatable {
+public struct PlatformAudioStreamSample: Equatable, Sendable {
     public let pcm: Data
     public let sampleRateHz: Int
     public let sampleFormat: String

@@ -98,3 +98,17 @@ swift test --package-path macos --filter SweepQualityModelTests
 
 В Linux-среде разработки этого среза Swift/Xcode отсутствуют; добавление тестов
 и проверка diff не означают успешной компиляции или аппаратной проверки.
+
+## Модернизация native-клиента
+
+Манифесты требуют Swift 6.4; проверяемый patch — Swift 6.4.2. SDK собирается в
+Swift 6 language mode. Native UI пока сохраняет Swift 5 compatibility с полными
+проверками concurrency; переход всего UI в Swift 6 и unsigned Xcode build —
+обязательный отдельный CI gate. Deployment target остаётся macOS 14.
+
+Новые portable SDK тесты проверяют общий measurement fixture, SSE/cursor,
+точный UTC, исходные единицы/float64, порядок поздних свипов, display mesh и
+инкрементальные строки текстуры. Native model/GPU тесты выполняются только на
+macOS. `ORI_NATIVE_RENDERER=canvas` выбирает native fallback для ручной проверки.
+Подробности и непройденные аппаратные/resource gates:
+[macos-modernization.md](../docs/macos-modernization.md).
