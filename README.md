@@ -428,6 +428,8 @@ tools/analysis/    программы разбора коммерческого 
 * [`docs/commercial-observation.md`](docs/commercial-observation.md) — протокол
   наблюдения оригинала: условия запуска, перечень снимков экранов и порядок
   сверки со справкой;
+* [`docs/rt-comparison.md`](docs/rt-comparison.md) — сопоставление возможностей
+  RadioInspectorRT и OpenRadioInspector с приоритетами закрытия разрывов;
 * [`docs/roadmap.md`](docs/roadmap.md) — дорожная карта проекта: этапы,
   критерии приёмки, состояние веток и решение по коммерческому диску.
 
