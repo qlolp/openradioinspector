@@ -31,6 +31,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 class OperationalMonitoring:
     def initialize_operations(self):
         self._supervisor_stop=threading.Event();self._supervisor=None
+        # Service-startup completion, never an assertion of hardware readiness.
+        self.startup_recovery_complete=threading.Event();self.startup_recovery_error=None
         self._capacity_samples=deque(maxlen=60)
         self._delivery_opener=urllib.request.build_opener(NoRedirect())
         self._delivery_error=None
@@ -261,7 +263,10 @@ class OperationalMonitoring:
 
     def _supervise(self):
         try:self._recover_projects()
-        except Exception:self._delivery_error='recovery_archive_error'
+        except BaseException as error:
+            self._delivery_error='recovery_archive_error';self.startup_recovery_error='recovery_archive_error'
+            if not isinstance(error,Exception):raise
+        finally:self.startup_recovery_complete.set()
         while not self._supervisor_stop.wait(.5):
             try:self.deliver_one()
             except Exception:self._delivery_error='notification_archive_error'
