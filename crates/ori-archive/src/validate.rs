@@ -28,7 +28,7 @@ pub(crate) fn integer(value: &Value, key: &str) -> Result<i64> {
 }
 pub(crate) fn hz(value: &Value, key: &str) -> Result<i64> {
     let result = integer(value, key)?;
-    if !(0..=9_007_199_254_740_991).contains(&result) {
+    if result < 0 {
         return Err(invalid(key));
     }
     Ok(result)
@@ -192,14 +192,14 @@ pub(crate) fn sweep(value: &mut Value) -> Result<()> {
     let levels = value["levels"]
         .as_array()
         .ok_or_else(|| invalid("levels"))?;
-    if frequencies.is_empty() || frequencies.len() > 16384 || frequencies.len() != levels.len() {
+    if frequencies.is_empty() || frequencies.len() != levels.len() {
         return Err(invalid("sweep dimensions"));
     }
     let mut last = -1;
     for frequency in frequencies {
         let next = frequency
             .as_i64()
-            .filter(|n| (0..=9_007_199_254_740_991).contains(n))
+            .filter(|n| *n >= 0)
             .ok_or_else(|| invalid("integer frequencies_hz"))?;
         if next < last {
             return Err(invalid("frequency order"));
@@ -480,6 +480,7 @@ pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
                     return Err(invalid("error"));
                 }
             }
+            Mutation::EnqueueNotification(value) => crate::outbox::validate_notification(value)?,
         }
         match mutation {
             Mutation::SaveSession {

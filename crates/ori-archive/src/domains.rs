@@ -55,8 +55,13 @@ fn catalog(
     } else {
         format!("WHERE {}", clauses.join(" AND "))
     };
+    let select = if matches!(kind, Catalog::Candidates) {
+        rows::CANDIDATE_SELECT.to_owned()
+    } else {
+        format!("SELECT * FROM {table}")
+    };
     let mut statement = db.prepare(&format!(
-        "SELECT * FROM {table} {clause} ORDER BY context_utc({time}),context_utf8(id) LIMIT ?"
+        "{select} {clause} ORDER BY context_utc({time}),context_utf8(id) LIMIT ?"
     ))?;
     let mut values = crate::queries::collect(
         statement.query(params_from_iter(arguments.iter()))?,
@@ -95,7 +100,8 @@ impl Archive {
         let id = id.to_owned();
         self.inner
             .read(move |db| {
-                let mut statement = db.prepare("SELECT * FROM candidates WHERE id=?")?;
+                let mut statement =
+                    db.prepare(&format!("{} WHERE c.id=?", rows::CANDIDATE_SELECT))?;
                 let mut rows = statement.query([id])?;
                 rows.next()?.map(rows::candidate).transpose()
             })
@@ -255,7 +261,7 @@ impl Archive {
         offset: usize,
     ) -> Result<Vec<Value>> {
         validate_limit(limit, 1000)?;
-        if offset > 1_000_000 {
+        if offset > 10_000_000 {
             return Err(error::invalid("artifact offset"));
         }
         let session = session.to_owned();

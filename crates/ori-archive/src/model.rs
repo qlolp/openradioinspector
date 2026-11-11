@@ -91,7 +91,7 @@ pub struct Artifact {
 }
 
 /// Fixed operations only. A vector is one all-or-nothing SQLite transaction.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Mutation {
     ResetRuntimeStreamStates,
     StopSession {
@@ -135,6 +135,18 @@ pub enum Mutation {
         secret: String,
     },
     Notification(Value),
+    EnqueueNotification(crate::NotificationRow),
+}
+
+impl std::fmt::Debug for Mutation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Mutation payloads can contain credentials (notably Webhook). Preserve
+        // diagnostic variant identity without formatting any source/secret data.
+        formatter
+            .debug_struct("Mutation")
+            .field("kind", &std::mem::discriminant(self))
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Serialize)]

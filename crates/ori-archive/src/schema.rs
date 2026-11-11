@@ -61,6 +61,7 @@ fn table(db: &Connection, name: &str) -> Result<bool> {
         .is_some())
 }
 pub(crate) fn versions(db: &Connection) -> Result<(i64, i64, i64)> {
+    crate::candidate_precision::check(db)?;
     let main: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let monitoring = if table(db, "monitoring_schema")? {
         db.query_row(
@@ -217,6 +218,7 @@ pub(crate) fn writer(config: &ArchiveConfig) -> Result<Connection> {
         tx.execute_batch("INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) SELECT id,session_id,stream_id FROM sweeps WHERE NOT EXISTS(SELECT 1 FROM sweep_ingestion i WHERE i.sweep_id=sweeps.id) ORDER BY id;")?;
     }
     tx.execute_batch(PRECISION_DDL)?;
+    crate::candidate_precision::install(&tx)?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM ori_archive_schema", [], |r| r.get(0))?;
     if count != 1 {
         return Err(ArchiveError::Corrupt("precision schema metadata".into()));

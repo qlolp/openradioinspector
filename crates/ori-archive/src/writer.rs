@@ -133,6 +133,7 @@ fn candidate(db: &Connection, value: &Value) -> Result<()> {
         Some(string(value, "level_unit")),
     )?;
     db.execute("INSERT INTO candidates(id,session_id,source_stream_id,started_at,ended_at,center_frequency_hz,bandwidth_hz,peak_level,level_unit,score,observation_ids_json,state) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET started_at=excluded.started_at,ended_at=excluded.ended_at,center_frequency_hz=excluded.center_frequency_hz,bandwidth_hz=excluded.bandwidth_hz,peak_level=excluded.peak_level,level_unit=excluded.level_unit,score=excluded.score,observation_ids_json=excluded.observation_ids_json,state=excluded.state",params![id,sid,string(value,"source_stream_id"),string(&value["interval"],"started_at"),string(&value["interval"],"ended_at"),value["center_frequency_hz"].as_i64(),value["bandwidth_hz"].as_i64(),value["peak_level"].as_f64(),string(value,"level_unit"),value["score"].as_f64(),encode(&value["observation_ids"] )?,string(value,"state")])?;
+    crate::candidate_precision::save(db, value)?;
     Ok(())
 }
 fn investigation(db: &Connection, sid: &str, value: &Value, source: &Value) -> Result<()> {
@@ -149,7 +150,10 @@ pub(crate) fn apply(
     mutations: Vec<Mutation>,
     limit: Option<u64>,
     capture_budget: usize,
+    lifecycle: &crate::session_lifecycle::Registry,
 ) -> Result<CommittedBatch> {
+    #[cfg(test)]
+    lifecycle.before_apply();
     let measurement = mutations.iter().any(|m| {
         matches!(
             m,
@@ -171,7 +175,9 @@ pub(crate) fn apply(
         captured_event_bytes: 0,
         capture_budget,
     };
+    let mut lifecycle_changes = crate::session_lifecycle::Changes::default();
     for mutation in mutations {
+        let before = lifecycle.before(&tx, &mutation)?;
         match mutation {
             Mutation::StopSession { value, at } => {
                 let sid = string(&value, "id");
@@ -206,7 +212,8 @@ pub(crate) fn apply(
                     }
                     for (rowid, mut job) in jobs {
                         after = rowid;
-                        let mut statement = tx.prepare("SELECT * FROM candidates WHERE id=?")?;
+                        let mut statement =
+                            tx.prepare(&format!("{} WHERE c.id=?", rows::CANDIDATE_SELECT))?;
                         let mut records = statement.query([string(&job, "candidate_id")])?;
                         let mut source = records
                             .next()?
@@ -395,11 +402,33 @@ pub(crate) fn apply(
                 tx.execute("INSERT INTO monitoring_notifications(id,project_id,created_at,payload,state,attempts,next_at,error,lease_until,acknowledged_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,state=excluded.state,attempts=excluded.attempts,next_at=excluded.next_at,error=excluded.error,lease_until=excluded.lease_until,acknowledged_at=excluded.acknowledged_at",params![string(&value,"id"),string(&value,"project_id"),string(&value,"created_at"),encode(&value["payload"] )?,string(&value,"state"),value["attempts"].as_i64(),optional(&value,"next_at"),optional(&value,"error"),optional(&value,"lease_until"),optional(&value,"acknowledged_at")])?;
                 result.items.push(value);
             }
+            Mutation::EnqueueNotification(value) => {
+                let actual = crate::outbox::insert(&tx, &value, capture_budget)?;
+                result.items.push(serde_json::to_value(actual)?);
+            }
         }
+        lifecycle_changes.after(&tx, before)?;
     }
     if measurement {
         schema::capacity_check(&tx, limit, false)?;
     }
-    tx.commit()?;
+    let pending = lifecycle.prepare(lifecycle_changes)?;
+    #[cfg(test)]
+    lifecycle.before_commit(&tx);
+    if let Err(error) = tx.commit() {
+        pending.rollback(db)?;
+        return Err(error.into());
+    }
+    #[cfg(test)]
+    lifecycle.after_commit();
+    pending.publish();
     Ok(result)
+}
+
+pub(crate) fn outbox(
+    db: &mut Connection,
+    operation: crate::outbox::OutboxOperation,
+    maximum: usize,
+) -> Result<crate::outbox::OutboxReply> {
+    crate::outbox::apply_operation(db, operation, maximum)
 }

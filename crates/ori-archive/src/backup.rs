@@ -1,4 +1,6 @@
+mod limited;
 use crate::*;
+pub use limited::{BackupCancellation, BackupIoBudget, BackupOptions};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension,
     backup::{Backup, StepResult},
@@ -8,7 +10,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufWriter, Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
@@ -35,21 +37,56 @@ impl Budget {
         }
     }
 }
+/// Keep legacy accounting unchanged while explicit operations add cancellation,
+/// absolute deadlines and a source quota to the same production copy/validator.
+trait Accounting {
+    fn account(&mut self, bytes: u64) -> Result<()>;
+    fn before_io(&mut self, _bytes: u64) -> Result<()> {
+        self.check()
+    }
+    fn check(&self) -> Result<()> {
+        Ok(())
+    }
+    fn copy_size(&self, _bytes: u64) -> Result<()> {
+        Ok(())
+    }
+    fn configure(&self, _db: &mut Connection) -> Result<()> {
+        Ok(())
+    }
+    fn check_integrity(&mut self, db: &Connection) -> Result<()> {
+        integrity(db)
+    }
+}
+impl Accounting for Budget {
+    fn account(&mut self, bytes: u64) -> Result<()> {
+        Budget::account(self, bytes);
+        Ok(())
+    }
+}
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-fn digest_file(path: &Path, budget: &mut Budget) -> Result<String> {
+fn digest_file(path: &Path, budget: &mut impl Accounting) -> Result<String> {
+    budget.check()?;
     let mut source = File::open(path)?;
     let mut digest = Sha256::new();
     let mut block = vec![0; CHUNK];
-    loop {
-        let count = source.read(&mut block)?;
-        if count == 0 {
-            break;
-        }
+    let original_bytes = source.metadata()?.len();
+    let mut remaining = original_bytes;
+    while remaining != 0 {
+        let count = remaining.min(CHUNK as u64) as usize;
+        budget.before_io(count as u64)?;
+        source.read_exact(&mut block[..count])?;
         digest.update(&block[..count]);
-        budget.account(count as u64);
+        budget.account(count as u64)?;
+        remaining -= count as u64;
     }
+    if source.metadata()?.len() != original_bytes {
+        return Err(ArchiveError::Corrupt(
+            "recovery file changed while hashing".into(),
+        ));
+    }
+    budget.check()?;
     Ok(hex(&digest.finalize()))
 }
 fn private_file(path: &Path) -> Result<()> {
@@ -81,6 +118,128 @@ fn write_json(path: &Path, value: &Value) -> Result<()> {
     file.write_all(b"\n")?;
     file.sync_all()?;
     private_file(path)
+}
+
+struct AccountedWriter<'a, A> {
+    output: &'a mut File,
+    budget: &'a mut A,
+    error: Option<ArchiveError>,
+}
+impl<A: Accounting> Write for AccountedWriter<'_, A> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        let chunk = &bytes[..bytes.len().min(CHUNK)];
+        if chunk.is_empty() {
+            return Ok(0);
+        }
+        let result = (|| {
+            self.budget.before_io(chunk.len() as u64)?;
+            self.output.write_all(chunk)?;
+            self.budget.check()
+        })();
+        if let Err(error) = result {
+            self.error = Some(error);
+            return Err(std::io::Error::other("recovery I/O admission failed"));
+        }
+        Ok(chunk.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
+    }
+}
+fn write_json_record<A: Accounting>(
+    output: &mut File,
+    value: &Value,
+    pretty: bool,
+    budget: &mut A,
+) -> Result<()> {
+    let mut writer = BufWriter::with_capacity(
+        65536,
+        AccountedWriter {
+            output,
+            budget,
+            error: None,
+        },
+    );
+    let result = (|| -> Result<()> {
+        if pretty {
+            serde_json::to_writer_pretty(&mut writer, value)?;
+        } else {
+            serde_json::to_writer(&mut writer, value)?;
+        }
+        writer.write_all(b"\n")?;
+        writer.flush()?;
+        Ok(())
+    })();
+    // Never retry a refused write while dropping the serialization buffer.
+    let (writer, _) = writer.into_parts();
+    match writer.error {
+        Some(error) => Err(error),
+        None => result,
+    }
+}
+fn write_budgeted_json(path: &Path, value: &Value, budget: &mut impl Accounting) -> Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    write_json_record(&mut file, value, true, budget)?;
+    file.sync_all()?;
+    private_file(path)
+}
+
+struct IndexReader {
+    file: File,
+    buffer: Vec<u8>,
+    cursor: usize,
+    remaining: u64,
+    original_bytes: u64,
+}
+impl IndexReader {
+    fn open(path: &Path) -> Result<Self> {
+        let file = File::open(path)?;
+        let bytes = file.metadata()?.len();
+        Ok(Self {
+            file,
+            buffer: Vec::new(),
+            cursor: 0,
+            remaining: bytes,
+            original_bytes: bytes,
+        })
+    }
+    fn line(&mut self, budget: &mut impl Accounting) -> Result<Vec<u8>> {
+        let mut line = Vec::new();
+        loop {
+            if self.cursor == self.buffer.len() {
+                if self.remaining == 0 {
+                    return Ok(line);
+                }
+                let count = self.remaining.min(CHUNK as u64) as usize;
+                budget.before_io(count as u64)?;
+                self.buffer.resize(count, 0);
+                self.file.read_exact(&mut self.buffer)?;
+                self.remaining -= count as u64;
+                self.cursor = 0;
+            }
+            let available = &self.buffer[self.cursor..];
+            let count = available
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(available.len(), |index| index + 1);
+            if line.len() + count > CHUNK {
+                return Err(ArchiveError::Corrupt("recovery artifact index".into()));
+            }
+            line.extend_from_slice(&available[..count]);
+            self.cursor += count;
+            if line.ends_with(b"\n") {
+                return Ok(line);
+            }
+        }
+    }
+    fn has_tail(&self) -> Result<bool> {
+        if self.file.metadata()?.len() != self.original_bytes {
+            return Err(ArchiveError::Corrupt(
+                "recovery artifact index changed".into(),
+            ));
+        }
+        Ok(self.cursor != self.buffer.len() || self.remaining != 0)
+    }
 }
 fn absent(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
@@ -124,6 +283,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool> {
         .is_some())
 }
 fn integrity(db: &Connection) -> Result<()> {
+    crate::candidate_precision::validate_rows(db)?;
     if db.query_row("PRAGMA integrity_check(1)", [], |row| {
         row.get::<_, String>(0)
     })? != "ok"
@@ -164,10 +324,10 @@ fn integrity(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn artifacts(
+fn artifacts<A: Accounting>(
     db: &Connection,
-    budget: &mut Budget,
-    mut consume: impl FnMut(Value) -> Result<()>,
+    budget: &mut A,
+    mut consume: impl FnMut(Value, &mut A) -> Result<()>,
 ) -> Result<u64> {
     if !has_table(db, "instrument_artifacts")? {
         return Ok(0);
@@ -178,6 +338,7 @@ fn artifacts(
     let mut rows = statement.query([])?;
     let mut count = 0;
     while let Some(row) = rows.next()? {
+        budget.check()?;
         let id: String = row.get(0)?;
         let kind: String = row.get(1)?;
         let mime: String = row.get(2)?;
@@ -189,6 +350,7 @@ fn artifacts(
         let mut digest = Sha256::new();
         let mut offset = 0;
         while offset < size {
+            budget.before_io((size - offset).min(CHUNK as i64) as u64)?;
             let block: Vec<u8> = db.query_row(
                 "SELECT substr(payload,?,?) FROM instrument_artifacts WHERE id=?",
                 params![offset + 1, CHUNK as i64, id],
@@ -201,14 +363,17 @@ fn artifacts(
             }
             digest.update(&block);
             offset += block.len() as i64;
-            budget.account(block.len() as u64);
+            budget.account(block.len() as u64)?;
         }
         if hex(&digest.finalize()) != sha {
             return Err(ArchiveError::Corrupt(
                 "closed artifact SHA-256 mismatch".into(),
             ));
         }
-        consume(json!({"id":id,"kind":kind,"mime_type":mime,"sha256":sha,"bytes":size}))?;
+        consume(
+            json!({"id":id,"kind":kind,"mime_type":mime,"sha256":sha,"bytes":size}),
+            budget,
+        )?;
         count += 1;
     }
     Ok(count)
@@ -228,26 +393,35 @@ fn copy_snapshot(
     source: &Connection,
     path: &Path,
     deadline: Instant,
-    budget: &mut Budget,
+    budget: &mut impl Accounting,
 ) -> Result<()> {
+    budget.check()?;
     source.query_row("SELECT name FROM sqlite_master LIMIT 1", [], |row| {
         row.get::<_, String>(0)
     })?; // Acquire the immutable read snapshot before copying a live WAL.
     let mut target = Connection::open(path)?;
     target.pragma_update(None, "synchronous", "FULL")?;
     let page_size: i64 = source.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+    let pages: i64 = source.query_row("PRAGMA page_count", [], |row| row.get(0))?;
     let step = (512 * 1024 / page_size).clamp(1, 128) as i32;
     {
         let backup = Backup::new(source, &mut target)?;
         let mut copied = 0_i64;
         loop {
+            budget.check()?;
             if Instant::now() > deadline {
                 return Err(ArchiveError::QueryBudget);
             }
+            let next =
+                pages.saturating_sub(copied).max(0).min(i64::from(step)) as u64 * page_size as u64;
+            budget.before_io(next)?; // Source read and destination write are distinct logical I/O.
+            budget.before_io(next)?;
             let result = backup.step(step)?;
             let progress = backup.progress();
+            budget.copy_size(progress.pagecount as u64 * page_size as u64)?;
             let now = (progress.pagecount - progress.remaining) as i64;
-            budget.account(now.saturating_sub(copied).max(0) as u64 * page_size as u64 * 2);
+            budget.account(now.saturating_sub(copied).max(0) as u64 * page_size as u64 * 2)?;
+            budget.check()?;
             copied = now;
             match result {
                 StepResult::Done => break,
@@ -267,6 +441,7 @@ fn copy_snapshot(
         .map_err(|(_, error)| ArchiveError::Sql(error))?;
     private_file(path)?;
     sync_file(path)?;
+    budget.check()?;
     Ok(())
 }
 
@@ -288,10 +463,8 @@ fn make_backup(source: &Connection, destination: &Path, timeout: Duration) -> Re
         .write(true)
         .create_new(true)
         .open(&path)?;
-    let artifact_count = artifacts(&db, &mut budget, |entry| {
-        serde_json::to_writer(&mut index, &entry)?;
-        index.write_all(b"\n")?;
-        Ok(())
+    let artifact_count = artifacts(&db, &mut budget, |entry, budget| {
+        write_json_record(&mut index, &entry, false, budget)
     })?;
     index.sync_all()?;
     private_file(&path)?;
@@ -322,6 +495,10 @@ fn make_backup(source: &Connection, destination: &Path, timeout: Duration) -> Re
 }
 
 pub fn verify_backup(directory: &Path) -> Result<Value> {
+    verify_with_budget(directory, &mut Budget::new())
+}
+fn verify_with_budget(directory: &Path, budget: &mut impl Accounting) -> Result<Value> {
+    budget.check()?;
     for file in FILES {
         let info = fs::symlink_metadata(directory.join(file))?;
         if !info.is_file() || info.file_type().is_symlink() {
@@ -334,6 +511,7 @@ pub fn verify_backup(directory: &Path) -> Result<Value> {
     if fs::metadata(&manifest_path)?.len() > 65536 {
         return Err(ArchiveError::Corrupt("recovery manifest size".into()));
     }
+    budget.before_io(fs::metadata(&manifest_path)?.len())?;
     let manifest = parse_json_value(&fs::read(manifest_path)?, 65536)?;
     if manifest["backup_version"] != 1
         || manifest["purpose"] != "private-recovery"
@@ -350,12 +528,11 @@ pub fn verify_backup(directory: &Path) -> Result<Value> {
             ));
         }
     }
-    let mut budget = Budget::new();
     for (key, file) in [
         ("archive", "archive.sqlite"),
         ("artifacts", "artifacts.ndjson"),
     ] {
-        if manifest[key]["sha256"] != digest_file(&directory.join(file), &mut budget)? {
+        if manifest[key]["sha256"] != digest_file(&directory.join(file), budget)? {
             return Err(ArchiveError::Corrupt(
                 "recovery file SHA-256 mismatch".into(),
             ));
@@ -364,23 +541,19 @@ pub fn verify_backup(directory: &Path) -> Result<Value> {
     if manifest["archive"]["bytes"].as_u64() != Some(fs::metadata(&archive)?.len()) {
         return Err(ArchiveError::Corrupt("recovery database size".into()));
     }
-    let db = db_open(&archive)?;
-    integrity(&db)?;
-    let mut index = BufReader::new(File::open(directory.join("artifacts.ndjson"))?);
-    let artifact_count = artifacts(&db, &mut budget, |entry| {
-        let mut line = String::new();
-        let mut bounded = std::io::Read::take(&mut index, (CHUNK + 1) as u64);
-        bounded.read_line(&mut line)?;
-        if line.len() > CHUNK
-            || !line.ends_with('\n')
-            || parse_json_value(line.as_bytes(), CHUNK)? != entry
+    let mut db = db_open(&archive)?;
+    budget.configure(&mut db)?;
+    budget.check_integrity(&db)?;
+    let mut index = IndexReader::open(&directory.join("artifacts.ndjson"))?;
+    let artifact_count = artifacts(&db, budget, |entry, budget| {
+        let line = index.line(budget)?;
+        if line.len() > CHUNK || !line.ends_with(b"\n") || parse_json_value(&line, CHUNK)? != entry
         {
             return Err(ArchiveError::Corrupt("recovery artifact index".into()));
         }
         Ok(())
     })?;
-    let mut tail = [0; 1];
-    if index.read(&mut tail)? != 0 {
+    if index.has_tail()? {
         return Err(ArchiveError::Corrupt(
             "extra recovery artifact entry".into(),
         ));
@@ -396,6 +569,7 @@ pub fn verify_backup(directory: &Path) -> Result<Value> {
     {
         return Err(ArchiveError::Corrupt("recovery snapshot metadata".into()));
     }
+    budget.check()?;
     Ok(manifest)
 }
 

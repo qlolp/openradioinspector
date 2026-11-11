@@ -16,6 +16,5 @@ archive version 6 and the observation precision extension remain unchanged.
 Reads validate finite bytes against the stored numeric value. Partial or future
 extension metadata is refused before writes. Recovery backups verify these
 canonical bytes before publishing a success manifest. They are original values,
-not an evictable display or analytical cache. This delivery slice verifies Python
-get/list/reopen/restore results. The matching Rust table layout and scientific
-snapshot preservation arrive in the later Archive delivery slice.
+not an evictable display or analytical cache. Python and Rust use the same table
+layout and preserve get/list/scientific-snapshot/reopen/restore results.

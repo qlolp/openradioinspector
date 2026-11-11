@@ -78,9 +78,13 @@ pub(crate) fn get_observation(db: &Connection, id: &str) -> Result<Option<Value>
     let mut rows = stmt.query([id])?;
     rows.next()?.map(observation).transpose()
 }
+pub(crate) const CANDIDATE_SELECT: &str = "SELECT c.*,p.peak_level_bits_le,p.score_bits_le FROM candidates c LEFT JOIN ori_candidate_scalar_bits p ON p.candidate_id=c.id";
 pub(crate) fn candidate(row: &Row<'_>) -> Result<Value> {
+    let peak =
+        crate::candidate_precision::decode(row.get("peak_level")?, row.get("peak_level_bits_le")?)?;
+    let score = crate::candidate_precision::decode(row.get("score")?, row.get("score_bits_le")?)?;
     Ok(
-        json!({"id":row.get::<_,String>("id")?,"session_id":row.get::<_,String>("session_id")?,"source_stream_id":row.get::<_,String>("source_stream_id")?,"interval":{"started_at":time(row,"started_at")?,"ended_at":time(row,"ended_at")?},"center_frequency_hz":row.get::<_,i64>("center_frequency_hz")?,"bandwidth_hz":row.get::<_,Option<i64>>("bandwidth_hz")?,"peak_level":row.get::<_,Option<f64>>("peak_level")?,"score":row.get::<_,Option<f64>>("score")?,"level_unit":row.get::<_,String>("level_unit")?,"observation_ids":json_column(row,"observation_ids_json")?,"state":row.get::<_,String>("state")?}),
+        json!({"id":row.get::<_,String>("id")?,"session_id":row.get::<_,String>("session_id")?,"source_stream_id":row.get::<_,String>("source_stream_id")?,"interval":{"started_at":time(row,"started_at")?,"ended_at":time(row,"ended_at")?},"center_frequency_hz":row.get::<_,i64>("center_frequency_hz")?,"bandwidth_hz":row.get::<_,Option<i64>>("bandwidth_hz")?,"peak_level":peak,"score":score,"level_unit":row.get::<_,String>("level_unit")?,"observation_ids":json_column(row,"observation_ids_json")?,"state":row.get::<_,String>("state")?}),
     )
 }
 pub(crate) fn investigation(row: &Row<'_>) -> Result<Value> {

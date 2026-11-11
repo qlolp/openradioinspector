@@ -67,7 +67,11 @@ fn decode(raw: &RawValue, depth: usize) -> Result<Value> {
         Some(b'f') => Value::Bool(false),
         Some(b'n') => Value::Null,
         Some(_) => {
-            let number = text.parse::<Number>()?;
+            let number = if text == "-0" {
+                Number::from(0)
+            } else {
+                text.parse::<Number>()?
+            };
             if text.bytes().any(|b| b".eE".contains(&b))
                 && !number.as_f64().is_some_and(f64::is_finite)
             {

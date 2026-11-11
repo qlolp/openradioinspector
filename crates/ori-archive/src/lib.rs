@@ -1,21 +1,38 @@
 //! Compatible canonical SQLite archive. All mutations run on one bounded dedicated writer.
 mod actor;
 mod backup;
+mod candidate_precision;
 mod domains;
 mod error;
 mod json;
 mod model;
+mod outbox;
 mod queries;
 mod rows;
 mod schema;
+mod session_lifecycle;
+mod session_queries;
+mod snapshot_export;
 mod validate;
 mod writer;
-pub use backup::{restore_backup, verify_backup};
+pub use backup::{
+    BackupCancellation, BackupIoBudget, BackupOptions, restore_backup, verify_backup,
+};
 pub use error::{ArchiveError, Result};
 pub use json::parse_json_value;
 pub use model::*;
+pub use outbox::{
+    ClaimedNotification, NotificationClaim, NotificationCompletion, NotificationRow, WebhookConfig,
+};
+pub use queries::{BaselineSelection, CapturePosition, RecordPage};
 pub use schema::{MAIN_VERSION, MONITORING_VERSION, PRECISION_DDL, PRECISION_VERSION};
 use serde_json::{Value, json};
+pub use session_lifecycle::SessionLifecycleReceipt;
+pub use snapshot_export::{
+    ScopedSnapshotExport, ScopedSnapshotInfo, ScopedSnapshotKind, ScopedSnapshotQuery,
+    ScopedSnapshotRecord, SnapshotExport, SnapshotExportInfo, SnapshotExportKind,
+    SnapshotExportLimits, SnapshotExportQuery, SnapshotExportRecord,
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -23,6 +40,11 @@ pub struct Archive {
     inner: Arc<actor::Inner>,
 }
 impl Archive {
+    /// Share only short domain read/modify/commit sections across service owners.
+    /// Release before device I/O, callbacks, and long preflight work.
+    pub fn domain_coordinator(&self) -> Arc<tokio::sync::Mutex<()>> {
+        self.inner.domain_coordinator.clone()
+    }
     pub fn open(config: ArchiveConfig) -> Result<Self> {
         Ok(Self {
             inner: actor::Inner::open(config)?,
@@ -30,6 +52,18 @@ impl Archive {
     }
     pub async fn apply(&self, mutations: Vec<Mutation>) -> Result<CommittedBatch> {
         self.inner.apply(mutations).await
+    }
+    /// Enroll an existing session on the actual canonical writer. May be called
+    /// while the caller already holds domain_coordinator; no internal relock.
+    /// Retain a Draft enrollment for later setup; its own check remains false.
+    pub async fn capture_session_lifecycle(&self, id: &str) -> Result<SessionLifecycleReceipt> {
+        self.inner.capture_session_lifecycle(id).await
+    }
+    /// Capture a NEW Running receipt during dispatch setup, before effects.
+    /// This is cache-only and returns None for unenrolled/pending/stopped/closed.
+    /// Never use this factory to refresh an already dispatched operation.
+    pub fn cached_session_lifecycle(&self, id: &str) -> Option<SessionLifecycleReceipt> {
+        self.inner.lifecycle.cached(id)
     }
     pub async fn create_session(&self, value: Value) -> Result<CommittedBatch> {
         self.apply(vec![Mutation::CreateSession(value)]).await
