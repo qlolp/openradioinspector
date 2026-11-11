@@ -2,10 +2,10 @@
 
 This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
 
-The intermediate lock retains the inherited compatible `futures-util 0.3.34`.
-Authorized offline metadata activates its required cached `futures-macro
-0.3.34`; it changes no inherited package version or checksum. Core's exact
-`futures-util 0.3.32` constraint is reviewed separately when stage 13 lands.
+The delivery lock retains the reviewed foundation `futures-util 0.3.34` and
+activates its required cached `futures-macro 0.3.34`. Root `416f5f5` aligns Core's
+exact constraint with this same version; stage 13 adds its remaining feature
+edges without a dependency downgrade or an inherited checksum change.
 
 Status: implemented library, verified on owned synthetic transports and temporary
 SQLite archives. Hardware validation is **not run**.
