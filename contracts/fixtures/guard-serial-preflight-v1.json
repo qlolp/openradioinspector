@@ -1,0 +1,3087 @@
+{
+  "cases": [
+    {
+      "changed_lna": false,
+      "prepared": {
+        "checks": [
+          {
+            "name": "adapters",
+            "ok": true
+          },
+          {
+            "name": "analyzer_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_port",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_port",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_profile",
+            "ok": true
+          },
+          {
+            "name": "operator_receive_path",
+            "ok": true
+          },
+          {
+            "name": "receive_profile",
+            "ok": true
+          },
+          {
+            "name": "baseline_acquisition_context",
+            "ok": true
+          },
+          {
+            "name": "baseline_cadence",
+            "ok": true
+          },
+          {
+            "name": "archive",
+            "ok": true
+          },
+          {
+            "name": "storage_budget",
+            "ok": true
+          }
+        ],
+        "hardware_validation": "not_run",
+        "ready": true
+      },
+      "session": {
+        "contract_version": 1,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "ended_at": null,
+        "id": "guard-сессия/%+?",
+        "metadata": {},
+        "name": "Synthetic guard session",
+        "started_at": null,
+        "state": "draft",
+        "streams": [
+          {
+            "capabilities": [
+              "sweep",
+              "waterfall"
+            ],
+            "device": "tinySA Ultra",
+            "firmware": null,
+            "id": "spectrum/one",
+            "label": "",
+            "level_unit": "dBm",
+            "model": null,
+            "port": "COM3",
+            "role": "spectrum_analyzer",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "tinysa-serial",
+              "period_s": 0.01,
+              "points": 9,
+              "start_hz": 100000000,
+              "stop_hz": 100080000
+            },
+            "state": "disconnected"
+          },
+          {
+            "capabilities": [
+              "tune",
+              "audio"
+            ],
+            "device": "AR-DV1",
+            "firmware": null,
+            "id": "receiver+one",
+            "label": "",
+            "level_unit": "s_meter_count",
+            "model": null,
+            "port": "COM4",
+            "role": "receiver",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "ardv1-serial",
+              "frequency_hz": 145500000,
+              "mode": "FM",
+              "period_s": 0.01
+            },
+            "state": "disconnected"
+          }
+        ]
+      },
+      "sweeps": [
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+000",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:01.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 0
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+001",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:05.123456Z",
+            "started_at": "2026-11-11T12:00:04.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 1
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+002",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:09.123456Z",
+            "started_at": "2026-11-11T12:00:08.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 2
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+003",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:13.123456Z",
+            "started_at": "2026-11-11T12:00:12.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 3
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+004",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:17.123456Z",
+            "started_at": "2026-11-11T12:00:16.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 4
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+005",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:21.123456Z",
+            "started_at": "2026-11-11T12:00:20.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 5
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+006",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:25.123456Z",
+            "started_at": "2026-11-11T12:00:24.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 6
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+007",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:29.123456Z",
+            "started_at": "2026-11-11T12:00:28.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 7
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+008",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:33.123456Z",
+            "started_at": "2026-11-11T12:00:32.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 8
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+009",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:37.123456Z",
+            "started_at": "2026-11-11T12:00:36.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 9
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+010",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:41.123456Z",
+            "started_at": "2026-11-11T12:00:40.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 10
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+011",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:45.123456Z",
+            "started_at": "2026-11-11T12:00:44.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 11
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+012",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:49.123456Z",
+            "started_at": "2026-11-11T12:00:48.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 12
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+013",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:53.123456Z",
+            "started_at": "2026-11-11T12:00:52.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 13
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+014",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:57.123456Z",
+            "started_at": "2026-11-11T12:00:56.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 14
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+015",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:01.123456Z",
+            "started_at": "2026-11-11T12:01:00.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 15
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+016",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:05.123456Z",
+            "started_at": "2026-11-11T12:01:04.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 16
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+017",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:09.123456Z",
+            "started_at": "2026-11-11T12:01:08.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 17
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+018",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:13.123456Z",
+            "started_at": "2026-11-11T12:01:12.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 18
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+019",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:17.123456Z",
+            "started_at": "2026-11-11T12:01:16.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": false,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 19
+          },
+          "stream_id": "spectrum/one"
+        }
+      ],
+      "undeclared": {
+        "checks": [
+          {
+            "name": "adapters",
+            "ok": true
+          },
+          {
+            "name": "analyzer_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_port",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_port",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_profile",
+            "ok": true
+          },
+          {
+            "name": "operator_receive_path",
+            "ok": false
+          },
+          {
+            "name": "receive_profile",
+            "ok": true
+          },
+          {
+            "name": "archive",
+            "ok": true
+          },
+          {
+            "name": "storage_budget",
+            "ok": true
+          }
+        ],
+        "hardware_validation": "not_run",
+        "ready": false
+      }
+    },
+    {
+      "changed_lna": true,
+      "prepared": {
+        "checks": [
+          {
+            "name": "adapters",
+            "ok": true
+          },
+          {
+            "name": "analyzer_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_port",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_port",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_profile",
+            "ok": true
+          },
+          {
+            "name": "operator_receive_path",
+            "ok": true
+          },
+          {
+            "name": "receive_profile",
+            "ok": true
+          },
+          {
+            "name": "baseline_acquisition_context",
+            "ok": false
+          },
+          {
+            "name": "baseline_cadence",
+            "ok": true
+          },
+          {
+            "name": "archive",
+            "ok": true
+          },
+          {
+            "name": "storage_budget",
+            "ok": true
+          }
+        ],
+        "hardware_validation": "not_run",
+        "ready": false
+      },
+      "session": {
+        "contract_version": 1,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "ended_at": null,
+        "id": "guard-сессия/%+?",
+        "metadata": {},
+        "name": "Synthetic guard session",
+        "started_at": null,
+        "state": "draft",
+        "streams": [
+          {
+            "capabilities": [
+              "sweep",
+              "waterfall"
+            ],
+            "device": "tinySA Ultra",
+            "firmware": null,
+            "id": "spectrum/one",
+            "label": "",
+            "level_unit": "dBm",
+            "model": null,
+            "port": "COM3",
+            "role": "spectrum_analyzer",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "tinysa-serial",
+              "period_s": 0.01,
+              "points": 9,
+              "start_hz": 100000000,
+              "stop_hz": 100080000
+            },
+            "state": "disconnected"
+          },
+          {
+            "capabilities": [
+              "tune",
+              "audio"
+            ],
+            "device": "AR-DV1",
+            "firmware": null,
+            "id": "receiver+one",
+            "label": "",
+            "level_unit": "s_meter_count",
+            "model": null,
+            "port": "COM4",
+            "role": "receiver",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "ardv1-serial",
+              "frequency_hz": 145500000,
+              "mode": "FM",
+              "period_s": 0.01
+            },
+            "state": "disconnected"
+          }
+        ]
+      },
+      "sweeps": [
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+000",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:01.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 0
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+001",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:05.123456Z",
+            "started_at": "2026-11-11T12:00:04.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 1
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+002",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:09.123456Z",
+            "started_at": "2026-11-11T12:00:08.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 2
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+003",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:13.123456Z",
+            "started_at": "2026-11-11T12:00:12.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 3
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+004",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:17.123456Z",
+            "started_at": "2026-11-11T12:00:16.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 4
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+005",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:21.123456Z",
+            "started_at": "2026-11-11T12:00:20.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 5
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+006",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:25.123456Z",
+            "started_at": "2026-11-11T12:00:24.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 6
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+007",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:29.123456Z",
+            "started_at": "2026-11-11T12:00:28.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 7
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+008",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:33.123456Z",
+            "started_at": "2026-11-11T12:00:32.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 8
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+009",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:37.123456Z",
+            "started_at": "2026-11-11T12:00:36.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 9
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+010",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:41.123456Z",
+            "started_at": "2026-11-11T12:00:40.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 10
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+011",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:45.123456Z",
+            "started_at": "2026-11-11T12:00:44.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 11
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+012",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:49.123456Z",
+            "started_at": "2026-11-11T12:00:48.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 12
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+013",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:53.123456Z",
+            "started_at": "2026-11-11T12:00:52.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 13
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+014",
+          "interval": {
+            "ended_at": "2026-11-11T12:00:57.123456Z",
+            "started_at": "2026-11-11T12:00:56.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 14
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+015",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:01.123456Z",
+            "started_at": "2026-11-11T12:01:00.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 15
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+016",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:05.123456Z",
+            "started_at": "2026-11-11T12:01:04.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 16
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+017",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:09.123456Z",
+            "started_at": "2026-11-11T12:01:08.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 17
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+018",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:13.123456Z",
+            "started_at": "2026-11-11T12:01:12.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 18
+          },
+          "stream_id": "spectrum/one"
+        },
+        {
+          "frequencies_hz": [
+            100000000,
+            100010000,
+            100020000,
+            100030000,
+            100040000,
+            100050000,
+            100060000,
+            100070000,
+            100080000
+          ],
+          "id": "sweep-α/%+019",
+          "interval": {
+            "ended_at": "2026-11-11T12:01:17.123456Z",
+            "started_at": "2026-11-11T12:01:16.123456Z"
+          },
+          "level_unit": "dBm",
+          "levels": [
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0,
+            -100.0
+          ],
+          "session_id": "guard-сессия/%+?",
+          "settings": {
+            "adapter": "synthetic",
+            "generator_output": "unknown",
+            "generator_output_source": "no_physical_readback",
+            "instrument": {
+              "device_mode": "input",
+              "device_mode_readback": false,
+              "hardware_validation": "not_run",
+              "profile": "tinysa-ultra-zs405-control-v1",
+              "settings": {
+                "attenuation_db": "auto",
+                "calculation": "off",
+                "lna": true,
+                "points": 9,
+                "rbw_hz": 10000,
+                "start_hz": 100000000,
+                "stop_hz": 100080000,
+                "ultra": false
+              },
+              "settings_complete": false,
+              "settings_readback": false,
+              "settings_source": "command_acknowledged"
+            },
+            "operator_metadata": {
+              "é": "distinct",
+              "huge": 1208925819614629174706176,
+              "negative_zero": -0.0,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": "raw"
+            },
+            "rbw_hz": 10000,
+            "receive_profile": "tinysa-ultra-zs405-control-v1",
+            "sequence": 19
+          },
+          "stream_id": "spectrum/one"
+        }
+      ],
+      "undeclared": {
+        "checks": [
+          {
+            "name": "adapters",
+            "ok": true
+          },
+          {
+            "name": "analyzer_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_port",
+            "ok": true
+          },
+          {
+            "name": "analyzer_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_worker_settings",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_port",
+            "ok": true
+          },
+          {
+            "name": "receiver_serial_baud",
+            "ok": true
+          },
+          {
+            "name": "receiver_profile",
+            "ok": true
+          },
+          {
+            "name": "operator_receive_path",
+            "ok": false
+          },
+          {
+            "name": "receive_profile",
+            "ok": true
+          },
+          {
+            "name": "archive",
+            "ok": true
+          },
+          {
+            "name": "storage_budget",
+            "ok": true
+          }
+        ],
+        "hardware_validation": "not_run",
+        "ready": false
+      }
+    }
+  ],
+  "fixture_version": 1,
+  "hardware_validation": "not_run",
+  "synthetic": true
+}
