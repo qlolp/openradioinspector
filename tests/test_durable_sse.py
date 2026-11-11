@@ -118,6 +118,7 @@ class DurableSseTests(unittest.TestCase):
                 handler.sessions=self.sessions
                 handler.event_streams=EventStreams()
                 handler.connection=Mock()
+                handler.wfile=Mock()
                 handler.send_response=Mock(side_effect=error)
                 with patch.object(self.sessions,'watch_commits',side_effect=watch):
                     handler._stream_session_events()
