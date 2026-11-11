@@ -101,7 +101,10 @@ class SQLiteSessionStore:
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
                 self._connection.execute("PRAGMA journal_mode = WAL")
-                self._connection.execute("PRAGMA synchronous = NORMAL")
+                # A successful ingest acknowledges durable data, including its
+                # event. WAL/NORMAL may lose acknowledged transactions on power
+                # loss; FULL syncs the WAL before commit returns.
+                self._connection.execute("PRAGMA synchronous = FULL")
                 # DDL and version advance are one rollback-safe migration.
                 self._connection.execute("BEGIN IMMEDIATE")
                 version = self._connection.execute("PRAGMA user_version").fetchone()[0]
