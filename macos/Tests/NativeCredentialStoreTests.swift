@@ -15,7 +15,7 @@ final class NativeCredentialStoreTests: XCTestCase {
         var snapshot: [(String, [String: Any])] { lock.withLock { records } }
     }
 
-    func testKeychainQueriesAreNodeScopedNonSynchronizingAndNeverPromptOrUsePreferences() async throws {
+    func testKeychainQueriesAreNodeScopedNonSynchronizingAndDisableAuthenticationInteraction() async throws {
         let recorder = Recorder()
         let operations = NativeKeychainOperations(
             read: { query in recorder.record("read", query); return (errSecSuccess, Data("synthetic-native-secret".utf8)) },

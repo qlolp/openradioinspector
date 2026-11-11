@@ -137,9 +137,20 @@ WebKit cookie test in 0.190 seconds. The separate full release job passed all
 285 SDK XCTest tests, then timed out at the existing 600-second native-command
 deadline. Its native build took 59 seconds; buffered output stops during the
 native suite. This is an unresolved failing gate, not a complete native pass.
-The follow-up guards stale revocation completions, awaits the correct WebKit
-cookie-deletion API and adds owned XCTest stack sampling for diagnosis. It
-does not extend timeouts or change test HOME isolation.
+At `67cdb74`, the held-revocation regression, awaited WebKit cookie deletion and
+all 15 targeted native security tests passed, followed by the Swift 6 app build
+with no Swift compiler warnings. Its full run again reached the unchanged
+600-second deadline. The owned three-second sample identifies
+`NativeKeychainCredentialStore.save` → `SecItemAdd_osx` → `defaultKeychainUI` →
+`makeLoginAuthUI`: Security is waiting to create a default login Keychain under
+the runner's empty test HOME. This is distinct from the normal login context in
+which the targeted tests passed. Only the `swift-native` subprocess now restores
+the original login HOME (or preserves its original absence), after its owned
+fixture URLs are populated. Python/Node/Tk, fixture servers, SDK and Xcode retain
+the empty private HOME; native temporary paths remain private. A runner
+regression covers both HOME-present/absent cases, fixture URLs, cleanup and
+unchanged parent environment. The real Keychain test and the 600-second
+deadline remain in force; the corrected full run is pending CI.
 
 Keychain tests inject Security calls and also
 exercise one random, owned synthetic account in the login Keychain, removing
