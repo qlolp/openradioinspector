@@ -1,6 +1,6 @@
 import Foundation
 
-private struct CounterKey: CodingKey {
+private struct CounterKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -20,7 +20,7 @@ private func counterExactKeys(_ decoder: Decoder, _ expected: Set<String>) throw
 /// otherwise the peak bin itself is the measurement. ``uncertaintyHz`` is the
 /// honest bound ``max(resolution, raster) / 2``: the estimate never claims
 /// better than both the requested resolution and the recorded raster.
-public struct PlatformFrequencyCounterResult: Decodable, Equatable {
+public struct PlatformFrequencyCounterResult: Decodable, Equatable, Sendable {
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
     public let sessionId: String
     public let streamId: String
@@ -36,7 +36,7 @@ public struct PlatformFrequencyCounterResult: Decodable, Equatable {
     public let measuredFrequencyHz: Double
     public let uncertaintyHz: Double
     public let values: [String: Double]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, sweep, window, resolutionHz, rasterHz, method
         case peakIndex, peakFrequencyHz, peakLevelDbm, measuredFrequencyHz, uncertaintyHz
         case measurementMethodology, values
@@ -81,10 +81,10 @@ public struct PlatformFrequencyCounterResult: Decodable, Equatable {
               Set(values.keys) == ["measured_frequency_hz", "resolution_hz", "uncertainty_hz"],
               values.values.allSatisfy(\.isFinite) else { throw invalid() }
     }
-    private struct SweepIdentity: Decodable {
+    private struct SweepIdentity: Decodable, Sendable {
         let id: String
     }
-    private struct WindowBounds: Decodable {
+    private struct WindowBounds: Decodable, Sendable {
         let startHz: Int64
         let stopHz: Int64
     }
@@ -95,7 +95,7 @@ public struct PlatformFrequencyCounterResult: Decodable, Equatable {
 }
 
 /// Client-side request body; the core owns the final validation.
-public struct PlatformFrequencyCounterRequest: Encodable {
+public struct PlatformFrequencyCounterRequest: Encodable, Sendable {
     public let sweepId: String
     public let resolutionHz: Int64
     public let startHz: Int64

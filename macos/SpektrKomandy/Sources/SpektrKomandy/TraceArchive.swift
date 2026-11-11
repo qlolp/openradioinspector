@@ -56,7 +56,7 @@ public struct ArSweep: Codable, Equatable, Sendable {
         self.levels = levels
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, Sendable {
         case time
         case frequenciesMHz = "frequencies_mhz"
         case levels
@@ -93,7 +93,7 @@ public struct ArTraceDocument: Codable, Equatable, Sendable {
         self.sweeps = sweeps
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, Sendable {
         case format
         case instrument
         case f1MHz = "f1_mhz"
@@ -119,7 +119,7 @@ public struct UltraSweep: Codable, Equatable, Sendable {
         self.unparsed = unparsed
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, Sendable {
         case time
         case frequenciesHz = "frequencies_hz"
         case levelsDbm = "levels_dbm"
@@ -163,7 +163,7 @@ public struct UltraTraceDocument: Codable, Equatable, Sendable {
         self.sweeps = sweeps
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, Sendable {
         case format
         case instrument
         case scan

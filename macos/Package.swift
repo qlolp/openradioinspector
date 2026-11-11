@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.4
 import PackageDescription
 
 // macOS-only regression tests for the app's session and transport code.
@@ -8,8 +8,9 @@ let package = Package(
     dependencies: [.package(path: "SpektrKomandy")],
     targets: [
         .target(name: "DvoynoyObzorSession", dependencies: ["SpektrKomandy"],
-                path: "DvoynoyObzor", exclude: ["DvoynoyObzorApp.swift"]),
+                path: "DvoynoyObzor", exclude: ["DvoynoyObzorApp.swift"],
+                swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(name: "DvoynoyObzorSessionTests", dependencies: ["DvoynoyObzorSession"],
-                    path: "Tests")
+                    path: "Tests", swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )

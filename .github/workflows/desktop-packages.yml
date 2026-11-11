@@ -67,7 +67,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && 'xcode-27' || matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -88,6 +88,10 @@ jobs:
           npm ci --prefix clients/web
           npm --prefix clients/web run build
           python tools/build_modern_web.py
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash macos/ci/select-xcode.sh
       - name: Build Windows unsigned installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -120,7 +124,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
   native-review-regressions:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -131,8 +135,25 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install '.[serial,test]'
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        shell: bash
+        run: bash macos/ci/select-xcode.sh
+      - name: Check bundled helper and remote launch lifetimes
+        run: |
+          python macos/ci/test_launcher.py -v
+          python macos/ci/test_native_ci.py -v
       - name: Native URL and concurrent completion regressions
         shell: bash
         run: |
           set -euo pipefail
-          swift test --package-path macos/SpektrKomandy --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget)'
+          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget|SecurityClientTests)'
+      - name: Native Keychain pairing and isolated WebKit cookie regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path macos -j 2 --filter '(NativeNodeConnectionTests|NativeCredentialStoreTests)' --skip DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
+      - name: Compile native app in Swift 6 mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Debug -jobs 2 -destination platform=macOS -derivedDataPath "$RUNNER_TEMP/native-swift6" CODE_SIGNING_ALLOWED=NO build

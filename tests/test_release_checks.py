@@ -805,6 +805,7 @@ class OrchestrationTests(unittest.TestCase):
         fixtures = []
         environments = []
         commands = []
+        native_home = os.environ.get("HOME")
 
         def fixture_factory(module, directory, environment):
             fixture = Mock()
@@ -820,8 +821,11 @@ class OrchestrationTests(unittest.TestCase):
             self.assertTrue(Path(kwargs["environment"]["TMPDIR"]).is_dir())
             self.assertEqual(kwargs["environment"]["TMPDIR"], kwargs["environment"]["TEMP"])
             self.assertEqual(kwargs["environment"]["TMPDIR"], kwargs["environment"]["TMP"])
-            self.assertTrue(Path(kwargs["environment"]["HOME"]).is_dir())
-            self.assertEqual(list(Path(kwargs["environment"]["HOME"]).iterdir()), [])
+            if kwargs["name"] == "swift-native":
+                self.assertEqual(kwargs["environment"].get("HOME"), native_home)
+            else:
+                self.assertTrue(Path(kwargs["environment"]["HOME"]).is_dir())
+                self.assertEqual(list(Path(kwargs["environment"]["HOME"]).iterdir()), [])
             if "--_python-suite" in command:
                 if failure is not None:
                     raise failure
@@ -910,6 +914,35 @@ class OrchestrationTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", xcode)
         self.assertIn("-derivedDataPath", xcode)
         self.assertNotIn("test", xcode)
+
+    def test_native_login_home_does_not_weaken_tk_or_fixture_isolation(self):
+        with tempfile.TemporaryDirectory(prefix="ori-login-home-unit-") as login_home:
+            Path(login_home, ".Tk.py").write_text("raise AssertionError('user startup profile')", encoding="utf-8")
+            for original_home in (login_home, None):
+                with self.subTest(home_present=original_home is not None), patch.dict(os.environ):
+                    if original_home is None:
+                        os.environ.pop("HOME", None)
+                    else:
+                        os.environ["HOME"] = original_home
+                    fixtures, environments, commands, factory, command = self.make_runner()
+                    with patch.object(release.sys, "platform", "darwin"), patch.object(release.shutil, "which", return_value="tool"), patch.object(release, "Fixture", side_effect=factory), patch.object(release, "run_command", side_effect=command), redirect_stdout(io.StringIO()):
+                        release.release_checks(swift=True)
+                    native = next(env for args, env in commands if args[:4] == ["swift", "test", "--package-path", "macos"])
+                    self.assertEqual(native.get("HOME"), original_home)
+                    if original_home is None:
+                        self.assertNotIn("HOME", native)
+                    isolated = [env for args, env in commands if args[:4] != ["swift", "test", "--package-path", "macos"]]
+                    for env in [*environments, *isolated]:
+                        self.assertNotEqual(env["HOME"], original_home)
+                    self.assertEqual(native["TMPDIR"], isolated[-1]["TMPDIR"])
+                    self.assertEqual(native["TEMP"], native["TMPDIR"])
+                    self.assertEqual(native["TMP"], native["TMPDIR"])
+                    for key, _module in release.FIXTURES:
+                        self.assertEqual(native[key], isolated[-1][key])
+                    self.assertEqual(os.environ.get("HOME"), original_home)
+                    self.assertFalse(Path(native["TMPDIR"]).exists())
+                    for fixture in fixtures:
+                        fixture.close.assert_called_once()
 
 
 if __name__ == "__main__":

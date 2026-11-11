@@ -1,13 +1,13 @@
 import Foundation
 
-public struct PlatformContextCounts: Decodable, Equatable {
+public struct PlatformContextCounts: Decodable, Equatable, Sendable {
     public let before: Int
     public let after: Int
     public static func valid(_ value: Int) -> Bool { (0...16).contains(value) }
 }
 
 /// Every item preserves its full original spectrum and recorded provenance.
-public struct PlatformContextItem: Decodable, Equatable {
+public struct PlatformContextItem: Decodable, Equatable, Sendable {
     public let offset: Int
     public let id: String
     public let interval: PlatformInterval
@@ -17,7 +17,7 @@ public struct PlatformContextItem: Decodable, Equatable {
 }
 
 /// Read-only nearest archived neighbours, never a rolling capture or candidate association.
-public struct PlatformSweepContext: Decodable, Equatable {
+public struct PlatformSweepContext: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let anchorId: String
@@ -31,7 +31,7 @@ public struct PlatformSweepContext: Decodable, Equatable {
     public let points: Int
     public let items: [PlatformContextItem]
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, anchorId, order, requested, available, missing, complete, frequenciesHz, levelUnit, points, items
     }
     public init(from decoder: Decoder) throws {
@@ -99,7 +99,7 @@ private func contextSweepID(_ id: String) -> Bool { contextScopeID(id) && id.uni
 
 extension PlatformClient {
     public func sweepContext(sessionID: String, sweepID: String, before: Int, after: Int) async throws -> PlatformSweepContext {
-        struct Body: Encodable { let sweepId: String; let before: Int; let after: Int }
+        struct Body: Encodable, Sendable { let sweepId: String; let before: Int; let after: Int }
         guard contextScopeID(sessionID), contextSweepID(sweepID), PlatformContextCounts.valid(before), PlatformContextCounts.valid(after) else {
             throw PlatformError.invalidCommand("Нужны ID архивного свипа до 128 символов и целые N1/N2 от 0 до 16")
         }
@@ -120,7 +120,7 @@ extension PlatformClient {
 }
 
 /// Sample-count occupancy reported by the core; acquisition coverage is not RF airtime.
-public struct PlatformOccupancySummary: Decodable, Equatable {
+public struct PlatformOccupancySummary: Decodable, Equatable, Sendable {
     public let method: String
     public let comparison: String
     public let thresholdDbm: Double
@@ -132,7 +132,7 @@ public struct PlatformOccupancySummary: Decodable, Equatable {
     public let acquisitionGapSeconds: Double
     public let acquisitionGapCount: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case method, comparison, thresholdDbm, sampleCount, exceedanceCounts, sampleFractions
         case acquisitionSpanSeconds, acquisitionCoveredSeconds, acquisitionGapSeconds, acquisitionGapCount, rfTimeOccupancy
     }
@@ -161,11 +161,11 @@ public struct PlatformOccupancySummary: Decodable, Equatable {
     }
 }
 
-public struct PlatformSweepOccupancy: Decodable, Equatable {
+public struct PlatformSweepOccupancy: Decodable, Equatable, Sendable {
     public let context: PlatformSweepContext
     public let occupancy: PlatformOccupancySummary
     private var exportPayload: Data?
-    private enum CodingKeys: String, CodingKey { case occupancy }
+    private enum CodingKeys: String, CodingKey, Sendable { case occupancy }
 
     public init(from decoder: Decoder) throws {
         context = try PlatformSweepContext(from: decoder)
@@ -179,7 +179,7 @@ public struct PlatformSweepOccupancy: Decodable, Equatable {
 
     public static func validatedResponse(_ bytes: Data) throws -> Self {
         var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
-        struct Response: Decodable { let contract: String; let contractVersion: Int; let data: PlatformSweepOccupancy }
+        struct Response: Decodable, Sendable { let contract: String; let contractVersion: Int; let data: PlatformSweepOccupancy }
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
         let response = try decoder.decode(Response.self, from: bytes)
         guard response.contract == "openradioinspector-platform", response.contractVersion == 1 else {
@@ -199,7 +199,7 @@ public struct PlatformSweepOccupancy: Decodable, Equatable {
 
 extension PlatformClient {
     public func sweepOccupancy(sessionID: String, sweepID: String, before: Int, after: Int, thresholdDbm: Double) async throws -> PlatformSweepOccupancy {
-        struct Body: Encodable { let sweepId: String; let before: Int; let after: Int; let thresholdDbm: Double }
+        struct Body: Encodable, Sendable { let sweepId: String; let before: Int; let after: Int; let thresholdDbm: Double }
         guard contextScopeID(sessionID), contextSweepID(sweepID), PlatformContextCounts.valid(before),
               PlatformContextCounts.valid(after), thresholdDbm.isFinite else {
             throw PlatformError.invalidCommand("Нужны ID, N1/N2 от 0 до 16 и конечный порог dBm")

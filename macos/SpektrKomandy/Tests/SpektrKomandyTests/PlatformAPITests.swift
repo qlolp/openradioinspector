@@ -330,6 +330,39 @@ final class PlatformAPITests: XCTestCase {
         )
     }
 
+    func testSessionPathsRetainDistinctUTF8SpellingsWithoutChangingReturnedIDs() async throws {
+        var paths: [String] = []; let lock = NSLock()
+        let client = try client { request in
+            let path = request.url!.absoluteString
+            lock.withLock { paths.append(path) }
+            let id = path.hasSuffix("%C3%A9") ? "é" : "e\u{301}"
+            return (self.response(request.url!), self.envelope("{\"id\":\"" + id + "\",\"name\":\"synthetic\",\"state\":\"running\",\"streams\":[]}"))
+        }
+        let composed = try await client.getSession("é"), decomposed = try await client.getSession("e\u{301}")
+        XCTAssertEqual(Array(composed.id.utf8), [195, 169]); XCTAssertEqual(Array(decomposed.id.utf8), [101, 204, 129])
+        XCTAssertEqual(lock.withLock { paths }, ["https://example.test/root/api/v1/sessions/%C3%A9", "https://example.test/root/api/v1/sessions/e%CC%81"])
+    }
+
+    func testStreamingMetadataSnapshotDoesNotRefetchMeasurements() async throws {
+        let lock = NSLock(); var measurementReads = 0
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/sweeps") || path.hasSuffix("/observations") {
+                lock.withLock { measurementReads += 1 }
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/candidates") || path.hasSuffix("/investigations") { return (self.response(request.url!), self.envelope("[]")) }
+            if path.hasSuffix("/investigations/next") { return (self.response(request.url!), self.envelope("null")) }
+            if path.hasSuffix("/sessions/session/old") { return (self.response(request.url!), self.envelope(self.sessionJSON)) }
+            if request.url!.absoluteString.hasSuffix("/sessions/session%2Fold") { return (self.response(request.url!), self.envelope(self.sessionJSON)) }
+            return (self.response(request.url!, status: 404), self.envelope("{}"))
+        }
+        let snapshot = try await client.snapshot(sessionID: "session/old", includeArchiveCapacity: false, includeMeasurements: false)
+        XCTAssertEqual(snapshot.session.id, "session/old")
+        XCTAssertTrue(snapshot.sweeps.isEmpty); XCTAssertTrue(snapshot.observations.isEmpty)
+        XCTAssertEqual(lock.withLock { measurementReads }, 0)
+    }
+
     func testSnapshotKeepsSweepAndObservationSeparate() async throws {
         let client = try client { request in
             let path = request.url!.path

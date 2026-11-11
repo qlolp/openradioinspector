@@ -1,7 +1,7 @@
 import Foundation
 
 /// Scope of the shared instrument UI. USB and measurement logic stay in core.
-public struct PlatformTinySAControlContext: Equatable {
+public struct PlatformTinySAControlContext: Equatable, Sendable {
     public let server: PlatformBaseURL
     public let sessionID: String
     public let streamID: String

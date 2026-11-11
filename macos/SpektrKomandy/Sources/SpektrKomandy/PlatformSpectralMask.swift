@@ -1,7 +1,7 @@
 import Foundation
 import CoreFoundation
 
-private struct MaskKey: CodingKey {
+private struct MaskKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -16,13 +16,13 @@ private func maskExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws {
 }
 
 /// Portable artifact only; no source measurement, equipment identity, or calibration assertion.
-public struct PlatformSpectralMask: Codable, Equatable {
+public struct PlatformSpectralMask: Codable, Equatable, Sendable {
     public static let maximumBytes = 65_536
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
-    public struct Vertex: Codable, Equatable {
+    public struct Vertex: Codable, Equatable, Sendable {
         public let frequencyHz: Int64
         public let limitDbm: Double
-        private enum CodingKeys: String, CodingKey { case frequencyHz, limitDbm }
+        private enum CodingKeys: String, CodingKey, Sendable { case frequencyHz, limitDbm }
         public init(from decoder: Decoder) throws {
             try maskExactKeys(decoder, ["frequencyHz", "limitDbm"])
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -40,7 +40,7 @@ public struct PlatformSpectralMask: Codable, Equatable {
     public let levelUnit: String
     public let interpolation: String
     public let vertices: [Vertex]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case format, formatVersion, name, frequencyUnit, levelUnit, interpolation, vertices
     }
     public init(from decoder: Decoder) throws {
@@ -86,7 +86,7 @@ public struct PlatformSpectralMask: Codable, Equatable {
 }
 
 /// A frozen, read-only core calculation. All plotted arrays come from the core.
-public struct PlatformSweepMaskAnalysis: Decodable, Equatable {
+public struct PlatformSweepMaskAnalysis: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let sweep: PlatformComparisonSweep
@@ -101,7 +101,7 @@ public struct PlatformSweepMaskAnalysis: Decodable, Equatable {
     public let points: Int
     public let exceedancePoints: Int
     public let regionCount: Int
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, sweep, mask, frequenciesHz, thresholdLevels, levelUnit
         case excessLevels, deltaUnit, comparison, regions, points, exceedancePoints, regionCount
     }
@@ -176,7 +176,7 @@ public struct PlatformSweepMaskAnalysis: Decodable, Equatable {
 extension PlatformClient {
     /// POST is explicitly read-only. Cancellation never implies an unknown archive write.
     public func sweepMaskAnalysis(sessionID: String, sweepID: String, maskJSON: String) async throws -> PlatformSweepMaskAnalysis {
-        struct Body: Encodable { let sweepId: String; let maskJson: String }
+        struct Body: Encodable, Sendable { let sweepId: String; let maskJson: String }
         guard [sessionID, sweepID].allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
               maskJSON.utf8.count <= PlatformSpectralMask.maximumBytes else {
             throw PlatformError.invalidCommand("Нужны ID сеанса/свипа и маска не более 65 536 байт UTF-8")
@@ -201,7 +201,7 @@ extension PlatformClient {
                       }) else { throw PlatformError.invalidResponse("Ожидались целые индексы, частоты и счётчики") }
             })
         try Task.checkCancellation()
-        guard result.sessionId == sessionID, result.sweep.id == sweepID,
+        guard PlatformExactID.same(result.sessionId, sessionID), PlatformExactID.same(result.sweep.id, sweepID),
               result.mask == (try PlatformSpectralMask.submitted(maskJSON)) else {
             throw PlatformError.invalidResponse("Сервер вернул другой свип или маску")
         }
@@ -226,7 +226,7 @@ private func validateMaskShape(_ mask: [String: Any]) throws {
 /// Bounded raw scan prevents Foundation from silently collapsing duplicate JSON object keys.
 /// JSONSerialization / JSONDecoder still perform complete grammar and value validation afterward.
 // Also used by strict derived endpoints that must not lose provenance keys during Dictionary decoding.
-struct MaskJSONScanner {
+struct MaskJSONScanner: Sendable {
     let bytes: [UInt8]
     // Only raw-preserving consumers may allow canonically equivalent but byte-distinct keys.
     var exactKeyIdentity = false

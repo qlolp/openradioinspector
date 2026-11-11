@@ -1,6 +1,6 @@
 import Foundation
 
-private struct PhonoKey: CodingKey {
+private struct PhonoKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -15,7 +15,7 @@ private func phonoExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws 
 }
 
 /// One completed phonogram: the split between pre-history and recorded part.
-public struct PlatformPhonogram: Decodable, Equatable {
+public struct PlatformPhonogram: Decodable, Equatable, Sendable {
     public let sampleRateHz: Int
     public let preHistorySamples: Int
     public let recordedSamples: Int
@@ -24,7 +24,7 @@ public struct PlatformPhonogram: Decodable, Equatable {
     public let durationSeconds: Double
     public let startedAt: String
     public let endedAt: String
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sampleRateHz, preHistorySamples, recordedSamples
         case preHistorySeconds, recordedSeconds, durationSeconds
         case startedAt, endedAt
@@ -55,7 +55,7 @@ public struct PlatformPhonogram: Decodable, Equatable {
 }
 
 /// Runtime recorder status; the archive is never written.
-public struct PlatformPhonogramStatus: Decodable, Equatable {
+public struct PlatformPhonogramStatus: Decodable, Equatable, Sendable {
     public static let preHistorySeconds = 5.0
     public let sessionId: String
     public let streamId: String
@@ -66,7 +66,7 @@ public struct PlatformPhonogramStatus: Decodable, Equatable {
     public let recordedSeconds: Double
     public let startedAt: String?
     public let last: PlatformPhonogram?
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, sampleRateHz, recording, preHistorySeconds
         case bufferedSeconds, recordedSeconds, startedAt, last
     }

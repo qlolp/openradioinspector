@@ -2,21 +2,21 @@ import Foundation
 import CoreFoundation
 
 /// Read-only heuristic, never a hardware diagnosis or a sample rejection rule.
-public struct PlatformSweepQuality: Decodable, Equatable {
-    public struct Sweep: Decodable, Equatable {
+public struct PlatformSweepQuality: Decodable, Equatable, Sendable {
+    public struct Sweep: Decodable, Equatable, Sendable {
         public let id: String
         public let interval: PlatformInterval
         public let levelUnit: String
         public let settings: PlatformComparisonSetting
     }
-    public struct Parameters: Decodable, Equatable {
+    public struct Parameters: Decodable, Equatable, Sendable {
         public let edgeMarginDb: Double
         public let highLevelDbm: Double
         public static func valid(edge: Double, high: Double) -> Bool {
             edge.isFinite && high.isFinite && edge > 0 && edge <= 200 && (-200...100).contains(high)
         }
     }
-    public struct Edge: Decodable, Equatable {
+    public struct Edge: Decodable, Equatable, Sendable {
         public let edge: String
         public let index: Int
         public let frequencyHz: Int64
@@ -121,7 +121,7 @@ public struct PlatformSweepQuality: Decodable, Equatable {
 
 extension PlatformClient {
     public func sweepQuality(sessionID: String, sweepID: String, edgeMarginDb: Double = 20, highLevelDbm: Double = 0) async throws -> PlatformSweepQuality {
-        struct Body: Encodable { let sweepId: String; let edgeMarginDb: Double; let highLevelDbm: Double }
+        struct Body: Encodable, Sendable { let sweepId: String; let edgeMarginDb: Double; let highLevelDbm: Double }
         guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sweepID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, sweepID.unicodeScalars.count <= 128,
               PlatformSweepQuality.Parameters.valid(edge: edgeMarginDb, high: highLevelDbm) else {

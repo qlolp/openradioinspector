@@ -1,32 +1,8 @@
 import SwiftUI
 import SpektrKomandy
 
-struct PlotPoint: Equatable {
-    var x: Double
-    var y: Double
-}
-
-/// Rendering-only normalization; scientific levels and deltas are never changed.
-struct TraceChartVerticalScale {
-    private let magnitude: Double
-    private let lower: Double
-    private let upper: Double
-
-    init(minimum: Double, maximum: Double) {
-        // Subtracting unscaled +/- Double.max would overflow despite finite input.
-        magnitude = max(abs(minimum), abs(maximum), 1)
-        var low = minimum / magnitude
-        var high = maximum / magnitude
-        if high <= low { low -= 1; high += 1 }
-        let padding = (high - low) * 0.08
-        lower = low - padding
-        upper = high + padding
-    }
-
-    func fraction(_ level: Double) -> Double {
-        (level / magnitude - lower) / (upper - lower)
-    }
-}
+typealias PlotPoint = PlatformPlotPoint
+typealias TraceChartVerticalScale = PlatformTraceVerticalScale
 
 struct TraceChart: View {
     var current: [PlotPoint]
@@ -40,8 +16,12 @@ struct TraceChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Canvas { context, size in
-                draw(context: context, size: size)
+            Group {
+                if NativeMetalResources.shared != nil {
+                    NativeTracePlot(current: current, minimum: minimum, maximum: maximum, threshold: threshold, displayScale: displayScale)
+                } else {
+                    Canvas { context, size in draw(context: context, size: size) }
+                }
             }
             .frame(height: 220)
             .background(Color.primary.opacity(0.04))

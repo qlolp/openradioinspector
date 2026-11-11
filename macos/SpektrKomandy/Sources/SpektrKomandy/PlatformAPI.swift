@@ -1,9 +1,10 @@
 import Foundation
+import struct ORIContracts.JSONObject
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
-public enum PlatformError: Error, Equatable {
+public enum PlatformError: Error, Equatable, Sendable {
     case invalidURL(String)
     case connection(String)
     case http(status: Int, code: String, message: String)
@@ -28,8 +29,9 @@ extension PlatformError: LocalizedError {
     }
 }
 
-public struct PlatformBaseURL: Equatable {
+public struct PlatformBaseURL: Equatable, Sendable {
     public let root: URL
+    public var isLoopback: Bool { root.host.map(platformLoopbackHost) ?? false }
     private let apiRootPath: String
 
     public init(_ text: String) throws {
@@ -43,6 +45,7 @@ public struct PlatformBaseURL: Equatable {
         guard components.user == nil, components.password == nil else {
             throw PlatformError.invalidURL("Учётные данные в адресе сервера не поддерживаются")
         }
+        components.scheme = scheme
         if scheme == "http", !platformLoopbackHost(components.host!) {
             throw PlatformError.invalidURL("Для не-loopback сервера требуется https://")
         }
@@ -115,7 +118,35 @@ class PlatformRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendab
     }
 }
 
-final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+protocol PlatformCompletingResponse: AnyObject, Sendable {
+    var completion: ((Result<(Data, URLResponse), Error>) -> Void)? { get set }
+    func cancel()
+}
+
+/// Both bounded HTTP readers share this continuation/transport lifetime. The
+/// start callback is synchronous; cancellation can race registration or resume.
+func platformAwaitResponse(_ delegate: any PlatformCompletingResponse,
+    invalidate: @Sendable () -> Void, start: @Sendable () -> Void) async throws -> (Data, URLResponse) {
+    let value: (Data, URLResponse) = try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.completion = { continuation.resume(with: $0) }
+            if Task.isCancelled { delegate.cancel() }
+            else { start() }
+        }
+    } onCancel: {
+        // URLSession need not emit a completion after an invalidation/resume
+        // race. Finish the once-safe continuation independently of transport.
+        delegate.cancel()
+        invalidate()
+    }
+    // A response can win the once-only callback just before cancellation.
+    // Do not publish that queued body from an operation cancelled before return.
+    try Task.checkCancellation()
+    return value
+}
+
+final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, PlatformCompletingResponse, @unchecked Sendable {
     private let maximumBytes: Int
     private var response: URLResponse?
     private var body = Data()
@@ -203,7 +234,7 @@ final class PlatformResponseDelegate: NSObject, URLSessionDataDelegate, @uncheck
 }
 
 /// Collects at most `limit` bytes of an endless delivery stream, then cancels.
-final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class PlatformPrefixDelegate: NSObject, URLSessionDataDelegate, PlatformCompletingResponse, @unchecked Sendable {
     private let limit: Int
     private var response: URLResponse?
     private var body = Data()
@@ -350,7 +381,7 @@ final class PlatformDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unc
     }
 }
 
-public struct PlatformInterval: Codable, Equatable {
+public struct PlatformInterval: Codable, Equatable, Sendable {
     public let startedAt: String
     public let endedAt: String
     public init(startedAt: String, endedAt: String) {
@@ -358,7 +389,7 @@ public struct PlatformInterval: Codable, Equatable {
     }
 }
 
-public struct PlatformStream: Decodable, Identifiable, Equatable {
+public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let device: String
     public let role: String
@@ -375,21 +406,21 @@ public struct PlatformStream: Decodable, Identifiable, Equatable {
     }
 }
 
-public struct PlatformSession: Decodable, Identifiable, Equatable {
+public struct PlatformSession: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let state: String
     public let streams: [PlatformStream]
 }
 
-public struct PlatformWorker: Decodable, Equatable {
+public struct PlatformWorker: Decodable, Equatable, Sendable {
     public let streamId: String
     public let state: String
     public let alive: Bool
     public let lastError: String?
 }
 
-public struct PlatformSweep: Decodable, Identifiable, Equatable {
+public struct PlatformSweep: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -399,7 +430,7 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
     public let levelUnit: String
     public let settings: [String: PlatformComparisonSetting]?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, streamId, interval, frequenciesHz, levels, levelUnit, settings
     }
 
@@ -423,9 +454,21 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable {
             )
         }
     }
+
+    init(measurementMetadata metadata: JSONObject, frequencies: [Int64], levels: [Double], settings: [String: PlatformComparisonSetting]?) throws {
+        id = try measurementString(metadata, "id"); sessionId = try measurementString(metadata, "session_id")
+        streamId = try measurementString(metadata, "stream_id"); interval = try measurementInterval(metadata)
+        levelUnit = try measurementString(metadata, "level_unit"); self.settings = settings
+        guard levelUnit == "dBm", !frequencies.isEmpty, frequencies.count == levels.count,
+              frequencies.allSatisfy({ $0 >= 0 }), levels.allSatisfy(\.isFinite),
+              zip(frequencies, frequencies.dropFirst()).allSatisfy({ $0 <= $1 }) else {
+            throw PlatformMeasurementDisplayIssue.unsupportedMeasurement
+        }
+        frequenciesHz = frequencies; self.levels = levels
+    }
 }
 
-public struct PlatformObservation: Decodable, Identifiable, Equatable {
+public struct PlatformObservation: Decodable, Identifiable, Equatable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -436,26 +479,38 @@ public struct PlatformObservation: Decodable, Identifiable, Equatable {
     public let level: Double?
     public let squelchOpen: Bool?
     public let decodedMode: String?
+
+    init(measurementMetadata metadata: JSONObject) throws {
+        id = try measurementString(metadata, "id"); sessionId = try measurementString(metadata, "session_id")
+        streamId = try measurementString(metadata, "stream_id"); interval = try measurementInterval(metadata)
+        guard let hz = metadata["frequency_hz"], case let .integer(text) = hz, let value = Int64(text), value >= 0 else {
+            throw PlatformMeasurementDisplayIssue.unsupportedFrequency
+        }
+        frequencyHz = value; mode = try measurementString(metadata, "mode"); levelUnit = try measurementString(metadata, "level_unit")
+        if let value = metadata["level"], value != .null { level = try measurementLevel(value) } else { level = nil }
+        if let value = metadata["squelch_open"], value != .null { squelchOpen = try value.requireBool() } else { squelchOpen = nil }
+        if let value = metadata["decoded_mode"], value != .null { decodedMode = try value.requireString() } else { decodedMode = nil }
+    }
 }
 
-public struct PlatformTuned: Decodable, Equatable {
+public struct PlatformTuned: Decodable, Equatable, Sendable {
     public let frequencyHz: Int64
     public let mode: String
 }
 
-public struct PlatformTuneResult: Decodable, Equatable {
+public struct PlatformTuneResult: Decodable, Equatable, Sendable {
     public let tuned: PlatformTuned
     public let worker: PlatformWorker
 }
 
-public struct PlatformPeak: Decodable, Equatable {
+public struct PlatformPeak: Decodable, Equatable, Sendable {
     public let sweepId: String
     public let frequencyHz: Int64
     public let level: Double
     public let levelUnit: String
 }
 
-public struct PlatformSweepSummary: Decodable, Equatable {
+public struct PlatformSweepSummary: Decodable, Equatable, Sendable {
     public let count: Int
     public let firstStartedAt: String?
     public let lastStartedAt: String?
@@ -464,7 +519,7 @@ public struct PlatformSweepSummary: Decodable, Equatable {
     public let latestPeak: PlatformPeak?
 }
 
-public struct PlatformObservationSummary: Decodable, Equatable {
+public struct PlatformObservationSummary: Decodable, Equatable, Sendable {
     public let count: Int
     public let firstStartedAt: String?
     public let lastStartedAt: String?
@@ -475,7 +530,7 @@ public struct PlatformObservationSummary: Decodable, Equatable {
     public let squelchOpenRatio: Double?
 }
 
-public struct PlatformAnalyticsSummary: Decodable, Equatable {
+public struct PlatformAnalyticsSummary: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String?
     public let archiveWide: Bool
@@ -484,9 +539,9 @@ public struct PlatformAnalyticsSummary: Decodable, Equatable {
 }
 
 /// Global archive status. Byte counts describe the logical SQLite database, not disk free space.
-public struct PlatformArchiveCapacity: Decodable, Equatable {
-    public enum StorageMode: String, Decodable { case sqlite, memory }
-    public enum State: String, Decodable { case unlimited, ok, warning, full, unavailable }
+public struct PlatformArchiveCapacity: Decodable, Equatable, Sendable {
+    public enum StorageMode: String, Decodable, Sendable { case sqlite, memory }
+    public enum State: String, Decodable, Sendable { case unlimited, ok, warning, full, unavailable }
 
     public let storageMode: StorageMode
     public let databaseBytes: Int64?
@@ -497,7 +552,7 @@ public struct PlatformArchiveCapacity: Decodable, Equatable {
     public let measurementWritesBlocked: Bool
     public let automaticDeletion: Bool
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case storageMode, databaseBytes, maxDatabaseBytes, remainingBytes, state
         case warningThreshold, measurementWritesBlocked, automaticDeletion
     }
@@ -535,14 +590,14 @@ public struct PlatformArchiveCapacity: Decodable, Equatable {
     }
 }
 
-public struct PlatformArchiveExport: Equatable {
+public struct PlatformArchiveExport: Equatable, Sendable {
     public let sessionId: String
     public let fileURL: URL
     public let sweeps: Int
     public let observations: Int
 }
 
-public struct PlatformSnapshot: Equatable {
+public struct PlatformSnapshot: Equatable, Sendable {
     public var session: PlatformSession
     public var workers: [PlatformWorker]
     public var sweeps: [PlatformSweep]
@@ -564,10 +619,10 @@ public struct PlatformSnapshot: Equatable {
     public var workflowErrors: [String] = []
 }
 
-private struct PlatformEnvelope<Value: Decodable>: Decodable {
+struct PlatformEnvelope<Value: Decodable>: Decodable {
     let data: Value
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case contract, contractVersion, data
     }
 
@@ -582,19 +637,19 @@ private struct PlatformEnvelope<Value: Decodable>: Decodable {
     }
 }
 
-private struct PlatformErrorEnvelope: Decodable {
-    struct Detail: Decodable { let code: String; let message: String }
+private struct PlatformErrorEnvelope: Decodable, Sendable {
+    struct Detail: Decodable, Sendable { let code: String; let message: String }
     let error: Detail
 }
 
-private struct EmptyBody: Encodable {}
+private struct EmptyBody: Encodable, Sendable {}
 
-private struct SessionDraft: Encodable {
+private struct SessionDraft: Encodable, Sendable {
     let name: String
     let streams: [StreamDraft]
 }
 
-public enum PlatformSettingValue: Encodable, Equatable {
+public enum PlatformSettingValue: Encodable, Equatable, Sendable {
     case string(String)
     case integer(Int)
     case floating(Double)
@@ -611,7 +666,7 @@ public enum PlatformSettingValue: Encodable, Equatable {
     }
 }
 
-private struct StreamDraft: Encodable {
+private struct StreamDraft: Encodable, Sendable {
     let device: String
     let role: String
     let levelUnit: String
@@ -628,12 +683,12 @@ private func platformArchiveCount(_ response: URLResponse, name: String) throws 
     return value
 }
 
-private struct PlatformArchiveHeader: Decodable {
+private struct PlatformArchiveHeader: Decodable, Sendable {
     let format: String
     let formatVersion: Int
     let sessionID: String
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case format
         case formatVersion = "format_version"
         case sessionID = "session_id"
@@ -704,25 +759,55 @@ private func platformValidateNDJSON(
     }
 }
 
-public final class PlatformClient {
+/// Immutable configuration; URLSession provides synchronized concurrent requests.
+public final class PlatformClient: Sendable {
     public let baseURL: PlatformBaseURL
     private let session: URLSession
+    private let credential: PlatformBearerCredential?
     private let usesInjectedSession: Bool
+    var eventSessionConfiguration: URLSessionConfiguration { Self.cookieFreeConfiguration(session.configuration) }
+    public var hasBearerCredential: Bool { credential != nil }
     private let maximumResponseBytes = 2_000_000
 
-    public init(baseURL: String, session: URLSession? = nil) throws {
+    public init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil) throws {
         self.baseURL = try PlatformBaseURL(baseURL)
+        guard credential == nil || self.baseURL.root.scheme == "https" else {
+            throw PlatformError.invalidURL("Сопряжённый клиент требует HTTPS")
+        }
+        self.credential = credential
         if let session {
             self.session = session
             self.usesInjectedSession = true
         } else {
             self.session = URLSession(
-                configuration: .ephemeral,
+                configuration: Self.cookieFreeConfiguration(.ephemeral),
                 delegate: PlatformRedirectGuard(),
                 delegateQueue: nil
             )
             self.usesInjectedSession = false
         }
+    }
+
+    private static func cookieFreeConfiguration(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.httpAdditionalHeaders = configuration.httpAdditionalHeaders?.filter {
+            let name = String(describing: $0.key).lowercased()
+            return name != "cookie" && name != "authorization"
+        }
+        return configuration
+    }
+
+    /// Every native delivery path uses one explicit credential policy. WebKit's
+    /// exchanged HttpOnly cookie belongs to its separate nonpersistent store.
+    func authorize(_ request: inout URLRequest) throws {
+        guard let url = request.url, platformSameOrigin(baseURL.root, url) else {
+            throw PlatformError.invalidURL("Запрос к другому origin отклонён")
+        }
+        request.httpShouldHandleCookies = false
+        request.setValue(nil, forHTTPHeaderField: "Cookie")
+        request.setValue(nil, forHTTPHeaderField: "Authorization")
+        credential?.authorize(&request)
     }
 
     deinit {
@@ -851,7 +936,7 @@ public final class PlatformClient {
         guard !selectedMode.isEmpty else {
             throw PlatformError.invalidCommand("Режим не должен быть пустым")
         }
-        struct Body: Encodable { let frequencyHz: Int64; let mode: String }
+        struct Body: Encodable, Sendable { let frequencyHz: Int64; let mode: String }
         return try await post(
             Self.streamPath(sessionID: sessionID, streamID: streamID, action: "tune"),
             body: Body(frequencyHz: frequencyHz, mode: selectedMode)
@@ -882,6 +967,7 @@ public final class PlatformClient {
         request.httpMethod = "GET"
         request.timeoutInterval = 30
         request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+        try authorize(&request)
         let temporary = FileManager.default.temporaryDirectory
             .appendingPathComponent("ori-export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -896,7 +982,7 @@ public final class PlatformClient {
             downloadConfiguration = .ephemeral
         }
         let downloadSession = URLSession(
-            configuration: downloadConfiguration, delegate: delegate, delegateQueue: nil
+            configuration: Self.cookieFreeConfiguration(downloadConfiguration), delegate: delegate, delegateQueue: nil
         )
         defer { downloadSession.finishTasksAndInvalidate() }
         let response: URLResponse?
@@ -952,20 +1038,20 @@ public final class PlatformClient {
 
     // UI clients that poll global capacity independently can avoid a duplicate request.
     public func snapshot(
-        sessionID: String, includeArchiveCapacity: Bool = true
+        sessionID: String, includeArchiveCapacity: Bool = true, includeMeasurements: Bool = true
     ) async throws -> PlatformSnapshot {
         let session = try await getSession(sessionID)
         async let workersRequest: [PlatformWorker] = get(
             "/sessions/\(Self.segment(sessionID))/workers"
         )
-        async let sweepsRequest: [PlatformSweep] = measurementsWithResponseFallback(
+        async let sweepsRequest: [PlatformSweep] = includeMeasurements ? measurementsWithResponseFallback(
             kind: "sweeps", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isDbmAnalyzer })?.id
-        )
-        async let observationsRequest: [PlatformObservation] = measurements(
+        ) : []
+        async let observationsRequest: [PlatformObservation] = includeMeasurements ? measurements(
             kind: "observations", sessionID: sessionID,
             streamID: session.streams.first(where: { $0.isReceiver })?.id
-        )
+        ) : []
         var workflowErrors: [String] = []
         let candidates: [PlatformCandidate]
         do {
@@ -1096,8 +1182,8 @@ public final class PlatformClient {
         method: String, path: String, query: [URLQueryItem], body: Body?, expectedStatuses: [Int]?,
         timeoutInterval: TimeInterval = 5, validateResponse: ((Data) throws -> Void)? = nil
     ) async throws -> Value {
-        let responseLimit = method == "GET" && path.hasSuffix("/sweeps")
-            ? 16 * 1024 * 1024 : maximumResponseBytes
+        let responseLimit = path.hasPrefix("/security/") ? 4096 : (method == "GET" && path.hasSuffix("/sweeps")
+            ? 16 * 1024 * 1024 : maximumResponseBytes)
         var request = URLRequest(url: try baseURL.endpoint(path: path, query: query))
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
@@ -1108,6 +1194,7 @@ public final class PlatformClient {
             request.httpBody = try encoder.encode(body)
             request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
         }
+        try authorize(&request)
         let data: Data
         let response: URLResponse
         do {
@@ -1159,31 +1246,19 @@ public final class PlatformClient {
         if Task.isCancelled { throw CancellationError() }
         let delegate = PlatformResponseDelegate(maximumBytes: maximumBytes)
         let session = URLSession(
-            configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+            configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
         )
         defer { session.invalidateAndCancel() }
-        return try await withTaskCancellationHandler {
-            if Task.isCancelled { throw CancellationError() }
-            return try await withCheckedThrowingContinuation { continuation in
-                let task = session.dataTask(with: request)
-                delegate.completion = { result in
-                    continuation.resume(with: result)
-                }
-                if Task.isCancelled {
-                    task.cancel()
-                    delegate.cancel()
-                } else {
-                    task.resume()
-                }
-            }
-        } onCancel: {
-            session.invalidateAndCancel()
-        }
+        let task = session.dataTask(with: request)
+        return try await platformAwaitResponse(delegate,
+            invalidate: { session.invalidateAndCancel() }, start: { task.resume() })
     }
 
     /// Bounded raw GET for endless delivery streams: collects at most `maxBytes`, then drops the connection.
     func receivePrefix(_ request: URLRequest, maxBytes: Int) async throws -> (Data, URLResponse) {
         if Task.isCancelled { throw CancellationError() }
+        var request = request
+        try authorize(&request)
         let data: Data
         let response: URLResponse
         if usesInjectedSession {
@@ -1191,26 +1266,12 @@ public final class PlatformClient {
         } else {
             let delegate = PlatformPrefixDelegate(limit: maxBytes)
             let session = URLSession(
-                configuration: .ephemeral, delegate: delegate, delegateQueue: nil
+                configuration: Self.cookieFreeConfiguration(.ephemeral), delegate: delegate, delegateQueue: nil
             )
             defer { session.invalidateAndCancel() }
-            (data, response) = try await withTaskCancellationHandler {
-                if Task.isCancelled { throw CancellationError() }
-                return try await withCheckedThrowingContinuation { continuation in
-                    let task = session.dataTask(with: request)
-                    delegate.completion = { result in
-                        continuation.resume(with: result)
-                    }
-                    if Task.isCancelled {
-                        task.cancel()
-                        delegate.cancel()
-                    } else {
-                        task.resume()
-                    }
-                }
-            } onCancel: {
-                session.invalidateAndCancel()
-            }
+            let task = session.dataTask(with: request)
+            (data, response) = try await platformAwaitResponse(delegate,
+                invalidate: { session.invalidateAndCancel() }, start: { task.resume() })
         }
         if let original = request.url, let final = (response as? HTTPURLResponse)?.url,
            !platformSameOrigin(original, final) {

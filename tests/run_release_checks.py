@@ -778,6 +778,7 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
         # test scope. It also keeps build caches out of the user's home directory.
         child_home = directory / "home"
         child_home.mkdir()
+        native_login_home = environment.get("HOME")
         environment["HOME"] = str(child_home)
         try:
             if swift and sys.platform != "darwin":
@@ -820,12 +821,22 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
                 for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
                     command = ["swift", "test", "--package-path", package,
                                "--scratch-path", str(directory / (name + "-build"))]
+                    command_environment = environment
                     if name == "swift-native":
                         # This explicit hardware probe belongs to bench acceptance;
                         # synthetic runs must never auto-open an attached device.
                         command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
+                        # Security/WebKit use the macOS login context. An empty
+                        # HOME makes SecItemAdd wait for default-Keychain UI.
+                        # Native tests execute no Tk startup profiles; preserve
+                        # their private temp paths and final owned fixture URLs.
+                        command_environment = environment.copy()
+                        if native_login_home is None:
+                            command_environment.pop("HOME", None)
+                        else:
+                            command_environment["HOME"] = native_login_home
                     output = run_command(command,
-                                         name=name, environment=environment, directory=directory,
+                                         name=name, environment=command_environment, directory=directory,
                                          timeout=command_timeout, shutdown_timeout=shutdown_timeout)
                     validate_swift_output(output, name)
                 run_command(["xcodebuild", "-project", "macos/DvoynoyObzor.xcodeproj", "-scheme", "DvoynoyObzor",

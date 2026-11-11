@@ -132,10 +132,10 @@ struct RemoteWorkflowPane: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button("Создать из фактического dBm пика") { model.createCandidateFromLatestPeak() }
                     .disabled(model.analyzer == nil || model.current.isEmpty || model.busy || model.spectrumPresentation.paused)
-                Picker("Кандидат", selection: $model.selectedCandidateID) {
-                    Text("Не выбран").tag("")
-                    ForEach(model.candidates) { candidate in
-                        Text("\(candidate.id) · \(candidate.state)").tag(candidate.id)
+                Picker("Кандидат", selection: $model.selectedCandidateID.exactID) {
+                    Text("Не выбран").tag(PlatformExactID(""))
+                    ForEach(model.candidates, id: \.exactID) { candidate in
+                        Text("\(candidate.id) · \(candidate.state)").tag(candidate.exactID)
                     }
                 }
                 if let candidate = model.selectedCandidate {
@@ -174,10 +174,10 @@ struct RemoteWorkflowPane: View {
                 } else {
                     Text("Рекомендация отсутствует: очередь пуста").foregroundStyle(.secondary)
                 }
-                Picker("Исследование", selection: $model.selectedInvestigationID) {
-                    Text("Не выбрано").tag("")
-                    ForEach(model.investigations) { investigation in
-                        Text("\(investigation.id) · \(investigation.state)").tag(investigation.id)
+                Picker("Исследование", selection: $model.selectedInvestigationID.exactID) {
+                    Text("Не выбрано").tag(PlatformExactID(""))
+                    ForEach(model.investigations, id: \.exactID) { investigation in
+                        Text("\(investigation.id) · \(investigation.state)").tag(investigation.exactID)
                     }
                 }
                 if let investigation = model.selectedInvestigation {
@@ -428,10 +428,10 @@ struct RemoteCompletionPolicyPane: View {
                     Text("completed=\(runtime.completedInvestigations ?? 0) · skipped=\(runtime.skippedInvestigations ?? 0) · последнее=\(runtime.lastInvestigationId ?? "—")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Picker("Receiver", selection: $model.completionReceiverStreamID) {
-                    Text("Любой receiver сеанса").tag("")
+                Picker("Receiver", selection: $model.completionReceiverStreamID.exactID) {
+                    Text("Любой receiver сеанса").tag(PlatformExactID(""))
                     if let receiver = model.receiver {
-                        Text("\(receiver.device) · \(receiver.id)").tag(receiver.id)
+                        Text("\(receiver.device) · \(receiver.id)").tag(receiver.exactID)
                     }
                 }
                 HStack {
@@ -462,12 +462,12 @@ struct RemoteDetectionPolicyPane: View {
         GroupBox("Automatic detection · независимый opt-in") {
             VStack(alignment: .leading, spacing: 7) {
                 WorkflowPolicyStatus(status: model.automaticDetectionStatus)
-                Picker("Поток dBm", selection: $model.detectionStreamID) {
-                    Text("Любой dBm analyzer сеанса").tag("")
+                Picker("Поток dBm", selection: $model.detectionStreamID.exactID) {
+                    Text("Любой dBm analyzer сеанса").tag(PlatformExactID(""))
                     if let analyzer = model.analyzer {
-                        Text("\(analyzer.device) · \(analyzer.id)").tag(analyzer.id)
+                        Text("\(analyzer.device) · \(analyzer.id)").tag(analyzer.exactID)
                     } else {
-                        Text("Нет dBm analyzer").tag("")
+                        Text("Нет dBm analyzer").tag(PlatformExactID(""))
                     }
                 }
                 HStack {
@@ -502,10 +502,10 @@ struct RemoteHandoffPolicyPane: View {
         GroupBox("Automatic handoff · независимый opt-in") {
             VStack(alignment: .leading, spacing: 7) {
                 WorkflowPolicyStatus(status: model.automaticHandoffStatus)
-                Picker("Receiver", selection: $model.handoffReceiverStreamID) {
-                    Text("Любой receiver сеанса").tag("")
+                Picker("Receiver", selection: $model.handoffReceiverStreamID.exactID) {
+                    Text("Любой receiver сеанса").tag(PlatformExactID(""))
                     if let receiver = model.receiver {
-                        Text("\(receiver.device) · \(receiver.id)").tag(receiver.id)
+                        Text("\(receiver.device) · \(receiver.id)").tag(receiver.exactID)
                     }
                 }
                 HStack {

@@ -389,11 +389,12 @@ class MaskHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, payload=None, *, raw=None, path=None, method="POST"):
-        if raw is None:
+        if raw is None and method == "POST":
             raw = json.dumps(payload if payload is not None else {"sweep_id": "sweep-0", "mask_json": document()}).encode()
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         try:
-            connection.request(method, path or self.root, body=raw, headers={"Content-Type": "application/json"})
+            connection.request(method, path or self.root, body=raw,
+                               headers={"Content-Type": "application/json"} if raw is not None else {})
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:

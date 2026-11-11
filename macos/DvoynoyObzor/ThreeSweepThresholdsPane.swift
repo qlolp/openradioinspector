@@ -200,7 +200,7 @@ struct ThreeSweepThresholdsChart: View {
         excess ? result.lines.map(\.excessLevels)
             : [result.sweep.levels] + result.lines.map { Array(repeating: $0.levelDbm, count: result.points) }
     }
-    static func x(_ frequency: Int64, first: Int64, last: Int64, width: CGFloat) -> CGFloat {
+    nonisolated static func x(_ frequency: Int64, first: Int64, last: Int64, width: CGFloat) -> CGFloat {
         first == last ? width / 2 : 12 + CGFloat(Double(frequency - first) / Double(last - first)) * max(width - 24, 1)
     }
     var body: some View {
