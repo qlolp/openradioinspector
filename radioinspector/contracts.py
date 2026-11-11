@@ -7,12 +7,13 @@ Raspberry Pi, Windows и macOS.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import math
 import uuid
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Mapping, Optional
+from typing import Any, Optional
 
 CONTRACT_NAME = "openradioinspector-platform"
 CONTRACT_VERSION = 1
@@ -52,6 +53,11 @@ def new_id() -> str:
 
 def to_primitive(value: Any) -> Any:
     """Рекурсивно преобразует модели в стандартные JSON-значения."""
+    # Source vectors overwhelmingly contain these exact scalar types. Avoid
+    # dataclass/ABC introspection for every frequency and level; enum and custom
+    # scalar subclasses still follow the original conversion rules below.
+    if value is None or type(value) in (str, bool, int, float):
+        return value
     if isinstance(value, datetime):
         return format_time(value)
     if isinstance(value, Enum):
