@@ -1562,7 +1562,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Last-Event-ID должен быть неотрицательным")
         self.close_connection = True
         try:
-            with self.event_streams.register(self.connection) as stream:
+            with self.event_streams.register(self.connection, writer=self.wfile) as stream:
                 if stream is None:
                     self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
                     return
@@ -1574,6 +1574,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "keep-alive")
                     self.send_header("X-Accel-Buffering", "no")
+                    self.close_connection = True
                     self.end_headers()
                     heartbeat = time.monotonic()+15
                     while not stream.stopped and not self.sessions.event_stream_closed:
@@ -1619,7 +1620,7 @@ class Handler(BaseHTTPRequestHandler):
         """Потоковая выдача состояния по протоколу Server-Sent Events."""
         self.close_connection = True
         try:
-            with self.event_streams.register(self.connection) as stream:
+            with self.event_streams.register(self.connection, writer=self.wfile) as stream:
                 if stream is None:
                     self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
                     return
@@ -1630,6 +1631,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "keep-alive")
+                    self.close_connection = True
                     self.end_headers()
                     last_version = -1
                     while not stream.stopped:
