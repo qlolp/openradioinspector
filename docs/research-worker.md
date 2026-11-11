@@ -12,6 +12,11 @@ Python 3.15.1, NumPy 2.5.4, DuckDB 2.0.0, PyArrow 26.0.1. These tests do not
 establish Raspberry Pi performance, physical instrument acceptance, or Windows
 and macOS runtime acceptance.
 
+Worker 0.2.0 also reads canonical observation precision extension version 1.
+The IPC and Parquet column formats remain version 1. The worker version and
+extension provenance participate in cache identity, so 0.1.x caches are not
+accepted as compatible observation exports.
+
 ## Installation and verification
 
 Run from the repository root, using a separate user-owned environment:
@@ -146,6 +151,23 @@ It refuses WAL/SHM/journal sidecars and opens the snapshot with
 `mode=ro&immutable=1`, `query_only=ON`, no mmap, and a small SQLite cache. It
 checks source identity, size and mtime again before publishing. The core must
 keep the sealed bundle immutable and retained for the entire invocation.
+
+The optional canonical supplement uses `ori_archive_schema(singleton, version)`
+with exactly `(1, 1)` and `ori_observation_level_bits(observation_id,
+level_bits_le)`, where each stored level is the original eight-byte little-endian
+float64. Both tables must be present together. Unknown extension versions fail
+closed with `unsupported_schema`. Present bits must be finite and numerically
+equal to the stored REAL; positive and negative zero compare equal for this
+consistency check, while the original bit sign is retained in Parquet. Missing
+supplement rows use the historical stored REAL value without guessing a lost
+sign or backfilling anything. A legacy archive with neither table also uses its
+stored REAL values. The main SQLite `user_version` remains 6.
+
+This supplement is canonical original data. The worker reads it through the
+same sealed read-only connection and never creates, changes or deletes its
+tables/rows. Derived provenance reports `source.canonical_extensions` as
+`{"observation_level_bits":1}` when supported, or an empty object for legacy
+sources. The source SHA-256 covers both the ordinary archive and supplement.
 
 Cache identity covers the source SHA-256, full provenance, recovery manifest
 SHA-256, filter values, format version, and exact worker/runtime versions. Each

@@ -393,6 +393,65 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(rebuilt['cache_rebuilt'])
         self.assertEqual(pq.read_table(Path(rebuilt['cache_path'])/'sweep_points.parquet').num_rows,4)
 
+    def precision(self,stored,bits,*,version=1):
+        db=sqlite3.connect(self.snapshot)
+        db.executescript('CREATE TABLE IF NOT EXISTS ori_archive_schema(singleton INTEGER PRIMARY KEY,version INTEGER);'
+            'CREATE TABLE IF NOT EXISTS ori_observation_level_bits(observation_id TEXT PRIMARY KEY '
+            'REFERENCES observations(id),level_bits_le BLOB);')
+        db.execute('INSERT OR REPLACE INTO ori_archive_schema VALUES(1,?)',(version,))
+        db.execute('UPDATE observations SET level=?',(stored,))
+        db.execute('INSERT OR REPLACE INTO ori_observation_level_bits VALUES(?,?)',
+                   ('fixture-observation-α',bits))
+        db.commit();db.close();self.reseal()
+
+    def test_canonical_precision_bits_preserve_observation_negative_zero_and_nextafter(self):
+        for value,expected in ((-0.0,'8000000000000000'),(-1.0000000000000002,'bff0000000000001')):
+            with self.subTest(value=value):
+                self.precision(value,struct.pack('<d',value))
+                before=digest(self.snapshot)
+                result=self.success(self.request())['result']
+                rows=pq.read_table(Path(result['cache_path'])/'observations.parquet').to_pylist()
+                self.assertEqual(struct.pack('>d',rows[0]['level']).hex(),expected)
+                self.assertEqual(result['manifest']['source']['canonical_extensions'],{'observation_level_bits':1})
+                self.assertEqual(digest(self.snapshot),before)
+
+    def test_legacy_real_without_precision_is_never_reinterpreted_or_backfilled(self):
+        db=sqlite3.connect(self.snapshot);db.execute('UPDATE observations SET level=?',(-0.0,))
+        db.commit();stored=db.execute('SELECT level FROM observations').fetchone()[0];db.close();self.reseal()
+        self.assertEqual(struct.pack('>d',stored).hex(),'0000000000000000')
+        result=self.success(self.request())['result']
+        rows=pq.read_table(Path(result['cache_path'])/'observations.parquet').to_pylist()
+        self.assertEqual(struct.pack('>d',rows[0]['level']).hex(),'0000000000000000')
+
+    def test_unknown_canonical_extension_version_fails_closed_without_source_changes(self):
+        self.precision(-0.0,struct.pack('<d',-0.0),version=2)
+        before=digest(self.snapshot)
+        self.failure(self.request(),code='unsupported_schema')
+        self.assertEqual(digest(self.snapshot),before)
+        self.assertEqual(list(self.cache.glob('cache-*/manifest.json')),[])
+
+    def test_invalid_or_inconsistent_canonical_level_bits_are_not_silently_ignored(self):
+        for stored,bits in ((137.0,b'short'),(137.0,'12345678'),(137.0,struct.pack('<d',138.0)),
+                            (137.0,struct.pack('<d',float('inf'))),(137.0,struct.pack('<d',float('nan'))),
+                            (None,struct.pack('<d',1.0))):
+            with self.subTest(stored=stored,bits=bits):
+                self.precision(stored,bits)
+                self.failure(self.request(),code='source_record_invalid')
+                self.assertEqual(list(self.cache.glob('cache-*/manifest.json')),[])
+
+    def test_incomplete_precision_extension_is_rejected(self):
+        db=sqlite3.connect(self.snapshot)
+        db.execute('CREATE TABLE ori_archive_schema(singleton INTEGER PRIMARY KEY,version INTEGER)')
+        db.execute('INSERT INTO ori_archive_schema VALUES(1,1)');db.commit();db.close();self.reseal()
+        self.failure(self.request(),code='snapshot_invalid')
+
+    def test_precision_extension_does_not_require_historical_supplement_rows(self):
+        self.precision(137.0,struct.pack('<d',137.0))
+        db=sqlite3.connect(self.snapshot);db.execute('DELETE FROM ori_observation_level_bits')
+        db.commit();db.close();self.reseal()
+        result=self.success(self.request())['result']
+        self.assertEqual(pq.read_table(Path(result['cache_path'])/'observations.parquet')['level'].to_pylist(),[137.0])
+
 
 if __name__ == '__main__':
     unittest.main()

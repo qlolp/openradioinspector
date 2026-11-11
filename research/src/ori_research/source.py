@@ -5,9 +5,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
+import struct
 
 from .protocol import I64_MAX, WorkerError
 
@@ -21,6 +23,49 @@ COLUMNS = {
                      'mode','level','level_unit','squelch_open','decoded_mode','audio_uri','metadata_json'},
     'events': {'sequence'},
 }
+
+
+def canonical_extensions(db,tables):
+    marker,bits='ori_archive_schema','ori_observation_level_bits'
+    if marker not in tables and bits not in tables:
+        return {}
+    if marker not in tables or bits not in tables:
+        _invalid()
+    for name,columns in ((marker,{'singleton','version'}),(bits,{'observation_id','level_bits_le'})):
+        if not columns <= {row[1] for row in db.execute(f'PRAGMA table_info({name})')}:
+            _invalid()
+    rows=[tuple(row) for row in db.execute('SELECT singleton,version FROM ori_archive_schema').fetchmany(2)]
+    if len(rows)!=1 or rows[0][0]!=1:
+        _invalid()
+    if type(rows[0][1]) is not int or rows[0][1]!=1:
+        raise WorkerError('unsupported_schema','Unsupported canonical observation precision extension')
+    return {'observation_level_bits':1}
+
+
+def observation_level(stored,bits):
+    if bits is None:
+        return stored
+    if not isinstance(bits,bytes) or len(bits)!=8 or stored is None:
+        raise WorkerError('source_record_invalid','Invalid canonical observation level bytes')
+    value=struct.unpack('<d',bits)[0]
+    # Numeric equality intentionally accepts the two zero signs. The original
+    # finite bits are authoritative only when they agree with stored REAL.
+    if not math.isfinite(value) or value!=stored:
+        raise WorkerError('source_record_invalid','Canonical observation bits disagree with stored REAL')
+    return value
+
+
+def observation_rows(db,scope,parameters):
+    columns=('id','session_id','stream_id','started_at','ended_at','frequency_hz','mode',
+             'level','level_unit','squelch_open','decoded_mode','audio_uri','metadata_json')
+    precision=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ori_observation_level_bits'").fetchone()
+    fields=','.join('observation.'+column for column in columns)
+    fields+=',precision.level_bits_le' if precision else ',NULL AS level_bits_le'
+    source=' FROM observations AS observation'
+    if precision:
+        source+=' LEFT JOIN ori_observation_level_bits AS precision ON precision.observation_id=observation.id'
+    qualified=scope.replace('session_id=?','observation.session_id=?').replace('stream_id=?','observation.stream_id=?')
+    return db.execute('SELECT '+fields+source+qualified+' ORDER BY observation.id',parameters)
 
 
 def file_digest(path, budget, *, source=False):
@@ -95,6 +140,7 @@ def open_snapshot(path, filters, budget):
             for table, expected in COLUMNS.items():
                 if not expected <= {row[1] for row in db.execute(f'PRAGMA table_info({table})')}:
                     _invalid()
+            extensions=canonical_extensions(db,tables)
             if db.execute('PRAGMA quick_check(1)').fetchone()[0] != 'ok' \
                     or db.execute('PRAGMA foreign_key_check').fetchone() is not None:
                 _invalid()
@@ -114,6 +160,7 @@ def open_snapshot(path, filters, budget):
                 if stream is None or ('session_id' in filters and stream[0] != filters['session_id']):
                     raise WorkerError('invalid_filter', 'Stream filter is absent from the selected session')
             source = {'sha256':sha, 'bytes':signature.st_size, 'archive_schema':SCHEMA_VERSION,
+                'canonical_extensions':extensions,
                 'event_watermark':watermark, 'counts':counts,
                 'recovery_manifest_sha256':hashlib.sha256(raw).hexdigest(),
                 'artifact_manifest_sha256':manifest['artifacts']['sha256']}

@@ -11,8 +11,8 @@ import pyarrow.parquet as pq
 
 from .protocol import WorkerError
 from .resources import QuotaFile
-from .source import (frequency, frequency_selected, interval, json_object,
-                     scope_sql, text, time_selected)
+from .source import (frequency, frequency_selected, interval, json_object, observation_level,
+                     observation_rows, scope_sql, text, time_selected)
 
 TEXT = pa.string()
 I64 = pa.int64()
@@ -109,15 +109,13 @@ def build_tables(db, directory, filters, budget):
                 writers['sweeps'].append(dict(id=identifier,**common,level_unit=unit,
                     settings_json=json_object(row['settings_json'],maximum),
                     source_point_count=len(hz),exported_point_count=selected))
-        for row in db.execute('SELECT id,session_id,stream_id,started_at,ended_at,frequency_hz,mode,'
-                'level,level_unit,squelch_open,decoded_mode,audio_uri,metadata_json '
-                'FROM observations'+scope+' ORDER BY id',parameters):
+        for row in observation_rows(db,scope,parameters):
             budget.checkpoint()
             common = _scope(row)
             hz_value = frequency(row['frequency_hz'])
             if not time_selected(common['started_at_us'],filters) or not frequency_selected(hz_value,filters):
                 continue
-            level = row['level']
+            level = observation_level(row['level'],row['level_bits_le'])
             if (level is not None and (type(level) not in (float,int) or not math.isfinite(level))) \
                     or row['squelch_open'] not in (None,0,1):
                 raise WorkerError('source_record_invalid', 'Invalid receiver observation')
