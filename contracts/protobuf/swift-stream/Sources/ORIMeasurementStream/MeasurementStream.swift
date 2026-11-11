@@ -1,0 +1,1 @@
+../../../../generated/swift/MeasurementStream.swift
