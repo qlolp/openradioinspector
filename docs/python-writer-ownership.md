@@ -29,7 +29,8 @@ Do not acquire this lease again when a bridge already owns it.
 
 ```python
 archive_owner = None
-with ExitStack() as cleanup:
+cleanup = ExitStack()
+try:
     bridge = RuntimeBridge.from_environment(session_database)
     if bridge is not None:
         cleanup.enter_context(bridge)  # FIRST: releases LAST
@@ -40,7 +41,17 @@ with ExitStack() as cleanup:
             session_database = str(archive_owner.database_path)
     # Create/register archive and worker cleanup only after admission.
     # The owner exits after successful closure of all those resources.
+finally:
+    cleanup.close()
 ```
+
+`create_server` separates a construction/bind error from the result of resource
+cleanup. It unwinds the stack with `close()`: if every resource closer succeeds,
+the last writer-owner callback releases the lease and the original startup
+error still propagates. Passing that startup error into `ExitStack.__exit__`
+would retain a lease even though SQLite had closed. Windows then refuses to
+remove the open `writer.lock`; POSIX permits unlinking it and can hide the leak.
+An actual closer failure still reaches the owner and retains its lease.
 
 Use the returned `database_path` for SQLite as well as for admission: the older
 store expands its directory creation path but passes the original string to
