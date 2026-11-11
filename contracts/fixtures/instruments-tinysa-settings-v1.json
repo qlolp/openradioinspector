@@ -1,0 +1,790 @@
+{
+  "schema_version": 1,
+  "evidence": "authored_synthetic_transcript",
+  "hardware_validation": "not_run",
+  "source": "radioinspector.tinysa.commands.setting_command at 604b206",
+  "cases": [
+    {
+      "setting": {
+        "setting": "start_hz",
+        "value": 100000
+      },
+      "expected_wire": "sweep start 100000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "start_hz",
+        "value": 6000000000
+      },
+      "expected_wire": "sweep start 6000000000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "stop_hz",
+        "value": 100000
+      },
+      "expected_wire": "sweep stop 100000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "stop_hz",
+        "value": 6000000000
+      },
+      "expected_wire": "sweep stop 6000000000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "center_hz",
+        "value": 100000
+      },
+      "expected_wire": "sweep center 100000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "center_hz",
+        "value": 6000000000
+      },
+      "expected_wire": "sweep center 6000000000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "span_hz",
+        "value": 0
+      },
+      "expected_wire": "sweep span 0",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "span_hz",
+        "value": 5999900000
+      },
+      "expected_wire": "sweep span 5999900000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "points",
+        "value": 2
+      },
+      "expected_wire": "sweep 2",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "points",
+        "value": 450
+      },
+      "expected_wire": "sweep 450",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": "auto"
+      },
+      "expected_wire": "rbw auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 200
+        }
+      },
+      "expected_wire": "rbw 0.2",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 1000
+        }
+      },
+      "expected_wire": "rbw 1",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 3000
+        }
+      },
+      "expected_wire": "rbw 3",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 10000
+        }
+      },
+      "expected_wire": "rbw 10",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 30000
+        }
+      },
+      "expected_wire": "rbw 30",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 100000
+        }
+      },
+      "expected_wire": "rbw 100",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 300000
+        }
+      },
+      "expected_wire": "rbw 300",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 600000
+        }
+      },
+      "expected_wire": "rbw 600",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "rbw_hz",
+        "value": {
+          "hz": 850000
+        }
+      },
+      "expected_wire": "rbw 850",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "attenuation_db",
+        "value": {
+          "db": 0
+        }
+      },
+      "expected_wire": "attenuate 0",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "attenuation_db",
+        "value": {
+          "db": 31
+        }
+      },
+      "expected_wire": "attenuate 31",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "attenuation_db",
+        "value": "auto"
+      },
+      "expected_wire": "attenuate auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "lna",
+        "value": false
+      },
+      "expected_wire": "lna off",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "lna",
+        "value": true
+      },
+      "expected_wire": "lna on",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "ultra",
+        "value": false
+      },
+      "expected_wire": "ultra off",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "ultra",
+        "value": true
+      },
+      "expected_wire": "ultra on",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "spur",
+        "value": "off"
+      },
+      "expected_wire": "spur off",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "spur",
+        "value": "on"
+      },
+      "expected_wire": "spur on",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "spur",
+        "value": "auto"
+      },
+      "expected_wire": "spur auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "repeat",
+        "value": 1
+      },
+      "expected_wire": "repeat 1",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "repeat",
+        "value": 1000
+      },
+      "expected_wire": "repeat 1000",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_accuracy",
+        "value": "normal"
+      },
+      "expected_wire": "sweep normal",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_accuracy",
+        "value": "precise"
+      },
+      "expected_wire": "sweep precise",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_accuracy",
+        "value": "fast"
+      },
+      "expected_wire": "sweep fast",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_accuracy",
+        "value": "noise"
+      },
+      "expected_wire": "sweep noise",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_seconds",
+        "value": 0
+      },
+      "expected_wire": "sweeptime 0",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "sweep_seconds",
+        "value": 60
+      },
+      "expected_wire": "sweeptime 60",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "external_gain_db",
+        "value": -100
+      },
+      "expected_wire": "ext_gain -100",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "external_gain_db",
+        "value": 100
+      },
+      "expected_wire": "ext_gain 100",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "off"
+      },
+      "expected_wire": "calc off",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "minh"
+      },
+      "expected_wire": "calc minh",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "maxh"
+      },
+      "expected_wire": "calc maxh",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "maxd"
+      },
+      "expected_wire": "calc maxd",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "aver4"
+      },
+      "expected_wire": "calc aver4",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "aver16"
+      },
+      "expected_wire": "calc aver16",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "aver"
+      },
+      "expected_wire": "calc aver",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "quasi"
+      },
+      "expected_wire": "calc quasi",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "log"
+      },
+      "expected_wire": "calc log",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "calculation",
+        "value": "lin"
+      },
+      "expected_wire": "calc lin",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trigger_mode",
+        "value": "auto"
+      },
+      "expected_wire": "trigger auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trigger_mode",
+        "value": "normal"
+      },
+      "expected_wire": "trigger normal",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trigger_mode",
+        "value": "single"
+      },
+      "expected_wire": "trigger single",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trigger_dbm",
+        "value": -174
+      },
+      "expected_wire": "trigger -174",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trigger_dbm",
+        "value": 30
+      },
+      "expected_wire": "trigger 30",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "dBm"
+      },
+      "expected_wire": "trace dBm",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "dBmV"
+      },
+      "expected_wire": "trace dBmV",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "dBuV"
+      },
+      "expected_wire": "trace dBuV",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "dBV"
+      },
+      "expected_wire": "trace dBV",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "V"
+      },
+      "expected_wire": "trace V",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "Vpp"
+      },
+      "expected_wire": "trace Vpp",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "W"
+      },
+      "expected_wire": "trace W",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "trace_unit",
+        "value": "RAW"
+      },
+      "expected_wire": "trace RAW",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "ref_level",
+        "value": {
+          "value": -174
+        }
+      },
+      "expected_wire": "trace reflevel -174",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "ref_level",
+        "value": {
+          "value": 150
+        }
+      },
+      "expected_wire": "trace reflevel 150",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "ref_level",
+        "value": "auto"
+      },
+      "expected_wire": "trace reflevel auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "scale_div",
+        "value": {
+          "value": 0.01
+        }
+      },
+      "expected_wire": "trace scale 0.01",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "scale_div",
+        "value": {
+          "value": 100
+        }
+      },
+      "expected_wire": "trace scale 100",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "scale_div",
+        "value": "auto"
+      },
+      "expected_wire": "trace scale auto",
+      "requires_lab": false
+    },
+    {
+      "setting": {
+        "setting": "output_hz",
+        "value": 100000
+      },
+      "expected_wire": "freq 100000",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_hz",
+        "value": 800000000
+      },
+      "expected_wire": "freq 800000000",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_dbm",
+        "value": -115
+      },
+      "expected_wire": "level -115",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_dbm",
+        "value": -19
+      },
+      "expected_wire": "level -19",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_enabled",
+        "value": false
+      },
+      "expected_wire": "output off",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_enabled",
+        "value": true
+      },
+      "expected_wire": "output on",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "modulation",
+        "value": "off"
+      },
+      "expected_wire": "modulation off",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "modulation",
+        "value": "am"
+      },
+      "expected_wire": "modulation am",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "modulation",
+        "value": "fm"
+      },
+      "expected_wire": "modulation fm",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "modulation_hz",
+        "value": 50
+      },
+      "expected_wire": "modulation freq 50",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "modulation_hz",
+        "value": 5000
+      },
+      "expected_wire": "modulation freq 5000",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "am_depth_percent",
+        "value": 10
+      },
+      "expected_wire": "modulation depth 10",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "am_depth_percent",
+        "value": 100
+      },
+      "expected_wire": "modulation depth 100",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "fm_deviation_hz",
+        "value": 1000
+      },
+      "expected_wire": "modulation deviation 1000",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "fm_deviation_hz",
+        "value": 300000
+      },
+      "expected_wire": "modulation deviation 300000",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_delta_db",
+        "value": -90
+      },
+      "expected_wire": "levelchange -90",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "output_delta_db",
+        "value": 90
+      },
+      "expected_wire": "levelchange 90",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": null
+      },
+      "expected_wire": "caloutput off",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 1
+      },
+      "expected_wire": "caloutput 1",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 2
+      },
+      "expected_wire": "caloutput 2",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 3
+      },
+      "expected_wire": "caloutput 3",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 4
+      },
+      "expected_wire": "caloutput 4",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 10
+      },
+      "expected_wire": "caloutput 10",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 15
+      },
+      "expected_wire": "caloutput 15",
+      "requires_lab": true
+    },
+    {
+      "setting": {
+        "setting": "caloutput_mhz",
+        "value": 30
+      },
+      "expected_wire": "caloutput 30",
+      "requires_lab": true
+    }
+  ]
+}
