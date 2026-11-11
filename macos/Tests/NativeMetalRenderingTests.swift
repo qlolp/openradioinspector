@@ -41,7 +41,14 @@ final class NativeMetalRenderingTests: XCTestCase {
         var actual = [UInt8](repeating: 0, count: 24)
         actual.withUnsafeMutableBytes { target.getBytes($0.baseAddress!, bytesPerRow: 12, from: MTLRegionMake2D(0, 0, 3, 2), mipmapLevel: 0) }
         let rgba = state.orderedRGBA()
-        let expected = stride(from: 0, to: rgba.count, by: 4).flatMap { [rgba[$0 + 2], rgba[$0 + 1], rgba[$0], rgba[$0 + 3]] }
+        var expected: [UInt8] = []
+        expected.reserveCapacity(rgba.count)
+        for offset in stride(from: 0, to: rgba.count, by: 4) {
+            expected.append(rgba[offset + 2])
+            expected.append(rgba[offset + 1])
+            expected.append(rgba[offset])
+            expected.append(rgba[offset + 3])
+        }
         XCTAssertEqual(actual, expected)
     }
 }
