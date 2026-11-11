@@ -1,0 +1,8 @@
+{
+  "name": "@openradioinspector/windows",
+  "version": "0.4.0",
+  "private": true,
+  "scripts": { "dev": "tauri dev", "build": "tauri build" },
+  "devDependencies": { "@tauri-apps/cli": "2.12.4" },
+  "engines": { "node": ">=26 <27" }
+}
