@@ -1,0 +1,25 @@
+[package]
+name = "ori-tasks"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+description = "Owned opt-in TaskBook scheduler with Python-compatible public records"
+
+[dependencies]
+chrono = { version = "=0.4.45", features = ["serde"] }
+fs2 = "=0.4.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision", "preserve_order"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tempfile = "=3.27.0"
+unicode-general-category = "=0.6.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "=0.3.9", features = ["fileapi", "winbase"] }
+
+[dev-dependencies]
+sha2 = "=0.10.9"
