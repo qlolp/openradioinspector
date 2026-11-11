@@ -430,6 +430,9 @@ tools/analysis/    программы разбора коммерческого 
   сверки со справкой;
 * [`docs/rt-comparison.md`](docs/rt-comparison.md) — сопоставление возможностей
   RadioInspectorRT и OpenRadioInspector с приоритетами закрытия разрывов;
+* [`docs/research-rt-capabilities-2026-11-11.md`](docs/research-rt-capabilities-2026-11-11.md)
+  — запись об исследовании: источники, метод, установленные факты, выводы и
+  что осталось неразрешённым;
 * [`docs/roadmap.md`](docs/roadmap.md) — дорожная карта проекта: этапы,
   критерии приёмки, состояние веток и решение по коммерческому диску.
 
