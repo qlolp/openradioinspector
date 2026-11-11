@@ -55,6 +55,7 @@ final class NativeStreamingModelTests: XCTestCase {
                 if stub.request.httpMethod != "GET" { mutations += 1 }
                 let session: [String: Any] = ["id": "s", "name": "Synthetic", "state": "running", "streams": [["id": "a", "device": "tinySA", "role": "spectrum_analyzer", "level_unit": "dBm", "state": "connected", "capabilities": ["sweep"]]]]
                 switch stub.request.url!.path {
+                case "/api/v1/capabilities": stub.json(["features": [:]])
                 case "/api/v1/health":
                     healthReads += 1
                     stub.json(["last_event_id": healthReads == 1 ? 0 : 10000])

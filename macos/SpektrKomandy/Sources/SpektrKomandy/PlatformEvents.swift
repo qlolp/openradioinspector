@@ -24,6 +24,11 @@ public struct PlatformCommittedEvent: Decodable, Equatable, Sendable {
     public fileprivate(set) var sourceJSON: Data? = nil
     private enum CodingKeys: String, CodingKey { case sequence, eventType, occurredAt, sessionId, payload }
 
+    init(sequence: Int64, eventType: String, occurredAt: String, sessionId: String?, sweep: PlatformSweep?, observation: PlatformObservation?) {
+        self.sequence = sequence; self.eventType = eventType; self.occurredAt = occurredAt; self.sessionId = sessionId
+        self.payload = Payload(sweep: sweep, observation: observation)
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.sequence == rhs.sequence && lhs.eventType.utf8.elementsEqual(rhs.eventType.utf8) && lhs.occurredAt == rhs.occurredAt
             && PlatformExactID.same(lhs.sessionId, rhs.sessionId) && lhs.payload == rhs.payload

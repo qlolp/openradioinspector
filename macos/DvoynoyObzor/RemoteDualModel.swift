@@ -67,6 +67,8 @@ final class RemoteDualModel: ObservableObject {
     @Published var latestObservation: PlatformObservation?
     @Published var eventGapNotice: String?
     @Published var eventStatus = "Ожидание подключения"
+    @Published var measurementSource: PlatformMeasurementSource?
+    @Published var measurementDisplayIssue: PlatformMeasurementDisplayIssue?
     @Published var live = "Данные ядра ещё не получены"
     @Published var candidates: [PlatformCandidate] = []
     @Published var investigations: [PlatformInvestigation] = []
@@ -173,6 +175,7 @@ final class RemoteDualModel: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private let measurementStream = RemoteMeasurementStream()
     private var streamingEnabled = false
+    private var negotiatedMeasurementTransport: PlatformMeasurementTransport?
     private var measurementSnapshot: PlatformSnapshot?
     private var spectrumRenderRevision = 0
     var generation = 0
@@ -252,6 +255,7 @@ final class RemoteDualModel: ObservableObject {
 
     func connect(startPolling: Bool = true, using preparedClient: PlatformClient? = nil) {
         measurementStream.stop(); measurementSnapshot = nil; eventGapNotice = nil
+        negotiatedMeasurementTransport = nil; measurementSource = nil; measurementDisplayIssue = nil
         frequencyRounding.reset()
         do {
             client = try preparedClient ?? makeClient(serverURL)
@@ -286,6 +290,7 @@ final class RemoteDualModel: ObservableObject {
         pollTask = nil
         measurementStream.stop()
         streamingEnabled = false
+        negotiatedMeasurementTransport = nil; measurementSource = nil; measurementDisplayIssue = nil
         eventStatus = "UI отключён; охрана и архив продолжают работу в ядре"
         client = nil
         configureAuxiliaryStreams(client: nil, session: nil)
@@ -434,6 +439,11 @@ final class RemoteDualModel: ObservableObject {
         let requestGeneration = generation
         let schedulerRevision = taskSchedulerCommandRevision
         do {
+            if streamingEnabled, negotiatedMeasurementTransport == nil {
+                let transport = try await client.measurementTransport()
+                guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client else { return }
+                negotiatedMeasurementTransport = transport
+            }
             let streaming = measurementStream.isActive
             let retained = streamingEnabled ? measurementStream.measurements : nil
             // Only a first connection seeds from health before its snapshot.
@@ -471,22 +481,27 @@ final class RemoteDualModel: ObservableObject {
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
             if streamingEnabled, !measurementStream.isActive, let watermark {
-                eventStatus = "SSE · ожидание событий после \(watermark)"
+                let transport = negotiatedMeasurementTransport ?? .serverSentEvents
+                eventStatus = "\(transport.label) · ожидание событий после \(measurementStream.appliedSourceCursor > 0 ? String(measurementStream.appliedSourceCursor) : String(watermark))"
                 measurementStream.start(client: client, sessionID: id, streamID: analyzer?.id ?? "", receiverStreamID: receiver?.id, watermark: watermark,
+                    transport: transport,
                     sweeps: snapshot.sweeps, observation: snapshot.observations.last,
-                    receive: { [weak self] sweeps, observation, cursor in
+                    receive: { [weak self] sweeps, observation, event, change in
                         guard let self, requestGeneration == self.generation, self.client === client,
-                              PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID), var latest = self.measurementSnapshot else { return }
-                        latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
-                        self.measurementSnapshot = latest
-                        guard await self.applyMeasurements(latest) else { return }
-                        guard requestGeneration == self.generation, self.client === client else { return }
-                        self.eventStatus = "SSE · принято событие \(cursor)"
-                        self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")"
+                              PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID), var latest = self.measurementSnapshot else { throw CancellationError() }
+                        if change == .measurement {
+                            latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
+                            self.measurementSnapshot = latest
+                            guard await self.applyMeasurements(latest) else { throw CancellationError() }
+                        }
+                        guard !Task.isCancelled, requestGeneration == self.generation, self.client === client else { throw CancellationError() }
+                        self.measurementSource = event.source; self.measurementDisplayIssue = event.displayIssue
+                        self.eventStatus = "\(transport.label) · принято событие \(event.sequence)" + (event.displayIssue == nil ? "" : " · исходник")
+                        if change == .measurement { self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")" }
                     }, recover: { [weak self] reason in
                         guard let self, requestGeneration == self.generation, self.client === client else { return }
                         if self.expireAuthorization(reason, client: client) { return }
-                        self.eventStatus = "Восстановление потока отображения"
+                        self.eventStatus = "\(transport.label) · восстановление потока: \(describeSession(reason))"
                         if let eventError = reason as? PlatformEventError {
                             self.eventGapNotice = "Пропуск доставки в этот UI. Отображение восстанавливается из архива; охрана продолжает работать."
                             if eventError == .consumerOverrun {
@@ -497,7 +512,7 @@ final class RemoteDualModel: ObservableObject {
                             guard !Task.isCancelled, requestGeneration == self.generation, self.client === client,
                                   PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID) else { return }
                             await self.refresh()
-                        } else if case PlatformError.http(status: 404, code: _, message: _) = reason {
+                        } else if transport == .serverSentEvents, case PlatformError.http(status: 404, code: _, message: _) = reason {
                             self.streamingEnabled = false
                             self.measurementStream.stop()
                         }
@@ -510,6 +525,7 @@ final class RemoteDualModel: ObservableObject {
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
+            eventStatus = "Поток не подтверждён: \(describeSession(error))"
             sweepAverage.reset()
             threeSweepThresholds.reset()
             sweepContext.reset()
@@ -526,6 +542,28 @@ final class RemoteDualModel: ObservableObject {
         authorizationRequired = true
         errorText = "Доступ этого Mac отозван или истёк. Выполните сопряжение заново; охрана ядра не изменена."
         return true
+    }
+
+    /// Operator-selected exact original; no JSON reconstruction or Core mutation.
+    func exportMeasurementSource() {
+        guard let source = measurementSource else { return }
+        let panel = NSSavePanel(); panel.allowedContentTypes = [source.encoding == .protobuf ? .data : .json]
+        panel.nameFieldStringValue = source.suggestedFilename
+        panel.title = "Сохранить исходное событие без преобразований"
+        let requestGeneration = generation
+        panel.begin { [weak self] result in
+            guard result == .OK, let destination = panel.url else { return }
+            Task { @MainActor [weak self] in
+                do {
+                    try await Task.detached(priority: .utility) { try source.originalData.write(to: destination, options: .atomic) }.value
+                    guard let self, requestGeneration == self.generation else { return }
+                    self.eventStatus = "Исходное событие \(source.sequence) сохранено без преобразований"
+                } catch {
+                    guard let self, requestGeneration == self.generation else { return }
+                    self.errorText = "Не удалось сохранить исходное событие: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     func startSession() { performSessionAction { try await $0.startSession($1) } }

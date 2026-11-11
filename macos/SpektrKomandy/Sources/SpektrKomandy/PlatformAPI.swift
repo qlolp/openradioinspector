@@ -1,4 +1,5 @@
 import Foundation
+import struct ORIContracts.JSONObject
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -425,6 +426,18 @@ public struct PlatformSweep: Decodable, Identifiable, Equatable, Sendable {
             )
         }
     }
+
+    init(measurementMetadata metadata: JSONObject, frequencies: [Int64], levels: [Double], settings: [String: PlatformComparisonSetting]?) throws {
+        id = try measurementString(metadata, "id"); sessionId = try measurementString(metadata, "session_id")
+        streamId = try measurementString(metadata, "stream_id"); interval = try measurementInterval(metadata)
+        levelUnit = try measurementString(metadata, "level_unit"); self.settings = settings
+        guard levelUnit == "dBm", !frequencies.isEmpty, frequencies.count == levels.count,
+              frequencies.allSatisfy({ $0 >= 0 }), levels.allSatisfy(\.isFinite),
+              zip(frequencies, frequencies.dropFirst()).allSatisfy({ $0 <= $1 }) else {
+            throw PlatformMeasurementDisplayIssue.unsupportedMeasurement
+        }
+        frequenciesHz = frequencies; self.levels = levels
+    }
 }
 
 public struct PlatformObservation: Decodable, Identifiable, Equatable, Sendable {
@@ -438,6 +451,18 @@ public struct PlatformObservation: Decodable, Identifiable, Equatable, Sendable 
     public let level: Double?
     public let squelchOpen: Bool?
     public let decodedMode: String?
+
+    init(measurementMetadata metadata: JSONObject) throws {
+        id = try measurementString(metadata, "id"); sessionId = try measurementString(metadata, "session_id")
+        streamId = try measurementString(metadata, "stream_id"); interval = try measurementInterval(metadata)
+        guard let hz = metadata["frequency_hz"], case let .integer(text) = hz, let value = Int64(text), value >= 0 else {
+            throw PlatformMeasurementDisplayIssue.unsupportedFrequency
+        }
+        frequencyHz = value; mode = try measurementString(metadata, "mode"); levelUnit = try measurementString(metadata, "level_unit")
+        if let value = metadata["level"], value != .null { level = try measurementLevel(value) } else { level = nil }
+        if let value = metadata["squelch_open"], value != .null { squelchOpen = try value.requireBool() } else { squelchOpen = nil }
+        if let value = metadata["decoded_mode"], value != .null { decodedMode = try value.requireString() } else { decodedMode = nil }
+    }
 }
 
 public struct PlatformTuned: Decodable, Equatable, Sendable {

@@ -153,7 +153,9 @@ struct NativeContinuityBar: View {
                 }
                 Spacer()
                 Text(model.eventStatus)
+                if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
             }.font(.caption).foregroundStyle(.secondary)
+            if let issue = model.measurementDisplayIssue { Text(issue.message).font(.caption).foregroundStyle(.orange) }
             if let notice = model.eventGapNotice {
                 HStack {
                     Label(notice, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)

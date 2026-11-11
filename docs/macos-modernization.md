@@ -1,5 +1,68 @@
 # Native macOS modernization
 
+## Negotiated binary measurement stream
+
+The SDK consumes the unchanged canonical `ORIMeasurementStream` and
+`ORIContracts` local SwiftPM products. Only the exact supported v1 capability
+selects `/api/v1/events/ws` and subprotocol `ori.measurements.v1.protobuf`.
+An absent or supported-shape-but-unsupported descriptor keeps SSE. Malformed
+capabilities, HTTP/authentication, TLS and failed upgrades remain visible;
+binary failure never silently downgrades to SSE or plaintext.
+
+`measurementTransport()` negotiates, then the callback-based
+`consumeMeasurements(after:using:receive:)` drives one binary event at a time.
+Protobuf/metadata decode runs off MainActor. The SDK awaits the consumer before
+sending a positive canonical UInt64 decimal text ACK (1–20 ASCII bytes), then
+receives the next message. Unknown events consume their source state and ACK;
+malformed frames and failed/cancelled consumers do not advance or ACK. The
+server's applied-ACK deadline remains 30 seconds. URLSession retains default
+system/operator-installed-CA trust, explicit Bearer, cookie isolation, refused
+redirects and an exact-origin request. WSS is required outside accepted loopback.
+
+Typed frequency/level buffers construct display DTOs directly, with exact Int64
+Hz and f64 bits; no array stringify/reparse occurs. `PlatformMeasurementSource`
+retains the entire original frame, raw metadata JSON and exact-key `JSONObject`,
+including NFC/NFD-distinct names, arbitrary integer tokens and unknown Protobuf
+fields. Legacy display settings are adapted only when exact; incompatible
+settings/ranges remain explicit source-only state. The current renderer accepts
+Hz through `2^53−1`; wider valid data, and sequences beyond Int64, are consumed
+and ACKed without imprecise plotting. The native stream retains its independent
+UInt64 last-applied source cursor, legacy Int64 cache, existing 40-sweep bound,
+and revision/cancellation guards. Recovery reuses that applied cursor/cache,
+never a fresh health watermark. Already-UTC source interval spelling is retained
+for existing scientific source matching; nonzero offset display adaptation uses
+exact contract timestamp arithmetic. Original source strings never change.
+
+The existing workspace status exposes the unsupported-display reason and an
+operator-selected original-event export. Binary export writes the complete
+original Protobuf bytes; SSE export writes its original JSON bytes. File IO runs
+off MainActor. Closing, reconnecting and exporting send no Core control mutation.
+Binary bounds are 16842752 bytes and 1000000 points per message; only one frame
+is consumed in flight and the latest original source is retained separately from
+the bounded display cache. Latency/RSS and physical acceptance remain unmeasured.
+
+Linux Swift 6.4.2 verification passed the full portable SDK: 298 XCTest plus 16
+Swift Testing tests, zero skips, seven owned HTTP servers stopped with unchanged
+archive hashes. Eleven focused binary tests additionally cover real
+URLSessionWebSocketTask/owned stdlib-loopback delivery, coalesced 101 plus first
+frame, delayed apply/ACK backpressure, 1205-event replay and restart/live handoff,
+malformed/text/oversized input, exact 20-byte UInt64.max ACK, unsupported settings
+and display ranges, refused redirect/auth/wrong-subprotocol, and an actually
+untrusted owned TLS certificate. The fixture's explicit owner may append one new
+in-memory live event; its sealed seed file and all prior source bytes stay
+unchanged. These are controlled protocol tests, not an actual Core WS acceptance
+claim. The Python SSE production fixture also replayed 1208 events and restarted
+from the unchanged applied cursor. The pure native stream passed Swift 6 semantic
+typechecking, modified UI/native tests passed syntax parsing, and Xcode source
+registration passed. New native callback/cancellation/UInt64 replay tests still
+require hosted Xcode with AppKit/SwiftUI; Linux checks do not establish that gate.
+
+```sh
+swift test --package-path macos/SpektrKomandy -j1 --filter BinaryMeasurement
+# Full portable SDK requires all seven owned HTTP fixtures from the release runner.
+python -m tests.run_release_checks --swift --report-dir release-reports
+```
+
 This slice keeps the native SwiftUI app and macOS 14 deployment target. The core
 continues to own hardware and archive writes. No new native shared-core flow
 opens a serial port, starts RF generation, or runs scientific analyses locally.
