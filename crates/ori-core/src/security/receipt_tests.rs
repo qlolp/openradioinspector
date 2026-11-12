@@ -13,7 +13,14 @@ struct Fixture {
 #[cfg(not(windows))]
 impl Fixture {
     fn new() -> Self {
-        let directory = tempfile::tempdir().unwrap();
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("ori-security-receipts-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir().unwrap();
         TlsIdentity::create(directory.path(), vec!["localhost".into()]).unwrap();
         let state = SecurityState::open(Some(&LanSecurityConfig {
             directory: directory.path().to_owned(),
