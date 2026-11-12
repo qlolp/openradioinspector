@@ -45,6 +45,9 @@ microsecond/time and Hz bounds, page size 1–500, and an occupancy threshold in
 its original unit. They accept no SQL, commands, URLs, or filesystem paths.
 Configuration supplies two separate absolute, private, owned roots; linked
 paths, another owner and non-cache existing data are refused.
+Each temporary source leaf requests Unix mode `0700` before its ownership marker
+or source files are created. Strict leaf ownership and permission checks still
+apply even when its configured parent is already private.
 
 Each new job uses `ScopedSnapshotExport` to freeze a read-only transaction on
 the canonical archive and stream selected original streams, sweeps and
