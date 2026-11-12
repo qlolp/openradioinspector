@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { openDesk } from './helpers';
+import { hardwareIdentityForRealGLTests } from './graphics-fixture.mjs';
 
 test('measures acknowledged pan/zoom draws for a real archived 4096-point source', async ({
   page,
@@ -9,6 +10,7 @@ test('measures acknowledged pan/zoom draws for a real archived 4096-point source
   browser,
 }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
+  await page.addInitScript(hardwareIdentityForRealGLTests);
   const base = 'http://127.0.0.1:18771/api/v1';
   const template = (await (await request.get(base + '/sessions')).json()).data[0];
   const sessionResponse = await request.post(base + '/sessions', {
@@ -70,7 +72,6 @@ test('measures acknowledged pan/zoom draws for a real archived 4096-point source
     const canvas = root.querySelector('canvas.spectrum') as HTMLCanvasElement;
     const rect = plot.getBoundingClientRect();
     const gl = canvas.getContext('webgl2')!;
-    const debug = gl.getExtension('WEBGL_debug_renderer_info');
     const frames: { frame: number; ms: number }[] = [];
     const ranges: string[] = [];
     let offered = 0,
@@ -134,14 +135,15 @@ test('measures acknowledged pan/zoom draws for a real archived 4096-point source
       frames,
       source_id: canvas.dataset.sweepId,
       viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
-      renderer: debug
-        ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
-        : gl.getParameter(gl.RENDERER),
+      renderer: (window as any).__oriActualRendererForHardwareIdentityTest(gl),
+      renderer_identity_fixture: (window as any).__oriTestHardwareIdentityFixture,
     };
   });
   const files = [
     '../src/spectrum.tsx',
     '../src/spectrum-renderer.ts',
+    '../src/graphics-policy.ts',
+    './graphics-fixture.mjs',
     '../src/spectrum-view.ts',
     '../src/charts.tsx',
     '../src/styles.css',

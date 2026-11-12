@@ -1,4 +1,5 @@
 import { openDesk, acceptLegacyCore } from './helpers';
+import { hardwareIdentityForRealGLTests } from './graphics-fixture.mjs';
 import { disarmOwnedSyntheticGuard } from './guard-cleanup';
 import { expect, test } from '@playwright/test';
 
@@ -166,7 +167,13 @@ test('offline assets and local workspace survive reload; screenshots include lig
 
 test('sequence gaps resynchronize explicitly and WebGL context loss uses the Canvas recovery path', async ({
   page,
-}) => {
+}, testInfo) => {
+  await page.addInitScript(hardwareIdentityForRealGLTests);
+  testInfo.annotations.push({
+    type: 'test-only hardware identity',
+    description:
+      'Real GL context loss/restoration; underlying renderer attached separately, no hardware validation.',
+  });
   let injected = false;
   await page.route('**/api/v1/events?after=*', async (route) => {
     if (injected) {
@@ -207,6 +214,14 @@ test('sequence gaps resynchronize explicitly and WebGL context loss uses the Can
     await expect(page.getByTestId('renderer-state')).toContainText('WebGL2');
   } else await expect(page.getByTestId('renderer-state')).toContainText('Canvas fallback');
   await page.getByRole('button', { name: 'Disarm guard', exact: true }).click();
+  await testInfo.attach('actual-gl-renderer-and-test-identity.json', {
+    body: JSON.stringify(
+      await page.evaluate(() => (window as any).__oriTestHardwareIdentityFixture),
+      null,
+      2,
+    ),
+    contentType: 'application/json',
+  });
 });
 
 test('256-row render buffers stay bounded without aggregate sweep refetches during committed ingest', async ({

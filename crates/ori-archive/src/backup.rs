@@ -89,18 +89,18 @@ fn digest_file(path: &Path, budget: &mut impl Accounting) -> Result<String> {
     budget.check()?;
     Ok(hex(&digest.finalize()))
 }
-fn private_file(path: &Path) -> Result<()> {
+fn private_file(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }
-fn sync_directory(path: &Path) -> Result<()> {
+fn sync_directory(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
-        File::open(path)?.sync_all()?;
+        File::open(_path)?.sync_all()?;
     }
     Ok(())
 }
@@ -478,6 +478,7 @@ fn make_backup(source: &Connection, destination: &Path, timeout: Duration) -> Re
     write_json(&stage.path().join("manifest.json"), &manifest)?;
     verify_backup(stage.path())?;
     let mut builder = fs::DirBuilder::new();
+    builder.recursive(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
