@@ -268,9 +268,9 @@ class QualityHTTPTests(unittest.TestCase):
                            (b'{"edge_margin_db":NaN}', 400), (b'{' + b' ' * 8193, 413)):
             actual, _ = self.post(body, raw=True)
             self.assertEqual(actual, code)
-        # Query validation rejects the headers before reading a body. Send no
-        # body: a second write racing the close causes WinError 10053 on Windows.
-        self.assertEqual(self.post(b'', raw=True, path=self.root + '?x=1')[0], 400)
+        # Include the real body so separate header/body sends exercise the
+        # bounded query-refusal path rather than an empty-body workaround.
+        self.assertEqual(self.post(request(), path=self.root + '?x=1')[0], 400)
         self.assertEqual(self.post(request(), headers={'Content-Type': 'text/plain'})[0], 415)
         self.assertEqual(self.post(request(), headers={'Content-Type': 'application/json',
                                                        'Origin': 'https://example.invalid'})[0], 403)
