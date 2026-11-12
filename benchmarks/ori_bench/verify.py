@@ -14,7 +14,7 @@ from .source import audio_segment,measurement_hash,observation,pcm_chunks,start_
 def archive(client,config,ledger):
     path=client.session_path(config)+'/archive/export.ndjson'
     digest=hashlib.sha256();size=0;counts={'sweep':0,'observation':0};header=True
-    with client.open(path) as response:
+    with client.open(path,timeout=config.bulk_timeout) as response:
         if response.status!=200:raise BenchmarkError('archive_invalid','Archive download failed')
         while raw:=response.readline(LINE_LIMIT+1):
             if len(raw)>LINE_LIMIT or not raw.endswith(b'\n'):
@@ -75,7 +75,7 @@ def audio(client,config,ledger,output):
         expected=audio_segment(config,row['idx'])
         digest=hashlib.sha256();size=0
         try:
-            with client.open(root+'/'+segment(row['id'])+'/content') as response,temporary.open('xb') as target:
+            with client.open(root+'/'+segment(row['id'])+'/content',timeout=config.bulk_timeout) as response,temporary.open('xb') as target:
                 while block:=response.read(65_536):
                     size+=len(block)
                     if size>JSON_LIMIT:raise BenchmarkError('audio_invalid','Artifact exceeds bounded audio size')

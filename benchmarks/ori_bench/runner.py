@@ -55,6 +55,7 @@ def preflight(client,config):
     features=capabilities.get('features',{})
     required=['measurement_batch_ingest','session_archive_export_ndjson']
     if config.mode!='history':required.append('audio_segment_ingest')
+    if config.observe_render:required.append('monitoring_projects')
     if capabilities.get('persistent_archive') is not True or any(features.get(key) is not True for key in required):
         raise BenchmarkError('unsupported','Core lacks required persistent ingest/export/audio capability')
     guard={'status':'unmeasured','reason':'Guard capability is not advertised'}
@@ -86,6 +87,9 @@ def preflight(client,config):
     except HTTPFailure as error:
         if error.status!=404:raise
     else:raise BenchmarkError('existing_session','Refusing to write to an existing session')
+    if config.observe_render:
+        from .browser import resolve_node
+        resolve_node(config)
     health=client.json('/api/v1/health')
     created=client.json('/api/v1/sessions',method='POST',payload=session(config),status=201)
     if created.get('id')!=config.session_id or {r['id'] for r in created.get('streams',[])}!={config.spectrum_id,config.receiver_id}:
@@ -217,14 +221,22 @@ def run(config):
         'checks':{key:{'status':'unmeasured'} for key in ('archive_integrity','complete_delivery',
             'offered_accounting','history_summary_p95','render_latency','pi_acceptance','physical_acceptance',
             'seven_day_service_endurance','background_concurrency')},'errors':[]}
-    functional=False;status=1
+    functional=False;status=1;observer=None
     try:
         with sampler:
             capabilities,health,guard=preflight(client,config)
             report['guard_preflight']=guard
             report['event_watermark_before']=health.get('last_event_id')
-            report['production']=(run_history(config,client,capabilities,ledger,histogram) if config.mode=='history'
-                                  else run_load(config,ledger,histogram))
+            if config.observe_render:
+                from .browser import OwnedObserver
+                observer=OwnedObserver(config,client,output)
+                report['observer_setup']=observer.start()
+            try:
+                report['production']=(run_history(config,client,capabilities,ledger,histogram) if config.mode=='history'
+                                      else run_load(config,ledger,histogram))
+            finally:
+                if observer is not None:
+                    report['observer_completed']=observer.close()
             report['history']=verify.history(client,config,capabilities,histogram,ledger)
             report['checks']['archive_integrity']=verify.archive(client,config,ledger)
             if config.mode!='history':report['audio']=verify.audio(client,config,ledger,output)
@@ -235,19 +247,28 @@ def run(config):
             if report['history']['first_page_source_ids']!=newest:
                 raise BenchmarkError('history_invalid','First history page does not identify the newest retained sources')
             report['event_watermark_after']=client.json('/api/v1/health').get('last_event_id')
-            if config.render_events:
+            render_path=observer.render_path if observer is not None else config.render_events
+            if render_path:
                 from .observe import correlate
-                report['checks']['render_latency']=correlate(config.render_events,config,ledger,
-                                                             histogram['offered_to_render_ms'])
+                if observer is not None and not observer.completed:
+                    report['checks']['render_latency']={'status':'failed','reason':'observer_failed'}
+                else:
+                    try:
+                        report['checks']['render_latency']=correlate(render_path,config,ledger,histogram['offered_to_render_ms'])
+                    except BenchmarkError as error:
+                        report['checks']['render_latency']={'status':'failed','reason':error.code}
             functional=True
     except BenchmarkError as error:
         report['errors'].append({'code':error.code,'message':error.message})
         report['run_status']='unsupported' if error.code=='unsupported' else 'failed'
         if error.code in ('archive_invalid','audio_invalid'):
             report['checks']['archive_integrity']={'status':'failed','reason':error.code}
+        if error.code=='observer_failed':
+            report['checks']['render_latency']={'status':'failed','reason':error.code}
     except (Exception,KeyboardInterrupt):
         report['errors'].append({'code':'interrupted_or_internal_error','message':'Run did not complete; inspect the owned ledger'})
     finally:
+        if observer is not None and not observer.closed:observer.close(grace=False)
         counts=ledger.counts();planned=config.planned_counts()
         accounted=all(row['offered']==sum(row[k] for k in ('acknowledged','rejected','queue_dropped',
             'transport_unknown','injected_gap','cancelled','invalid_ack')) for row in counts.values())
@@ -276,7 +297,7 @@ def run(config):
             expected_faults=config.scenario in ('fault','overload')
             success=accounted and all_offered and not any(row['invalid_ack'] for row in counts.values()) \
                 and (complete or expected_faults) \
-                and (not config.render_events or report['checks']['render_latency']['status']=='passed')
+                and (not (config.render_events or config.observe_render) or report['checks']['render_latency']['status']=='passed')
             report['run_status']='completed' if success else 'failed';status=0 if success else 1
         ledger.close()
         atomic_report(output,report)

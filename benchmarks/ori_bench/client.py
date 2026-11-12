@@ -33,7 +33,7 @@ class Client:
         self.timeout=config.request_timeout
         self.opener=build_opener(NoRedirect())
 
-    def open(self,path,*,method='GET',payload=None):
+    def open(self,path,*,method='GET',payload=None,timeout=None):
         if not path.startswith('/api/v1/') or path.startswith('//'):
             raise BenchmarkError('invalid_route','Only typed API v1 paths are allowed')
         raw=None if payload is None else encode(payload)
@@ -43,7 +43,7 @@ class Client:
         token=os.environ.get('ORI_BENCH_TOKEN')
         if token:headers['Authorization']='Bearer '+token
         request=Request(self.origin+path,data=raw,headers=headers,method=method)
-        try:return self.opener.open(request,timeout=self.timeout)
+        try:return self.opener.open(request,timeout=self.timeout if timeout is None else timeout)
         except HTTPError as error:
             status=error.code;error.close();raise HTTPFailure(status) from None
         except (URLError,OSError,TimeoutError,socket.timeout):

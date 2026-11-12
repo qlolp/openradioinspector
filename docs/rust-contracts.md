@@ -83,8 +83,6 @@ keys, component replacement, operation ID/path collisions, unresolved schema
 references and unresolved path parameters fail before outputs are written.
 Selecting the legacy variant still validates the supplied extension.
 
-The owned live-node probe and its process helpers are delivered in stage 14.
-Once that verification slice is present,
 `tools/contracts/probe_runtime.py --core-binary IMMUTABLE_BINARY --report-dir
 FRESH_DIRECTORY` starts one owned replay node on ephemeral loopback, uses only
 new synthetic measurements, and joins it before completion. It retains raw

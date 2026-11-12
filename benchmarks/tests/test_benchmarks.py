@@ -27,7 +27,8 @@ REPO = Path(__file__).resolve().parents[2]
 class Fixture:
     """A minimal protocol peer, deliberately not evidence of core behavior."""
     def __init__(self, path, *, audio=True, reject=0, corrupt=False, summaries=True, audio_metadata_corrupt=False,
-                 summary_corrupt=False, invalid_ack=False, drop_audio=False, guard_active=None):
+                 summary_corrupt=False, invalid_ack=False, drop_audio=False, guard_active=None, export_delay=0,
+                 unsafe_created_project=False):
         self.db=sqlite3.connect(path,check_same_thread=False)
         self.db.executescript('CREATE TABLE sessions(id PRIMARY KEY,payload);'
             'CREATE TABLE measurements(id PRIMARY KEY,kind,payload);'
@@ -39,6 +40,9 @@ class Fixture:
         self.invalid_ack,self.drop_audio=invalid_ack,drop_audio
         self.time_corrupt=None
         self.guard_active=guard_active
+        self.export_delay=export_delay
+        self.unsafe_created_project=unsafe_created_project
+        self.projects=[];self.first_source_wall_ns=None;self.aborted_seed_requests=0
         self.posts=[]
 
     def handler(self):
@@ -55,21 +59,50 @@ class Fixture:
             def do_GET(self):
                 path=urlsplit(self.path).path
                 pieces=[unquote(p) for p in path.strip('/').split('/')]
+                if path.endswith('/sweeps') and 'aborted_seed=1' in self.path:
+                    with fixture.lock:fixture.aborted_seed_requests+=1
+                    self.send_response(200);self.send_header('Content-Length','4096')
+                    self.end_headers();self.wfile.flush();time.sleep(2)
+                    return
                 with fixture.lock:
                     if path=='/api/v1/capabilities':
                         self.reply(200,{'persistent_archive':True,'features':{
                             'audio_segment_ingest':fixture.audio,'measurement_batch_ingest':True,
                             'measurement_batch_limit':100,'measurement_batch_max_request_bytes':1048576,
                             'session_archive_export_ndjson':True,'sweep_summaries':fixture.summaries,
+                            'monitoring_projects':True,
                             'monitoring_guard':fixture.guard_active is not None}})
                     elif path=='/api/v1/monitoring-projects':
-                        self.reply(200,{'items':[{'id':'fixture-project'}] if fixture.guard_active is not None else [],'next_cursor':None})
+                        self.reply(200,{'items':fixture.projects or ([{'id':'fixture-project'}] if fixture.guard_active is not None else []),'next_cursor':None})
                     elif path=='/api/v1/monitoring-projects/fixture-project/status':
                         self.reply(200,{'active':fixture.guard_active,'receiver_busy':False})
+                    elif path=='/api/v1/monitoring-projects/fixture-owned-project/status':
+                        self.reply(200,{'active':fixture.unsafe_created_project,'receiver_busy':False})
+                    elif path=='/modern/':
+                        raw=b'''<input type="checkbox" data-testid="legacy-compatibility-consent">
+                        <button data-testid="legacy-compatibility-continue">Continue</button>
+                        <h1 data-testid="workspace-heading" hidden>Controlled fixture</h1>
+                        <select aria-label="Project" data-testid="project-select"></select><canvas class="spectrum" width="400" height="100"></canvas>
+                        <script>async function boot(){
+                        const projects=(await (await fetch('/api/v1/monitoring-projects')).json()).data.items;
+                        const project=projects[0];
+                        const select=document.querySelector('select');select.add(new Option(project.name,project.id));select.value=project.id;
+                        const uri='/api/v1/sessions/'+project.active_session_id+'/sweeps?limit=1';
+                        const abort=new AbortController();const cancelled=await fetch(uri+'&aborted_seed=1',{signal:abort.signal});
+                        abort.abort();try{await cancelled.json()}catch{}
+                        await (await fetch(uri)).json();let previous='';
+                        setInterval(async()=>{const rows=(await (await fetch(uri)).json()).data;const value=rows[0];
+                          if(value&&value.id!==previous){previous=value.id;const canvas=document.querySelector('canvas');
+                            canvas.getContext('2d').fillRect(0,0,400,100);requestAnimationFrame(()=>requestAnimationFrame(()=>canvas.dataset.sweepId=value.id));}},25);
+                        }document.querySelector('button').onclick=()=>{if(document.querySelector('input').checked){
+                         document.querySelector('h1').hidden=false;boot();}};</script>'''
+                        self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8')
+                        self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
                     elif path=='/api/v1/health':
                         count=fixture.db.execute('SELECT COUNT(*) FROM measurements').fetchone()[0]
                         self.reply(200,{'last_event_id':count+1,'fixture':True})
                     elif path.endswith('/archive/export.ndjson'):
+                        if fixture.export_delay:time.sleep(fixture.export_delay)
                         rows=fixture.db.execute('SELECT kind,payload FROM measurements ORDER BY id')
                         self.send_response(200)
                         self.send_header('Content-Type','application/x-ndjson')
@@ -117,7 +150,13 @@ class Fixture:
                             self.reply(409,{});return
                         fixture.db.execute('INSERT INTO sessions VALUES (?,?)',(value['id'],json.dumps(value)))
                         fixture.db.commit();self.reply(201,value)
+                    elif path=='/api/v1/monitoring-projects':
+                        project={'id':'fixture-owned-project','name':value['name'],'state':'armed' if fixture.unsafe_created_project else 'draft',
+                            'autostart':False,'active_session_id':value['session_id'],
+                            'analyzer_stream_id':value['session_id']+'-spectrum','receiver_stream_id':value['session_id']+'-receiver'}
+                        fixture.projects.append(project);self.reply(201,project)
                     elif path.endswith('/sweeps/batch') or path.endswith('/observations/batch'):
+                        if fixture.first_source_wall_ns is None:fixture.first_source_wall_ns=time.time_ns()
                         kind='sweep' if '/sweeps/' in path else 'observation'
                         items=value['items']
                         if (fixture.reject and len(fixture.posts)%fixture.reject==0) or any(
@@ -158,12 +197,12 @@ class BenchmarkTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root=Path(self.temporary.name)
 
-    def command(self,url,*,output=None,more=(),command='run'):
+    def command(self,url,*,output=None,more=(),command='run',timeout=40):
         return subprocess.run([sys.executable,'-m','benchmarks.ori_bench',command,
             '--base-url',url,'--output-dir',str(output or self.root/'results'),
             '--run-id','fixture-bench','--endpoint-label','controlled-http-fixture',
             '--duration-seconds','0.2','--audio-segment-seconds','0.1','--points','4',
-            '--speed','100','--history-repeats','3',*more],cwd=REPO,capture_output=True,text=True,timeout=40)
+            '--speed','100','--history-repeats','3',*more],cwd=REPO,capture_output=True,text=True,timeout=timeout)
 
     def test_default_target_counts_all_offered_and_complete_audio(self):
         from benchmarks.ori_bench.config import Config
@@ -396,9 +435,19 @@ class BenchmarkTests(unittest.TestCase):
             output=self.root/'browser-render.ndjson'
             command=[os.environ.get('ORI_BENCH_NODE','node'),str(REPO/'benchmarks/observe-render.mjs'),
                 '--url',f'http://127.0.0.1:{server.server_port}','--output',str(output),
-                '--run-id','fixture-bench','--clients','3','--duration-seconds','.5']
-            process=subprocess.run(command,capture_output=True,text=True,timeout=30)
-            self.assertEqual(process.returncode,0,process.stdout+process.stderr)
+                '--run-id','fixture-bench','--clients','3','--duration-seconds','.5',
+                '--stop-file',str(self.root/'optional-stop')]
+            process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            deadline=time.monotonic()+30
+            while time.monotonic()<deadline and process.poll() is None:
+                if output.exists() and 'observer_summary' in output.read_text():break
+                time.sleep(.05)
+            try:stdout,stderr=process.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                (self.root/'optional-stop').touch()
+                stdout,stderr=process.communicate(timeout=5)
+                self.fail('Completed observer left a stop-file polling handle alive')
+            self.assertEqual(process.returncode,0,stdout+stderr)
             rows=[json.loads(line) for line in output.read_text().splitlines()]
             self.assertEqual(rows[0]['clients'],3)
             renders=[row for row in rows if row['kind']=='render']
@@ -477,6 +526,62 @@ class BenchmarkTests(unittest.TestCase):
             report=json.loads((self.root/'results/report.json').read_text())
             self.assertEqual(report['errors'][0]['code'],'unsafe_target')
             self.assertEqual(fixture.posts,[])
+
+    def test_bulk_snapshot_first_response_has_its_own_bounded_timeout(self):
+        with http_fixture(self.root/'peer.sqlite',export_delay=.5) as (_,url):
+            process=self.command(url,more=('--request-timeout','.25','--bulk-timeout','2'))
+            self.assertEqual(process.returncode,0,process.stdout+process.stderr)
+            report=json.loads((self.root/'results/report.json').read_text())
+            self.assertEqual(report['workload']['request_timeout'],.25)
+            self.assertEqual(report['workload']['bulk_timeout'],2)
+            self.assertEqual(report['checks']['archive_integrity']['status'],'passed')
+
+    def test_owned_observer_rejects_missing_tool_before_session_creation(self):
+        with http_fixture(self.root/'peer.sqlite') as (fixture,url):
+            process=self.command(url,more=('--observe-render','--observer-node',str(self.root/'missing-node')))
+            self.assertNotEqual(process.returncode,0)
+            report=json.loads((self.root/'results/report.json').read_text())
+            self.assertEqual(report['run_status'],'unsupported')
+            self.assertEqual(fixture.posts,[])
+
+    def test_owned_observer_cannot_reuse_an_existing_session(self):
+        with http_fixture(self.root/'peer.sqlite') as (fixture,url):
+            self.assertEqual(self.command(url).returncode,0)
+            before=list(fixture.posts)
+            process=self.command(url,output=self.root/'second',more=('--observe-render','--observer-node',sys.executable))
+            self.assertNotEqual(process.returncode,0)
+            report=json.loads((self.root/'second/report.json').read_text())
+            self.assertEqual(report['errors'][0]['code'],'existing_session')
+            self.assertEqual(fixture.posts,before)
+
+    def test_owned_observer_refuses_armed_project_before_any_source_offer(self):
+        with http_fixture(self.root/'peer.sqlite',unsafe_created_project=True) as (fixture,url):
+            process=self.command(url,more=('--observe-render','--observer-node',sys.executable))
+            self.assertNotEqual(process.returncode,0)
+            report=json.loads((self.root/'results/report.json').read_text())
+            self.assertEqual(report['errors'][0]['code'],'unsafe_target')
+            self.assertEqual(fixture.posts,['/api/v1/sessions','/api/v1/monitoring-projects'])
+            self.assertIsNone(fixture.first_source_wall_ns)
+
+    @unittest.skipUnless(os.environ.get('ORI_BENCH_PLAYWRIGHT_TEST'),'Owned observer integration uses explicitly enabled local browser')
+    def test_owned_project_readiness_precedes_all_actual_offered_inputs(self):
+        with http_fixture(self.root/'peer.sqlite') as (fixture,url):
+            process=self.command(url,timeout=60,more=('--observe-render','--observer-node',os.environ.get('ORI_BENCH_NODE','node'),
+                '--duration-seconds','1','--audio-segment-seconds','1','--speed','1','--observer-ready-timeout','20'))
+            self.assertIn(process.returncode,(0,1),process.stdout+process.stderr)
+            report=json.loads((self.root/'results/report.json').read_text())
+            self.assertEqual(report['counts']['sweep']['offered'],10)
+            self.assertEqual(report['counts']['sweep']['verified'],10)
+            self.assertEqual(report['observer_setup']['state'],'draft')
+            self.assertFalse(report['observer_setup']['guard_active'])
+            ready=json.loads((self.root/'results/render-ready.json').read_text())
+            self.assertEqual(ready['clients'],3)
+            self.assertEqual(ready['legacy_consent_pages'],3)
+            self.assertEqual(fixture.aborted_seed_requests,3)
+            self.assertLessEqual(int(ready['ready_wall_ns']),fixture.first_source_wall_ns)
+            self.assertTrue((self.root/'results/render-events.ndjson').read_text().splitlines()[-1].find('observer_summary')>=0)
+            self.assertIn(report['checks']['render_latency']['status'],('passed','failed'))
+            self.assertFalse(any('/arm' in route or '/disarm' in route or '/workers' in route for route in fixture.posts))
 
 
 if __name__=='__main__': unittest.main()

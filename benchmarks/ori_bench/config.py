@@ -42,6 +42,7 @@ class Config:
     workers:int=2
     queue_capacity:int=64
     request_timeout:float=10.0
+    bulk_timeout:float=600.0
     drain_seconds:float=60.0
     history_repeats:int=20
     sweeps:int=1_000_000
@@ -53,6 +54,11 @@ class Config:
     sample_interval:float=0.5
     pids:dict=field(default_factory=dict)
     render_events:str|None=None
+    observe_render:bool=False
+    observer_node:str='node'
+    observer_clients:int=3
+    observer_ready_timeout:float=60.0
+    observer_grace_seconds:float=2.0
 
     def __post_init__(self):
         url=urlsplit(self.base_url)
@@ -69,11 +75,11 @@ class Config:
             value=getattr(self,name)
             if type(value) is not int or not 1<=value<=maximum:
                 raise BenchmarkError('invalid_config','Workload integer is outside supported bounds: '+name)
-        for name in ('speed','request_timeout','drain_seconds','sample_interval'):
+        for name in ('speed','request_timeout','bulk_timeout','drain_seconds','sample_interval'):
             value=getattr(self,name)
             if type(value) not in (int,float) or not math.isfinite(value) or value<=0:
                 raise BenchmarkError('invalid_config','Invalid positive finite setting: '+name)
-        if self.sample_interval<.01 or self.request_timeout>120 or self.drain_seconds>3600:
+        if self.sample_interval<.01 or self.request_timeout>120 or self.bulk_timeout>3600 or self.drain_seconds>3600:
             raise BenchmarkError('invalid_config','Sampling, request, or drain interval exceeds supported bounds')
         if self.duration_us>366*86400*1_000_000 or self.segment_us>60*1_000_000:
             raise BenchmarkError('invalid_config','Duration or audio segment exceeds the bounded workload limit')
@@ -88,6 +94,16 @@ class Config:
             raise BenchmarkError('explicit_opt_in_required','The million-sweep history fixture requires --allow-million')
         if not isinstance(self.endpoint_label,str) or not 0<len(self.endpoint_label)<=128:
             raise BenchmarkError('invalid_config','Endpoint label must be bounded text')
+        if type(self.observe_render) is not bool or type(self.observer_clients) is not int or not 1<=self.observer_clients<=8 \
+                or not isinstance(self.observer_node,str) or not 0<len(self.observer_node)<=4096:
+            raise BenchmarkError('invalid_config','Invalid owned observer configuration')
+        if type(self.observer_ready_timeout) not in (int,float) or type(self.observer_grace_seconds) not in (int,float) \
+                or not math.isfinite(self.observer_ready_timeout) or not 1<=self.observer_ready_timeout<=120 \
+                or not math.isfinite(self.observer_grace_seconds) or not 0<=self.observer_grace_seconds<=10:
+            raise BenchmarkError('invalid_config','Observer readiness or grace timeout is outside bounded limits')
+        if self.observe_render and (self.mode!='run' or self.render_events is not None \
+                                    or self.duration_seconds/self.speed>86000):
+            raise BenchmarkError('invalid_config','Owned render observation needs a scheduled run without external evidence')
         for label,pid in self.pids.items():
             if label=='harness' or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_-]{0,31}',label) or type(pid) is not int or pid<=0:
                 raise BenchmarkError('invalid_config','Process roots must be label=positive-pid')

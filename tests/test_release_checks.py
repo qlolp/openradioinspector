@@ -61,11 +61,32 @@ class ReleaseGateTests(unittest.TestCase):
                 pass
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "results.json"
-            with patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Skipped("test_missing_fixture")])), redirect_stderr(io.StringIO()):
+            with patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Skipped("test_missing_fixture")])), \
+                    patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite()), redirect_stderr(io.StringIO()):
                 self.assertEqual(release.run_python_suite(path), 1)
             report = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(report["tests_run"], 1)
         self.assertEqual(len(report["unexpected_skips"]), 1)
+
+    def test_linux_packaging_suite_runs_only_for_its_target_without_platform_skips(self):
+        class Passing(unittest.TestCase):
+            def runTest(self):
+                self.assertTrue(True)
+        for platform, count in (("linux", 2), ("darwin", 1), ("win32", 1)):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "result.json"
+                with patch.object(release.sys, "platform", platform), \
+                        patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Passing()])), \
+                        patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite([Passing()])) as extra, \
+                        redirect_stderr(io.StringIO()):
+                    self.assertEqual(release.run_python_suite(path), 0)
+                report = json.loads(path.read_text())
+                self.assertEqual(report["tests_run"], count)
+                self.assertEqual(report["skipped"], [])
+                if platform == "linux":
+                    extra.assert_called_once_with("tests.offline_core_release_checks")
+                else:
+                    extra.assert_not_called()
 
     def test_python_suite_rejects_empty_discovery(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), redirect_stderr(io.StringIO()):
@@ -464,14 +485,13 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         self.assertNotIn("Timeout", after)
 
     def test_interrupted_command_is_reaped(self):
-        process = Mock()
-        process.wait.side_effect = [KeyboardInterrupt, None, None]
-        process.poll.return_value = None
-        with patch.object(release.subprocess, "Popen", return_value=process), patch.object(release, "_signal_group", side_effect=lambda _process, signum: signum != 0) as group, patch.object(release.sys, "platform", "darwin"), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
-            release.run_command(["synthetic-command"], name="interrupted", environment=self.environment,
-                                directory=self.directory, timeout=1)
-        self.assertEqual(group.call_args_list[0].args, (process, release.signal.SIGTERM))
-        process.kill.assert_not_called()
+        owner = Mock(); owner.directory = self.directory / "model-owner"
+        owner.wait.side_effect = KeyboardInterrupt
+        with patch.object(release.process_ownership.OwnedCommand, "start", return_value=owner), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+            release._run_posix_command(["synthetic-command"], name="interrupted", environment=self.environment,
+                                       directory=self.directory, timeout=1, shutdown_timeout=2)
+        owner.stop.assert_called_once()
+        owner.release.assert_not_called()
 
     def test_timed_out_command_descendant_is_stopped_but_unrelated_child_survives(self):
         ready = self.directory / "descendant-started"
@@ -484,7 +504,17 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
                                       f"Path({str(unrelated_done)!r}).write_text('done')"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: unrelated.wait(timeout=5))
-        with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        wait_target = release.process_ownership.OwnedCommand if os.name == "posix" else subprocess.Popen
+        original_wait = wait_target.wait
+        def wait_after_child_start(process, timeout=None):
+            if timeout == 0.7:
+                deadline = time.monotonic() + 8
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(.005)
+                self.assertTrue(ready.exists(), "owned descendant did not become ready")
+                return original_wait(process, timeout=.1)
+            return original_wait(process, timeout=timeout)
+        with patch.object(wait_target, "wait", wait_after_child_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="descendant-timeout",
                                 environment=self.environment, directory=self.directory,
                                 timeout=0.7, shutdown_timeout=2)
@@ -510,7 +540,8 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         # Exercise a real wait timeout after the nested session has started.
         # The old 0.8s launch budget raced four Python/supervisor startups under
         # load and sometimes never reached the cleanup scenario being tested.
-        original_wait = subprocess.Popen.wait
+        wait_target = release.process_ownership.OwnedCommand if os.name == "posix" else subprocess.Popen
+        original_wait = wait_target.wait
         def wait_after_nested_start(process, timeout=None):
             if timeout == 10:
                 deadline = time.monotonic() + 8
@@ -519,7 +550,7 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
                 self.assertTrue(ready.exists(), 'nested child did not start')
                 return original_wait(process, timeout=0.05)
             return original_wait(process, timeout=timeout)
-        with patch.object(subprocess.Popen, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        with patch.object(wait_target, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="outer-timeout",
                                 environment=self.environment, directory=self.directory,
                                 timeout=10, shutdown_timeout=2)
@@ -559,15 +590,23 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
     def test_posix_supervisor_cannot_start_before_group_registration(self):
         events = []
         process = Mock()
-        process.returncode = 0
+        identity = release.process_ownership.ProcessIdentity(12345, 10, 12345, 12345, 9876)
+        process.pid = identity.pid
         process.stdin.write.side_effect = lambda _data: events.append("start")
-        def register(*_args):
-            events.append("register")
-            return None
-        with patch.object(release.sys, "platform", "darwin"), patch.object(release, "_register_group", side_effect=register), patch.object(release, "_signal_group", return_value=False), patch.object(release.subprocess, "Popen", return_value=process), redirect_stdout(io.StringIO()):
-            release.run_command(["synthetic-command"], name="posix-gate", environment=self.environment,
-                                directory=self.directory, timeout=1)
-        self.assertEqual(events, ["register", "start"])
+        kernel = Mock(); kernel.identity.return_value = identity
+        meta = dict(version=1, owner="a" * 32, anchor=release.process_ownership.asdict(identity))
+        scope = self.directory / "model-scope"; scope.mkdir(mode=0o700)
+        # Portable model of the POSIX gate; real Linux/Darwin tests separately
+        # exercise private file permissions and actual child/session metadata.
+        with patch.object(release.process_ownership, "local_kernel", return_value=kernel), \
+                patch.object(release.process_ownership, "_independent_directory", return_value=scope), \
+                patch.dict(release.process_ownership._retained_commands, {}, clear=True), \
+                patch.object(release.subprocess, "Popen", return_value=process), \
+                patch.object(release.process_ownership, "write_record", side_effect=lambda *_args: events.append("register")), \
+                patch.object(release.process_ownership, "_meta", return_value=(meta, identity)):
+            release.process_ownership.OwnedCommand.start(["synthetic-command"], environment=self.environment,
+                registry=self.directory, root=release.ROOT, log=io.StringIO(), shutdown_timeout=2)
+        self.assertEqual(events, ["register", "register", "register", "start"])
 
     def test_registration_is_retained_until_the_owned_group_is_gone(self):
         record = self.directory / "123.pid"
@@ -777,9 +816,22 @@ class IsolatedTkHarnessTests(unittest.TestCase):
                     return wait(timeout=timeout)
                 process.wait = wait_after_ready
                 return process
+            original_owner_wait = release.process_ownership.OwnedCommand.wait
+            def owner_wait_after_ready(owner, timeout):
+                deadline = time.monotonic() + 20
+                while not ready.exists():
+                    if time.monotonic() >= deadline:
+                        self.fail("synthetic child did not become ready within startup allowance")
+                    status = owner.status()
+                    if status is not None and status["phase"] == "exited":
+                        self.fail("synthetic child exited before readiness")
+                    time.sleep(0.01)
+                return original_owner_wait(owner, .3)
             # Start the short timeout only once the real nested child is ready;
             # cold Windows/macOS Python imports get a separate startup allowance.
-            with patch.object(release.subprocess, "Popen", side_effect=start), \
+            wait_patch = (patch.object(release.process_ownership.OwnedCommand, "wait", owner_wait_after_ready)
+                          if os.name == "posix" else patch.object(release.subprocess, "Popen", side_effect=start))
+            with wait_patch, \
                     redirect_stdout(io.StringIO()) as output, self.assertRaises(subprocess.TimeoutExpired):
                 release.run_command([sys.executable, "-c", parent], name="isolated-outer-timeout",
                                     environment=release.child_environment(), directory=root,

@@ -54,11 +54,13 @@ per 10-second segment. The final segment may be shorter for a custom duration;
 the last PCM frame is still offered. Audio boundaries must be exact complete
 frames representable by the configured microsecond times.
 
-The complete plan gate also needs three actual clients and externally started
-research/export/backup background work on that disposable node. The producer
-does not launch those jobs or infer their activity from a PID. Record their
-process roots and arrange them through the owning supervisor; background
-concurrency is otherwise unmeasured.
+The complete plan gate also needs three actual clients and concurrent
+research/export/backup work on that disposable node. The producer itself does
+not launch those jobs or infer their activity from a PID. The separate
+[trusted Core embedding fixture](modernization-concurrent-load.md) composes this
+unchanged producer with one backup, a bounded live export, a real public History
+job and the existing three-client observer. Background concurrency remains
+unmeasured unless its actual receipts, QoS state and overlap are observed.
 
 Change duration/rates/points with `--duration-seconds`, `--sweep-rate`,
 `--observation-rate`, and `--points`. `--speed` accelerates the schedule only;
@@ -67,6 +69,12 @@ it does not simulate a faster core or establish a real-time stress result.
 offer before nonblocking enqueue, independent of acknowledgements. A full queue
 records a drop and continues offering; it never reduces the offered denominator
 to make delivery look complete. Drain and HTTP deadlines are configurable.
+Control and ingestion requests retain the 10-second `--request-timeout` default.
+Bulk snapshot/export and WAV reads use a separate `--bulk-timeout`, default
+600 seconds, capped at 3,600 seconds. This bounds each blocking socket operation,
+including the wait for a consistent snapshot before the first response byte;
+it does not change the offered schedule or ingestion deadline. Large opt-in
+history fixtures may need an explicitly selected bulk timeout.
 
 Explicit overload and fault scenarios:
 
@@ -105,6 +113,12 @@ offer seven days of continuous audio, restart the service, advance its clock,
 or establish seven-day service endurance. `seven_day_service_endurance` remains
 unmeasured. Service restart/cutover/disk-full and physical fault orchestration
 must be performed by an external owner of the disposable core.
+
+The separate [owned Rust sampled-lifecycle harness](rust-sampled-lifecycle.md)
+reuses this producer and owns two same-archive candidate restarts. It reports
+exact raw/WAV/event preservation and missing routes separately. It remains an
+accelerated sampled timeline, with no continuous-audio or physical-endurance
+acceptance claim.
 
 ## Million-sweep history fixture
 
@@ -198,9 +212,44 @@ supervisor. Keep producer/report storage separate when measuring core disk I/O.
 
 ## Optional passive render observer
 
+The integrated owned-node workflow is reproducible without pre-creating or
+reusing a source session:
+
+```sh
+ORI_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+ORI_BROWSER_EXECUTABLE=/absolute/path/to/chromium \
+python -m benchmarks.ori_bench run --base-url http://127.0.0.1:8765 \
+  --output-dir /tmp/ori-render-load-001 --run-id render-load-001 --observe-render \
+  --observer-node /absolute/path/to/node --observer-clients 3 --pid core=1234
+```
+
+This optional mode requires a newly created session and creates one draft
+monitoring project bound to its synthetic streams. It verifies `autostart:false`,
+an inactive guard and idle receiver; it never arms or disarms anything. Each
+private browser page explicitly checks the HTTP-loopback legacy compatibility
+consent and clicks Continue when that gate is presented, using the client's
+stable test IDs. There is no environment bypass or stored credential. A paired
+workspace may proceed through its existing approved connection state. The
+observer then selects the owned project in the local view, waits for a completed
+successful seed request (ignoring canceled replacement requests), a visible
+spectrum canvas and two animation frames, and
+atomically publishes `render-ready.json`. Only then does the producer start its
+unchanged 1,800-second offered schedule.
+
+After the producer drains, a bounded grace interval (default two seconds) allows
+the last draw, then the observer flushes and stops. Raw archive and WAV checks
+run even when the observer fails; complete observation evidence is correlated
+after those checks. The report includes `observer_setup`, `render-events.ndjson`,
+readiness and lifecycle outcomes. Existing sessions are never accepted by this
+hook, and measurement/stream payloads are not changed to make UI setup work.
+`--observer-ready-timeout` defaults to 60 seconds (maximum 120); readiness failures
+stop before any offered input. `--observer-grace-seconds` is bounded to 0–10.
+The hook is for scheduled runs and cannot be combined with `--render-events`.
+
 The client host must set `data-sweep-id` on a visible rendered element **after**
 the corresponding draw completes. The observer cannot establish that ordering
-on its own. It does not click, tune, start a worker, or modify the client data.
+on its own. The integrated mode performs only the explicit connection consent
+and local project selection; it does not tune, start a worker, or edit source data.
 The optional Node/Playwright tool opens three 1920×1080 pages and records bounded
 after-draw markers. Supply a local installed Playwright module and browser when
 they are not discoverable normally; no packages are downloaded by the observer.
@@ -211,6 +260,11 @@ ORI_BROWSER_EXECUTABLE=/absolute/path/to/chromium \
 node benchmarks/observe-render.mjs --url http://127.0.0.1:8765/ \
   --output /tmp/ori-render-001.ndjson --run-id stress-001 --clients 3 --duration-seconds 1900
 ```
+
+The standalone command stays passive unless given `--session-id`, `--project-id`
+and a new `--ready-file` beside its output. Those options use the same explicit
+connection gate and readiness steps. An optional `--stop-file` supports graceful
+external shutdown; the duration timer remains a bounded fallback.
 
 Run the load in parallel against the same displayed synthetic session. Wait for
 the observer to finish, then attach its evidence to the completed owned report:

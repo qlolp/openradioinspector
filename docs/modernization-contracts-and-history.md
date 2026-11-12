@@ -41,13 +41,24 @@ is decoded at a time. Persistent archives permit two independent short WAL
 read transactions; a full read pool returns 503 and leaves ingestion available.
 No new full-archive scan or source rewrite runs during startup.
 
+Persistent SSE replay reads committed events from the durable cursor, including
+records older than the in-memory tail. Each HTTP subscriber holds a wakeup flag
+and one current source event; ingestion does not copy full vectors into client
+queues. Independent short WAL reads leave the writer available, and a busy read
+pool delays replay until a reader becomes available. Registering the flag before
+reading and clearing it before each query covers commits during live handoff.
+Heartbeat waits and stream lifetime are separate from the HTTP body deadline.
+Memory-only replay retains its existing bounded-tail semantics.
+
 `features.audio_segment_ingest` advertises
 `POST /api/v1/sessions/{id}/audio-segments` with `id`, receiver `stream_id`,
 integer `frequency_hz`, requested `mode`, UTC `interval`, complete mono PCM16 WAV
 `data_base64`, and lowercase `sha256`. The existing 16 MiB measurement request
 budget and strict framing/deadline apply. The interval must match complete PCM
-frames to one microsecond. Original WAV bytes are retained without reencoding;
-the response includes `sample_rate` and `frame_count` in artifact metadata.
+frames to one microsecond. Original WAV bytes are retained without reencoding.
+Format bits, channel count, byte rate and block alignment must consistently
+declare mono PCM16, and every RIFF chunk must be complete.
+The response includes `sample_rate` and `frame_count` in artifact metadata.
 An ID can be committed only once (409 on conflict). Artifact and summary-only
 `audio_segment.received` event commit together before publication. Existing
 scoped instrument-artifact reads also serve receiver audio; control routes
@@ -68,7 +79,10 @@ requests before reading bodies, stops new mutation admission during closure,
 and drains admitted work. Shutdown preserves opt-in guard intent and closes
 monitoring before device workers. A cleanup failure retains ownership instead
 of permitting a second writer. See `python-runtime-bridge.md` for the private
-protocol. Unsupervised legacy launch remains available.
+protocol. An unsupervised persistent Python server acquires the same writer
+lease before opening SQLite and retains it after an unconfirmed cleanup.
+Memory-only service startup remains inert. A caller supplying its own already
+constructed SessionService also owns that service's archive admission/lifetime.
 
 All checks in this slice use synthetic HTTP, archives and audio. This does not
 establish Pi throughput, real audio wiring, USB behavior or physical acceptance.

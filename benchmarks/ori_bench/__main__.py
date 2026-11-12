@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -26,6 +27,7 @@ def main(argv=None):
     parser.add_argument('--workers',type=int,default=2)
     parser.add_argument('--queue-capacity',type=int,default=64)
     parser.add_argument('--request-timeout',type=float,default=10)
+    parser.add_argument('--bulk-timeout',type=float,default=600)
     parser.add_argument('--drain-seconds',type=float,default=60)
     parser.add_argument('--history-repeats',type=int,default=20)
     parser.add_argument('--sweeps',type=int,default=1000000)
@@ -37,6 +39,11 @@ def main(argv=None):
     parser.add_argument('--sample-interval',type=float,default=.5)
     parser.add_argument('--pid',action='append',default=[],help='Process tree root, label=PID; repeatable')
     parser.add_argument('--render-events')
+    parser.add_argument('--observe-render',action='store_true')
+    parser.add_argument('--observer-node',default=os.environ.get('ORI_BENCH_NODE','node'))
+    parser.add_argument('--observer-clients',type=int,default=3)
+    parser.add_argument('--observer-ready-timeout',type=float,default=60)
+    parser.add_argument('--observer-grace-seconds',type=float,default=2)
     args=vars(parser.parse_args(argv))
     try:
         args['pids']={label:int(pid) for label,pid in (value.split('=',1) for value in args.pop('pid'))}

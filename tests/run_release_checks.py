@@ -1,8 +1,11 @@
 """Run the complete synthetic release checks, without accessing physical devices.
 
 Usage: python -m tests.run_release_checks [--swift]
+       python -m tests.run_release_checks --modern --research-python PATH [--swift]
 Requires NumPy, pySerial, Node and a working Tk display (use xvfb-run on Linux).
 --swift additionally runs both macOS packages and an unsigned Xcode build.
+--modern selects the additive modernization profile; its --swift checks only
+the portable contracts package. Full releases require both profiles.
 Only private child processes, ephemeral loopback servers and temporary archives
 are owned here. Hardware acceptance remains a separate, explicit operation.
 """
@@ -28,6 +31,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from tests.loopback_dns import local_loopback_names
+from tests import release_process_ownership as process_ownership
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +235,12 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
                 raise ReleaseCheckError("Single-test selection must resolve to exactly the requested case")
         else:
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
+            # ELF relocation/AF_UNIX packaging belongs to the Linux target.
+            # Load that suite explicitly instead of creating platform skips in
+            # every Windows/macOS release. Never mask empty base discovery.
+            if suite.countTestCases() and sys.platform.startswith("linux"):
+                suite.addTests(unittest.defaultTestLoader.loadTestsFromName(
+                    "tests.offline_core_release_checks"))
             suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
@@ -461,11 +471,21 @@ def _registered_groups(registry: Path):
         yield record, SimpleNamespace(pid=int(record.stem), poll=lambda: None, wait=lambda **_kwargs: None)
 
 
-def _cleanup_registry(registry: Path, timeout: float) -> None:
+def _cleanup_registry(registry: Path, timeout: float, *, exclude_session: Path | None = None) -> None:
     errors = []
+    deadline = time.monotonic() + timeout
+    for owner in process_ownership.registered_commands(registry, exclude=exclude_session):
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:raise process_ownership.OwnershipError("Nested cleanup deadline; ownership retained")
+            owner.stop(remaining)
+        except (OSError, process_ownership.OwnershipError, TimeoutError) as error:
+            errors.append(str(error))
     for record, group in _registered_groups(registry):
         try:
-            _stop_command(group, timeout)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:raise ReleaseCheckError("Nested cleanup deadline; ownership retained")
+            _stop_command(group, remaining)
             record.unlink(missing_ok=True)
         except (OSError, ReleaseCheckError, subprocess.SubprocessError) as error:
             errors.append(f"owned group {group.pid}: {error}")
@@ -533,9 +553,69 @@ def _stop_command(process: subprocess.Popen, timeout: float, job: WindowsJob | N
             time.sleep(0.05)
 
 
+def _run_posix_command(command: list[str], *, name: str, environment: dict[str, str],
+                       directory: Path, timeout: float, shutdown_timeout: float) -> str:
+    environment = environment.copy()
+    parent_registry = Path(environment.get("ORI_RELEASE_PROCESS_REGISTRY", directory))
+    registry = Path(tempfile.mkdtemp(prefix=name + ".groups-", dir=parent_registry))
+    environment["ORI_RELEASE_PROCESS_REGISTRY"] = str(registry)
+    path = directory / (name + ".log")
+    print(f"\n== {name}: {' '.join(command)} ==", flush=True)
+    owner = None
+    with path.open("w", encoding="utf-8") as log:
+        try:
+            owner = process_ownership.OwnedCommand.start(command, environment=environment,
+                registry=registry, root=ROOT, log=log, shutdown_timeout=shutdown_timeout)
+            registry = owner.directory / "groups"
+            actual_status = owner.wait(timeout)
+            if owner.authority.members():
+                raise ReleaseCheckError(f"{name}: command left an active owned descendant")
+            for nested in process_ownership.registered_commands(registry, exclude=owner.directory):
+                status = nested.status()
+                if status is None or status["phase"] != "released":
+                    raise ReleaseCheckError(f"{name}: command left an active nested descendant")
+                nested.stop(shutdown_timeout)
+            for record, group in _registered_groups(registry):
+                if _signal_group(group, 0):
+                    raise ReleaseCheckError(f"{name}: command left an active nested descendant")
+                record.unlink(missing_ok=True)
+            # The actual child status is known, but the session anchor has not
+            # exited or been reaped. Both ends verify closure before release.
+            owner.release(shutdown_timeout)
+        except BaseException as error:
+            cleanup_errors = []
+            deadline = time.monotonic() + shutdown_timeout
+            if owner is not None:
+                try:owner.stop(max(.001, deadline - time.monotonic()))
+                except BaseException as cleanup_error:cleanup_errors.append(str(cleanup_error))
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if any(registry.rglob("*.pid")) or any(process_ownership.registered_commands(registry)):
+                        raise ReleaseCheckError("Cleanup deadline; ownership retained")
+                else:
+                    _cleanup_registry(registry, remaining, exclude_session=owner.directory if owner is not None else None)
+            except BaseException as cleanup_error:cleanup_errors.append(str(cleanup_error))
+            print(_read(path), end="", flush=True)
+            if cleanup_errors:
+                recovery = f"; recovery record: {owner.directory / 'recovery.json'}" if owner is not None else ""
+                raise ReleaseCheckError(f"{name}: {error}; cleanup failed: " + "; ".join(cleanup_errors) + recovery) from error
+            if isinstance(error, process_ownership.OwnershipError):
+                raise ReleaseCheckError(f"{name}: {error}") from error
+            raise
+    output = _read(path)
+    print(output, end="" if output.endswith("\n") else "\n", flush=True)
+    if actual_status:
+        raise ReleaseCheckError(f"{name} exited with status {actual_status}")
+    return output
+
+
 def run_command(command: list[str], *, name: str, environment: dict[str, str],
                 directory: Path, timeout: float, shutdown_timeout: float = 15) -> str:
     """Capture UTF-8 diagnostics and reap only this command's owned process tree."""
+    if os.name == "posix" and sys.platform != "win32":
+        return _run_posix_command(command, name=name, environment=environment,
+                                  directory=directory, timeout=timeout, shutdown_timeout=shutdown_timeout)
     path = directory / (name + ".log")
     print(f"\n== {name}: {' '.join(command)} ==", flush=True)
     environment = environment.copy()
@@ -730,13 +810,60 @@ def validate_swift_output(output: str, name: str) -> None:
         raise ReleaseCheckError(f"{name}: no executed XCTest tests were reported")
 
 
+def modern_commands(directory, environment, *, research_python, swift):
+    from tools.modernization.checks import commands
+    return commands(ROOT,directory,environment,research_python=research_python,swift=swift)
+
+
+def run_modern_checks(directory, environment, *, research_python, swift, command_timeout, shutdown_timeout):
+    from tools.modernization.checks import count_tests
+    path=directory/'modern-results.json'
+    report={'profile':'modern','successful':False,'hardware_validation':'not_run',
+            'swift_scope':'portable-contracts' if swift else 'not_requested','checks':[]}
+    current=None
+    try:
+        if not research_python:
+            raise ReleaseCheckError('--modern requires --research-python pointing to an isolated Python 3.15.1 environment')
+        checks=modern_commands(directory,environment,research_python=research_python,swift=swift)
+        if not checks or not any(check.kind in ('rust','node','python','swift','vitest') for check in checks):
+            raise ReleaseCheckError('Modernization profile has no test suites')
+        report['checks']=[{'name':check.name,'status':'not_run','tests_run':None} for check in checks]
+        for check,current in zip(checks,report['checks']):
+            current['status']='running'
+            current['command']=check.command
+            started=time.monotonic()
+            try:
+                child=environment.copy()
+                child.update(check.environment)
+                output=run_command(check.command,name=check.name,environment=child,directory=directory,
+                                   timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                if check.version and re.search(check.version,output,re.M) is None:
+                    raise ReleaseCheckError(f'{check.name}: runtime version does not match the pinned toolchain')
+                if check.kind=='swift':
+                    validate_swift_output(output,check.name)
+                current['tests_run']=count_tests(check.kind,output,check.report)
+                current['status']='passed'
+            finally:
+                current['elapsed_seconds']=time.monotonic()-started
+        report['successful']=True
+    except BaseException as error:
+        if current is not None:
+            current['status']='failed'
+        report['error']=f'{type(error).__name__}: {error}'
+        if isinstance(error,ValueError):
+            raise ReleaseCheckError(str(error)) from error
+        raise
+    finally:
+        path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+
 def _persist_release_report(directory: Path, report_dir: Path, *,
                             failure: BaseException | None, cleanup_errors: list[str],
-                            swift: bool) -> None:
+                            swift: bool, modern: bool = False) -> None:
     """Keep diagnostics, never fixture databases, home directories or build trees."""
     report_dir.mkdir(parents=True, exist_ok=True)
     destination = Path(tempfile.mkdtemp(prefix="run-", dir=report_dir))
-    for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json']:
+    for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json', *directory.glob("modern-*.json")]:
         if source.is_file():
             shutil.copy2(source, destination / source.name)
     summary = {
@@ -745,6 +872,7 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
         "python": sys.version,
         "platform": sys.platform,
         "swift_requested": swift,
+        "profile": "modern" if modern else "legacy",
         "hardware_validation": "not_run",
         "error": f"{type(failure).__name__}: {failure}" if failure else None,
         "cleanup_errors": list(cleanup_errors),
@@ -755,7 +883,7 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     print(f"Release diagnostics: {destination}", flush=True)
 
 
-def release_checks(*, swift: bool = False, startup_timeout: float = 20,
+def release_checks(*, swift: bool = False, modern: bool = False, research_python: str | None = None, startup_timeout: float = 20,
                    command_timeout: float = 600, shutdown_timeout: float = 15,
                    report_dir: Path | None = None) -> None:
     environment = child_environment()
@@ -781,71 +909,78 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
         native_login_home = environment.get("HOME")
         environment["HOME"] = str(child_home)
         try:
-            if swift and sys.platform != "darwin":
-                raise ReleaseCheckError("--swift requires macOS with Xcode")
-            if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
-                raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
-            run_command([sys.executable, "-m", "tests.run_release_checks", "--_dependency-check"],
-                        name="dependencies", environment=environment, directory=directory,
-                        timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
-            run_command([shutil.which("node"), "--version"], name="node", environment=environment,
-                        directory=directory, timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
-            for key, module in FIXTURES:
-                fixture = Fixture(module, directory, environment)
-                children.append(fixture)  # Register ownership before readiness can fail.
-                environment[key] = fixture.ready(startup_timeout)
-                print(f"{module}: {environment[key]}", flush=True)
-            environment["THREE_THRESHOLDS_SMOKE_URL"] = environment["ORI_THREE_THRESHOLDS_SMOKE_BASE_URL"]
-            report_path = directory / "python-results.json"
-            run_command([sys.executable, "-m", "tests.run_release_checks", "--_diagnostic-after",
-                         str(min(60.0, command_timeout * 0.8)), "--_python-suite", str(report_path)],
-                        name="python-node-tk", environment=environment, directory=directory,
-                        timeout=command_timeout, shutdown_timeout=shutdown_timeout)
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            if (not report.get("successful") or report.get("tests_run", 0) <= 0 or
-                    report.get("unexpected_skips") or unexpected_skips(report.get("skipped", []))):
-                raise ReleaseCheckError("Python suite report did not pass the release gate")
-            print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
-            endurance_path=directory/'monitoring-endurance.json'
-            run_command([sys.executable,'-m','tests.monitoring_endurance','--report',str(endurance_path)],
-                name='monitoring-seven-day',environment=environment,directory=directory,
-                timeout=command_timeout,shutdown_timeout=shutdown_timeout)
-            endurance=json.loads(endurance_path.read_text(encoding='utf-8'))
-            if not (endurance.get('logical_elapsed_seconds',0)>=604800 and endurance.get('raw_sweeps',0)>0
-                    and endurance.get('raw_sweeps')==endurance.get('raw_verified')
-                    and endurance.get('bounded_working_registry') and endurance.get('restart_no_duplicate_events')
-                    and endurance.get('active_workers')==0 and endurance.get('hardware_validation')=='not_run'
-                    and endurance.get('comparison',{}).get('comparable_weak_recall')):
-                raise ReleaseCheckError('Seven-day synthetic monitoring acceptance did not pass')
-            if swift:
-                for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
-                    command = ["swift", "test", "--package-path", package,
-                               "--scratch-path", str(directory / (name + "-build"))]
-                    command_environment = environment
-                    if name == "swift-native":
-                        # This explicit hardware probe belongs to bench acceptance;
-                        # synthetic runs must never auto-open an attached device.
-                        command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
-                        # Security/WebKit use the macOS login context. An empty
-                        # HOME makes SecItemAdd wait for default-Keychain UI.
-                        # Native tests execute no Tk startup profiles; preserve
-                        # their private temp paths and final owned fixture URLs.
-                        command_environment = environment.copy()
-                        if native_login_home is None:
-                            command_environment.pop("HOME", None)
-                        else:
-                            command_environment["HOME"] = native_login_home
-                    output = run_command(command,
-                                         name=name, environment=command_environment, directory=directory,
-                                         timeout=command_timeout, shutdown_timeout=shutdown_timeout)
-                    validate_swift_output(output, name)
-                run_command(["xcodebuild", "-project", "macos/DvoynoyObzor.xcodeproj", "-scheme", "DvoynoyObzor",
-                             "-configuration", "Debug", "-destination", "platform=macOS",
-                             "-derivedDataPath", str(directory / "DerivedData"),
-                             "CODE_SIGNING_ALLOWED=NO", "build"], name="xcode-unsigned", environment=environment,
-                            directory=directory, timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+            if modern:
+                # Keep toolchain stores explicit before private HOME takes effect.
+                for key,default in (("CARGO_HOME",Path.home()/".cargo"),("RUSTUP_HOME",Path.home()/".rustup")):
+                    environment.setdefault(key,str(default))
+                environment.update(CARGO_BUILD_JOBS="2",RUST_TEST_THREADS="2",GOMAXPROCS="2",RAYON_NUM_THREADS="2",UV_THREADPOOL_SIZE="2",CARGO_TARGET_DIR=str(directory/"modern-rust-target"),
+                                   OPENBLAS_NUM_THREADS="1",OMP_NUM_THREADS="1",MKL_NUM_THREADS="1",VECLIB_MAXIMUM_THREADS="1")
+                run_modern_checks(directory,environment,research_python=research_python,swift=swift,
+                                  command_timeout=command_timeout,shutdown_timeout=shutdown_timeout)
             else:
-                print("macOS Swift/native/Xcode checks not requested (use --swift on macOS).", flush=True)
+                if swift and sys.platform != "darwin":
+                    raise ReleaseCheckError("--swift requires macOS with Xcode")
+                if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
+                    raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
+                run_command([sys.executable, "-m", "tests.run_release_checks", "--_dependency-check"],
+                            name="dependencies", environment=environment, directory=directory,
+                            timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
+                run_command([shutil.which("node"), "--version"], name="node", environment=environment,
+                            directory=directory, timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
+                for key, module in FIXTURES:
+                    fixture = Fixture(module, directory, environment)
+                    children.append(fixture)  # Register ownership before readiness can fail.
+                    environment[key] = fixture.ready(startup_timeout)
+                    print(f"{module}: {environment[key]}", flush=True)
+                environment["THREE_THRESHOLDS_SMOKE_URL"] = environment["ORI_THREE_THRESHOLDS_SMOKE_BASE_URL"]
+                report_path = directory / "python-results.json"
+                run_command([sys.executable, "-m", "tests.run_release_checks", "--_diagnostic-after",
+                             str(min(60.0, command_timeout * 0.8)), "--_python-suite", str(report_path)],
+                            name="python-node-tk", environment=environment, directory=directory,
+                            timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                if (not report.get("successful") or report.get("tests_run", 0) <= 0 or
+                        report.get("unexpected_skips") or unexpected_skips(report.get("skipped", []))):
+                    raise ReleaseCheckError("Python suite report did not pass the release gate")
+                print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
+                endurance_path=directory/'monitoring-endurance.json'
+                run_command([sys.executable,'-m','tests.monitoring_endurance','--report',str(endurance_path)],
+                    name='monitoring-seven-day',environment=environment,directory=directory,
+                    timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                endurance=json.loads(endurance_path.read_text(encoding='utf-8'))
+                if not (endurance.get('logical_elapsed_seconds',0)>=604800 and endurance.get('raw_sweeps',0)>0
+                        and endurance.get('raw_sweeps')==endurance.get('raw_verified')
+                        and endurance.get('bounded_working_registry') and endurance.get('restart_no_duplicate_events')
+                        and endurance.get('active_workers')==0 and endurance.get('hardware_validation')=='not_run'
+                        and endurance.get('comparison',{}).get('comparable_weak_recall')):
+                    raise ReleaseCheckError('Seven-day synthetic monitoring acceptance did not pass')
+                if swift:
+                    for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
+                        command = ["swift", "test", "--package-path", package,
+                                   "--scratch-path", str(directory / (name + "-build"))]
+                        command_environment = environment
+                        if name == "swift-native":
+                            # This explicit hardware probe belongs to bench acceptance;
+                            # synthetic runs must never auto-open an attached device.
+                            command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
+                            # Native Security/WebKit need the actual login context;
+                            # keep private temp roots and the final fixture URLs.
+                            command_environment = environment.copy()
+                            if native_login_home is None:
+                                command_environment.pop("HOME", None)
+                            else:
+                                command_environment["HOME"] = native_login_home
+                        output = run_command(command,
+                                             name=name, environment=command_environment, directory=directory,
+                                             timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                        validate_swift_output(output, name)
+                    run_command(["xcodebuild", "-project", "macos/DvoynoyObzor.xcodeproj", "-scheme", "DvoynoyObzor",
+                                 "-configuration", "Debug", "-destination", "platform=macOS",
+                                 "-derivedDataPath", str(directory / "DerivedData"),
+                                 "CODE_SIGNING_ALLOWED=NO", "build"], name="xcode-unsigned", environment=environment,
+                                directory=directory, timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                else:
+                    print("macOS Swift/native/Xcode checks not requested (use --swift on macOS).", flush=True)
         except BaseException as error:
             failure = error
         finally:
@@ -857,7 +992,7 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
             if report_dir is not None:
                 try:
                     _persist_release_report(directory, Path(report_dir), failure=failure,
-                                            cleanup_errors=cleanup_errors, swift=swift)
+                                            cleanup_errors=cleanup_errors, swift=swift, modern=modern)
                 except (OSError, ValueError) as error:
                     cleanup_errors.append(f"Cannot save release diagnostics: {error}")
         if cleanup_errors:
@@ -893,7 +1028,9 @@ def _windows_supervisor_exit_status(returncode: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--swift", action="store_true", help="Run both macOS Swift suites and an unsigned Xcode build")
+    parser.add_argument("--swift", action="store_true", help="Run native macOS/Xcode checks, or portable contracts with --modern")
+    parser.add_argument("--modern",action="store_true",help="Select modernization checks; full release also requires the legacy profile")
+    parser.add_argument("--research-python",help="Explicit isolated Python 3.15.1 interpreter for --modern")
     parser.add_argument("--startup-timeout", type=positive_seconds, default=20, metavar="SECONDS")
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
@@ -903,13 +1040,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_diagnostic-after", type=positive_seconds, default=60, help=argparse.SUPPRESS)
     parser.add_argument("--_supervise-command", help=argparse.SUPPRESS)
+    parser.add_argument("--_session-owner", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.research_python and not args.modern:
+        parser.error("--research-python requires --modern")
     if args._single_test is not None and args._python_suite is None:
         parser.error("--_single-test requires --_python-suite")
+    if args._session_owner is not None and (args._supervise_command is None or os.name != "posix"):
+        parser.error("--_session-owner requires a private POSIX command")
     if args._supervise_command is not None:
         if sys.stdin.buffer.readline() != b"go\n":
             return 1
         command = json.loads(args._supervise_command)
+        if args._session_owner is not None:
+            return process_ownership.supervise_anchor(command, args._session_owner, args.shutdown_timeout,
+                lambda registry, budget, exclude: _cleanup_registry(registry, budget, exclude_session=exclude))
         if os.name == "posix":
             os.execvpe(command[0], command, os.environ)
         return _windows_supervisor_exit_status(subprocess.call(command))
@@ -923,7 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, _interrupted)
-        release_checks(swift=args.swift, startup_timeout=args.startup_timeout,
+        release_checks(swift=args.swift,modern=args.modern,research_python=args.research_python,startup_timeout=args.startup_timeout,
                        command_timeout=args.command_timeout, shutdown_timeout=args.shutdown_timeout,
                        report_dir=args.report_dir)
     except KeyboardInterrupt as error:

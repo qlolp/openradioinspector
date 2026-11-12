@@ -1,9 +1,5 @@
 # Shared Rust core candidate
 
-The Rust core, native tests and required child fixtures are delivered here.
-The live Python HTTP suites and comprehensive verification helpers arrive in
-stage 14; reproduction commands using those helpers apply after that slice.
-
 `ori-core` is an explicit candidate built around Tokio/Axum, `ori-archive`,
 `ori-contracts`, `ori-instruments`, `ori-session`, `ori-guard`, and `ori-runtime`.
 Python remains the default.
