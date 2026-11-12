@@ -1163,6 +1163,39 @@ async fn queued_defaults_bind_once_explicit_stale_fails_before_io_and_idempotenc
         )
         .await;
     assert_eq!(status, 200, "{body}");
+    let (status, error) = server
+        .request(
+            "POST",
+            "/api/v1/sessions/control-fixture/streams/source/instrument/operations",
+            Some(json!({"operation":"raw","parameters":{"command":"output on"}})),
+            Some(CLIENT),
+        )
+        .await;
+    assert_eq!(status, 400);
+    assert_eq!(
+        error["error"]["message"],
+        "Unknown typed instrument operation"
+    );
+    let denied = server
+        .submit(json!({"operation":"setting","parameters":{"name":"output_enabled","value":true}}))
+        .await;
+    let denied = server
+        .done(denied["operation_id"].as_str().unwrap(), Some(CLIENT))
+        .await;
+    assert_eq!(denied["state"], "failed");
+    assert_eq!(
+        denied["error"],
+        "Требуется действующая эксклюзивная lab-аренда"
+    );
+    assert!(
+        !server
+            .factory
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| command == "output on" || command == "mode output")
+    );
     let acquired = server
         .submit(json!({"operation":"lease.acquire","parameters":{"acknowledge_rf":true}}))
         .await;
@@ -1186,8 +1219,12 @@ async fn queued_defaults_bind_once_explicit_stale_fails_before_io_and_idempotenc
     assert_eq!(first["operation_id"], duplicate["operation_id"]);
     let second=server.submit(json!({"operation":"setting","parameters":{"name":"repeat","value":4},"lease_id":secret,"request_id":"owned-queued-repeat-B"})).await;
     let stale=server.submit(json!({"operation":"setting","parameters":{"name":"repeat","value":5},"lease_id":secret,"expected_revision":revision})).await;
-    let(status,_)=server.request("POST","/api/v1/sessions/control-fixture/streams/source/instrument/operations",Some(json!({"operation":"setting","parameters":{"name":"repeat","value":4},"lease_id":secret,"request_id":"owned-queued-repeat-A"})),Some(CLIENT)).await;
+    let(status,error)=server.request("POST","/api/v1/sessions/control-fixture/streams/source/instrument/operations",Some(json!({"operation":"setting","parameters":{"name":"repeat","value":4},"lease_id":secret,"request_id":"owned-queued-repeat-A"})),Some(CLIENT)).await;
     assert_eq!(status, 409);
+    assert_eq!(
+        error["error"]["message"],
+        "request_id identifies another operation"
+    );
     let(status,_)=server.request("POST","/api/v1/sessions/control-fixture/streams/source/instrument/operations",Some(json!({"operation":"setting","parameters":{"name":"repeat","value":6},"lease_id":secret})),Some(CLIENT)).await;
     assert_eq!(
         status, 409,

@@ -35,6 +35,9 @@ pub(super) fn api(error: ControlError) -> ApiError {
         ControlError::Invalid(message) => {
             ApiError::new(StatusCode::BAD_REQUEST, "instrument_invalid", message)
         }
+        ControlError::Conflict(message) => {
+            ApiError::new(StatusCode::CONFLICT, "instrument_conflict", message)
+        }
         ControlError::NotFound => missing("Operation not found"),
         ControlError::Persistence(_) => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
