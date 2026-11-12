@@ -30,9 +30,17 @@ record is visible; buffered bytes must already be readable from the retained
 log. This preserves the original per-stream or merged aggregate byte limit and
 exact bytes, including with a larger platform-default Python file buffer.
 
-Node readiness and shutdown are unchanged: the original target publishes its
-owned ephemeral loopback URL, and closing the caller's stdin lifeline publishes
-a private stop request that closes target stdin. CLI runtime bounds, the
+The Python fixture target writes its complete loopback URL and literal LF to a
+fresh private file, flushes and closes it, then publishes the final readiness
+path with an exclusive same-directory hard link. A pre-existing destination is
+never overwritten. Only the recorded regular-file identity may be removed;
+replacement paths and cleanup failures remain visible. A controlled barrier
+before the first write verifies that the unchanged strict reader cannot observe
+an empty or partial readiness file. This applies to the synthetic Python
+fixture producer, without changing candidate readiness formats or validation.
+
+Closing the caller's stdin lifeline publishes a private stop request that
+closes target stdin. CLI runtime bounds, the
 15-second node readiness bound, and the node's 10-second graceful/5-second forced
 cleanup bounds remain in place. Test fixtures reach their actual child/output
 readiness before starting an intentionally short timeout; their socket lifelines

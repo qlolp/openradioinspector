@@ -17,9 +17,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -677,6 +679,44 @@ class OwnedNode:
         self.close()
 
 
+def _fixture_ready_identity(path):
+    entry=path.lstat()
+    if not stat.S_ISREG(entry.st_mode):
+        raise ProtocolError("Fixture readiness ownership changed; path retained")
+    return entry.st_dev,entry.st_ino
+
+
+def _remove_fixture_ready(path,identity):
+    if _fixture_ready_identity(path)!=identity:
+        raise ProtocolError("Fixture readiness ownership changed; path retained")
+    path.unlink()
+
+
+def _publish_fixture_ready(path,url):
+    """Publish a complete private sentinel exclusively, retaining its identity."""
+    descriptor,name=tempfile.mkstemp(prefix=".ready-",dir=path.parent)
+    temporary=Path(name)
+    identity=None
+    try:
+        entry=os.fstat(descriptor)
+        identity=entry.st_dev,entry.st_ino
+        output=os.fdopen(descriptor,"w",encoding="utf-8",newline="\n")
+        descriptor=None
+        with output:
+            output.write(url+"\n")
+            output.flush()
+            os.fsync(output.fileno())
+        if _fixture_ready_identity(temporary)!=identity:
+            raise ProtocolError("Fixture readiness ownership changed; path retained")
+        os.link(temporary,path)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if identity is not None:
+            _remove_fixture_ready(temporary,identity)
+    return identity
+
+
 def fixture_node(arguments):
     """Actual LocalCore + transport-only synthetic tinySA fixture; never serial."""
     sys.path.insert(0,str(arguments.source_root))
@@ -700,15 +740,14 @@ def fixture_node(arguments):
 
     with patch("radioinspector.serial_instruments.create_device_adapter",factory):
         with LocalCore(arguments.data_dir,host="127.0.0.1",port=0) as core:
-            with arguments.ready_file.open("x",encoding="utf-8") as ready:
-                ready.write(core.url+"\n")
+            ready_identity=_publish_fixture_ready(arguments.ready_file,core.url)
             try:
                 while sys.stdin.buffer.read(1):pass
             finally:
                 # LocalCore joins HTTP, drains SSE/callbacks and closes SQLite
                 # before its archive/data writer owners are released.
                 pass
-        arguments.ready_file.unlink()
+        _remove_fixture_ready(arguments.ready_file,ready_identity)
     return 0
 
 
