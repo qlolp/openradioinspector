@@ -1,5 +1,7 @@
 """The gate must catch real wire differences, not just matching status codes."""
 import json
+import copy
+import hashlib
 import math
 from pathlib import Path
 import sys
@@ -343,7 +345,193 @@ class ExactWireTests(unittest.TestCase):
         inherited_pipe_scenario(self,changed_group=False)
 
 
+class TypedControlExtensionTests(unittest.TestCase):
+    operation='tinySA typed202/poll/idempotency/conflict/cancel'
+
+    def bodies(self):
+        root=Path(__file__).resolve().parents[1]
+        fixture=load_json((root/'tests/fixtures/api_parity_async_control_v1.json').read_bytes())
+        self.assertEqual(fixture['catalogue']['source'],'crates/ori-control/src/resources/capabilities.json')
+        source=root/fixture['catalogue']['source']
+        self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),fixture['catalogue']['sha256'])
+        catalogue=load_json(source.read_bytes())
+        for key in ['reference','candidate_with_wire_regressions']:
+            body=fixture[key]
+            self.assertEqual(body['capabilities']['data']['capabilities'],{'$fixture_catalogue':'tinysa-control-v1'})
+            body['capabilities']['data']['capabilities']=copy.deepcopy(catalogue)
+            self.assertEqual(body['terminal_records'][0]['result']['capabilities'],{'$fixture_catalogue':'tinysa-control-v1'})
+            body['terminal_records'][0]['result']['capabilities']=copy.deepcopy(catalogue)
+        old=fixture['candidate_with_wire_regressions']
+        for name,available in fixture['candidate_operation_availability'].items():
+            old['capabilities']['data']['capabilities']['operations'][name]['available']=available
+        return fixture['reference'],old
+
+    def additions_only(self):
+        reference,old=self.bodies();candidate=copy.deepcopy(reference)
+        # Copy only actual captured additions; shared scalar/message regressions
+        # remain separately tested using the untouched original RED payload.
+        pairs=[(reference['capabilities']['data']['status'],old['capabilities']['data']['status'],candidate['capabilities']['data']['status']),
+               (reference['terminal_records'][0]['result']['status'],old['terminal_records'][0]['result']['status'],candidate['terminal_records'][0]['result']['status']),
+               (reference['terminal_records'][2],old['terminal_records'][2],candidate['terminal_records'][2])]
+        for name,spec in reference['capabilities']['data']['capabilities']['operations'].items():
+            pairs.append((spec,old['capabilities']['data']['capabilities']['operations'][name],candidate['capabilities']['data']['capabilities']['operations'][name]))
+        for original,captured,target in pairs:
+            target.update({key:copy.deepcopy(value) for key,value in captured.items() if key not in original})
+        return reference,candidate
+
+    @staticmethod
+    def response(body):
+        return HTTPResult(200,{'content-type':'application/json'},json.dumps(body,ensure_ascii=False,allow_nan=False).encode())
+
+    def outcome(self,reference,candidate,**options):
+        return compare_http(self.response(reference),self.response(candidate),operation=self.operation,
+                            typed_control_collected=True,**options)
+
+    def test_actual_additions_require_scope_and_retain_raw_bytes_and_evidence(self):
+        reference,candidate=self.additions_only()
+        left,right=self.response(reference),self.response(candidate);before=right.body
+        self.assertEqual(compare_http(left,right,operation=self.operation).state,'mismatch')
+        outcome=compare_http(left,right,operation=self.operation,typed_control_collected=True)
+        self.assertEqual(outcome.state,'pass',outcome)
+        self.assertEqual(len(outcome.validated_extensions),27)
+        self.assertEqual(len({item['path'] for item in outcome.validated_extensions}),27)
+        self.assertEqual(right.body,before)
+        self.assertEqual(compare_http(left,right,operation='GET /api/v1/instrument/status',typed_control_collected=True).state,'mismatch')
+
+    def test_actual_original_wire_errors_and_float_zero_still_fail(self):
+        reference,old=self.bodies()
+        outcome=self.outcome(reference,old)
+        self.assertEqual(outcome.state,'mismatch')
+        self.assertEqual(len(outcome.details),5,outcome.details)
+        self.assertTrue(any('lease_seconds: JSON value type differs' in detail for detail in outcome.details))
+        self.assertTrue(any('conflicting_request/error/message' in detail for detail in outcome.details))
+        self.assertEqual(len(outcome.validated_extensions),27)
+
+    def test_trace_scope_requires_original_case_and_keeps_evidence_on_other_failure(self):
+        from tools.modernization.api_parity import _compare_traces
+        reference,candidate=self.additions_only()
+        case={'id':'instrument-async-protocol','operation':self.operation,'method':'PROTOCOL',
+              'path':'/api/v1/sessions/lab/streams/one/instrument','volatile_paths':[]}
+        left={'case':case,'response':self.response(reference),'checks':[]}
+        right={'case':copy.deepcopy(case),'response':self.response(candidate),'checks':[]}
+        result=_compare_traces([left],[right])[0]
+        self.assertTrue(result['successful']);self.assertEqual(len(result['validated_extensions']),27)
+        right['checks']=['canonical state proof failed']
+        result=_compare_traces([left],[right])[0]
+        self.assertFalse(result['successful']);self.assertEqual(len(result['validated_extensions']),27)
+        right['checks']=[]
+        for key,bad in [('operation','GET /api/v1/instrument/status'),('method','GET'),('path','/other')]:
+            changed=copy.deepcopy(right);changed['case'][key]=bad
+            with self.subTest(key=key):self.assertFalse(_compare_traces([left],[changed])[0]['successful'])
+        for row in [left,right]:row['case']['id']='generic-response'
+        self.assertFalse(_compare_traces([left],[right])[0]['successful'])
+
+    def test_every_declared_availability_must_match_the_actual_no_audio_fixture(self):
+        reference,candidate=self.additions_only()
+        for name,spec in candidate['capabilities']['data']['capabilities']['operations'].items():
+            for bad in [not spec['available'],0,1,None,'false']:
+                changed=copy.deepcopy(candidate)
+                changed['capabilities']['data']['capabilities']['operations'][name]['available']=bad
+                with self.subTest(name=name,bad=bad):self.assertFalse(self.outcome(reference,changed).successful)
+
+    def test_stage_incoherent_or_physical_claims_never_pass(self):
+        reference,candidate=self.additions_only()
+        for key,bad_values in {'device_mode':['input','output','other',True],
+                'device_mode_readback':[True,0,None],'generator_output_readback':[True,0,None],
+                'hardware_validation':['passed','not-run',False],'lease_seconds':[0.0,1,False,None]}.items():
+            for bad in bad_values:
+                changed=copy.deepcopy(candidate);changed['capabilities']['data']['status'][key]=bad
+                with self.subTest(key=key,bad=bad):self.assertFalse(self.outcome(reference,changed).successful)
+        for key in ['acquisition_paused','restart_required']:
+            for bad in [True,0,None]:
+                changed=copy.deepcopy(candidate);changed['terminal_records'][0]['result']['status'][key]=bad
+                with self.subTest(key=key,bad=bad):self.assertFalse(self.outcome(reference,changed).successful)
+        for bad in [False,1,None]:
+            changed=copy.deepcopy(candidate);changed['terminal_records'][2]['context_current']=bad
+            with self.subTest(context=bad):self.assertFalse(self.outcome(reference,changed).successful)
+
+    def test_unknown_missing_partial_and_reversed_additions_fail(self):
+        reference,candidate=self.additions_only()
+        self.assertFalse(self.outcome(candidate,reference).successful)
+        changes=[]
+        changed=copy.deepcopy(candidate);changed['capabilities']['data']['status']['unknown']=False;changes.append(changed)
+        changed=copy.deepcopy(candidate);del changed['capabilities']['data']['capabilities']['operations']['inspect'];changes.append(changed)
+        changed=copy.deepcopy(candidate);changed['capabilities']['data']['capabilities']['operations']['unknown']={'available':True};changes.append(changed)
+        changed=copy.deepcopy(candidate);del changed['capabilities']['data']['status']['settings_source'];changes.append(changed)
+        changed=copy.deepcopy(candidate);del changed['capabilities']['data']['capabilities']['operations']['inspect']['available'];changes.append(changed)
+        for index,changed in enumerate(changes):
+            with self.subTest(index=index):self.assertFalse(self.outcome(reference,changed).successful)
+
+    def test_shared_measurements_opaque_keys_and_original_float_bits_remain_exact(self):
+        reference,candidate=self.additions_only()
+        original={'é':-0.0,'e\u0301':math.nextafter(1.0,math.inf),'frequency_hz':9007199254740993,
+                  'started_at':'2026-11-11T12:00:00.123456Z','status':{'restart_required':False}}
+        for body in [reference,candidate]:body['terminal_records'][0]['result']['status']['settings']['opaque']=copy.deepcopy(original)
+        self.assertTrue(self.outcome(reference,candidate).successful)
+        for key,bad in [('é',0.0),('e\u0301',1.0),('frequency_hz',9007199254740992),
+                        ('started_at','2026-11-11T12:00:00.123457Z'),('status',{'restart_required':False,'acquisition_paused':False})]:
+            changed=copy.deepcopy(candidate);changed['terminal_records'][0]['result']['status']['settings']['opaque'][key]=bad
+            with self.subTest(key=key):self.assertFalse(self.outcome(reference,changed).successful)
+        changed=copy.deepcopy(candidate);changed['terminal_records'][0]['result']['status']['lease_active']=True
+        self.assertFalse(self.outcome(reference,changed).successful)
+
+
 class OwnedProducerTests(unittest.TestCase):
+    def test_embedding_cannot_substitute_a_successful_cli_for_the_original_executable(self):
+        root=Path(__file__).resolve().parents[1]
+        directory=Path(tempfile.mkdtemp(prefix='ori-parity-embedding-cli-')).resolve()
+        try:
+            original=OwnedNode(NodeSpec('python',Path(sys.executable),root),directory/'node')
+            with original:
+                # Real HTTP/SQLite and real executable probes on every platform.
+                # Python accepts help/version, but cannot implement Core's
+                # --check-ready. An embedding must not hide that CLI failure.
+                embedding=root/'crates/ori-core/examples/parity_node.rs'
+                node=OwnedNode(NodeSpec('core',Path(sys.executable),root,
+                                       fixture_executable=embedding),original.directory)
+                node.url=original.url;node.environment=original.environment
+                node.request=original.request
+                command=node._command(original.directory/'data')
+                self.assertEqual(command[0],str(embedding))
+                self.assertEqual(command[1::2],['--data-dir','--ready-file'])
+                probes=node.readonly_cli()
+                self.assertTrue(probes['commands']['help']['successful'],probes)
+                self.assertTrue(probes['commands']['version']['successful'],probes)
+                self.assertFalse(probes['commands']['readiness']['successful'],probes)
+                self.assertFalse(probes['successful'])
+                self.assertNotEqual(probes['commands']['readiness']['exit_code'],0)
+            self.assertTrue(original.joined)
+            self.assertEqual(original.process.returncode,0)
+            self.assertFalse(original.ready.exists())
+        except BaseException:
+            print('Retained failed separate-executable parity fixture:',directory)
+            raise
+        else:
+            import shutil
+            shutil.rmtree(directory)
+
+    def test_missing_synthetic_embedding_fails_before_any_owned_process_or_directory(self):
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='ori-parity-missing-embedding-') as directory:
+            directory=Path(directory)
+            spec=NodeSpec('core',Path(sys.executable),root,
+                          fixture_executable=directory/'missing-fixture')
+            node=OwnedNode(spec,directory/'node')
+            with self.assertRaises(FileNotFoundError):
+                node.__enter__()
+            self.assertIsNone(node.process)
+            self.assertFalse(node.directory.exists())
+
+    def test_python_producer_cannot_be_replaced_by_a_candidate_embedding(self):
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix='ori-parity-producer-embedding-') as directory:
+            node=OwnedNode(NodeSpec('python',Path(sys.executable),root,
+                                   fixture_executable=Path(sys.executable)),Path(directory)/'node')
+            with self.assertRaises(ProtocolError):
+                node.__enter__()
+            self.assertIsNone(node.process)
+            self.assertFalse(node.directory.exists())
+
     def test_documented_script_cli_runs_isolated_outside_the_checkout(self):
         import os
         root = Path(__file__).resolve().parents[1]

@@ -18,6 +18,7 @@ python -m unittest tests.test_api_parity
 python tools/modernization/api_parity.py \
   --producer-python /absolute/path/to/core-python \
   --candidate /absolute/path/to/immutable/ori-core \
+  --candidate-fixture /absolute/path/to/immutable/parity_node \
   --candidate-source-root /absolute/path/to/core-checkout \
   --analysis-python /absolute/path/to/installed-315/bin/python \
   --profile public --artifacts /absolute/path/to/fresh-empty-artifacts
@@ -35,8 +36,27 @@ Each node uses port zero, a private fresh archive/data directory and an owned
 stdin lifeline. Python uses the actual `LocalCore`, HTTP handlers, SQLite store,
 Session and instrument services. Only the tinySA transport is synthetic; it
 refuses every physical device path. Fixture-controlled ingestion avoids random
-background measurements. Core receives no `--allow-serial`, provisioning or
-service-installation option. An explicitly supplied research interpreter selects
+background measurements. The optional trusted `parity_node` example embeds the
+same Rust Core with only an owned in-memory tinySA transport. It accepts the
+`synthetic://api-parity/` namespace and the literal committed UltraWire replies;
+every physical port, foreign adapter and unspecified command is refused. Its
+ordinary receive loop may request the fixture's literal three-point scan; this
+does not establish acquisition or RF parity. Both services keep the original
+device actor, typed controller, HTTP handlers, archive and writer lease.
+
+`--candidate-fixture` changes only the HTTP node executable. The report retains
+the production `--candidate` SHA and uses that production executable for all
+three candidate CLI probes; it separately records the embedding executable SHA
+and identifies HTTP results as a trusted synthetic embedding. A missing fixture
+fails before process admission and cannot silently fall back to the production
+node. Omitting the option continues to exercise the production CLI as before.
+This embedding uses the existing Unix owned-stdin fixture backend, and refuses
+to run on other platforms. Build and retain it from the same reviewed source as
+the production executable (`cargo build -p ori-core --example parity_node`).
+Synthetic embedding results do not certify the production native connector.
+
+Core receives no `--allow-serial`, provisioning or service-installation option.
+An explicitly supplied research interpreter selects
 the existing best-effort worker configuration; this does not claim hard cgroup
 enforcement or scientific acceptance.
 
@@ -45,6 +65,15 @@ The harness waits for process and output-reader joins and readiness-file removal
 Forced termination, leaked readers, nonzero exit or output exhaustion fails
 cleanup. Node data is retained on failure. No live archive, external service,
 hardware port, webhook, audio input or installed supervisor is used.
+
+Core capability fields describe existing routes and policy behavior: OpenAPI,
+the `ardv1-monitor-v1` receiver profile, task list/create/cancel, and explicit
+automation/scheduler opt-in. Automation policy audit events persist in SQLite;
+the active policy and scheduler enablement reset on a cold restart. Their
+`*_policy_persistent` fields therefore remain false. `explicit_serial_adapters`
+tracks whether a trusted transport factory is configured; it stays false on the
+ordinary production node without `--allow-serial` and becomes true in the
+explicit synthetic embedding. Hardware validation remains `not_run` in both.
 
 ## Exactness and bounds
 
@@ -94,6 +123,28 @@ cannot match opaque object keys. Async protocol checks validate the original
 operation/connection IDs before replacing those generated identifiers and their
 monotonic admission timestamps with scoped comparison markers.
 
+The single collected `instrument-async-protocol` fixture has a reviewed additive
+Control contract. Its exact case ID, operation and `PROTOCOL` method opt in;
+ordinary endpoints and generic comparisons do not. When Core enriches this
+fixture, all 27 known fields must be present and coherent: the 17 bound non-audio
+catalogue operations have `available:true`, both audio operations have
+`available:false`, the pre-inspect state is unknown with false physical readbacks,
+`hardware_validation:"not_run"` and integer-zero lease seconds, the freshly
+acknowledged input inspect has false paused/restart flags, and terminal cancel
+replay confirms the same current worker. These describe binding support and the
+observed synthetic stages, never permission to execute lab/RF operations.
+
+Only these additions at their explicit typed positions may be absent from the
+Python reference. Shared fields keep exact keys, types, float bits and values;
+new/missing operation names, unknown or partial additions, flipped availability,
+physical claims, reversed comparisons and opaque nested data still fail.
+Original raw response bytes remain in the traces. Each accepted field, its exact
+value and contract name is retained as `validated_extensions`, including when a
+separate scalar/message or canonical-state check fails. The small regression
+fixture retains actual collected Python/Core wire values and pins its shared
+unchanged catalogue by SHA-256; the initial float/message regressions remain RED
+under this additive contract.
+
 SSE validates original committed sequence IDs and the actual v1 envelope,
 retaining named events and opaque JSON. NDJSON validates complete final records
 and snapshot count headers, then compares original records regardless of JSON
@@ -111,8 +162,11 @@ directories are refused; reruns cannot overwrite prior failures.
 ## Coverage and inventory
 
 The inventory retains the original six route-authority hashes, additionally pins
-their SSE transport helper, and records one explicitly reviewed seven-file
-snapshot for the Python startup/SSE shutdown correction.
+their SSE transport helper, and records complete reviewed seven-file snapshots
+for the Python startup/SSE shutdown correction and bounded consumption before
+forbidden analysis-query refusals. The latter consumes only correctly framed
+bodies within the existing route limit and absolute deadline; query validation
+still precedes JSON parsing, and Origin/Content-Type checks remain before reads.
 Its 135 v1 operations, ten legacy operations and CLI inventory are unchanged.
 All seven hashes must match one snapshot together; mixing individually approved
 files, an unknown edit or a missing file fails before any node starts. The report

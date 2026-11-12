@@ -883,6 +883,29 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     print(f"Release diagnostics: {destination}", flush=True)
 
 
+def _release_temporary_directory(*, modern: bool):
+    if not modern or os.name != "posix":
+        return tempfile.TemporaryDirectory(prefix="ori-release-checks-")
+    # Reserve the Unix socket budget for children/.tmp.../candidate/.ori-runtime.
+    # Canonical paths matter on macOS, where /var and /tmp are aliases.
+    candidates = []
+    try:
+        candidates.append(tempfile.gettempdir())
+    except (OSError, RuntimeError, UnicodeError):
+        pass
+    candidates.append("/tmp")
+    for candidate in candidates:
+        try:
+            parent = Path(candidate).resolve(strict=True)
+            if len(str(parent).encode("utf-8")) <= 16 and parent.is_dir():
+                return tempfile.TemporaryDirectory(prefix="ori-release-checks-", dir=parent)
+        except (OSError, RuntimeError, UnicodeError):
+            continue
+    raise ReleaseCheckError(
+        "Modern POSIX checks require a canonical temporary parent of at most 16 UTF-8 bytes; "
+        "the preferred temp directory and /tmp are unavailable or too long")
+
+
 def release_checks(*, swift: bool = False, modern: bool = False, research_python: str | None = None, startup_timeout: float = 20,
                    command_timeout: float = 600, shutdown_timeout: float = 15,
                    report_dir: Path | None = None) -> None:
@@ -891,7 +914,7 @@ def release_checks(*, swift: bool = False, modern: bool = False, research_python
     children: list[Fixture] = []
     failure: BaseException | None = None
     cleanup_errors = []
-    with tempfile.TemporaryDirectory(prefix="ori-release-checks-") as temporary:
+    with _release_temporary_directory(modern=modern) as temporary:
         # Canonicalize this owned root before passing it to children: macOS
         # aliases /var through /private/var, and Windows may return an 8.3 path.
         # Production writer ownership deliberately rejects symlink aliases.

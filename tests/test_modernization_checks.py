@@ -1,15 +1,122 @@
 """Modern checks use the existing owned subprocess and diagnostic lifecycle."""
 import io
 import json
+import os
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from tests import run_release_checks as release
+
+
+class ModernTemporaryRootTests(unittest.TestCase):
+    def test_deep_preferred_temp_allows_real_nested_admin_socket_and_cleans_only_owned_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            preferred = Path(folder) / ("deep-" + "x" * 80)
+            preferred.mkdir()
+            stale = preferred / "preexisting-marker"
+            stale.write_text("keep")
+            captured = []
+            previous_tempdir = tempfile.tempdir
+
+            def check(directory, environment, **kwargs):
+                captured.append(directory)
+                self.assertEqual(environment["TMPDIR"], str(directory / "children"))
+                self.assertEqual(environment["TEMP"], environment["TMPDIR"])
+                self.assertEqual(environment["TMP"], environment["TMPDIR"])
+                if os.name == "posix":
+                    address = directory / "children/.tmpABC/candidate/.ori-runtime/core-admin.sock"
+                    address.parent.mkdir(parents=True)
+                    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                        listener.bind(str(address))
+                    self.assertLessEqual(len(str(address).encode("utf-8")), 103)
+                    self.assertEqual(directory.parent, Path("/tmp").resolve())
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+                else:
+                    self.assertEqual(directory.parent, preferred.resolve())
+
+            try:
+                with patch.object(release.tempfile, "gettempdir", return_value=str(preferred)), \
+                        patch.object(release, "run_modern_checks", side_effect=check), \
+                        redirect_stdout(io.StringIO()):
+                    release.release_checks(modern=True, research_python=sys.executable)
+            finally:
+                self.assertEqual(stale.read_text(), "keep")
+                for directory in captured:
+                    self.assertFalse(directory.exists())
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(tempfile.tempdir, previous_tempdir)
+
+    def test_short_preferred_parent_is_honored_and_owned_directory_is_private(self):
+        parent = Path("/tmp").resolve() if os.name == "posix" else Path(tempfile.gettempdir()).resolve()
+        with tempfile.TemporaryDirectory(prefix="", dir=parent) as folder:
+            preferred = Path(folder).resolve()
+            if os.name == "posix" and len(str(preferred).encode("utf-8")) > 16:
+                preferred = parent
+            with patch.object(release.tempfile, "gettempdir", return_value=str(preferred)):
+                with release._release_temporary_directory(modern=True) as temporary:
+                    directory = Path(temporary)
+                    self.assertEqual(directory.parent, preferred)
+                    self.assertTrue(directory.name.startswith("ori-release-checks-"))
+                    if os.name == "posix":
+                        self.assertLessEqual(len(str(preferred).encode("utf-8")), 16)
+                        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+                    (directory / "owned-marker").write_text("owned")
+                self.assertFalse(directory.exists())
+
+    def test_modern_parent_limit_uses_canonical_utf8_bytes(self):
+        fallback = Path("/tmp")
+        for preferred in (Path("/" + "x" * 15), Path("/" + "x" * 16), Path("/" + "é" * 8)):
+            expected = preferred if len(str(preferred).encode("utf-8")) <= 16 else fallback
+            with self.subTest(preferred=str(preferred)), \
+                    patch.object(release, "os", SimpleNamespace(name="posix")), \
+                    patch.object(release.tempfile, "gettempdir", return_value="short-alias"), \
+                    patch.object(release.Path, "resolve", side_effect=[preferred, fallback]) as resolve, \
+                    patch.object(release.Path, "is_dir", return_value=True), \
+                    patch.object(release.tempfile, "TemporaryDirectory") as create:
+                self.assertIs(release._release_temporary_directory(modern=True), create.return_value)
+                create.assert_called_once_with(prefix="ori-release-checks-", dir=expected)
+                self.assertEqual(resolve.call_count, 1 if expected == preferred else 2)
+
+    def test_legacy_and_windows_keep_the_default_constructor(self):
+        for modern, platform in ((False, "posix"), (False, "nt"), (True, "nt")):
+            with self.subTest(modern=modern, platform=platform), \
+                    patch.object(release, "os", SimpleNamespace(name=platform)), \
+                    patch.object(release.tempfile, "gettempdir") as default, \
+                    patch.object(release.Path, "resolve") as resolve, \
+                    patch.object(release.tempfile, "TemporaryDirectory") as create:
+                self.assertIs(release._release_temporary_directory(modern=modern), create.return_value)
+                create.assert_called_once_with(prefix="ori-release-checks-")
+                default.assert_not_called()
+                resolve.assert_not_called()
+
+    def test_legacy_long_preferred_parent_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as folder:
+            preferred = Path(folder) / ("deep-" + "x" * 80)
+            preferred.mkdir()
+            with patch.object(release.tempfile, "gettempdir", return_value=str(preferred)):
+                with release._release_temporary_directory(modern=False) as temporary:
+                    directory = Path(temporary)
+                    self.assertEqual(directory.parent.resolve(), preferred.resolve())
+                self.assertFalse(directory.exists())
+
+    def test_no_safe_parent_fails_before_creating_a_scope(self):
+        for preferred in (Path("/" + "x" * 20), OSError("unavailable preferred directory")):
+            with self.subTest(preferred=str(preferred)), \
+                    patch.object(release, "os", SimpleNamespace(name="posix")), \
+                    patch.object(release.tempfile, "gettempdir", return_value="preferred"), \
+                    patch.object(release.Path, "resolve", side_effect=[preferred, Path("/" + "y" * 20)]), \
+                    patch.object(release.tempfile, "TemporaryDirectory") as create:
+                with self.assertRaisesRegex(release.ReleaseCheckError, "at most 16 UTF-8 bytes"):
+                    release._release_temporary_directory(modern=True)
+                create.assert_not_called()
 
 
 class ModernizationChecksTests(unittest.TestCase):

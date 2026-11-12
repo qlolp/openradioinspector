@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 import argparse
+import copy
 import hashlib
 import http.client
 import json
@@ -172,6 +173,7 @@ def load_ndjson(response):
 class Outcome:
     state: str
     details: list[str] = field(default_factory=list)
+    validated_extensions: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def successful(self):
@@ -318,8 +320,87 @@ def _reviewed_openapi_extension(reference, candidate):
             and not compare_value(candidate, runtime))
 
 
+_ASYNC_CONTROL_OPERATION='tinySA typed202/poll/idempotency/conflict/cancel'
+_ASYNC_CONTROL_AVAILABLE={name:True for name in (
+    'inspect','acquire.raw','acquire.zero','trace','marker','measurement','sd.list','sd.read','sd.delete',
+    'preset.save','preset.load','preset.export','preset.import','service.guide','selftest.start',
+    'generator.sweep','output.off')}
+_ASYNC_CONTROL_AVAILABLE.update({'audio.inputs':False,'audio.capture':False})
+
+
+def _collected_control_extensions(reference,candidate):
+    """Only this fixed owned, input-only/no-audio protocol fixture may enrich v1.
+
+    Shared fields never project. Accepted additions keep their exact raw values
+    in the response and report; no endpoint or opaque measurement is traversed.
+    """
+    def at(body,path):
+        try:
+            for key in path:body=body[key]
+        except (KeyError,TypeError,IndexError) as error:
+            raise ProtocolError('Malformed collected Control fixture shape') from error
+        return body
+
+    expected_keys={'capabilities','terminal_records','conflicting_request','raw_rejected'}
+    for body in (reference,candidate):
+        if not isinstance(body,dict) or set(body)!=expected_keys:
+            raise ProtocolError('Invalid collected Control fixture envelope')
+        records=body['terminal_records']
+        envelope=body['capabilities']
+        if (not isinstance(envelope,dict) or envelope.get('contract')!='openradioinspector-platform'
+                or type(envelope.get('contract_version')) is not int or envelope['contract_version']!=1):
+            raise ProtocolError('Invalid collected Control v1 capability envelope')
+        if (not isinstance(records,list) or len(records)!=3
+                or any(not isinstance(row,dict) for row in records)
+                or [row.get('operation') for row in records]!=['inspect','setting','setting']
+                or [row.get('state') for row in records]!=['succeeded','failed','failed']):
+            raise ProtocolError('Invalid collected Control terminal stages')
+        operations=at(body,('capabilities','data','capabilities','operations'))
+        if not isinstance(operations,dict) or set(operations)!=set(_ASYNC_CONTROL_AVAILABLE):
+            raise ProtocolError('Collected Control operation catalogue changed')
+        status=at(body,('terminal_records',0,'result','status'))
+        if (not isinstance(status,dict) or status.get('device_mode')!='input'
+                or status.get('profile_verified') is not True
+                or status.get('settings_readback') is not False
+                or status.get('device_mode_readback') is not False
+                or status.get('generator_output_readback') is not False
+                or status.get('hardware_validation')!='not_run'
+                or status.get('lease_active') is not False):
+            raise ProtocolError('Collected inspect lacks acknowledged input/profile proof')
+
+    positions=[(('capabilities','data','capabilities','operations',name),{'available':available})
+               for name,available in _ASYNC_CONTROL_AVAILABLE.items()]
+    positions += [
+        (('capabilities','data','status'),{'device_mode':'unknown','device_mode_readback':False,
+            'generator_output_readback':False,'hardware_validation':'not_run','lease_seconds':0}),
+        (('terminal_records',0,'result','status'),{'acquisition_paused':False,'restart_required':False}),
+        (('terminal_records',2),{'context_current':True})]
+    enriched=any(isinstance(at(candidate,path),dict) and any(key in at(candidate,path) for key in expected)
+                 for path,expected in positions)
+    projected=copy.deepcopy(candidate);evidence=[]
+    for path,expected in positions:
+        original,current=at(reference,path),at(candidate,path)
+        if not isinstance(original,dict) or not isinstance(current,dict):
+            raise ProtocolError('Collected Control typed position must be an object')
+        pointer='/'+'/'.join(_pointer(key) for key in path)
+        if set(current)-set(original)-set(expected):
+            raise ProtocolError('Unknown collected Control addition at '+pointer)
+        if enriched and not set(expected)<=set(current):
+            raise ProtocolError('Partial collected Control enrichment at '+pointer)
+        for key,wanted in expected.items():
+            if key not in current:continue
+            value=current[key]
+            if type(value) is not type(wanted) or compare_value(wanted,value):
+                raise ProtocolError('Incoherent collected Control addition at '+pointer+'/'+_pointer(key))
+            if key not in original:
+                at(projected,path).pop(key)
+                evidence.append({'path':pointer+'/'+_pointer(key),'value':value,'expected':wanted,
+                                 'contract':'owned_async_control_input_no_audio_v1'})
+    return projected,evidence
+
+
 def compare_http(reference: HTTPResult, candidate: HTTPResult, *, volatile_paths=(),
-                 operation=None, storage_layout_verified=False) -> Outcome:
+                 operation=None, storage_layout_verified=False,typed_control_collected=False) -> Outcome:
     try:
         first_mime = reference.headers.get("content-type", "").split(";", 1)[0].strip().lower()
         second_mime = candidate.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -328,7 +409,7 @@ def compare_http(reference: HTTPResult, candidate: HTTPResult, *, volatile_paths
             code=value.get("error",{}).get("code") if isinstance(value,dict) and isinstance(value.get("error"),dict) else None
             if candidate.status==503 and isinstance(code,str) or code=="candidate_route_unavailable":
                 return Outcome("unavailable", ["Core explicitly reports unavailable: "+code])
-        differences = []
+        differences = [];extensions=[]
         if reference.status != candidate.status:
             differences.append("HTTP status differs")
         if first_mime != second_mime:
@@ -340,6 +421,8 @@ def compare_http(reference: HTTPResult, candidate: HTTPResult, *, volatile_paths
                     and _reviewed_openapi_extension(first, second)):
                 return Outcome('pass', ['Exact reviewed additive OpenAPI document and unchanged baseline verified'])
             if reference.status == candidate.status == 200:
+                if typed_control_collected and operation==_ASYNC_CONTROL_OPERATION:
+                    second,extensions=_collected_control_extensions(first,second)
                 second = _diagnostic_extensions(second, operation, reference=first)
                 if operation == "GET /api/v1/archive/capacity" and storage_layout_verified:
                     first, second = (_capacity_layout(value) for value in (first, second))
@@ -348,7 +431,7 @@ def compare_http(reference: HTTPResult, candidate: HTTPResult, *, volatile_paths
             differences.extend(compare_value(load_ndjson(reference),load_ndjson(candidate),volatile_paths=volatile_paths))
         elif reference.body != candidate.body:
             differences.append("Original response bytes differ")
-        return Outcome("mismatch" if differences else "pass", differences[:MAX_DIFFERENCES])
+        return Outcome("mismatch" if differences else "pass", differences[:MAX_DIFFERENCES],extensions)
     except ProtocolError as error:
         return Outcome("error", [str(error)])
 
@@ -401,6 +484,7 @@ class NodeSpec:
     executable: Path
     source_root: Path
     analysis_python: Path | None = None
+    fixture_executable: Path | None = None
 
 
 class OwnedNode:
@@ -419,6 +503,10 @@ class OwnedNode:
         if self.spec.kind=="python":
             argv=[str(self.spec.executable),str(Path(__file__).resolve()),"--fixture-node",
                   "--source-root",str(self.spec.source_root),"--data-dir",str(data),"--ready-file",str(self.ready)]
+        elif self.spec.fixture_executable is not None:
+            argv=[str(self.spec.fixture_executable),"--data-dir",str(data),"--ready-file",str(self.ready)]
+            if self.spec.analysis_python is not None:
+                argv += ["--analysis-python",str(self.spec.analysis_python)]
         else:
             argv=[str(self.spec.executable),"--mode","replay","--data-dir",str(data),"--port","0",
                   "--host","127.0.0.1","--stdin-lifeline","--ready-file",str(self.ready)]
@@ -429,6 +517,11 @@ class OwnedNode:
     def __enter__(self):
         if self.spec.kind not in ("python","core"):
             raise ProtocolError("Unknown node backend")
+        if self.spec.fixture_executable is not None:
+            if self.spec.kind!="core":
+                raise ProtocolError("Only the candidate may select an explicit synthetic embedding")
+            if not self.spec.fixture_executable.is_file():
+                raise FileNotFoundError("Requested synthetic candidate embedding is unavailable")
         if not self.spec.executable.is_file():
             raise FileNotFoundError("Requested node executable is unavailable")
         self.directory.mkdir(mode=0o700)
@@ -860,14 +953,19 @@ def _compare_traces(reference,candidate):
             raise ProtocolError("Trace case identity changed")
         outcome=compare_http(left["response"],right["response"],volatile_paths=left["case"]["volatile_paths"],
                              operation=left["case"]["operation"],
+                             typed_control_collected=(left["case"]["id"]=="instrument-async-protocol"
+                                 and left["case"]["operation"]==right["case"]["operation"]==_ASYNC_CONTROL_OPERATION
+                                 and left["case"]["method"]==right["case"]["method"]=="PROTOCOL"
+                                 and left["case"]["path"]==right["case"]["path"]),
                              storage_layout_verified=left.get("capacity_verified",False) and right.get("capacity_verified",False))
         if outcome.state=="pass" and (left["checks"] or right["checks"]):
-            outcome=Outcome("error",left["checks"]+right["checks"])
+            outcome=Outcome("error",left["checks"]+right["checks"],outcome.validated_extensions)
         elif left["checks"] or right["checks"]:
             outcome.details.extend(left["checks"]+right["checks"])
         results.append({"case_id":left["case"]["id"],"operation":left["case"]["operation"],"state":outcome.state,
                         "successful":outcome.successful,"reference_status":left["response"].status,
-                        "candidate_status":right["response"].status,"details":outcome.details})
+                        "candidate_status":right["response"].status,"details":outcome.details,
+                        "validated_extensions":outcome.validated_extensions})
     return results
 
 
@@ -926,6 +1024,14 @@ def run_parity(producer:NodeSpec,candidate:NodeSpec|None,artifacts:Path,*,profil
                              "physical_not_run":["GET /api/v1/monitoring-projects/audio-inputs"],"source_sha256":inventory["source_sha256"],
                              "source_support_sha256":inventory.get("source_support_sha256",{})}
     try:
+        if candidate is not None:
+            http_executable=candidate.fixture_executable or candidate.executable
+            report["candidate"].update(
+                executable_sha256=file_sha256(candidate.executable) if candidate.executable.is_file() else None,
+                cli_executable=str(candidate.executable),
+                http_node={"kind":"production_cli" if candidate.fixture_executable is None else "trusted_synthetic_embedding",
+                           "executable":str(http_executable),
+                           "executable_sha256":file_sha256(http_executable) if http_executable.is_file() else None})
         if inventory is not None:
             revision,source_hashes=approved_source_snapshot(producer.source_root,inventory)
             if revision is None:
@@ -958,8 +1064,10 @@ def run_parity(producer:NodeSpec,candidate:NodeSpec|None,artifacts:Path,*,profil
                 (artifacts/"candidate.json").write_text(json.dumps(_trace_document(trace),ensure_ascii=False,allow_nan=False,indent=2)+"\n",encoding="utf-8")
                 results=_compare_traces(traces[0],trace)
                 successful=bool(results) and all(item["successful"] for item in results) and report["cli_probes"][-1]["successful"]
-                report["candidate"]={"state":"pass" if successful else "failed","successful":successful,"results":results,
-                                     "executable_sha256":file_sha256(candidate.executable)}
+                if (file_sha256(candidate.executable)!=report["candidate"]["executable_sha256"] or
+                    file_sha256(candidate.fixture_executable or candidate.executable)!=report["candidate"]["http_node"]["executable_sha256"]):
+                    raise ProtocolError("Candidate executable bytes changed during the owned run")
+                report["candidate"].update(state="pass" if successful else "failed",successful=successful,results=results)
                 report["successful"]=successful
             finally:
                 report["nodes"].append({"label":"candidate","joined":node.joined,"exit_code":None if node.process is None else node.process.returncode})
@@ -977,6 +1085,7 @@ def main(argv=None):
     parser.add_argument("--ready-file",type=Path)
     parser.add_argument("--producer-python",type=Path,default=Path(sys.executable))
     parser.add_argument("--candidate",type=Path)
+    parser.add_argument("--candidate-fixture",type=Path,help="Explicit trusted synthetic Core embedding for HTTP only; CLI probes still use --candidate")
     parser.add_argument("--candidate-source-root",type=Path)
     parser.add_argument("--analysis-python",type=Path)
     parser.add_argument("--artifacts",type=Path)
@@ -986,9 +1095,12 @@ def main(argv=None):
         if args.data_dir is None or args.ready_file is None:parser.error("Fixture paths required")
         return fixture_node(args)
     if args.artifacts is None:parser.error("--artifacts is required")
+    if args.candidate_fixture is not None and args.candidate is None:
+        parser.error("--candidate-fixture requires the original --candidate executable")
     producer=NodeSpec("python",args.producer_python.absolute(),args.source_root.resolve())
     candidate=None if args.candidate is None else NodeSpec("core",args.candidate.resolve(),
-        (args.candidate_source_root or args.source_root).resolve(),args.analysis_python)
+        (args.candidate_source_root or args.source_root).resolve(),args.analysis_python,
+        None if args.candidate_fixture is None else args.candidate_fixture.resolve())
     result=run_parity(producer,candidate,args.artifacts,profile=args.profile)
     print(json.dumps({"successful":result["successful"],"producer_sanity":result["producer_sanity"]["successful"],
                       "candidate":result["candidate"]["state"],"report":str(args.artifacts/"report.json")},ensure_ascii=False))

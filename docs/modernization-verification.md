@@ -21,6 +21,13 @@ profile's macOS UI/Xcode checks. The portable checks can also run on Linux with
 the pinned Swift toolchain. Missing requested tools fail; they are never
 converted into platform skips.
 
+On POSIX, the modern runner uses the canonical preferred temporary parent when
+its UTF-8 path is at most 16 bytes; otherwise it uses canonical `/tmp` under the
+same limit. This reserves space for nested Core Unix admin socket paths,
+including macOS's `/private` aliases. The scope remains owner-only and is cleaned
+by the existing lifecycle. Legacy and Windows temporary-directory selection is
+unchanged. No global temporary-directory setting or test deadline is changed.
+
 ## Prepare dependencies before running
 
 The runner installs nothing and Rust checks use `--locked --offline`. Prepare
