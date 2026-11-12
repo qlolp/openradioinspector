@@ -334,6 +334,7 @@ fn fill_and_publish(
     actor::check_response_size(&manifest, max_response_bytes)?;
     budget.check()?;
     let mut builder = fs::DirBuilder::new();
+    builder.recursive(false);
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;

@@ -7,9 +7,10 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { hz } from './components';
 import { getLocale, t, useLocale } from './i18n';
-import { SpectrumRenderer } from './spectrum-renderer';
+import { sameSpectrumContext, SpectrumRenderer, type DrawnSpectrum } from './spectrum-renderer';
 import {
   clampRange,
   panRange,
@@ -26,34 +27,42 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
     canvas = useRef<HTMLCanvasElement>(null),
     fallback = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<SpectrumRenderer | null>(null);
-  const [view, setView] = useState<FrequencyRange | null>(null),
+  const [display, setDisplay] = useState<DrawnSpectrum>(),
     [mode, setMode] = useState('Starting renderer');
-  const full = sourceRange(sweep),
-    range = clampRange(view ?? full, full),
-    levels = sourceLevels(sweep);
-  const current = useRef({ sweep, comparison, full, range });
-  current.current = { sweep, comparison, full, range };
-  const previousSource = useRef({
-    session: sweep?.session_id,
-    stream: sweep?.stream_id,
-    low: full.low,
-    high: full.high,
-  });
+  const full = sourceRange(sweep);
+  const current = useRef({ sweep, comparison, full, range: full });
+  const changed = !sameSpectrumContext(current.current.sweep, sweep);
+  const desiredRange = changed ? full : clampRange(current.current.range, full);
+  current.current = { sweep, comparison, full, range: desiredRange };
   const dragging = useRef<
     { id: number; x: number; width: number; range: FrequencyRange } | undefined
   >(undefined);
+  if (changed) dragging.current = undefined;
+  const drawn =
+    display &&
+    sameSpectrumContext(display.sweep, sweep) &&
+    display.webgl === mode.startsWith('WebGL2')
+      ? display
+      : undefined;
+  const displayedSweep = drawn?.sweep,
+    range = drawn?.range ?? full,
+    levels = drawn?.levels ?? sourceLevels();
   const change = useCallback((next: FrequencyRange) => {
     const data = current.current;
     const bounded = clampRange(next, data.full);
     current.current = { ...data, range: bounded };
-    setView(bounded);
-    renderer.current?.update(data.sweep, data.comparison, bounded);
+    renderer.current?.view(bounded);
   }, []);
   useEffect(() => {
     const element = plot.current!;
     const glCanvas = canvas.current!,
       fallbackCanvas = fallback.current!;
-    const graph = new SpectrumRenderer(glCanvas, fallbackCanvas, setMode);
+    const graph = new SpectrumRenderer(glCanvas, fallbackCanvas, setMode, (snapshot) => {
+      if (!sameSpectrumContext(snapshot.sweep, current.current.sweep)) return;
+      // This callback follows actual pixel submission. Commit its labels before
+      // paint and the original two-RAF marker, without changing source/Worker ACKs.
+      flushSync(() => setDisplay(snapshot));
+    });
     renderer.current = graph;
     const resize = new ResizeObserver((entries) => {
       const size = entries[0]?.contentRect;
@@ -103,25 +112,8 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
     };
   }, []);
   useEffect(() => {
-    const before = previousSource.current;
-    const changed =
-      before.session !== sweep?.session_id ||
-      before.stream !== sweep?.stream_id ||
-      before.low !== full.low ||
-      before.high !== full.high;
-    if (changed) {
-      previousSource.current = {
-        session: sweep?.session_id,
-        stream: sweep?.stream_id,
-        low: full.low,
-        high: full.high,
-      };
-      current.current.range = full;
-      setView(null);
-      dragging.current = undefined;
-      renderer.current?.update(sweep, comparison, full);
-    } else renderer.current?.update(sweep, comparison, range);
-  }, [sweep, comparison, view]);
+    renderer.current?.update(sweep, comparison, current.current.range);
+  }, [sweep, comparison]);
   const pan = (direction: number) => {
     const data = current.current;
     change(panRange(data.range, data.full, (data.range.high - data.range.low) * direction * 0.2));
@@ -172,7 +164,8 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
   const outside =
-    sweep && (sweep.peak.frequency_hz < range.low || sweep.peak.frequency_hz > range.high);
+    displayedSweep &&
+    (displayedSweep.peak.frequency_hz < range.low || displayedSweep.peak.frequency_hz > range.high);
   const precision = Math.min(
     6,
     Math.max(3, Math.ceil(Math.log10(1e6 / (range.high - range.low))) + 1),
@@ -186,11 +179,11 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
     [locale, precision],
   );
   const axis = (value: number) => axisFormat.format(value / 1e6);
-  const label = sweep
+  const label = displayedSweep
     ? t('Spectrum: peak {level} {unit} at {frequency} Hz', {
-        level: sweep.peak.level,
-        unit: sweep.level_unit,
-        frequency: sweep.peak.frequency_hz,
+        level: displayedSweep.peak.level,
+        unit: displayedSweep.level_unit,
+        frequency: displayedSweep.peak.frequency_hz,
       })
     : t('Spectrum waiting for measurements');
   const levelLabel = (value: number) =>
@@ -220,19 +213,19 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
         <canvas
           ref={canvas}
           className={mode.startsWith('WebGL2') ? 'spectrum' : 'spectrum-layer'}
-          hidden={!mode.startsWith('WebGL2')}
+          hidden={!drawn || !mode.startsWith('WebGL2')}
           role="img"
           aria-label={label}
         />
         <canvas
           ref={fallback}
           className={mode.startsWith('WebGL2') ? 'spectrum-layer' : 'spectrum'}
-          hidden={mode.startsWith('WebGL2')}
+          hidden={!drawn || mode.startsWith('WebGL2')}
           role="img"
           aria-label={label}
         />
         <span className="spectrum-unit" aria-hidden="true">
-          {sweep?.level_unit}
+          {displayedSweep?.level_unit}
         </span>
         <div className="spectrum-level-axis" aria-hidden="true">
           {Array.from({ length: 5 }, (_, i) => (
@@ -295,7 +288,7 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
       <p className="spectrum-range mono">
         {hz(range.low)} — {hz(range.high)}
       </p>
-      {comparison?.compatible && (
+      {drawn?.comparison?.compatible && (
         <div className="spectrum-legend" aria-label={t('Spectrum comparison legend')}>
           <span>
             <i className="legend-source" aria-hidden="true" />
@@ -314,7 +307,7 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
       {outside && (
         <p className="spectrum-peak-warning" role="status">
           {t('Source peak is outside the displayed frequency range')} ·{' '}
-          {hz(sweep.peak.frequency_hz)}
+          {hz(displayedSweep.peak.frequency_hz)}
         </p>
       )}
       <p className="spectrum-help">
