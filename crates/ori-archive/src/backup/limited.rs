@@ -243,9 +243,14 @@ fn limited_backup(
     budget.check()?;
     let parent = parent(destination)?;
     fs::create_dir_all(parent)?;
-    let stage = tempfile::Builder::new()
-        .prefix(".ori-recovery-")
-        .tempdir_in(parent)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-recovery-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let stage = builder.tempdir_in(parent)?;
     let mut published = false;
     let result = fill_and_publish(
         source,
@@ -452,6 +457,38 @@ mod tests {
                 .to_string_lossy()
                 .starts_with(".ori-recovery-")
         })
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn recovery_stage_is_private_before_verification_and_publication() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (root, archive) = seeded(2).await;
+        let before = archive.events(0, 100).await.unwrap();
+        let checked = Arc::new(AtomicBool::new(false));
+        let seen = checked.clone();
+        archive
+            .backup_with_hooks(
+                &root.path().join("private-bundle"),
+                options(),
+                Hooks {
+                    before_verify: Some(Box::new(move |stage| {
+                        assert_eq!(
+                            fs::metadata(stage).unwrap().permissions().mode() & 0o777,
+                            0o700
+                        );
+                        seen.store(true, Ordering::Release);
+                    })),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(checked.load(Ordering::Acquire));
+        assert!(no_stages(root.path()));
+        assert_eq!(archive.events(0, 100).await.unwrap(), before);
+        archive.close().await.unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

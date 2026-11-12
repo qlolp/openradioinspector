@@ -246,7 +246,7 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
 
 
 class _GilSafeWatchdog:
-    """Older CPython's C timer can read a concurrently freed frame (gh-140815)."""
+    """Dump from an explicitly joined Python thread while it holds the GIL."""
     def __init__(self, interval, stream):
         self.interval, self.stream = interval, stream
         self.stopped = threading.Event()
@@ -279,15 +279,18 @@ class _GilSafeWatchdog:
 
 def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, only_test: str | None = None) -> int:
     # CPython gh-140815 was fixed in 3.13.10 / 3.14.1, without a 3.12
-    # backport. Keep the GIL-independent C timer on corrected interpreters.
-    # Older versions use a joined Python watchdog; if native code holds the
-    # GIL forever it cannot dump, but the outer owned-process timeout still
-    # terminates the command. Product tests and their deadlines are unchanged.
+    # backport. Darwin 3.15 also had a partial native timer dump followed by
+    # a post-suite hang; native cancellation joins that dump without a bound.
+    # Use the existing joined Python watchdog for this observed profile too.
+    # A Python watchdog cannot dump while native code holds the GIL forever;
+    # the owned outer timeout still terminates that failed command.
+    # Product tests and their deadlines are unchanged.
     # Fatal handlers belong only to this dedicated diagnostic child.
     faulthandler.enable(file=sys.__stderr__, all_threads=True)
     version = tuple(sys.version_info[:3])
     fixed = version >= (3, 14, 1) or (3, 13, 10) <= version < (3, 14, 0)
-    if not fixed:
+    darwin_315 = sys.platform == "darwin" and version[:2] == (3, 15)
+    if not fixed or darwin_315:
         watchdog = _GilSafeWatchdog(diagnostic_after, sys.__stderr__)
         watchdog.start()
         try:
