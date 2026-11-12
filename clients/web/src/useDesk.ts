@@ -2,6 +2,7 @@ import { encodePathSegment } from './wire';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Api, ResourceScope } from './api';
 import { LiveStore, type LiveCheckpoint } from './live';
+import { HealthReceipts, type HealthCheckpoint } from './health';
 import type { Connection } from './transport';
 import type {
   Allowed,
@@ -19,7 +20,7 @@ import type {
 } from './types';
 const checkpoints = new WeakMap<
   Connection,
-  { id: symbol; projectId: string; state: LiveCheckpoint }
+  { id: symbol; projectId: string; state: LiveCheckpoint; health?: HealthCheckpoint }
 >();
 
 export function remember(key: string, fallback: string): string {
@@ -44,6 +45,12 @@ const readyAction = {
 
 export function useDesk(transport: Connection) {
   const api = useMemo(() => new Api(transport), [transport]);
+  const healthReceipts = useMemo(
+    () => new HealthReceipts(checkpoints.get(transport)?.health),
+    [api, transport],
+  );
+  const healthOwner = useRef(healthReceipts);
+  healthOwner.current = healthReceipts;
   const restored = useMemo(() => {
     const saved = checkpoints.get(transport);
     const store = new LiveStore(transport);
@@ -172,14 +179,28 @@ export function useDesk(transport: Connection) {
     resyncRunning.current = true;
     const epoch = connectionEpoch.current;
     let cursor = liveStore.lastApplied();
+    const receipt = healthReceipts.capture(cursor);
     liveStore.stop();
     try {
-      const value = await api.get<Health>('/health');
-      if (!mounted.current || connectionEpoch.current !== epoch) return;
-      setHealth(value);
-      if (BigInt(value.last_event_id) < BigInt(cursor)) {
+      const received = await api.get<Health>('/health');
+      if (
+        !mounted.current ||
+        connectionEpoch.current !== epoch ||
+        healthOwner.current !== healthReceipts
+      )
+        return;
+      const accepted = healthReceipts.accept(receipt, received);
+      const value = accepted ? received : healthReceipts.value;
+      if (!value) {
+        resyncRequested.current = true;
+        return;
+      }
+      if (accepted) setHealth(value);
+      else cursor = liveStore.lastApplied();
+      if (healthReceipts.archiveChanged) {
         cursor = value.last_event_id;
         liveStore.resetArchive(cursor);
+        healthReceipts.acknowledgeArchive(value);
         setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
         const p = projectRef.current;
@@ -197,8 +218,13 @@ export function useDesk(transport: Connection) {
       if (
         mounted.current &&
         connectionEpoch.current === epoch &&
+        healthOwner.current === healthReceipts &&
         (error as Error).name !== 'AbortError'
       ) {
+        if (!healthReceipts.current(receipt)) {
+          resyncRequested.current = true;
+          return;
+        }
         setAction({ state: 'Error', text: 'Resynchronization failed: ' + message(error) });
         resyncTimer.current = setTimeout(() => {
           void resync();
@@ -214,26 +240,36 @@ export function useDesk(transport: Connection) {
         }, 250);
       }
     }
-  }, [api, liveStore, seed, refresh]);
+  }, [api, liveStore, seed, refresh, healthReceipts]);
 
   const boot = useCallback(async () => {
     const epoch = connectionEpoch.current;
+    const receipt = healthReceipts.capture(liveStore.lastApplied());
     try {
       const [h, c, s] = await Promise.all([
         api.get<Health>('/health'),
         api.get<Capabilities>('/capabilities'),
         api.get<Session[]>('/sessions'),
       ]);
-      if (!mounted.current || connectionEpoch.current !== epoch) return;
-      setHealth(h);
+      if (
+        !mounted.current ||
+        connectionEpoch.current !== epoch ||
+        healthOwner.current !== healthReceipts
+      )
+        return;
+      const accepted = healthReceipts.accept(receipt, h);
+      const value = accepted ? h : healthReceipts.value;
+      if (!value) return;
+      if (accepted) setHealth(value);
       setCapabilities(c);
       transport.configureStream?.(c);
       setSessions(s);
       const resume = liveStore.checkpoint();
-      let after = resume?.sequence ?? h.last_event_id;
-      if (BigInt(h.last_event_id) < BigInt(after)) {
-        after = h.last_event_id;
+      let after = resume?.sequence ?? value.last_event_id;
+      if (healthReceipts.archiveChanged) {
+        after = value.last_event_id;
         liveStore.resetArchive(after);
+        healthReceipts.acknowledgeArchive(value);
         setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
       }
@@ -263,7 +299,7 @@ export function useDesk(transport: Connection) {
     } catch (error) {
       if (connectionEpoch.current === epoch) throw error;
     }
-  }, [api, liveStore, loadProjects]);
+  }, [api, liveStore, loadProjects, healthReceipts]);
 
   useEffect(() => {
     mounted.current = true;
@@ -281,10 +317,11 @@ export function useDesk(transport: Connection) {
           id: Symbol(),
           projectId: selection.current,
           state: checkpoint,
+          health: healthReceipts.checkpoint(),
         });
       liveStore.dispose();
     };
-  }, [liveStore, transport, restored.checkpointId]);
+  }, [liveStore, transport, restored.checkpointId, healthReceipts]);
 
   useEffect(() => {
     if (connected)
@@ -348,22 +385,44 @@ export function useDesk(transport: Connection) {
         eventsReading = false;
       }
     }, 5000);
-    let previousLag: bigint | undefined;
+    let previousLag: { epoch: symbol; cursor: bigint } | undefined;
     const healthTimer = setInterval(async () => {
       if (healthReading) return;
       healthReading = true;
+      const epoch = connectionEpoch.current;
+      const receipt = healthReceipts.capture(liveStore.lastApplied());
       try {
         const h = await api.get<Health>('/health');
-        if (!mounted.current) return;
+        if (
+          !mounted.current ||
+          connectionEpoch.current !== epoch ||
+          healthOwner.current !== healthReceipts
+        )
+          return;
+        if (!healthReceipts.accept(receipt, h)) return;
         setHealth(h);
         const cursor = BigInt(liveStore.lastApplied());
         const highWater = BigInt(h.last_event_id);
         const applying = liveStore.isApplying();
-        if (highWater < cursor || (highWater > cursor && previousLag === cursor && !applying))
+        if (
+          healthReceipts.archiveChanged ||
+          (highWater > cursor &&
+            previousLag?.epoch === receipt.epoch &&
+            previousLag.cursor === cursor &&
+            receipt.applied === cursor &&
+            !applying)
+        )
           void resync();
-        previousLag = highWater > cursor && !applying ? cursor : undefined;
+        previousLag =
+          highWater > cursor && !applying ? { epoch: receipt.epoch, cursor } : undefined;
       } catch {
-        if (mounted.current) setHealth(undefined);
+        if (
+          mounted.current &&
+          connectionEpoch.current === epoch &&
+          healthOwner.current === healthReceipts &&
+          healthReceipts.current(receipt)
+        )
+          setHealth(undefined);
       } finally {
         healthReading = false;
       }
@@ -393,7 +452,7 @@ export function useDesk(transport: Connection) {
       liveStore.onGap = () => {};
       liveStore.onInvalidate = () => {};
     };
-  }, [connected, api, liveStore, refresh, resync]);
+  }, [connected, api, liveStore, refresh, resync, healthReceipts]);
 
   const run = useCallback(
     async <T>(
@@ -482,6 +541,7 @@ export function useDesk(transport: Connection) {
       async () => {
         await transport.connect(node);
         connectionEpoch.current++;
+        healthReceipts.resetNode();
         setConnectionVersion((value) => value + 1);
         scope.current.dispose();
         currentScope.current = null;

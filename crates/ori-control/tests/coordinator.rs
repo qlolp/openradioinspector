@@ -63,6 +63,9 @@ impl Executor {
 }
 impl ControlExecutor for Executor {
     fn snapshot(&self, t: &Target) -> ori_control::Result<CachedInstrument> {
+        if !self.live.load(Ordering::SeqCst) {
+            return Err(ControlError::Denied);
+        }
         Ok(self.snapshot_for(t))
     }
     fn execute<'a>(&'a self, r: ExecutionRequest) -> ControlFuture<'a, ExecutionOutcome> {
@@ -193,6 +196,79 @@ async fn done(c: &Coordinator, t: &Target, id: &str, client: Option<&str>) -> Va
     })
     .await
     .unwrap()
+}
+
+#[tokio::test]
+async fn legacy_wire_missing_lab_is_specific_and_never_enters_executor_io() {
+    let (c, e, _, t) = setup(ControlConfig::default());
+    let submitted = c
+        .submit(
+            &t,
+            br#"{"operation":"setting","parameters":{"name":"output_enabled","value":true}}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    let terminal = done(&c, &t, submitted["operation_id"].as_str().unwrap(), None).await;
+    assert_eq!(terminal["state"], "failed");
+    assert_eq!(
+        terminal["error"],
+        "Требуется действующая эксклюзивная lab-аренда"
+    );
+    assert!(e.calls.lock().unwrap().is_empty());
+    c.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_wire_inactive_lease_seconds_is_integer_zero() {
+    let (c, _, _, t) = setup(ControlConfig::default());
+    let submitted = c
+        .submit(
+            &t,
+            br#"{"operation":"setting","parameters":{"name":"output_enabled","value":true}}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    done(&c, &t, submitted["operation_id"].as_str().unwrap(), None).await;
+    let status = c.status(&t).unwrap();
+    assert_eq!(status["lease_active"], false);
+    assert!(
+        !status["lease_seconds"].as_number().unwrap().is_f64(),
+        "{status}"
+    );
+    assert_eq!(status["lease_seconds"].as_u64(), Some(0));
+    c.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn legacy_wire_revoked_queued_owner_is_not_reclassified_as_missing_lab() {
+    let (c, e, _, t) = setup(ControlConfig::default());
+    e.hold.store(true, Ordering::SeqCst);
+    let first = c
+        .submit(&t, br#"{"operation":"output.off"}"#, None)
+        .await
+        .unwrap();
+    e.entered.acquire().await.unwrap().forget();
+    let queued = c
+        .submit(
+            &t,
+            br#"{"operation":"setting","parameters":{"name":"output_enabled","value":true}}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    e.live.store(false, Ordering::SeqCst);
+    e.release.add_permits(1);
+    done(&c, &t, first["operation_id"].as_str().unwrap(), None).await;
+    let terminal = done(&c, &t, queued["operation_id"].as_str().unwrap(), None).await;
+    assert_eq!(terminal["state"], "failed", "{terminal}");
+    assert_ne!(
+        terminal["error"],
+        "Требуется действующая эксклюзивная lab-аренда"
+    );
+    assert_eq!(*e.calls.lock().unwrap(), vec![OperationKind::OutputOff]);
+    c.close().await.unwrap();
 }
 #[tokio::test]
 async fn terminal_view_waits_for_commit_and_duplicate_never_replays_io() {
