@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 import urllib.error
+from unittest.mock import patch
 
 from radioinspector.windows.app import (
     WindowsApp,
@@ -308,8 +309,15 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(tuned["tuned"]["frequency_hz"], 433_075_000)
         self.assertEqual(tuned["tuned"]["mode"], "DMR")
+        # Tune ACK updates settings before the next acquisition is committed.
         wait_until(
-            lambda: self.workers()[self.receiver_id]["current"]["frequency_hz"] == 433_075_000,
+            lambda: (
+                self.workers()[self.receiver_id]["current"]["frequency_hz"] == 433_075_000
+                and any(
+                    item.frequency_hz == 433_075_000
+                    for item in self.server.session_service.list_observations(self.session.id)
+                )
+            ),
             "Receiver должен выполнить tune через собственную очередь",
         )
         observations = self.server.session_service.list_observations(self.session.id)
@@ -324,6 +332,51 @@ class WindowsClientIntegrationTests(unittest.TestCase):
         self.client.stop_session(self.session.id)
         self.assertEqual(self.client.get_session(self.session.id)["state"], "stopped")
         self.assertTrue(all(not item["alive"] for item in self.workers().values()))
+
+    def test_tune_wait_requires_observation_commit_after_configuration_ack(self) -> None:
+        commit_entered = threading.Event()
+        commit_allowed = threading.Event()
+        original_ingest = self.server.session_service.ingest_observation
+        original_wait = wait_until
+
+        def held_ingest(observation):
+            if observation.frequency_hz == 433_075_000:
+                commit_entered.set()
+                commit_allowed.wait()
+            return original_ingest(observation)
+
+        def checked_wait(predicate, message, timeout=original_wait.__defaults__[0]):
+            if message != "Receiver должен выполнить tune через собственную очередь":
+                return original_wait(predicate, message, timeout)
+            deadline = time.monotonic() + timeout
+            try:
+                original_wait(commit_entered.is_set, "Owned post-tune ingest was not reached", timeout)
+                current = self.workers()[self.receiver_id]["current"]
+                self.assertEqual(current["frequency_hz"], 433_075_000)
+                self.assertEqual(current["mode"], "DMR")
+                self.assertFalse(
+                    any(
+                        item.frequency_hz == 433_075_000
+                        for item in self.server.session_service.list_observations(self.session.id)
+                    )
+                )
+                self.assertFalse(
+                    predicate(), "Configuration ACK cannot satisfy the observation-commit wait"
+                )
+            finally:
+                commit_allowed.set()
+            return original_wait(predicate, message, max(0.0, deadline - time.monotonic()))
+
+        try:
+            with patch.object(
+                self.server.session_service, "ingest_observation", side_effect=held_ingest
+            ):
+                with patch(__name__ + ".wait_until", side_effect=checked_wait):
+                    self.test_independent_stream_commands_and_tune()
+            self.assertTrue(commit_entered.is_set())
+        finally:
+            # Always unblock this same owned simulator before tearDown joins it.
+            commit_allowed.set()
 
     def test_snapshot_exposes_candidates_queue_and_does_not_start_handoff(self) -> None:
         self.client.start_session(self.session.id)
