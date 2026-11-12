@@ -15,8 +15,12 @@ vi.mock('../src/charts', () => ({ Spectrum: () => null, Waterfall: () => null })
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((yes) => (resolve = yes));
-  return { promise, resolve };
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
 }
 const envelope = (data: unknown) => ({
   contract: 'openradioinspector-platform',
@@ -57,6 +61,8 @@ function ProjectHost({ transport }: { transport: Connection }) {
   return (
     <>
       <button onClick={() => desk.setProjectId(otherProject.id)}>Select other project</button>
+      <output data-testid="action-state">{desk.action.state + ' ' + desk.action.text}</output>
+      <output data-testid="busy-state">{String(desk.busy)}</output>
       <Research desk={desk} openOriginal={() => {}} />
     </>
   );
@@ -97,6 +103,8 @@ class CoreFixture {
   sourcesSignal?: AbortSignal;
   heldReview?: ReturnType<typeof deferred<unknown>>;
   reviewSignal?: AbortSignal;
+  heldAudio?: ReturnType<typeof deferred<Blob>>;
+  audioSignal?: AbortSignal;
   state?: Parameters<Connection['subscribe']>[2];
   requests: { path: string; body: unknown }[] = [];
   event(): MonitoringEvent {
@@ -113,6 +121,7 @@ class CoreFixture {
       peak_level: -70,
       source_count: 1,
       disposition: 'unreviewed',
+      analysis: this.heldAudio ? { state: 'completed', audio: { id: 'owned-audio' } } : undefined,
       source_refs: this.heldSources
         ? undefined
         : [
@@ -130,8 +139,10 @@ class CoreFixture {
     pair: async () => {},
     revokePairing: async () => {},
     openLegacy: async () => {},
-    audio: async () => {
-      throw Error('Unexpected audio');
+    audio: async (_path, signal) => {
+      if (!this.heldAudio) throw Error('Unexpected audio');
+      this.audioSignal = signal;
+      return this.heldAudio.promise;
     },
     subscribe: async (_after, _receive, state) => {
       this.state = state;
@@ -243,6 +254,13 @@ function row(id: string) {
   );
   if (!result) throw Error('Missing history row: ' + id);
   return result;
+}
+function action() {
+  return container.querySelector<HTMLElement>('[data-testid="action-state"]')!.textContent!;
+}
+function busy() {
+  const explicit = container.querySelector('[data-testid="busy-state"]');
+  return explicit ? explicit.textContent === 'true' : button('＋ Prepare project').disabled;
 }
 async function mount(fixture: CoreFixture) {
   root = createRoot(container);
@@ -443,4 +461,183 @@ it('does not reopen an old event dialog when its pre-rollback metadata review ac
   await settle();
   expect(container.querySelectorAll('dialog')).toHaveLength(0);
   expect(fixture.reviewSignal?.aborted).toBe(true);
+});
+
+it('does not publish a discarded comparison rejection into selected source B', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  await click(button('Compare baseline', row('A')));
+  await click(row('B').querySelector<HTMLElement>('.history-select')!);
+  await act(async () => fixture.comparison.reject(Error('Late discarded comparison A')));
+  await settle();
+  expect(action()).not.toContain('Late discarded comparison A');
+  expect(action()).not.toContain('Compare baseline');
+  expect(busy()).toBe(false);
+});
+it('does not confirm a discarded comparison acknowledgement for source B', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  await click(button('Compare baseline', row('A')));
+  await click(row('B').querySelector<HTMLElement>('.history-select')!);
+  await act(async () => fixture.comparison.resolve(comparison('A')));
+  await settle();
+  expect(action()).not.toContain('Compare baseline');
+  expect(row('B').classList.contains('selected')).toBe(true);
+});
+it('retains a valid same-source comparison error and releases its busy state', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  await click(button('Compare baseline', row('A')));
+  await act(async () => fixture.comparison.reject(Error('Current original comparison failed')));
+  await settle();
+  expect(action()).toContain('Error');
+  expect(action()).toContain('Current original comparison failed');
+  expect(busy()).toBe(false);
+});
+it('does not publish the old project read error after real useDesk project selection', async () => {
+  const fixture = new CoreFixture();
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  await click(button('Load history'));
+  await click(button('Compare baseline', row('A')));
+  await click(button('Select other project'));
+  await act(async () => fixture.comparison.reject(Error('Discarded old project comparison')));
+  await settle();
+  expect(action()).not.toContain('Discarded old project comparison');
+  expect(action()).not.toContain('Compare baseline');
+  expect(busy()).toBe(false);
+});
+it('keeps the archive-reset action when a pre-rollback comparison rejects late', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  await click(button('Compare baseline', row('A')));
+  await rollback(fixture);
+  const reset = action();
+  expect(reset).toContain('Archive changed');
+  await act(async () => fixture.comparison.reject(Error('Discarded replaced-archive comparison')));
+  await settle();
+  expect(action()).toBe(reset);
+  expect(busy()).toBe(false);
+});
+it('releases only the discarded read and does not let its finally clear a new source action', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  const original = fixture.comparison;
+  await click(button('Compare baseline', row('A')));
+  await click(row('B').querySelector<HTMLElement>('.history-select')!);
+  expect(busy()).toBe(false);
+  fixture.comparison = deferred<Comparison>();
+  await click(button('Compare baseline', row('B')));
+  expect(fixture.requests.some((request) => request.path.endsWith('/history/B/comparison'))).toBe(
+    true,
+  );
+  expect(busy()).toBe(true);
+  const current = action();
+  await act(async () => original.reject(Error('Old A finishes during B')));
+  await settle();
+  expect(action()).toBe(current);
+  expect(busy()).toBe(true);
+  await act(async () => fixture.comparison.resolve(comparison('B')));
+  await settle();
+  expect(action()).toContain('Confirmed');
+  expect(busy()).toBe(false);
+  expect(container.textContent).toContain('Baseline comparison · compatible');
+});
+it('does not start or label a comparison invalidated before the requested animation frame', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+  await click(button('Compare baseline', row('A')));
+  await click(row('B').querySelector<HTMLElement>('.history-select')!);
+  await act(async () => frames.splice(0).forEach((callback) => callback(0)));
+  await settle();
+  expect(fixture.requests.some((request) => request.path.endsWith('/comparison'))).toBe(false);
+  expect(action()).not.toContain('Compare baseline');
+  expect(busy()).toBe(false);
+});
+it('does not surface a closed original-evidence read rejection', async () => {
+  const fixture = new CoreFixture();
+  fixture.heldOriginal = deferred();
+  await mount(fixture);
+  await click(button('Details'));
+  await click(button('Original sweep', container.querySelector('dialog')!));
+  await click(button('Close event', container.querySelector('dialog')!));
+  await act(async () => fixture.heldOriginal!.reject(Error('Closed original evidence failed')));
+  await settle();
+  expect(container.querySelectorAll('dialog')).toHaveLength(0);
+  expect(action()).not.toContain('Closed original evidence failed');
+  expect(action()).not.toContain('Load original sweep');
+  expect(busy()).toBe(false);
+});
+it('keeps a metadata mutation busy through its original late Core acknowledgement', async () => {
+  const fixture = new CoreFixture();
+  fixture.heldReview = deferred();
+  await mount(fixture);
+  await click(button('Details'));
+  const original = fixture.event();
+  await click(button('Save review', container.querySelector('dialog')!));
+  await rollback(fixture);
+  expect(busy()).toBe(true);
+  await act(async () => fixture.heldReview!.resolve(original));
+  await settle();
+  expect(action()).toContain('Confirmed');
+  expect(action()).toContain('Review event');
+  expect(busy()).toBe(false);
+  expect(container.querySelectorAll('dialog')).toHaveLength(0);
+});
+it('preserves an explicit metadata command requested before an unmount animation frame', async () => {
+  const fixture = new CoreFixture();
+  fixture.heldReview = deferred();
+  await mount(fixture);
+  await click(button('Details'));
+  const original = fixture.event();
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+  await click(button('Save review', container.querySelector('dialog')!));
+  await act(async () => root!.unmount());
+  root = undefined;
+  await act(async () => frames.splice(0).forEach((callback) => callback(0)));
+  await settle();
+  expect(
+    fixture.requests.filter((request) => request.path.endsWith('/events/event/review')),
+  ).toHaveLength(1);
+  await act(async () => fixture.heldReview!.resolve(original));
+  await settle();
+});
+it('does not surface a closed audio-evidence read rejection', async () => {
+  const fixture = new CoreFixture();
+  fixture.heldAudio = deferred<Blob>();
+  await mount(fixture);
+  await click(button('Details'));
+  await click(button('Play audio', container.querySelector('dialog')!));
+  expect(busy()).toBe(true);
+  await click(button('Close event', container.querySelector('dialog')!));
+  expect(fixture.audioSignal?.aborted).toBe(true);
+  await act(async () => fixture.heldAudio!.reject(Error('Closed audio evidence failed')));
+  await settle();
+  expect(action()).not.toContain('Closed audio evidence failed');
+  expect(action()).not.toContain('Load event audio');
+  expect(busy()).toBe(false);
+});
+it('does not surface a discarded history read rejection after filter invalidation', async () => {
+  const fixture = new CoreFixture();
+  fixture.heldHistory = deferred();
+  await mount(fixture);
+  await click(button('Research'));
+  await click(button('Load history'));
+  const input = container.querySelector<HTMLInputElement>(
+    'section[aria-label="Research workspace"] input[inputmode="numeric"]',
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '100');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => fixture.heldHistory!.reject(Error('Discarded filtered history failed')));
+  await settle();
+  expect(fixture.historySignal?.aborted).toBe(true);
+  expect(action()).not.toContain('Discarded filtered history failed');
+  expect(action()).not.toContain('Load history');
+  expect(busy()).toBe(false);
 });

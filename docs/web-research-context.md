@@ -9,6 +9,16 @@ cannot attach a comparison to another source, even when a transport completes
 after cancellation. Valid compatible and incompatible responses for the current
 source keep their existing meaning.
 
+Completion follow-up baseline: `51a3a4121cb8774653e84e4434f26662344f59aa`.
+Scoped comparison/history/evidence reads also bind the action feedback and busy
+state to their original abort signal. Discarding a read clears only its own
+pending feedback, permits a fresh read, and suppresses late confirmations,
+errors and refreshes. Its late `finally` cannot clear a newer action. This check
+also runs before the requested animation frame starts API work. Current-source
+errors remain visible. Manual commands and metadata mutations use the existing
+default lifecycle and retain their original Core acknowledgement and busy state;
+view invalidation does not silently cancel those operations.
+
 When the node's event high-water mark rolls back, the existing local connection
 version advances with the live archive reset. Project-scoped reads, history
 pages, selected comparisons and event/original dialogs invalidate together.

@@ -385,7 +385,8 @@ export function App({
     setEvent(summary);
     setDisposition(summary.disposition || 'unreviewed');
     setComment(summary.operator_comment || '');
-    const generation = dialogGeneration.current;
+    const generation = dialogGeneration.current,
+      signal = dialogAbort.current.signal;
     await desk.run(
       'Load event details',
       async () => {
@@ -393,15 +394,17 @@ export function App({
           desk.projectId,
           'events/' + encodePathSegment(summary.id),
           undefined,
-          dialogAbort.current.signal,
+          signal,
         );
         if (generation === dialogGeneration.current) setEvent(value);
       },
       [],
+      signal,
     );
   }
   async function openOriginal(id: string) {
-    const generation = dialogGeneration.current;
+    const generation = dialogGeneration.current,
+      signal = dialogAbort.current.signal;
     await desk.run(
       'Load original sweep',
       async () => {
@@ -409,7 +412,7 @@ export function App({
           desk.projectId,
           'history/' + encodePathSegment(id),
           undefined,
-          dialogAbort.current.signal,
+          signal,
         );
         if (generation === dialogGeneration.current) {
           setOriginal(value);
@@ -417,6 +420,7 @@ export function App({
         }
       },
       [],
+      signal,
     );
   }
   async function eventOriginal() {
@@ -451,18 +455,20 @@ export function App({
         }
       },
       [],
+      signal,
     );
   }
   async function playAudio() {
     if (!event) return;
-    const generation = dialogGeneration.current;
+    const generation = dialogGeneration.current,
+      signal = dialogAbort.current.signal;
     setAudioError('');
     await desk.run(
       'Load event audio',
       async () => {
         const blob = await transport.audio(
           `/api/v1/monitoring-projects/${encodePathSegment(desk.projectId)}/events/${encodePathSegment(event.id)}/audio`,
-          dialogAbort.current.signal,
+          signal,
         );
         if (generation === dialogGeneration.current) {
           const url = URL.createObjectURL(blob);
@@ -474,6 +480,7 @@ export function App({
         }
       },
       [],
+      signal,
     );
   }
   function downloadOriginal() {
