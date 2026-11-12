@@ -426,7 +426,8 @@ export function App({
       await openOriginal(source.sweep_id);
       return;
     }
-    const generation = dialogGeneration.current;
+    const generation = dialogGeneration.current,
+      signal = dialogAbort.current.signal;
     await desk.run(
       'Load original event source',
       async () => {
@@ -434,14 +435,15 @@ export function App({
           desk.projectId,
           'events/' + encodePathSegment(event.id) + '/sources?limit=1',
           undefined,
-          dialogAbort.current.signal,
+          signal,
         );
+        if (generation !== dialogGeneration.current || signal.aborted) return;
         if (!sources.items[0]) throw Error('No original sweep is available for this event');
         const value = await desk.api.project<Sweep>(
           desk.projectId,
           'history/' + encodePathSegment(sources.items[0].sweep_id),
           undefined,
-          dialogAbort.current.signal,
+          signal,
         );
         if (generation === dialogGeneration.current) {
           setOriginal(value);
@@ -967,6 +969,8 @@ export function App({
           <form
             onSubmit={(e) => {
               e.preventDefault();
+              const generation = dialogGeneration.current,
+                signal = dialogAbort.current.signal;
               void desk.run(
                 'Review event',
                 async () => {
@@ -974,8 +978,9 @@ export function App({
                     desk.projectId,
                     'events/' + encodePathSegment(event.id) + '/review',
                     { disposition, comment },
+                    signal,
                   );
-                  setEvent(value);
+                  if (generation === dialogGeneration.current && !signal.aborted) setEvent(value);
                 },
                 ['events'],
               );
