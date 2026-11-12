@@ -9,6 +9,12 @@ cannot attach a comparison to another source, even when a transport completes
 after cancellation. Valid compatible and incompatible responses for the current
 source keep their existing meaning.
 
+The Research workspace places archive filters, history and the selected source
+before the shared live spectrum/receiver grid. Its section remains mounted and
+uses the existing hidden state when changing workspaces, preserving filters and
+selection while the shared live subscription continues. Monitoring keeps the
+same visible plot and event layout.
+
 Completion follow-up baseline: `51a3a4121cb8774653e84e4434f26662344f59aa`.
 Scoped comparison/history/evidence reads also bind the action feedback and busy
 state to their original abort signal. Discarding a read clears only its own
