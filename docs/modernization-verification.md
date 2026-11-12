@@ -53,7 +53,8 @@ explicitly with `--research-python`; no interpreter fallback is attempted. The
 research child requires a venv prefix distinct from the core, Python 3.15.1 and
 its pinned NumPy 2.5.4, DuckDB 2.0.0 and PyArrow 26.0.1 distributions. Core Python
 never imports these research dependencies. The modern CI core interpreter is
-Python 3.12.14, preserving the production Python compatibility path.
+selected explicitly per platform below; the production Python compatibility
+policy is unchanged.
 
 ## What the modern profile gates
 
@@ -122,10 +123,10 @@ sentinel, immutable-binary, and Core-join proof still fails the stage. Its
 `tests_run` is null because this is a functional command rather than a framework
 test suite. Performance acceptance remains `not_run`.
 
-The additive `modern-core.yml` matrix runs Rust, research and TypeScript on Linux,
-Windows and macOS, including the real-Core Web gate on all three and the native
-SDK replay/resume helper plus portable Swift contract tests on macOS. It uses the
-existing SHA-pinned checkout/Python/Node/artifact actions, hashed Python locks,
+The additive `modern-core.yml` matrix runs Rust, research and TypeScript on Linux
+x86_64/ARM64, Windows and macOS, including the real-Core Web gate on each. The
+native SDK replay/resume helper and portable Swift contract tests run on macOS.
+It uses the existing SHA-pinned checkout/Python/Node/artifact actions, hashed Python locks,
 `npm ci`, and the native workflow's verified Xcode 27.2 / Swift 6.4.2 selection.
 The logical macOS lane uses the `xcode-27` image because `macos-latest` does not
 currently provide the required Swift patch. CI uploads diagnostics even if
@@ -136,6 +137,21 @@ headers are probed first; apt is required only when the prepared host lacks them
 and the final header probe must pass. The existing 12-job Python matrix is
 unchanged by this work. The existing browser matrix retains WebGL2 smoke and
 context loss/recovery coverage; production rendering defaults are unchanged.
+
+The CI bootstrap selects these exact interpreter patches:
+
+| Matrix row | Core Python | Research Python |
+|---|---|---|
+| `ubuntu-latest` | 3.12.14 | 3.15.1 |
+| `windows-latest` | 3.12.10 | 3.15.1 |
+| `macos-latest` (`xcode-27`) | 3.12.10 | 3.15.1 |
+| `ubuntu-24.04-arm` | 3.12.14 | 3.15.1 |
+
+The [official actions/python-versions manifest](https://github.com/actions/python-versions/blob/9bc1fe8f6b4befbb1edd3955a1adc8fc086b3e08/versions-manifest.json)
+lists 3.12.14 for Linux but no Windows or macOS builds of that patch. It provides
+3.12.10 for both of those platforms, and 3.15.1 for all four matrix targets.
+These are explicit CI pins, with no interpreter fallback or research-version
+change. Missing setup inputs still fail before tests rather than count as a pass.
 
 These checks use owned synthetic fixtures. They do not run the 30-minute target
 load or million-sweep history benchmark by default. The existing small baseline

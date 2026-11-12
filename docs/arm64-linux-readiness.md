@@ -1,9 +1,11 @@
 # ARM64 Linux software checks and offline inputs
 
 The modern CI matrix includes `ubuntu-24.04-arm` alongside the existing Ubuntu,
-Windows and macOS jobs. It uses the same pinned Python 3.12.14/3.15.1, Rust
-1.99.1, Node 26.13.0, hashed dependencies, native audio headers, embedded UI,
-Chromium preparation and complete modern checks. No ARM-specific skip, smaller
+Windows and macOS jobs. Both Linux rows pin core Python 3.12.14; Windows and macOS
+pin core Python 3.12.10 because those official 3.12.14 builds are unavailable.
+All four use research Python 3.15.1, Rust 1.99.1, Node 26.13.0, hashed
+dependencies, native audio headers, embedded UI, Chromium preparation and
+complete modern checks. No ARM-specific skip, smaller
 fixture, relaxed timeout or alternate scientific implementation is selected.
 Only macOS requests the existing Swift/Xcode checks.
 
