@@ -1188,6 +1188,10 @@ public final class PlatformClient: Sendable {
         request.httpMethod = method
         request.timeoutInterval = timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if method == "GET", path == "/health" {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        }
         if let body {
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase

@@ -74,6 +74,27 @@ final class CommittedEventTransportTests: XCTestCase {
         XCTAssertThrowsError(try api.committedEvents(after: -1))
     }
 
+    func testConsecutiveWatermarksRevalidateHealthAndObserveExactArchiveRollback() async throws {
+        let lock = NSLock()
+        var reads = 0
+        Stub.respond = { stub in
+            XCTAssertEqual(stub.request.httpMethod, "GET")
+            XCTAssertEqual(stub.request.url?.path, "/root/api/v1/health")
+            XCTAssertEqual(stub.request.cachePolicy, .reloadIgnoringLocalCacheData,
+                           "An archive reset check must not reuse cached health")
+            XCTAssertEqual(stub.request.value(forHTTPHeaderField: "Cache-Control"), "no-cache")
+            let cursor: Int64 = lock.withLock { reads += 1; return reads == 1 ? 9_007_199_254_740_993 : 7 }
+            stub.headers(type: "application/json")
+            stub.send("{\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":{\"last_event_id\":\(cursor)}}")
+            stub.finish()
+        }
+        let api = try client()
+        let before = try await api.eventWatermark()
+        let restored = try await api.eventWatermark()
+        XCTAssertEqual(before, 9_007_199_254_740_993)
+        XCTAssertEqual(restored, 7)
+    }
+
     func testNonSSEHTTPResponseIsVisibleAsFailure() async throws {
         Stub.respond = { stub in stub.headers(404, type: "application/json"); stub.finish() }
         let api = try client()
