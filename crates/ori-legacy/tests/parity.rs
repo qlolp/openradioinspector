@@ -200,7 +200,19 @@ impl LegacySciencePermit for Permit {
                     "{}",
                     String::from_utf8_lossy(&output.stderr)
                 );
-                Ok(parse_json_value(&output.stdout, 16 * 1024 * 1024).unwrap())
+                let result = parse_json_value(&output.stdout, 16 * 1024 * 1024).unwrap();
+                #[cfg(unix)]
+                if result["ok"] == true
+                    && let Some(directory) = request["snapshot_directory"].as_str()
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(
+                        std::fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+                        0o700,
+                        "the actual Python worker must receive a private leaf snapshot"
+                    );
+                }
+                Ok(result)
             })
             .await
             .unwrap()

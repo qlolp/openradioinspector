@@ -488,9 +488,14 @@ fn snapshot(
         }
         fs::create_dir_all(&scratch)?;
         let scratch = scratch.canonicalize()?;
-        let directory = tempfile::Builder::new()
-            .prefix(".ori-legacy-")
-            .tempdir_in(scratch)?;
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".ori-legacy-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(fs::Permissions::from_mode(0o700));
+        }
+        let directory = builder.tempdir_in(scratch)?;
         let destination = directory.path().join("workspace.pan");
         drop(private_file(&destination)?);
         let mut writer = Connection::open_with_flags(

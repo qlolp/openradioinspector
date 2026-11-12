@@ -17,6 +17,9 @@ Tokio runtime. The default state has version 0 and no database. Creating the
 workspace or reading this empty state never opens or creates a `.pan` file.
 `LegacyOptions.library` is the optional canonical containment boundary;
 `scratch_directory` is a trusted server-selected staging directory.
+Each owned snapshot leaf requests Unix mode `0700` before creating its PAN,
+sidecar or descriptor. The Python worker validates that leaf's permissions
+independently of its parent directory.
 
 | Existing route | Library method / query | Plain legacy response |
 | --- | --- | --- |
