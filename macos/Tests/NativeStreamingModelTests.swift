@@ -208,8 +208,10 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertNil(model.comparisonReference)
         XCTAssertNil(model.sweepComparison)
         XCTAssertNil(model.phonogram.status)
+        XCTAssertNil(model.phonogram.infoText)
         XCTAssertNil(model.audioStream.status)
         XCTAssertNil(model.audioStream.sample)
+        XCTAssertNil(model.audioStream.infoText)
         XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
         XCTAssertEqual(model.current.map(\.y), [-98.125, -87.5, -76.25])
         XCTAssertEqual(model.spectrumPresentation.sweeps.map(\.id), ["restored"])
@@ -239,15 +241,31 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(responses.mutations, 0)
     }
 
-    @MainActor func testUnavailableHealthDoesNotRepublishAnUnverifiedRetainedCache() async throws {
+    @MainActor func testUnavailableHealthSuspendsLateFramesAndHealthyResumeKeepsAppliedCursor() async throws {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
+        let oldStream = try XCTUnwrap(responses.eventConnection)
+        oldStream.sweep(sequence: 1, id: "applied", levels: [-70, -60, -50])
+        try await wait { model.comparisonSweeps.last?.id == "applied" }
         responses.failHealth(503)
         let published = model.waterfallRevision
         await model.refresh()
         XCTAssertNotNil(model.errorText)
         XCTAssertTrue(model.current.isEmpty)
         XCTAssertGreaterThan(model.waterfallRevision, published)
+        oldStream.sweep(sequence: 2, id: "unverified", levels: [-2, -3, -4])
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(model.current.isEmpty)
+        model.toggleSpectrumPause(); model.toggleSpectrumPause()
+        XCTAssertTrue(model.current.isEmpty, "Pause/resume cannot publish an unverified cache")
+        responses.failHealth(200)
+        await model.refresh()
+        try await wait { responses.resumeCursors.count == 2 }
+        XCTAssertEqual(responses.resumeCursors, [0, 1])
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["initial", "applied"])
+        try XCTUnwrap(responses.eventConnection).sweep(sequence: 2, id: "replayed", levels: [-65.25, -55.125, -45.5])
+        try await wait { model.comparisonSweeps.last?.id == "replayed" }
+        XCTAssertEqual(model.current.map(\.y), [-65.25, -55.125, -45.5])
         XCTAssertEqual(responses.mutations, 0)
     }
 }

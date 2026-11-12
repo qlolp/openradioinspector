@@ -107,6 +107,10 @@ final class SignalListModelTests: XCTestCase {
         deferred.releaseImport(try decode(importObject(), as: PlatformSignalListImport.self))
         try await waitFor { model.lastImport != nil }
         XCTAssertEqual(model.lastImport?.imported, 1)
+        model.reset()
+        XCTAssertNil(model.lastExport)
+        XCTAssertNil(model.lastImport)
+        XCTAssertNil(model.infoText, "An old import/export receipt belongs to its previous archive")
     }
 
     @MainActor func testFailureNeverFreezes() async throws {
