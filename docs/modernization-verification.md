@@ -40,7 +40,11 @@ python -m pip install --require-hashes -r requirements/core.lock
 cargo fetch --locked
 npm ci --prefix contracts/generated/typescript --ignore-scripts --no-audit --no-fund
 npm ci --prefix clients/web --ignore-scripts --no-audit --no-fund
+npm --prefix clients/web run build
+python tools/build_modern_web.py
+python tools/build_modern_web.py --check
 (cd clients/web && npx --no-install playwright install --with-deps chromium)
+export CHROMIUM_PATH="$(cd clients/web && node --input-type=module -e 'import { chromium } from "@playwright/test"; console.log(chromium.executablePath())')"
 python3.15 -m venv /path/to/research-venv
 /path/to/research-venv/bin/python -m pip install --require-hashes -r research/requirements.lock
 /path/to/research-venv/bin/python -m pip install --require-hashes -r research/build-requirements.lock
@@ -56,10 +60,23 @@ never imports these research dependencies. The modern CI core interpreter is
 selected explicitly per platform below; the production Python compatibility
 policy is unchanged.
 
+Package the UI before compiling Core so its generated resource map includes the
+completed build. `tools/build_modern_web.py --check` reads the existing packaged
+index, manifest and complete file list without building or replacing files. The
+modern profile runs this preflight before Cargo; a missing or incomplete package
+fails with the two preparation commands above. Core's legacy-only build still
+serves its existing 503 response at `/modern/` when no UI was packaged.
+
+`CHROMIUM_PATH` must identify the prepared browser in the child environment,
+including when a wrapper gives it a private `HOME` or cache directory. On Windows,
+set the same variable to the path returned by the Node command above. CI prepares
+the locked browser, verifies that path and publishes it through `GITHUB_ENV`.
+
 ## What the modern profile gates
 
 - Check exact Node/Rust versions and the locally installed pinned TypeScript 7
   packages, so npm cannot accidentally use a global compiler.
+- Check the already packaged modern UI before starting Cargo compilation.
 - Run the contract generator's non-mutating `--check` against the authoritative
   Python module, then the served OpenAPI tests and Python shared-fixture tests.
 - Run root-workspace `cargo fmt --all -- --check`, clippy across all targets and
@@ -131,6 +148,15 @@ It uses the existing SHA-pinned checkout/Python/Node/artifact actions, hashed Py
 The logical macOS lane uses the `xcode-27` image because `macos-latest` does not
 currently provide the required Swift patch. CI uploads diagnostics even if
 bootstrap fails; `ci-status.log` records that outcome without claiming tests ran.
+Xcode selection also resolves the selected macOS SDK and the explicit
+`XcodeDefault` C/C++ compiler paths through `xcrun`. It verifies that their
+canonical paths and `stdio.h` belong to the selected Xcode, then compiles a tiny
+C-header object with an explicit `-isysroot` and private `HOME`. Only a successful
+preflight publishes `SDKROOT`, `CC` and `CXX` to subsequent steps. This preserves
+custom Swift toolchain selection while giving bundled SQLite's locked `cc` crate
+an explicit `.xctoolchain` compiler path. Portable command-capture tests verify
+the setup contract and failure handling; actual compilation remains a hosted
+macOS check, not a Linux SDK or target-compatibility claim.
 The locked Playwright Chromium is prepared before the profile, and its actual
 executable path is passed through `CHROMIUM_PATH` on every OS. Linux audio build
 headers are probed first; apt is required only when the prepared host lacks them,

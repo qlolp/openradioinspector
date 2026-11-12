@@ -1,7 +1,7 @@
 # Release diagnostic timer ownership
 
 The synthetic release runner uses the existing joined Python watchdog on
-Darwin with Python 3.15. Other platform/version selections remain unchanged:
+Darwin with Python 3.14 or 3.15. Other platform/version selections remain unchanged:
 older CPython versions affected by gh-140815 already use this watchdog, while
 corrected Linux/Windows versions retain the native timer.
 
@@ -11,6 +11,13 @@ seconds. It did not produce another periodic dump or exit before the existing
 600-second command deadline. A same-interpreter green control at `ae87d380`
 produced five complete dumps and exited normally. The monitoring supervisor
 appeared in the green control too, so its presence does not identify the blocker.
+
+The hosted Darwin Python 3.14.10 run at `9a1ddd6f` completed all 1,926 tests in
+258.439 seconds, then also reached the unchanged 600-second command deadline.
+Its first native dump was complete, while the second ended at an invalid frame;
+no later periodic dump appeared. This supports the same narrow mitigation for
+the observed 3.14 profile. The final main-thread/cancellation stack was not
+captured, so this does not establish the exact cause of that hosted hang.
 
 CPython's native timer releases its running lock only after its traceback dump
 returns. `cancel_dump_traceback_later()` waits for that lock without a deadline.

@@ -70,3 +70,12 @@ wrong nonce, unsafe modes, corruption, replaced directories/files and retained
 guards. This is synthetic Linux software verification. macOS clock/locking CI
 and physical device/storage acceptance remain separate checks. Merely creating
 the ledger does not establish that every Core path has been bound to it.
+
+The mixed Rust/Python fixture prefers the declared `ORI_RESEARCH_PYTHON`
+interpreter, retaining `ORI_CORE_PYTHON` and `python3` as explicit-test/local
+fallbacks. Its source path is `research/src`; importing the core package also
+requires its NumPy dependency, so an unprepared interpreter on CI's `PATH` is
+insufficient. A fresh dependency-free Python prefix tests that distinction.
+Failed startup captures at most 16 KiB of stderr and joins/reaps the original
+child and its stderr reader before reporting the readiness failure. The
+aggregate 6 MiB charge, 20 MiB/s timeline and 280 ms lower bound are unchanged.

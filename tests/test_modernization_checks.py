@@ -120,6 +120,32 @@ class ModernTemporaryRootTests(unittest.TestCase):
 
 
 class ModernizationChecksTests(unittest.TestCase):
+    def test_missing_packaged_ui_fails_before_any_compiler_command(self):
+        from tools.modernization import checks
+        with tempfile.TemporaryDirectory() as folder:
+            directory = Path(folder)
+            with patch.object(checks, 'tool', side_effect=lambda name, env: '/prepared/' + name), \
+                    patch.object(checks, 'npm_command', return_value=['/prepared/node', '/prepared/npm-cli.js']):
+                plan = checks.commands(release.ROOT, directory, {}, research_python='research-python', swift=True)
+            guards = [item for item in plan if item.name == 'modern-ui-inputs']
+            self.assertEqual(len(guards), 1, 'Missing packaged UI must fail before compilation')
+            guard = guards[0]
+            compiler_positions = [index for index, item in enumerate(plan) if item.command[0] == '/prepared/cargo']
+            self.assertTrue(compiler_positions)
+            self.assertLess(plan.index(guard), min(compiler_positions))
+            marker = directory / 'compiler-ran'
+            blocked_plan = [
+                checks.Check(guard.name, guard.command + ['--destination', str(directory / 'missing-ui')]),
+                checks.Check('modern-compiler-marker', [sys.executable, '-c',
+                    f'from pathlib import Path; Path({str(marker)!r}).write_text("unexpected compiler admission")'], 'node'),
+            ]
+            with patch.object(release, 'modern_commands', return_value=blocked_plan), redirect_stdout(io.StringIO()):
+                with self.assertRaises(release.ReleaseCheckError):
+                    release.release_checks(modern=True, research_python=sys.executable, report_dir=directory / 'reports')
+            self.assertFalse(marker.exists())
+            report = json.loads(next((directory / 'reports').glob('run-*/modern-results.json')).read_text())
+            self.assertEqual([item['status'] for item in report['checks']], ['failed', 'not_run'])
+
     def test_public_profile_and_explicit_interpreter_reach_the_existing_runner(self):
         with patch.object(release, 'release_checks') as run:
             self.assertEqual(release.main(['--modern', '--research-python', 'research-python', '--swift']), 0)

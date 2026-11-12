@@ -189,6 +189,7 @@
   "Language": "Язык интерфейса",
   "Language preference is local to this client": "Язык сохраняется только на этом клиенте",
   "Last seen": "Последнее появление",
+  "Latest saved measurement": "Последнее сохранённое измерение",
   "Lease role: {role}": "Управление: {role}",
   "Legacy UI ↗": "Старый интерфейс ↗",
   "Legacy compatibility is limited to a loopback HTTP node": "Старый режим HTTP разрешён только для локального узла",

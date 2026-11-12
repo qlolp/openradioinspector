@@ -73,6 +73,7 @@ impl SnapshotOwner {
         self.validate()?;
         let path = self.path()?.join(relative);
         let mut builder = fs::DirBuilder::new();
+        builder.recursive(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;

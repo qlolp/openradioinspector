@@ -12,6 +12,7 @@ required = {
     'macos/DvoynoyObzor/TinySAControlPane.swift',
     'macos/SpektrKomandy/Sources/SpektrKomandy/PlatformTinySAControl.swift',
     'tests/fixtures/spectrum-presentation-v1.json',
+    'clients/web/e2e/graphics-fixture.mjs',
     'tests/test_windows_spectrum_view.py',
     'tests/test_webui_spectrum_view.py',
     'tests/webui_spectrum_view.cjs',

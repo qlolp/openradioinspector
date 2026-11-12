@@ -5,6 +5,7 @@ import {
 } from "../../clients/web/node_modules/@playwright/test/index.mjs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { hardwareIdentityForRealGLTests } from "../../clients/web/e2e/graphics-fixture.mjs";
 
 const [vectors, directory] = process.argv.slice(2);
 const fixture = JSON.parse(await readFile(vectors, "utf8"));
@@ -27,6 +28,8 @@ let profiler;
 const requests = [];
 try {
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  if (rendererProfile === "webgl2")
+    await page.addInitScript(hardwareIdentityForRealGLTests);
   page.on("response", (response) => {
     if (requests.length < 128)
       requests.push([response.status(), new URL(response.url()).pathname]);
@@ -197,6 +200,9 @@ try {
       .textContent(),
     waterfall: await page.getByTestId("renderer-state").first().textContent(),
   };
+  proof.renderer_identity_fixture = await page.evaluate(
+    () => window.__oriTestHardwareIdentityFixture ?? null,
+  );
   expect(proof.sources.map((source) => source.id)).toEqual(
     fixture.sweeps.map((source) => source.id),
   );

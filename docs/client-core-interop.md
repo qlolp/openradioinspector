@@ -85,12 +85,14 @@ explain the functional profile choice; they are not a hardware benchmark or a
 new acceptance threshold. A separate trace confirmed TCP_NODELAY succeeded on
 the owned Core connections.
 
-Standalone `--renderer webgl2` retains the previous default rendering mode and
-requires both actual WebGL2 states. The existing browser matrix continues its
-WebGL2 smoke and graphics-context loss/recovery checks. The production WebUI's
-default remains WebGL2. Reports explicitly set performance and hardware
-acceptance to `not_run`; GPU frame-rate and Raspberry Pi acceptance remain
-separate target-hardware work.
+Standalone `--renderer webgl2` requires both actual WebGL2 states. It uses the
+explicit test-only hardware identity fixture and records the underlying driver
+separately, preserving real shader and graphics-context loss/recovery coverage.
+The production WebUI uses WebGL2 for hardware or unknown renderer identities and
+Canvas for an identified SwiftShader context; see [the rendering policy](web-renderer-policy.md).
+The browser matrix also tests automatic Canvas selection without that fixture.
+Reports explicitly set performance and hardware acceptance to `not_run`; GPU
+frame-rate and Raspberry Pi acceptance remain separate target-hardware work.
 
 The regression exposed Nagle/delayed-ACK latency when sending individual small
 measurement frames. All three Core listeners now enable TCP_NODELAY before

@@ -189,6 +189,7 @@
   "Language": "Language",
   "Language preference is local to this client": "Language preference is local to this client",
   "Last seen": "Last seen",
+  "Latest saved measurement": "Latest saved measurement",
   "Lease role: {role}": "Lease role: {role}",
   "Legacy UI ↗": "Legacy UI ↗",
   "Legacy compatibility is limited to a loopback HTTP node": "Legacy compatibility is limited to a loopback HTTP node",

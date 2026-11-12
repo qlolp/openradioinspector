@@ -46,6 +46,7 @@ def commands(root, directory, environment, *, research_python, swift):
         command += ['--start-directory',str(root/start)] if start else ['--module',module]
         return Check(name,command+list(extra),'python',report,environment=env or {})
     result = [
+        Check('modern-ui-inputs',[sys.executable,str(root/'tools/build_modern_web.py'),'--check']),
         Check('modern-node',[node,'--version'],'version',version=r'^v26\.13\.0\s*$'),
         Check('modern-rustc',[rustc,'--version'],'version',version=r'^rustc 1\.99\.1(?:\s|$)'),
         Check('modern-cargo',[cargo,'--version'],'version',version=r'^cargo 1\.99\.1(?:\s|$)'),

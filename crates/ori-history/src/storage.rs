@@ -117,6 +117,7 @@ fn directory(path: &Path) -> Result<()> {
     normalized(path)?;
     if !path.exists() {
         let mut builder = fs::DirBuilder::new();
+        builder.recursive(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;

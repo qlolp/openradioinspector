@@ -171,30 +171,36 @@ class ReleaseDiagnosticTests(unittest.TestCase):
 
 
     def test_watchdog_version_boundaries_preserve_single_selection_and_cleanup(self):
-        for version, native in (((3, 12, 10), False), ((3, 13, 9), False),
-                                ((3, 13, 10), True), ((3, 14, 0), False),
-                                ((3, 14, 1), True)):
-            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
-                with self.subTest(version=version, outcome=outcome), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
-                    if isinstance(outcome, BaseException):
-                        suite.side_effect = outcome
-                        with self.assertRaises(type(outcome)):
-                            release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
-                    else:
-                        suite.return_value = outcome
-                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
-                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
-                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
-                    if native:
-                        watchdog.assert_not_called()
-                        arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
-                        cancel.assert_called_once_with()
-                    else:
-                        arm.assert_not_called()
-                        cancel.assert_not_called()
-                        watchdog.assert_called_once_with(60, sys.__stderr__)
-                        watchdog.return_value.start.assert_called_once_with()
-                        watchdog.return_value.close.assert_called_once_with()
+        # Expected native-timer platforms are explicit: Darwin 3.14/3.15 use
+        # the joined watchdog even after the upstream version fix boundary.
+        for version, native_platforms in (
+            ((3, 12, 10), ()), ((3, 13, 9), ()),
+            ((3, 13, 10), ("linux", "win32", "darwin")),
+            ((3, 14, 0), ()), ((3, 14, 1), ("linux", "win32")),
+            ((3, 15, 0), ("linux", "win32")),
+        ):
+            for platform in ("linux", "win32", "darwin"):
+                for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
+                    with self.subTest(platform=platform, version=version, outcome=outcome), patch.object(release.sys, "platform", platform), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                        if isinstance(outcome, BaseException):
+                            suite.side_effect = outcome
+                            with self.assertRaises(type(outcome)):
+                                release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
+                        else:
+                            suite.return_value = outcome
+                            self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
+                        suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
+                        enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                        if platform in native_platforms:
+                            watchdog.assert_not_called()
+                            arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
+                            cancel.assert_called_once_with()
+                        else:
+                            arm.assert_not_called()
+                            cancel.assert_not_called()
+                            watchdog.assert_called_once_with(60, sys.__stderr__)
+                            watchdog.return_value.start.assert_called_once_with()
+                            watchdog.return_value.close.assert_called_once_with()
 
 
     def test_gil_watchdog_repeats_and_records_dump_failure(self):
@@ -257,19 +263,21 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         enable.assert_not_called()
 
     def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
-        for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
-            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
-                if isinstance(outcome, BaseException):
-                    suite.side_effect = outcome
-                    with self.assertRaises(type(outcome)):
-                        release._run_diagnostic_python_suite(Path("unused.json"), 0.1)
-                else:
-                    suite.return_value = outcome
-                    self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
-                arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
-                enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
-                cancel.assert_called_once_with()
-                suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+        for platform in ("linux", "win32"):
+            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
+                with self.subTest(platform=platform, outcome=outcome), patch.object(release.sys, "platform", platform), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                    if isinstance(outcome, BaseException):
+                        suite.side_effect = outcome
+                        with self.assertRaises(type(outcome)):
+                            release._run_diagnostic_python_suite(Path("unused.json"), 0.1)
+                    else:
+                        suite.return_value = outcome
+                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
+                    arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
+                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                    cancel.assert_called_once_with()
+                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+                    watchdog.assert_not_called()
 
     def test_legacy_python_uses_joined_gil_safe_watchdog_without_c_timer(self):
         import threading
