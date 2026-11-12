@@ -1,7 +1,10 @@
 """Synthetic Tk coverage for the thin monitoring receiver workspace."""
 import io
+import json
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import wave
 from unittest.mock import Mock
@@ -17,6 +20,90 @@ PROJECTS = {'items': [dict(id='p1', name='Room', site='Office', state='ready'),
 EVENT = dict(id='e1', project_id='p1', kind='new_signal', center_frequency_hz=100000000,
              last_seen='2026-11-10T12:00:00Z', state='open', disposition='unreviewed',
              analysis=dict(state='observed', audio=dict(session_id='s', stream_id='r', id='wav1')))
+
+
+class _ViewportDiagnostics:
+    """Passive bounded evidence; never pumps events or suppresses body errors."""
+    def __init__(self, root, targets, *, stream=None):
+        self.root, self.targets = root, targets
+        self.stream = sys.stderr if stream is None else stream
+        self.started = time.monotonic()
+        self.timer_ids, self.observer_ids = [], []
+        self.counts = {name: dict(count=0, width=None, height=None) for name in targets}
+
+    def _write(self, record):
+        try:
+            text = json.dumps(record, ensure_ascii=True, sort_keys=True)
+            if len(text) > 8192:
+                text = json.dumps(dict(phase=record['phase'], diagnostic_error='record_budget'))
+            print(text, file=self.stream, flush=True)
+        except Exception:
+            # A broken diagnostic sink cannot replace an original assertion.
+            pass
+
+    def _error(self, phase, error):
+        self._write(dict(phase=phase, diagnostic_error=type(error).__name__[:64]))
+
+    def phase(self, phase):
+        try:
+            pending = self.root.tk.splitlist(self.root.tk.call('after', 'info'))
+            timers = []
+            for identifier in pending[:16]:
+                info = self.root.tk.call('after', 'info', identifier)
+                timers.append(dict(id=str(identifier)[:128], kind=str(info[1])[:16]))
+            windows = {name: dict(width=widget.winfo_width(), height=widget.winfo_height(),
+                                 requested_width=widget.winfo_reqwidth(),
+                                 requested_height=widget.winfo_reqheight(),
+                                 mapped=bool(widget.winfo_ismapped()))
+                       for name, widget in self.targets.items()}
+            self._write(dict(phase=phase, elapsed_seconds=round(time.monotonic()-self.started, 6),
+                             tk_patchlevel=str(self.root.tk.call('package', 'provide', 'Tk'))[:64],
+                             tcl_patchlevel=str(self.root.tk.call('info', 'patchlevel'))[:64],
+                             windowing_system=str(self.root.tk.call('tk', 'windowingsystem'))[:16],
+                             geometry=self.root.geometry()[:128], state=self.root.state()[:32],
+                             windows=windows, configure=self.counts,
+                             pending_after_count=len(pending), pending_after=timers))
+        except Exception as error:
+            self._error(phase, error)
+
+    def __enter__(self):
+        for name, widget in self.targets.items():
+            def observed(event=None, name=name, widget=widget):
+                # Toplevel bindtags also see descendant events. Count only the
+                # named window, rather than misreporting child geometry as root.
+                if event is not None and getattr(event, 'widget', None) is not widget:
+                    return
+                record = self.counts[name]
+                record['count'] = min(record['count'] + 1, 1_000_000_000)
+                for dimension in ('width', 'height'):
+                    value = getattr(event, dimension, None)
+                    if type(value) is int:
+                        record[dimension] = value
+            try:
+                identifier = widget.bind('<Configure>', observed, add='+')
+                self.observer_ids.append((widget, identifier))
+            except Exception as error:
+                self._error('bind-' + name, error)
+        for delay in (30000, 60000):
+            try:
+                self.timer_ids.append(self.root.after(delay, lambda delay=delay: self.phase(f'after-{delay}ms')))
+            except Exception as error:
+                self._error('schedule', error)
+        self.phase('installed')
+        return self
+
+    def __exit__(self, _kind, _error, _traceback):
+        for identifier in self.timer_ids:
+            try:
+                self.root.after_cancel(identifier)
+            except Exception as error:
+                self._error('cancel-owned-timer', error)
+        for widget, identifier in self.observer_ids:
+            try:
+                widget.unbind('<Configure>', identifier)
+            except Exception as error:
+                self._error('remove-owned-observer', error)
+        return False
 
 
 class Client:
@@ -403,13 +490,78 @@ class MonitoringTkTests(unittest.TestCase):
 
 
     def test_small_viewport_can_scroll_to_history_charts(self):
-        self.panel.notebook.pack(fill='both', expand=True)
-        self.panel.workspace.select(self.panel.history_page)
-        self.root.geometry('1040x300'); self.root.deiconify(); self.root.update()
-        self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
-        self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
-        self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
-        self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+        targets = dict(root=self.root, scroll=self.panel.scroll_canvas, content=self.panel.content,
+                       history=self.panel.history_page, waterfall=self.panel.waterfall_canvas)
+        with _ViewportDiagnostics(self.root, targets) as diagnostic:
+            self.panel.notebook.pack(fill='both', expand=True)
+            self.panel.workspace.select(self.panel.history_page)
+            self.root.geometry('1040x300')
+            diagnostic.phase('before-deiconify')
+            self.root.deiconify()
+            diagnostic.phase('after-deiconify')
+            diagnostic.phase('before-update')
+            self.root.update()
+            diagnostic.phase('after-update')
+            self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
+            self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
+            self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
+            self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+
+    def test_viewport_diagnostics_remove_only_their_own_callbacks(self):
+        probe = self.app.ttk.Frame(self.root)
+        original_calls = []
+        original_binding = probe.bind('<Configure>', lambda *_: original_calls.append(True))
+        original_script = probe.bind('<Configure>')
+        original_timer = self.root.after(90000, lambda: original_calls.append('timer'))
+        existing_timers = set(self.root.tk.call('after', 'info'))
+        output = io.StringIO()
+        try:
+            with self.assertRaisesRegex(AssertionError, 'original body assertion'):
+                with _ViewportDiagnostics(self.root, {'probe': probe}, stream=output) as diagnostic:
+                    owned_timers = set(diagnostic.timer_ids)
+                    owned_observers = list(diagnostic.observer_ids)
+                    self.assertEqual(len(owned_timers), 2)
+                    self.assertEqual(set(self.root.tk.call('after', 'info')),
+                                     existing_timers | owned_timers)
+                    self.assertIn(original_script, probe.bind('<Configure>'))
+                    self.assertEqual(len(owned_observers), 1)
+                    # Exercise the actual registered Tcl/Python callbacks without
+                    # draining or changing the native window's event queue.
+                    self.root.tk.call(owned_observers[0][1])
+                    self.root.tk.call(original_binding)
+                    diagnostic.phase('helper-test')
+                    self.assertEqual(diagnostic.counts['probe']['count'], 1)
+                    self.assertEqual(original_calls, [True])
+                    raise AssertionError('original body assertion')
+            # Tkinter's funcid-only unbind can retain an empty separator line.
+            # Every actual handler line and its order must remain byte-identical.
+            self.assertEqual([line for line in probe.bind('<Configure>').splitlines() if line],
+                             [line for line in original_script.splitlines() if line])
+            self.assertEqual(set(self.root.tk.call('after', 'info')), existing_timers)
+            for _widget, identifier in owned_observers:
+                self.assertFalse(self.root.tk.call('info', 'commands', identifier))
+            self.root.tk.call(original_binding)
+            self.assertEqual(original_calls, [True, True])
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            record = next(item for item in records if item['phase'] == 'helper-test')
+            self.assertEqual(record['configure']['probe']['count'], 1)
+            self.assertTrue(record['tk_patchlevel'])
+            self.assertIn(record['windowing_system'], ('x11', 'aqua', 'win32'))
+            self.assertLess(len(output.getvalue()), 8192)
+            print(output.getvalue(), file=sys.stderr, end='', flush=True)
+            print(json.dumps(dict(phase='helper-ownership',
+                                  original_callback_calls=len(original_calls),
+                                  original_handler_lines_preserved=True,
+                                  original_timer=original_timer,
+                                  owned_timer_ids=sorted(owned_timers),
+                                  remaining_after_ids=sorted(existing_timers),
+                                  owned_observer_commands_removed=True,
+                                  original_assertion_propagated=True)),
+                  file=sys.stderr, flush=True)
+        finally:
+            self.root.after_cancel(original_timer)
+            probe.unbind('<Configure>', original_binding)
+            probe.destroy()
 
 
     def test_settings_are_explicit_and_secret_is_not_rendered(self):
