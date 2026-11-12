@@ -1,5 +1,6 @@
 """Portable ownership proofs; kernels are explicit numeric process models."""
 
+import json
 import signal
 import tempfile
 import time
@@ -7,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
+from tests import run_release_checks as release
 from tests import release_process_ownership as ownership
 from tests.release_process_ownership import (
     OwnedCommand,
@@ -147,6 +149,94 @@ class SessionIdentityTests(unittest.TestCase):
         with self.assertRaises(OwnershipError):
             authority.signal(anchor, signal.SIGTERM)
         self.assertEqual(kernel.sent, [])
+
+
+class RegistryRetirementTests(unittest.TestCase):
+    """Real directory retirement with an explicit already-released kernel model."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="ori-registry-retirement-")
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.registry = base / "registry"
+        self.registry.mkdir(mode=0o700)
+        self.registration = self.registry / "session-link-model"
+        self.registration.mkdir(mode=0o700)
+        self.scope = base / "independent-owner"
+        self.scope.mkdir(mode=0o700)
+        (self.scope / "groups").mkdir(mode=0o700)
+        anchor = ProcessIdentity(100, 10, 100, 100, 1234)
+        meta = dict(version=1, owner="a" * 32, anchor=ownership.asdict(anchor),
+                    registry=str(self.scope / "groups"), registration=str(self.registration))
+        self.link = self.registration / "active.session.link.json"
+        self.link.write_text(json.dumps(dict(version=1, owner=meta["owner"], directory=str(self.scope))))
+        (self.scope / "active.session.json").write_text(json.dumps(meta))
+        (self.scope / "status.json").write_text(json.dumps(dict(meta, phase="released", exit_code=0,
+                                                               cleanup_failed=False, control_serial=1)))
+        self.kernel = Kernel()  # No actual process or signaling authority exists.
+        self.owner = object.__new__(OwnedCommand)
+        self.owner.directory = self.scope
+        self.owner.meta = meta
+        self.owner.process = None
+        self.owner.authority = SessionAuthority(anchor, kernel=self.kernel)
+        retained = patch.dict(ownership._retained_commands, {self.scope: self.owner}, clear=True)
+        retained.start()
+        self.addCleanup(retained.stop)
+        # This portable test isolates traversal/retirement, not POSIX modes or
+        # ACLs. The actual files and original stop/_finish_release paths remain.
+        records = patch.object(ownership, "read_record", side_effect=lambda path, **_kwargs: json.loads(Path(path).read_text()))
+        records.start()
+        self.addCleanup(records.stop)
+
+    def test_retiring_yielded_owner_does_not_invalidate_remaining_registry_walk(self):
+        commands = ownership.registered_commands(self.registry)
+        self.assertIs(next(commands), self.owner)
+        self.owner.stop(0.1)
+        self.assertFalse(self.registration.exists())
+        self.assertFalse(self.scope.exists())
+        try:
+            self.assertEqual(list(commands), [])
+        except FileNotFoundError as error:
+            self.fail("Registry traversal revisited its retired directory: " + str(error))
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_nested_cleanup_can_retire_the_registration_it_is_enumerating(self):
+        try:
+            release._cleanup_registry(self.registry, 0.1)
+        except FileNotFoundError as error:
+            self.fail("Nested cleanup revisited its retired directory: " + str(error))
+        self.assertFalse(self.registration.exists())
+        self.assertFalse(self.scope.exists())
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_foreign_generation_is_still_rejected_without_retiring_it(self):
+        value = json.loads(self.link.read_text())
+        value["owner"] = "b" * 32
+        self.link.write_text(json.dumps(value))
+        with self.assertRaisesRegex(OwnershipError, "another owner"):
+            list(ownership.registered_commands(self.registry))
+        self.assertTrue(self.registration.exists())
+        self.assertTrue(self.scope.exists())
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_missing_authority_record_is_still_an_error(self):
+        ownership._retained_commands.pop(self.scope)
+        (self.scope / "active.session.json").unlink()
+        with self.assertRaises((FileNotFoundError, OwnershipError)):
+            list(ownership.registered_commands(self.registry))
+        self.assertTrue(self.registration.exists())
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_record_snapshot_is_bounded_before_any_owner_is_yielded(self):
+        second = self.registry / "session-link-second"
+        second.mkdir(mode=0o700)
+        (second / "active.session.link.json").write_text(self.link.read_text())
+        with patch.object(ownership, "MAX_REGISTRIES", 1):
+            with self.assertRaisesRegex(OwnershipError, "record budget"):
+                next(ownership.registered_commands(self.registry))
+        self.assertTrue(self.registration.exists())
+        self.assertTrue(self.scope.exists())
+        self.assertEqual(self.kernel.sent, [])
 
 
 class LaunchBoundaryTests(unittest.TestCase):

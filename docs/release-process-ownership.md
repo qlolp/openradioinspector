@@ -50,6 +50,13 @@ in the live parent and leaves `recovery.json` and `active.session.json` on disk.
 The cleanup error reports the exact recovery path, which survives removal of
 the caller's temporary directory.
 
+Each registry record-path pass is collected within the existing registry bound
+before any owner is yielded for cleanup. Releasing that owner may remove its
+registration directory; discovery must not resume a Python3.10 directory walk
+inside the retired directory. Generation, record and numeric ownership checks
+still run before cleanup. A missing authority record or a foreign generation
+remains an error; the traversal change does not ignore missing live evidence.
+
 For an explicitly identified failed run, recovery can retry only that scope:
 
 ```python

@@ -941,6 +941,19 @@ class OwnedCommand:
         self.release(max(0.001, deadline - time.monotonic()))
 
 
+def _registry_records(root, name):
+    # Callers may stop/release an owner immediately after it is yielded. Finish
+    # the filesystem walk first: Python3.10 rglob otherwise resumes by scanning
+    # that owner's now-retired registration directory. Missing/invalid records
+    # still fail at their original validation boundary; none are ignored here.
+    paths = []
+    for path in root.rglob(name):
+        if len(paths) >= MAX_REGISTRIES:
+            raise OwnershipError("Ownership registry record budget exceeded")
+        paths.append(path)
+    return paths
+
+
 def registered_commands(registry, *, exclude=None):
     pending = [Path(registry)]
     visited = set()
@@ -951,7 +964,7 @@ def registered_commands(registry, *, exclude=None):
         visited.add(root)
         if len(visited) > MAX_REGISTRIES:
             raise OwnershipError("Ownership registry budget exceeded")
-        for path in root.rglob("active.session.link.json"):
+        for path in _registry_records(root, "active.session.link.json"):
             value = read_record(path)
             destination = value.get("directory")
             if not isinstance(destination, str) or not Path(destination).is_absolute():
@@ -966,7 +979,7 @@ def registered_commands(registry, *, exclude=None):
             if exclude is None or directory != Path(exclude):
                 yield owner
         # Support registrations created before the independent-scope handoff.
-        for path in root.rglob("active.session.json"):
+        for path in _registry_records(root, "active.session.json"):
             if exclude is None or path.parent != Path(exclude):
                 yield OwnedCommand(path.parent)
 
