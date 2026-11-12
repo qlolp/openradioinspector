@@ -37,6 +37,10 @@ export function save(key: string, value: string) {
   }
 }
 export const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+const readyAction = {
+  state: 'Ready',
+  text: 'Receive-only workspace · core owns devices and archive',
+};
 
 export function useDesk(transport: Connection) {
   const api = useMemo(() => new Api(transport), [transport]);
@@ -58,10 +62,7 @@ export function useDesk(transport: Connection) {
     [search, setSearch] = useState<SearchStatus>();
   const [health, setHealth] = useState<Health>(),
     [capabilities, setCapabilities] = useState<Capabilities>();
-  const [action, setAction] = useState({
-    state: 'Ready',
-    text: 'Receive-only workspace · core owns devices and archive',
-  });
+  const [action, setAction] = useState(readyAction);
   const [busy, setBusy] = useState(false),
     [connected, setConnected] = useState(!transport.native || transport.ready === true);
   const [projectsCursor, setProjectsCursor] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export function useDesk(transport: Connection) {
   selection.current = projectId;
   const scope = useRef(new ResourceScope()),
     currentScope = useRef<{ generation: number; signal: AbortSignal } | null>(null);
-  const running = useRef(false),
+  const running = useRef<symbol | false>(false),
     mounted = useRef(true),
     projectAfter = useRef('');
   const project = guard?.project;
@@ -399,7 +400,9 @@ export function useDesk(transport: Connection) {
       label: string,
       operation: () => Promise<T>,
       resources: string[] = ['status', 'events', 'preflight'],
+      readSignal?: AbortSignal,
     ): Promise<T | undefined> => {
+      if (readSignal?.aborted) return;
       if (running.current) {
         setAction({
           state: 'Error',
@@ -407,20 +410,49 @@ export function useDesk(transport: Connection) {
         });
         return;
       }
-      running.current = true;
-      setBusy(true);
-      setAction({ state: 'Requested', text: label });
-      try {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        setAction({ state: 'Executing', text: label + ' · waiting for core acknowledgement' });
-        const result = await operation();
+      const owner = Symbol(label);
+      running.current = owner;
+      const current = () => mounted.current && running.current === owner && !readSignal?.aborted;
+      let published = { state: 'Requested', text: label };
+      let cancelFrame: (() => void) | undefined;
+      const publish = (value: typeof published) => {
+        published = value;
+        setAction(value);
+      };
+      // Only explicitly scoped reads may release UI ownership on abort. Core
+      // mutations keep the default acknowledgement lifecycle, even after a
+      // project/view change. A discarded read never releases a newer action.
+      const abortRead = () => {
+        cancelFrame?.();
+        if (running.current !== owner) return;
+        running.current = false;
         if (mounted.current) {
+          setBusy(false);
+          setAction((value) => (value === published ? readyAction : value));
+        }
+      };
+      setBusy(true);
+      publish(published);
+      readSignal?.addEventListener('abort', abortRead, { once: true });
+      try {
+        await new Promise<void>((resolve) => {
+          const frame = requestAnimationFrame(() => resolve());
+          cancelFrame = () => {
+            cancelAnimationFrame(frame);
+            resolve();
+          };
+        });
+        cancelFrame = undefined;
+        if (readSignal && !current()) return;
+        publish({ state: 'Executing', text: label + ' · waiting for core acknowledgement' });
+        const result = await operation();
+        if (current()) {
           const queued =
             result !== null &&
             typeof result === 'object' &&
             'state' in result &&
             result.state === 'queued';
-          setAction({
+          publish({
             state: queued ? 'Queued' : 'Confirmed',
             text:
               label +
@@ -428,12 +460,15 @@ export function useDesk(transport: Connection) {
           });
           await refresh(resources);
         }
-        return result;
+        return readSignal && !current() ? undefined : result;
       } catch (error) {
-        if (mounted.current) setAction({ state: 'Error', text: label + ': ' + message(error) });
+        if (current()) publish({ state: 'Error', text: label + ': ' + message(error) });
       } finally {
-        running.current = false;
-        if (mounted.current) setBusy(false);
+        readSignal?.removeEventListener('abort', abortRead);
+        if (running.current === owner) {
+          running.current = false;
+          if (mounted.current) setBusy(false);
+        }
       }
     },
     [refresh],
