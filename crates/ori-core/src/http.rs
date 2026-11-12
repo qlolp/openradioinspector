@@ -804,6 +804,17 @@ fn capabilities(core: &Core) -> Value {
             .is_some_and(|tasks| tasks.execution_available()),
     );
     value["features"]["control_task_scheduler"] = Value::Bool(core.tasks.get().is_some());
+    for feature in [
+        "control_task_scheduler_task_list",
+        "control_task_scheduler_task_create",
+        "control_task_scheduler_task_cancel",
+    ] {
+        value["features"][feature] = Value::Bool(core.tasks.get().is_some());
+    }
+    value["features"]["control_task_scheduler_opt_in_required"] = Value::Bool(true);
+    value["features"]["control_task_scheduler_policy_persistent"] = Value::Bool(false);
+    value["features"]["openapi_v1"] = Value::Bool(true);
+    value["features"]["monitoring_receiver_profile"] = json!("ardv1-monitor-v1");
     value["features"]["guard_original_tune_audio_capture"] = Value::Bool(core.audio.is_some());
     value["features"]["analog_audio_inputs"] = Value::Bool(core.audio.is_some());
     value["features"]["legacy_workspace_state"] = Value::Bool(core.legacy.get().is_some());
@@ -869,8 +880,15 @@ fn capabilities(core: &Core) -> Value {
     ] {
         value["features"][name] = Value::Bool(core.automation.get().is_some());
     }
-    value["features"]["automatic_investigation_completion_opt_in_required"] = Value::Bool(true);
-    value["features"]["automatic_investigation_completion_policy_persistent"] = Value::Bool(false);
+    // Audit events persist, but each process starts with disabled policies.
+    for feature in [
+        "automatic_candidate_detection",
+        "automatic_handoff",
+        "automatic_investigation_completion",
+    ] {
+        value["features"][format!("{feature}_opt_in_required")] = Value::Bool(true);
+        value["features"][format!("{feature}_policy_persistent")] = Value::Bool(false);
+    }
     let uploaded_audio = archived && core.audio_http.get().is_some();
     value["features"]["phonogram_pre_history"] = Value::Bool(uploaded_audio);
     value["features"]["remote_audio_stream"] = Value::Bool(uploaded_audio);

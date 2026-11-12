@@ -1050,6 +1050,98 @@ async fn capabilities_retain_public_client_fields_and_only_enable_implemented_fe
     assert_eq!(caps["candidate"]["native_connector_enabled"], false);
     assert_eq!(caps["features"]["tinysa_ultra_hardware_validated"], false);
     assert_eq!(caps["candidate"]["compatibility_complete"], false);
+    for feature in [
+        "openapi_v1",
+        "automatic_candidate_detection_opt_in_required",
+        "automatic_handoff_opt_in_required",
+        "control_task_scheduler_opt_in_required",
+        "control_task_scheduler_task_list",
+        "control_task_scheduler_task_create",
+        "control_task_scheduler_task_cancel",
+    ] {
+        assert_eq!(caps["features"][feature], true, "{feature}");
+    }
+    for feature in [
+        "automatic_candidate_detection_policy_persistent",
+        "automatic_handoff_policy_persistent",
+        "control_task_scheduler_policy_persistent",
+    ] {
+        assert_eq!(caps["features"][feature], false, "{feature}");
+    }
+    assert_eq!(
+        caps["features"]["monitoring_receiver_profile"],
+        "ardv1-monitor-v1"
+    );
+
+    let (status, document) = server.request("GET", "/api/v1/openapi.json", None).await;
+    assert_eq!(status, 200);
+    assert!(document["paths"]["/api/v1/task-scheduler"].is_object());
+    create(&server).await;
+    for policy in [
+        "automatic-detection",
+        "automatic-handoff",
+        "automatic-completion",
+    ] {
+        let path = route("fixture-сессия", &format!("/{policy}"));
+        let (status, value) = server.request("GET", &path, None).await;
+        assert_eq!(status, 200, "{value}");
+        assert_eq!(value["data"]["policy"]["enabled"], false);
+        assert_eq!(value["data"]["policy_persistent"], false);
+        assert_eq!(value["data"]["restart_requires_opt_in"], true);
+        let (status, value) = server
+            .request(
+                "POST",
+                &path,
+                Some(&json!({"enabled":false,"interval_seconds":2.0})),
+            )
+            .await;
+        assert_eq!(status, 200, "{value}");
+        assert_eq!(value["data"]["policy"]["interval_seconds"], 2.0);
+    }
+    let (_, scheduler) = server.request("GET", "/api/v1/task-scheduler", None).await;
+    assert_eq!(scheduler["data"]["enabled"], false);
+    assert_eq!(scheduler["data"]["policy_persistent"], false);
+    assert_eq!(scheduler["data"]["restart_requires_opt_in"], true);
+    let (status, _) = server
+        .request(
+            "POST",
+            "/api/v1/task-scheduler",
+            Some(&json!({"enabled":true})),
+        )
+        .await;
+    assert_eq!(status, 200);
+    server.stop().await;
+
+    // Policy audit events persist in SQLite, while a new owner requires fresh
+    // opt-in and receives defaults rather than replaying the prior policy.
+    let mut server = Server::start(CoreConfig::replay(directory.path())).await;
+    for policy in [
+        "automatic-detection",
+        "automatic-handoff",
+        "automatic-completion",
+    ] {
+        let (_, value) = server
+            .request("GET", &route("fixture-сессия", &format!("/{policy}")), None)
+            .await;
+        assert_eq!(value["data"]["policy"]["enabled"], false);
+        assert_eq!(value["data"]["policy"]["interval_seconds"], 1.0);
+    }
+    let (_, scheduler) = server.request("GET", "/api/v1/task-scheduler", None).await;
+    assert_eq!(scheduler["data"]["enabled"], false);
+    let (status, events) = server
+        .request("GET", "/api/v1/events/history?after=0&limit=100", None)
+        .await;
+    assert_eq!(status, 200, "{events}");
+    for kind in [
+        "automatic_detection",
+        "automatic_handoff",
+        "automatic_completion",
+    ] {
+        assert!(events["data"].as_array().unwrap().iter().any(|event| {
+            event["session_id"] == "fixture-сессия"
+                && event["event_type"] == format!("{kind}.policy_changed")
+        }));
+    }
     server.stop().await;
 }
 

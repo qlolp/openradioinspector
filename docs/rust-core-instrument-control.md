@@ -19,6 +19,13 @@ cache-only check runs at every adapter I/O poll/wake boundary. Control callbacks
 must resolve the exact opaque admission, never the most recent client for a
 target. Credentials and manual tokens are neither events nor logs.
 
+The public v1 wire retains the original typed-operation error text and integer
+zero for an inactive lab lease; a live lease still reports its remaining seconds
+as a float. Missing original lab permission has its specific Russian denial
+before executor I/O. The original owner and cancellation are checked first, so
+credential/Guard revocation is never relabeled as a missing lab lease. The same
+original receipt and lease checks still run at every actual I/O boundary.
+
 Normal commands share the existing bounded queue; `output.off` has one reserved
 slot in the same executor. Publication ownership is reserved before I/O and is
 bounded separately from retained artifacts. Actual control revision and public
