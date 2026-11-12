@@ -429,6 +429,15 @@ class Handler(BaseHTTPRequestHandler):
         return self._read_bounded_analysis_request(MAX_CONTROL_REQUEST_BYTES, allow_empty=True)
 
     def _read_bounded_analysis_request(self, max_bytes: int, *, allow_empty: bool = False) -> dict:
+        raw = self._read_bounded_request_body(max_bytes, allow_empty=allow_empty)
+        if not raw and allow_empty:
+            return {}
+        result = strict_json_loads(raw.decode("utf-8", errors="strict"))
+        if not isinstance(result, dict):
+            raise RequestError("Ожидается объект JSON")
+        return result
+
+    def _read_bounded_request_body(self, max_bytes: int, *, allow_empty: bool = False) -> bytearray:
         """Validate framing before allocation; bound the entire body read in time."""
         lengths = self.headers.get_all("Content-Length", [])
         if (self.headers.get_all("Transfer-Encoding") or len(lengths) > 1
@@ -441,7 +450,7 @@ class Handler(BaseHTTPRequestHandler):
             raise RequestError(f"Тело запроса превышает {max_bytes} байт", 413)
         length = int(digits)
         if length == 0 and allow_empty:
-            return {}
+            return bytearray()
         previous_timeout = self.connection.gettimeout()
         deadline = time.monotonic() + REQUEST_BODY_TIMEOUT_SECONDS
         raw = bytearray()
@@ -463,10 +472,7 @@ class Handler(BaseHTTPRequestHandler):
             raise RequestError("Неполное тело запроса") from exc
         finally:
             self.connection.settimeout(previous_timeout)
-        result = strict_json_loads(raw.decode("utf-8", errors="strict"))
-        if not isinstance(result, dict):
-            raise RequestError("Ожидается объект JSON")
-        return result
+        return raw
 
     # -- маршруты ----------------------------------------------------------
 
@@ -695,8 +701,6 @@ class Handler(BaseHTTPRequestHandler):
                     "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
                     "dvb-evaluation", "measurement-map", "sweep-quality",
                 )):
-            if "?" in self.path:
-                raise RequestError("Анализ не принимает параметры запроса")
             maximum = {
                 "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
                 "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
@@ -712,6 +716,13 @@ class Handler(BaseHTTPRequestHandler):
                 "measurement-map": MAX_MAP_REQUEST_BYTES,
             }[parts[4]]
             allow_empty = False
+            if "?" in self.path:
+                # Headers and body can arrive in separate TCP frames. Consume
+                # only a correctly framed, route-bounded body before closing;
+                # unread bytes can otherwise reset the client's error response.
+                # The forbidden query still takes priority over JSON parsing.
+                self._read_bounded_request_body(maximum)
+                raise RequestError("Анализ не принимает параметры запроса")
         elif (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4:] == ["signal-list", "import"]):
             maximum = MAX_IMPORT_REQUEST_BYTES
