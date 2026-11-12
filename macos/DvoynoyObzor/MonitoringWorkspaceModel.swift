@@ -23,6 +23,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var audioEnabled = false
     @Published var selectedInput = ""
     @Published var audioConfirmed = false
+    @Published var baselineConfirmed = false
     @Published var details = "Выберите подготовленный сеанс."
     @Published var notice = ""
     @Published var error = ""
@@ -82,6 +83,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private var revision = 0
     private var requestID = UUID()
     private var playbackRevision = 0
+    private var archiveHighWatermark: Int64?
+    private var archiveHealthRevision = 0
     let receiverModes = ["AUTO", "FM", "AM", "DSTAR", "YSF", "ALINCO", "NXDN", "P25", "DPMR", "DMR"]
 
     var project: MonitoringValue { status["project"] }
@@ -134,20 +137,31 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func configure(_ server: String, client suppliedClient: PlatformClient?) {
         let next = server
         guard !PlatformExactID.same(next, scope) || client !== suppliedClient else { return }
+        archiveHighWatermark = nil; archiveHealthRevision += 1
         scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
         client = server.isEmpty ? nil : suppliedClient
+    }
+
+    /// Synchronous notification from the live view, including a failed current-health check.
+    /// A nil mark is unverified, so preserve the previous mark for later rollback detection.
+    func resetArchiveContext(watermark: Int64?) {
+        archiveHealthRevision += 1
+        if let watermark { archiveHighWatermark = watermark }
+        invalidateProject()
     }
 
     private func invalidateProject() {
         revision += 1; requestID = UUID(); pending = false
         status = .null; preflight = .null; events = []; selectedEvent = ""; event = .null
         receiverMode = "AUTO"; audioEnabled = false; selectedInput = ""; audioConfirmed = false
+        baselineConfirmed = false
         details = "Выберите проект и обновите состояние."; error = ""; notice = ""
         leases = [:]; researchPending = []; researchRequests = [:]; researchError = ""
         search = .null; coverage = ""; history = []; historyNext = ""; selectedSweepID = ""; rawSweep = nil
         rawDetail = .null; baselineComparison = .null; sources = []; sourcesNext = ""
         historyDescription = "История ещё не загружена."
+        historyQuery = MonitoringHistoryQuery()
         stopOperations()
         antennaNotes = ""; receivePathConfirmed = false; locationConfirmed = false; preparationSeeded = false
         detectorMargin = "6"; detectorImpulse = "12"; detectorHysteresis = "3"
@@ -238,7 +252,29 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func refreshStatus(syncConfiguration: Bool = false) async {
-        guard !selected.isEmpty else { return }
+        guard let client, !selected.isEmpty else { return }
+        let generation = revision, projectID = selected
+        archiveHealthRevision += 1
+        let healthRevision = archiveHealthRevision
+        let watermark: Int64?
+        do { watermark = try await client.eventWatermark() }
+        catch {
+            guard generation == revision, healthRevision == archiveHealthRevision,
+                  self.client === client, PlatformExactID.same(selected, projectID), !Task.isCancelled else { return }
+            if archiveHighWatermark != nil {
+                resetArchiveContext(watermark: nil)
+                self.error = error.localizedDescription
+                return
+            }
+            watermark = nil // Legacy REST peers need not implement event health.
+        }
+        guard generation == revision, healthRevision == archiveHealthRevision,
+              self.client === client, PlatformExactID.same(selected, projectID), !Task.isCancelled else { return }
+        if let watermark {
+            let rolledBack = archiveHighWatermark.map { watermark < $0 } ?? false
+            archiveHighWatermark = watermark
+            if rolledBack { resetArchiveContext(watermark: watermark) }
+        }
         await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
             coverage = result["project"]["coverage"].text

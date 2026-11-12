@@ -1,11 +1,19 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var model = RemoteDualModel()
-    @StateObject private var workspace = MonitoringWorkspaceModel()
+    @StateObject private var model: RemoteDualModel
+    @StateObject private var workspace: MonitoringWorkspaceModel
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
+
+    init() {
+        let workspace = MonitoringWorkspaceModel()
+        _workspace = StateObject(wrappedValue: workspace)
+        _model = StateObject(wrappedValue: RemoteDualModel(onArchiveContextReset: { [weak workspace] watermark in
+            workspace?.resetArchiveContext(watermark: watermark)
+        }))
+    }
 
     var body: some View {
         NavigationSplitView {

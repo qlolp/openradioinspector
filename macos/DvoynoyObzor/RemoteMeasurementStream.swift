@@ -19,9 +19,10 @@ final class RemoteMeasurementStream {
             && PlatformExactID.same(self.receiverStreamID, receiverStreamID)
     }
 
-    func stop() {
-        revision += 1; task?.cancel(); task = nil; measurements = nil; appliedSourceCursor = 0
-    }
+    /// Stop delivery without losing the last consumer-applied replay position.
+    func suspend() { revision += 1; task?.cancel(); task = nil }
+
+    func stop() { suspend(); measurements = nil; appliedSourceCursor = 0 }
 
     func start(client: PlatformClient, sessionID: String, streamID: String, receiverStreamID: String? = nil, watermark: Int64,
                transport: PlatformMeasurementTransport = .serverSentEvents,

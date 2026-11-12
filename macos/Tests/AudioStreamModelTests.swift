@@ -99,9 +99,11 @@ final class AudioStreamModelTests: XCTestCase {
         try await waitFor { deferred.continuations.count >= 1 }
         deferred.release(.status(try statusValue()))
         try await waitFor { model.status != nil }
+        XCTAssertNotNil(model.infoText)
         model.configure(client: client, scope: .init(server: "local", session: "s", stream: "other"))
         XCTAssertNil(model.status)
         XCTAssertNil(model.sample)
+        XCTAssertNil(model.infoText, "A new context cannot retain an old audio receipt")
         XCTAssertEqual(model.canCall, true)
     }
 }

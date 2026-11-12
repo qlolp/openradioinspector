@@ -128,6 +128,9 @@ final class MeasurementResultsModelTests: XCTestCase {
         try await waitFor { !model.pending }
         XCTAssertEqual(model.items.map(\.id), ["result-1"])
         XCTAssertNotNil(model.infoText)
+        model.reset()
+        XCTAssertTrue(model.items.isEmpty)
+        XCTAssertNil(model.infoText, "An old archive record ID must disappear with its context")
     }
 
     @MainActor func testForgedRecordAndFailureNeverFreeze() async throws {

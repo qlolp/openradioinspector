@@ -155,6 +155,7 @@ final class RemoteDualModel: ObservableObject {
     let sweepThreshold: SweepThresholdModel
 
     private let makeClient: (String) throws -> PlatformClient
+    private let onArchiveContextReset: @MainActor (Int64?) -> Void
     let comparisonTimeoutNanoseconds: UInt64
     var comparisonTask: Task<Void, Never>?
     var comparisonTimeoutTask: Task<Void, Never>?
@@ -177,6 +178,8 @@ final class RemoteDualModel: ObservableObject {
     private var streamingEnabled = false
     private var negotiatedMeasurementTransport: PlatformMeasurementTransport?
     private var measurementSnapshot: PlatformSnapshot?
+    private var archiveHighWatermark: Int64?
+    private var archiveCacheVerified = false
     private var spectrumRenderRevision = 0
     var generation = 0
     private var sessionRefreshRevision = 0
@@ -202,9 +205,11 @@ final class RemoteDualModel: ObservableObject {
     init(
         makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) },
         comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
-        thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000
+        thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000,
+        onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }
     ) {
         self.makeClient = makeClient
+        self.onArchiveContextReset = onArchiveContextReset
         self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
         refreshSerialPorts()
@@ -254,6 +259,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func connect(startPolling: Bool = true, using preparedClient: PlatformClient? = nil) {
+        archiveHighWatermark = nil; archiveCacheVerified = false
         measurementStream.stop(); measurementSnapshot = nil; eventGapNotice = nil
         negotiatedMeasurementTransport = nil; measurementSource = nil; measurementDisplayIssue = nil
         frequencyRounding.reset()
@@ -280,6 +286,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func disconnect() {
+        archiveHighWatermark = nil; archiveCacheVerified = false
         showTinySAControl = false
         connectionGeneration += 1
         capacityRequestRevision += 1
@@ -427,6 +434,31 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
+    private func invalidateArchiveEvidence(watermark: Int64?, preservingReplay: Bool = false) {
+        generation += 1; connectionGeneration += 1; capacityRequestRevision += 1
+        archiveCapacity = nil; archiveCapacityError = nil; busy = false
+        if preservingReplay { measurementStream.suspend() }
+        clearMeasurements(preservingReplay: preservingReplay)
+        configureAuxiliaryStreams(client: nil, session: nil)
+        if let watermark {
+            archiveHighWatermark = watermark
+            // A possible write in the old archive cannot confirm evidence in its replacement.
+            uncertainReferenceScopes.removeAll(); referenceNoticeScope = nil; referenceWriteNotice = nil
+        }
+        onArchiveContextReset(watermark)
+    }
+
+    /// Capture the applied cursor before awaiting health: a newer event can be
+    /// applied while that HTTP response is in flight without implying rollback.
+    private func observeArchiveWatermark(_ watermark: Int64, appliedBeforeHealth: UInt64) -> Bool {
+        let rolledBack = (archiveHighWatermark.map { watermark < $0 } ?? false)
+            || UInt64(watermark) < appliedBeforeHealth
+        archiveHighWatermark = watermark
+        if rolledBack { invalidateArchiveEvidence(watermark: watermark) }
+        archiveCacheVerified = true
+        return rolledBack
+    }
+
     private func refreshSession(_ client: PlatformClient) async {
         guard self.client === client else { return }
         if selectedSessionID.isEmpty {
@@ -436,7 +468,7 @@ final class RemoteDualModel: ObservableObject {
         sessionRefreshRevision += 1
         let refreshRevision = sessionRefreshRevision
         let id = selectedSessionID
-        let requestGeneration = generation
+        var requestGeneration = generation
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             if streamingEnabled, negotiatedMeasurementTransport == nil {
@@ -444,25 +476,51 @@ final class RemoteDualModel: ObservableObject {
                 guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client else { return }
                 negotiatedMeasurementTransport = transport
             }
-            let streaming = measurementStream.isActive
             let retained = streamingEnabled ? measurementStream.measurements : nil
-            // Only a first connection seeds from health before its snapshot.
-            // Recovery resumes at the last applied cursor, even after core restart.
-            let watermark: Int64?
-            if streamingEnabled && !streaming {
-                if let retained { watermark = retained.cursor }
-                else { watermark = try? await client.eventWatermark() }
-            } else { watermark = nil }
+            // Seed before a full snapshot so commits during its load remain replayable.
+            var watermark: Int64?
+            if retained == nil {
+                let applied = measurementStream.appliedSourceCursor
+                do { watermark = try await client.eventWatermark() }
+                catch {
+                    if archiveHighWatermark != nil { throw error }
+                    watermark = nil // Preserve legacy REST peers without event health.
+                }
+                guard refreshRevision == sessionRefreshRevision, requestGeneration == generation,
+                      self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
+                if let watermark, observeArchiveWatermark(watermark, appliedBeforeHealth: applied) {
+                    requestGeneration = generation
+                }
+            }
             var snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false, includeMeasurements: retained == nil)
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
-            let latestCache = streamingEnabled ? measurementStream.measurements : nil
+            var latestCache = streamingEnabled ? measurementStream.measurements : nil
             if latestCache != nil, !measurementStream.matches(sessionID: id,
                 streamID: snapshot.session.streams.first(where: { $0.isDbmAnalyzer })?.id ?? "",
                 receiverStreamID: snapshot.session.streams.first(where: { $0.isReceiver })?.id) {
                 measurementStream.stop()
                 await refreshSession(client)
                 return
+            }
+            if latestCache != nil {
+                let applied = measurementStream.appliedSourceCursor
+                let currentWatermark = try await client.eventWatermark()
+                guard refreshRevision == sessionRefreshRevision, requestGeneration == generation,
+                      self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
+                if observeArchiveWatermark(currentWatermark, appliedBeforeHealth: applied) {
+                    requestGeneration = generation
+                    watermark = currentWatermark
+                    // The metadata-only response belongs to the previous archive context.
+                    snapshot = try await client.snapshot(sessionID: id, includeArchiveCapacity: false, includeMeasurements: true)
+                    guard refreshRevision == sessionRefreshRevision, requestGeneration == generation,
+                          self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
+                    latestCache = nil
+                } else {
+                    latestCache = measurementStream.measurements
+                    // Ordinary recovery retains the applied cursor, never the newer health mark.
+                    watermark = latestCache?.cursor
+                }
             }
             // Events may have arrived while metadata was in flight.
             if let cached = latestCache {
@@ -481,25 +539,26 @@ final class RemoteDualModel: ObservableObject {
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
             if streamingEnabled, !measurementStream.isActive, let watermark {
+                let streamGeneration = requestGeneration
                 let transport = negotiatedMeasurementTransport ?? .serverSentEvents
                 eventStatus = "\(transport.label) · ожидание событий после \(measurementStream.appliedSourceCursor > 0 ? String(measurementStream.appliedSourceCursor) : String(watermark))"
                 measurementStream.start(client: client, sessionID: id, streamID: analyzer?.id ?? "", receiverStreamID: receiver?.id, watermark: watermark,
                     transport: transport,
                     sweeps: snapshot.sweeps, observation: snapshot.observations.last,
                     receive: { [weak self] sweeps, observation, event, change in
-                        guard let self, requestGeneration == self.generation, self.client === client,
+                        guard let self, streamGeneration == self.generation, self.client === client,
                               PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID), var latest = self.measurementSnapshot else { throw CancellationError() }
                         if change == .measurement {
                             latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
                             self.measurementSnapshot = latest
                             guard await self.applyMeasurements(latest) else { throw CancellationError() }
                         }
-                        guard !Task.isCancelled, requestGeneration == self.generation, self.client === client else { throw CancellationError() }
+                        guard !Task.isCancelled, streamGeneration == self.generation, self.client === client else { throw CancellationError() }
                         self.measurementSource = event.source; self.measurementDisplayIssue = event.displayIssue
                         self.eventStatus = "\(transport.label) · принято событие \(event.sequence)" + (event.displayIssue == nil ? "" : " · исходник")
                         if change == .measurement { self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")" }
                     }, recover: { [weak self] reason in
-                        guard let self, requestGeneration == self.generation, self.client === client else { return }
+                        guard let self, streamGeneration == self.generation, self.client === client else { return }
                         if self.expireAuthorization(reason, client: client) { return }
                         self.eventStatus = "\(transport.label) · восстановление потока: \(describeSession(reason))"
                         if let eventError = reason as? PlatformEventError {
@@ -509,7 +568,7 @@ final class RemoteDualModel: ObservableObject {
                             }
                             // Bound retries for a permanently malformed peer.
                             try? await Task.sleep(nanoseconds: 250_000_000)
-                            guard !Task.isCancelled, requestGeneration == self.generation, self.client === client,
+                            guard !Task.isCancelled, streamGeneration == self.generation, self.client === client,
                                   PlatformThreeSweepThresholds.sameID(id, self.selectedSessionID) else { return }
                             await self.refresh()
                         } else if transport == .serverSentEvents, case PlatformError.http(status: 404, code: _, message: _) = reason {
@@ -525,6 +584,10 @@ final class RemoteDualModel: ObservableObject {
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
+            let hasReplay = measurementStream.measurements != nil
+            if hasReplay || archiveHighWatermark != nil {
+                invalidateArchiveEvidence(watermark: nil, preservingReplay: hasReplay)
+            }
             eventStatus = "Поток не подтверждён: \(describeSession(error))"
             sweepAverage.reset()
             threeSweepThresholds.reset()
@@ -650,9 +713,11 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
-    private func clearMeasurements() {
-        measurementStream.stop()
+    private func clearMeasurements(preservingReplay: Bool = false) {
+        if !preservingReplay { measurementStream.stop() }
+        archiveCacheVerified = false
         measurementSnapshot = nil
+        measurementSource = nil; measurementDisplayIssue = nil
         eventGapNotice = nil
         spectrumRenderRevision += 1
         resetComparisonScope()
@@ -743,7 +808,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func toggleSpectrumPause() {
-        if spectrumPresentation.paused, let cache = measurementStream.measurements, let stream = analyzer?.id,
+        if archiveCacheVerified, spectrumPresentation.paused, let cache = measurementStream.measurements, let stream = analyzer?.id,
            PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL) {
             spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: cache.sweeps)
             if spectrumPresentation.paused { spectrumPresentation.togglePause() }
