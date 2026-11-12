@@ -3,8 +3,10 @@ use crate::qos::QosError;
 use serde::Serialize;
 use std::path::PathBuf;
 
+#[cfg(unix)]
 pub(crate) const RATE: u64 = 20 * 1024 * 1024;
 pub(crate) const MAX_CHARGE: u64 = 8 * 1024 * 1024;
+#[cfg(unix)]
 const MAX_DEBT_NS: u64 = 30_000_000_000;
 
 /// A private worker capability, intentionally without Debug or Deserialize.
@@ -16,6 +18,7 @@ pub struct SharedIoSpec {
     clock: &'static str,
 }
 
+#[cfg(unix)]
 pub(crate) enum Reservation {
     Busy,
     Until(u64),
@@ -332,10 +335,6 @@ pub(crate) use platform::{SharedIo, now_ns};
 #[cfg(not(unix))]
 pub(crate) struct SharedIo;
 #[cfg(not(unix))]
-pub(crate) fn now_ns() -> Result<u64, QosError> {
-    Err(QosError::InvalidCharge)
-}
-#[cfg(not(unix))]
 impl SharedIo {
     pub(crate) fn new(_: PathBuf) -> Result<Self, QosError> {
         Err(QosError::InvalidCharge)
@@ -348,10 +347,6 @@ impl SharedIo {
     }
     pub(crate) fn active(&self) -> bool {
         false
-    }
-    pub(crate) fn fail(&self) {}
-    pub(crate) fn reserve(&self, _: u64) -> Result<Reservation, QosError> {
-        Err(QosError::InvalidCharge)
     }
     pub(crate) fn total(&self) -> u64 {
         0

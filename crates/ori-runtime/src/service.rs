@@ -1,8 +1,13 @@
 //! Foreground service runner; native managers own restart policy, never backend upgrades.
 use crate::{
     Error, Result,
-    lease::{atomic_private, read_private, state_directory},
-    supervisor::{BackendSpec, CutoverOptions, CutoverOutcome, Supervisor},
+    lease::{read_private, state_directory},
+    supervisor::{BackendSpec, Supervisor},
+};
+#[cfg(unix)]
+use crate::{
+    lease::atomic_private,
+    supervisor::{CutoverOptions, CutoverOutcome},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -58,6 +63,7 @@ pub async fn run(config: ServiceConfig) -> Result<()> {
     } else {
         config.backend
     };
+    #[cfg(unix)]
     let mut selected = backend.clone();
     tokio::select! {
         result=supervisor.start(backend)=>{result?;},

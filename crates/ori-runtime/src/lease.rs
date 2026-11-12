@@ -24,17 +24,17 @@ pub(crate) fn validate_path(path: &Path) -> Result<()> {
             Ok(meta) if meta.file_type().is_symlink() => {
                 return Err(Error::Unsafe("symlink in private path".into()));
             }
+            #[cfg(unix)]
             Ok(meta) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::MetadataExt;
-                    if meta.is_dir() && meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0 {
-                        return Err(Error::Unsafe(
-                            "untrusted writable ancestor in private path".into(),
-                        ));
-                    }
+                use std::os::unix::fs::MetadataExt;
+                if meta.is_dir() && meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0 {
+                    return Err(Error::Unsafe(
+                        "untrusted writable ancestor in private path".into(),
+                    ));
                 }
             }
+            #[cfg(not(unix))]
+            Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }

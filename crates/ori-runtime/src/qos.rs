@@ -1,7 +1,9 @@
 //! Cooperative derivative-work pressure and aggregate logical I/O accounting.
 //! This never pauses acquisition and does not claim an OS physical I/O limit.
 pub use crate::shared_io::SharedIoSpec;
-use crate::shared_io::{self, MAX_CHARGE, Reservation, SharedIo};
+#[cfg(unix)]
+use crate::shared_io::{self, Reservation};
+use crate::shared_io::{MAX_CHARGE, SharedIo};
 use crate::worker::Cancellation;
 use std::{
     collections::BTreeMap,
@@ -205,6 +207,7 @@ impl BackgroundQos {
         if bytes > MAX_CHARGE {
             return Err(QosError::InvalidCharge);
         }
+        #[cfg(unix)]
         if let Some(shared) = self.0.shared.clone() {
             let lock_deadline = std::time::Instant::now() + Duration::from_secs(2);
             let until = loop {
@@ -270,6 +273,7 @@ impl BackgroundQos {
         if bytes > MAX_CHARGE {
             return Err(QosError::InvalidCharge);
         }
+        #[cfg(unix)]
         if let Some(shared) = &self.0.shared {
             let lock_deadline = std::time::Instant::now() + Duration::from_secs(2);
             let until = loop {

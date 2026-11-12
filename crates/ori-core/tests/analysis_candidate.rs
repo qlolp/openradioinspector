@@ -222,6 +222,7 @@ async fn source_selection_and_child_execution_share_one_admission_and_shutdown_r
     assert_eq!(value["error"]["code"], "research_busy");
     assert_eq!(server.request("GET", "/api/v1/health", None).await.0, 200);
     let pid = std::fs::read_to_string(&marker).unwrap();
+    assert!(pid.parse::<u32>().is_ok_and(|id| id > 0));
     server.stop().await;
     assert_eq!(request.await.unwrap(), 503);
     #[cfg(target_os = "linux")]
