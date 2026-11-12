@@ -1,4 +1,5 @@
 import { openDesk, acceptLegacyCore } from './helpers';
+import { disarmOwnedSyntheticGuard } from './guard-cleanup';
 import { expect, test } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
@@ -8,22 +9,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ request }) => {
   // Tests own this temporary loopback core. A failed UI assertion must still
   // release its synthetic guard, leases and workers before the next case.
-  const base = 'http://127.0.0.1:18771/api/v1';
-  const projects = (await (await request.get(base + '/monitoring-projects')).json()).data.items;
-  const project = projects.find(
-    (item: any) => item.name === 'North laboratory' && item.site === 'Synthetic acceptance fixture',
-  );
-  if (!project) return;
-  const status = (
-    await (await request.get(base + '/monitoring-projects/' + project.id + '/status')).json()
-  ).data;
-  if (!status.active) return;
-  expect(project.profile.analyzer.settings.adapter).toBe('tinysa-sim');
-  expect(project.profile.receiver.settings.adapter).toBe('ardv1-sim');
-  const stopped = await request.post(base + '/monitoring-projects/' + project.id + '/disarm', {
-    data: {},
-  });
-  expect(stopped.ok(), await stopped.text()).toBe(true);
+  await disarmOwnedSyntheticGuard(request);
 });
 
 test('monitoring opens committed spectrum, arms safely, and preserves independent manual ownership', async ({
