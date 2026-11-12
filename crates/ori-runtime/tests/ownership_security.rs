@@ -26,7 +26,11 @@ fn independent_instance_and_writer_locks_exclude_other_owners_and_release_on_dro
 #[cfg(unix)]
 #[test]
 fn persisted_tokens_are_opaque_hashed_and_revocation_survives_restart() {
-    let dir = tempfile::tempdir().unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::Builder::new()
+        .permissions(fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
     let mut creds = Credentials::open(dir.path()).unwrap();
     let first = creds.issue("browser", 10).unwrap();
     let second = creds.issue("native", 10).unwrap();
