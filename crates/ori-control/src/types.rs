@@ -16,6 +16,8 @@ pub enum ControlError {
     NotFound,
     #[error("instrument authority changed; operation denied")]
     Denied,
+    #[error("Требуется действующая эксклюзивная lab-аренда")]
+    LabLeaseRequired,
     #[error("instrument backend/profile unavailable: {0}")]
     Unavailable(&'static str),
     #[error("instrument outcome is unknown; reconnect required")]
@@ -204,7 +206,7 @@ macro_rules! operations {
         impl OperationKind {
             pub const ALL: &'static [Self] = &[$(Self::$variant),+];
             pub const fn as_str(self) -> &'static str { match self { $(Self::$variant => $wire),+ } }
-            pub fn parse(value: &str) -> Result<Self> { match value { $($wire => Ok(Self::$variant),)+ _ => Err(ControlError::Invalid("unknown typed instrument operation")) } }
+            pub fn parse(value: &str) -> Result<Self> { match value { $($wire => Ok(Self::$variant),)+ _ => Err(ControlError::Invalid("Unknown typed instrument operation")) } }
         }
     };
 }
