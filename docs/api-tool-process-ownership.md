@@ -24,6 +24,12 @@ draining after a cap is reached while discarding excess bytes; overflow always
 fails the operation. A native zero exit cannot turn overflow into success.
 Supervision records are bounded, nonce-bound files in a fresh private directory.
 
+The adapter flushes the complete bounded stdout/stderr prefix before publishing
+an overflow record. The caller may terminate the owned Job as soon as that
+record is visible; buffered bytes must already be readable from the retained
+log. This preserves the original per-stream or merged aggregate byte limit and
+exact bytes, including with a larger platform-default Python file buffer.
+
 Node readiness and shutdown are unchanged: the original target publishes its
 owned ephemeral loopback URL, and closing the caller's stdin lifeline publishes
 a private stop request that closes target stdin. CLI runtime bounds, the

@@ -347,6 +347,10 @@ def adapter(path, *, gate=False):
                     output.write(block[:remaining])
                     count += len(block)
                     if count > spec["limit"] and not overflow:
+                        # The parent may terminate the whole Job immediately
+                        # after this record becomes visible. Publish only after
+                        # the complete bounded prefix has left Python's buffer.
+                        output.flush()
                         overflow = True
                         record(name + ".overflow.json")
         except Exception as error:  # noqa: BLE001 - every reader failure invalidates IPC proof
