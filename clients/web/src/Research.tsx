@@ -116,6 +116,7 @@ export function Research({
           setComparison(result);
       },
       [],
+      scope.signal,
     );
   }
 
@@ -143,6 +144,7 @@ export function Research({
         selectSource(page.items[0]);
       },
       [],
+      abort.signal,
     );
   }
   async function take() {
