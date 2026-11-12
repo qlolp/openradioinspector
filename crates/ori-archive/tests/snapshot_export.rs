@@ -34,7 +34,14 @@ async fn seeded() -> (tempfile::TempDir, Archive) {
     (directory, archive)
 }
 async fn snapshot(archive: &Archive) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("ori-export-snapshot-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let root = builder.tempdir().unwrap();
     archive.backup(&root.path().join("snapshot")).await.unwrap();
     root
 }
@@ -271,6 +278,41 @@ async fn malformed_bundle_and_invalid_budgets_cannot_open_or_rewrite_other_files
         assert!(!path.exists());
     }
     assert_eq!(archive.events(0, 100).await.unwrap().len(), 6);
+    archive.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn nonprivate_snapshot_directories_are_rejected_without_changing_the_live_archive() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_live, archive) = seeded().await;
+    for public_directory in ["", "snapshot"] {
+        let root = snapshot(&archive).await;
+        let path = root.path().to_owned();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(
+            path.join(public_directory),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        let reader =
+            SnapshotExport::open(root, query(None), SnapshotExportLimits::default()).unwrap();
+        assert!(matches!(
+            reader.ready().await,
+            Err(ArchiveError::Corrupt(_))
+        ));
+        reader.close().await.unwrap();
+        assert!(
+            !path.exists(),
+            "rejection must still join its owned cleanup"
+        );
+    }
+    assert_eq!(archive.events(0, 100).await.unwrap().len(), 6);
+    let original = fixture()["sweep"].clone();
+    let actual = archive.get_sweep("tie-é").await.unwrap().unwrap();
+    assert_eq!(actual["frequencies_hz"], original["frequencies_hz"]);
+    assert_eq!(actual["levels"], original["levels"]);
     archive.close().await.unwrap();
 }
 

@@ -449,9 +449,14 @@ fn make_backup(source: &Connection, destination: &Path, timeout: Duration) -> Re
     absent(destination)?;
     let parent = parent(destination)?;
     fs::create_dir_all(parent)?;
-    let stage = tempfile::Builder::new()
-        .prefix(".ori-recovery-")
-        .tempdir_in(parent)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-recovery-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let stage = builder.tempdir_in(parent)?;
     let archive = stage.path().join("archive.sqlite");
     let mut budget = Budget::new();
     copy_snapshot(source, &archive, Instant::now() + timeout, &mut budget)?;
@@ -578,9 +583,14 @@ pub fn restore_backup(directory: &Path, destination: &Path) -> Result<Value> {
     let manifest = verify_backup(directory)?;
     let parent = parent(destination)?;
     fs::create_dir_all(parent)?;
-    let staging = tempfile::Builder::new()
-        .prefix(".ori-restore-")
-        .tempdir_in(parent)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-restore-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let staging = builder.tempdir_in(parent)?;
     let target = staging.path().join("archive.sqlite");
     let mut input = File::open(directory.join("archive.sqlite"))?;
     let mut output = OpenOptions::new()
@@ -614,9 +624,14 @@ fn portable(source: &Connection, destination: &Path, timeout: Duration) -> Resul
     absent(destination)?;
     let parent = parent(destination)?;
     fs::create_dir_all(parent)?;
-    let stage = tempfile::Builder::new()
-        .prefix(".ori-portable-")
-        .tempdir_in(parent)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-portable-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    let stage = builder.tempdir_in(parent)?;
     let path = stage.path().join("archive.sqlite");
     let mut budget = Budget::new();
     let deadline = Instant::now() + timeout;

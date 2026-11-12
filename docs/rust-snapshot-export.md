@@ -17,6 +17,12 @@ research admission before creating the backup. Create a private `TempDir`, await
 to `SnapshotExport::open`. An HTTP cancellation must still await the backup
 receipt before transferring or removing the directory.
 
+On Unix, both the owned root and its `snapshot` directory must exclude group
+and other permissions. Request mode `0700` explicitly when constructing the
+root, for example with `tempfile::Builder::permissions`; `tempfile::tempdir()`
+uses the process umask and does not guarantee a private directory. The reader
+rejects a nonprivate directory and still joins its owned cleanup.
+
 Opening returns immediately after starting an owned thread. `ready().await`
 returns session/optional stream, exact sweep/observation counts and the global
 event boundary from that same read-only snapshot. A missing session is
