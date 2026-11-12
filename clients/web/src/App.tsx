@@ -683,6 +683,14 @@ export function App({
             </button>
           )}
         </div>
+        <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
+          <Research
+            desk={desk}
+            openOriginal={(id) => {
+              void openOriginal(id);
+            }}
+          />
+        </section>
         <div className="live-grid">
           <Panel
             title={t('Live spectrum')}
@@ -913,14 +921,6 @@ export function App({
             <PreparationPanel desk={desk} />
             <AllowedPanel desk={desk} />
           </div>
-        </section>
-        <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
-          <Research
-            desk={desk}
-            openOriginal={(id) => {
-              void openOriginal(id);
-            }}
-          />
         </section>
         <footer className="page-footer">
           <span>{t('OpenRadioInspector · v1 contract · receive only')}</span>
