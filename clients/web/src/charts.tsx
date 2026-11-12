@@ -3,6 +3,7 @@ import { t } from './i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { DisplaySweep } from './types';
 import { waterfallPixels } from './spectrum-view';
+import { isSwiftShaderContext } from './graphics-policy';
 
 // A fixed ring texture receives only new rows. The renderer never uploads the whole history per frame.
 class WaterfallRenderer {
@@ -34,6 +35,11 @@ class WaterfallRenderer {
   initialize() {
     const gl = this.gl;
     if (!gl || gl.isContextLost()) {
+      this.report('Canvas fallback');
+      return;
+    }
+    if (isSwiftShaderContext(gl)) {
+      this.program = null;
       this.report('Canvas fallback');
       return;
     }
@@ -93,7 +99,7 @@ class WaterfallRenderer {
       this.row = this.count = 0;
     }
     const pending = rows.slice(lastIndex + 1);
-    const gl = this.gl && !this.gl.isContextLost() ? this.gl : null;
+    const gl = this.gl && this.program && !this.gl.isContextLost() ? this.gl : null;
     // Rebuild Canvas once from the bounded source rows after loss/scope change.
     // While GL is active there is no hidden Canvas draw/copy/upload work.
     const history = !gl && reset ? new Uint8ClampedArray(this.width * this.height * 4) : undefined;

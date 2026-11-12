@@ -279,7 +279,7 @@ class _GilSafeWatchdog:
 
 def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, only_test: str | None = None) -> int:
     # CPython gh-140815 was fixed in 3.13.10 / 3.14.1, without a 3.12
-    # backport. Darwin 3.15 also had a partial native timer dump followed by
+    # backport. Darwin 3.14/3.15 also had partial native timer dumps followed by
     # a post-suite hang; native cancellation joins that dump without a bound.
     # Use the existing joined Python watchdog for this observed profile too.
     # A Python watchdog cannot dump while native code holds the GIL forever;
@@ -289,8 +289,8 @@ def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, 
     faulthandler.enable(file=sys.__stderr__, all_threads=True)
     version = tuple(sys.version_info[:3])
     fixed = version >= (3, 14, 1) or (3, 13, 10) <= version < (3, 14, 0)
-    darwin_315 = sys.platform == "darwin" and version[:2] == (3, 15)
-    if not fixed or darwin_315:
+    darwin_observed = sys.platform == "darwin" and version[:2] in ((3, 14), (3, 15))
+    if not fixed or darwin_observed:
         watchdog = _GilSafeWatchdog(diagnostic_after, sys.__stderr__)
         watchdog.start()
         try:
