@@ -2,10 +2,18 @@
 use crate::Result;
 use std::process::{Child, Command, ExitStatus};
 
+#[cfg(any(target_os = "macos", test))]
+mod darwin;
+
+#[cfg(all(test, target_os = "macos"))]
+mod darwin_native_tests;
+
 pub(crate) struct OwnedChild {
     child: Child,
     pid: u32,
     reaped: bool,
+    #[cfg(target_os = "macos")]
+    darwin_baseline: Option<darwin::Baseline>,
 }
 impl OwnedChild {
     pub(crate) fn spawn(command: &mut Command) -> Result<Self> {
@@ -16,11 +24,22 @@ impl OwnedChild {
         }
         let child = command.spawn()?;
         let pid = child.id();
-        Ok(Self {
+        let owned = Self {
             child,
             pid,
             reaped: false,
-        })
+            #[cfg(target_os = "macos")]
+            darwin_baseline: None,
+        };
+        // Construct the original Child guard first. An unavailable baseline is
+        // unusable, never a spawn error which drops an unowned created Child.
+        #[cfg(target_os = "macos")]
+        let owned = {
+            let mut owned = owned;
+            owned.darwin_baseline = darwin::capture_baseline(pid);
+            owned
+        };
+        Ok(owned)
     }
     pub(crate) fn pid(&self) -> u32 {
         self.pid
@@ -59,9 +78,24 @@ impl OwnedChild {
             {
                 // This group was created for this unreaped owned Child. Never signal foreign PIDs.
                 let result = unsafe { libc::kill(-(self.pid as i32), libc::SIGKILL) };
-                if result < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-                {
-                    return Err(std::io::Error::last_os_error().into());
+                if result < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::ESRCH) {
+                        #[cfg(target_os = "macos")]
+                        if error.raw_os_error() == Some(libc::EPERM) {
+                            let exited = self.exited().unwrap_or(false);
+                            if let Some(status) = darwin::reap_after_zombie_proof(
+                                self.darwin_baseline,
+                                exited,
+                                &mut darwin::Native,
+                                || self.child.wait(),
+                            )? {
+                                self.reaped = true;
+                                return Ok(status);
+                            }
+                        }
+                        return Err(error.into());
+                    }
                 }
             }
             #[cfg(not(unix))]
