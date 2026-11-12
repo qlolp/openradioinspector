@@ -195,6 +195,17 @@ def _validate_limits(request):
             raise ProtocolError("Limits must be positive integers no greater than their defaults")
 
 
+def _validated_utc(value: str) -> datetime:
+    # Call only after the strict UTC spelling check. Python 3.10 requires a
+    # numeric offset and three or six fractional digits; decode locally without
+    # changing the original timestamp carried to the scientific implementation.
+    local = value[:-1]
+    if "." in local:
+        whole, fraction = local.split(".", 1)
+        local = whole + "." + fraction.ljust(6, "0")
+    return datetime.fromisoformat(local + "+00:00")
+
+
 def _validate_control(request):
     required = {'version', 'request_id', 'operation', 'method', 'source', 'rbw_hz'}
     if not isinstance(request, dict) or not required <= request.keys() or request.keys()-required-{'limits', 'shared_io'}:
@@ -232,7 +243,7 @@ def _validate_control(request):
         value = source[key]
         if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z', value):
             raise ProtocolError('Raw trace interval must contain UTC microsecond timestamps')
-        try: dates.append(datetime.fromisoformat(value))
+        try: dates.append(_validated_utc(value))
         except ValueError: raise ProtocolError('Invalid raw trace UTC interval') from None
     if dates[1] < dates[0]: raise ProtocolError('Raw trace interval is reversed')
     wire = source['wire_base64']
@@ -289,7 +300,7 @@ def _validate_detection(request):
         if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z', value):
             raise ProtocolError('Detection interval must contain UTC microsecond timestamps')
         try:
-            dates.append(datetime.fromisoformat(value))
+            dates.append(_validated_utc(value))
         except ValueError:
             raise ProtocolError('Invalid detection UTC interval') from None
     if dates[1] < dates[0]:
