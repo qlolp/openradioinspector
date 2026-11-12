@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from tests.owned_fixture_io import CAPTURED_STDOUT, READY_STDOUT, owned_control_closed
 from tests.release_process_ownership import OwnershipError
 from tools.modernization import owned_process
 from tools.modernization.api_parity import NodeSpec, OwnedNode, ProtocolError, probe_cli
@@ -28,18 +29,19 @@ def inherited_pipe_scenario(self, *, changed_group):
             f"connection=socket.create_connection(('127.0.0.1',{port}),timeout=10);"
             "connection.settimeout(15);"
             "connection.sendall(json.dumps({'pid':os.getpid(),'sid':os.getsid(0) if os.name=='posix' else None,'pgid':os.getpgrp() if os.name=='posix' else None}).encode()+b'\\n');"
-            "print('ready',flush=True);connection.recv(1);connection.close()"
+            + READY_STDOUT + ";connection.recv(1);connection.close()"
         )
         parent = (
             "import subprocess,sys;"
             f"child=subprocess.Popen([sys.executable,'-u','-c',{child!r}],stdout=subprocess.PIPE);"
             "assert child.stdout.readline()==b'ready\\n';child.stdout.close()"
         )
-        results, errors = [], []
+        results, errors, processes = [], [], []
         fixture_ready = threading.Event()
         wait = owned_process.ManagedProcess.wait
 
         def wait_after_fixture_ready(process, timeout):
+            processes.append(process)
             if not fixture_ready.wait(10):
                 raise AssertionError("controlled child did not reach readiness")
             return wait(process, timeout)
@@ -62,7 +64,8 @@ def inherited_pipe_scenario(self, *, changed_group):
         try:
             connection, _ = listener.accept()
             connection.settimeout(10)
-            record = json.loads(connection.makefile("rb").readline())
+            with connection.makefile("rb") as record_stream:
+                record = json.loads(record_stream.readline())
             fixture_ready.set()
             self.assertGreater(record["pid"], 0)
             if os.name == "posix":
@@ -80,10 +83,12 @@ def inherited_pipe_scenario(self, *, changed_group):
             self.assertEqual(results[0]["error"], "command_deadline")
             self.assertNotIn("cleanup_error", results[0])
             self.assertNotIn("recovery", results[0])
+            self.assertEqual(results[0]["exit_code"], 0)
+            joined = bool(processes) and all(process.closed is True for process in processes)
+            self.assertTrue(joined, "original managed session/Job did not prove closure")
             connection.settimeout(0.2)
-            self.assertEqual(
-                connection.recv(1),
-                b"",
+            self.assertTrue(
+                owned_control_closed(connection, joined=joined),
                 "owned changed-group descendant survived cleanup",
             )
         finally:
@@ -137,7 +142,7 @@ class ManagedProcessTests(unittest.TestCase):
                     side_effect=OwnershipError("controlled cleanup uncertainty"),
                 ),
             ):
-                result = probe_cli([sys.executable, "-c", "print('captured')"])
+                result = probe_cli([sys.executable, "-c", CAPTURED_STDOUT])
             self.assertFalse(result["successful"])
             self.assertIn("controlled release uncertainty", result["error"])
             self.assertIn("controlled cleanup uncertainty", result["cleanup_error"])
@@ -363,7 +368,7 @@ class ActualNodeOwnershipTests(unittest.TestCase):
             child = (
                 "import os,socket;os.setpgrp() if os.name=='posix' else None;"
                 f"connection=socket.create_connection(('127.0.0.1',{port}),timeout=10);"
-                "connection.settimeout(15);print('ready',flush=True);connection.recv(1)"
+                "connection.settimeout(15);" + READY_STDOUT + ";connection.recv(1)"
             )
 
             class FixtureNode(OwnedNode):
@@ -393,7 +398,7 @@ class ActualNodeOwnershipTests(unittest.TestCase):
                     node.joined,
                     "forced cleanup must still prove every owned member closed",
                 )
-                self.assertEqual(connection.recv(1), b"")
+                self.assertTrue(owned_control_closed(connection, joined=node.joined is True and node.process.closed is True))
                 self.assertFalse(node.ready.exists())
             finally:
                 if connection is not None:

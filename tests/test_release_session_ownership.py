@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests import run_release_checks as release
+from tests.owned_fixture_io import READY_STDOUT, owned_control_closed
 
 
 class EscapedCommandTests(unittest.TestCase):
@@ -43,7 +44,7 @@ class EscapedCommandTests(unittest.TestCase):
                 connection.sendall(json.dumps(record).encode()+b'\\n')
                 assert connection.recv(1)==b'g'
                 Path({str(ready)!r}).write_text('ready')
-                print('ready',flush=True)
+                {READY_STDOUT}
                 connection.recv(1)
                 connection.close()
             """)
@@ -58,6 +59,7 @@ class EscapedCommandTests(unittest.TestCase):
                 import _thread,json,os,subprocess,sys,threading,time
                 from pathlib import Path
                 from tests import run_release_checks as release
+                from tests.owned_fixture_io import record_command_closure
                 def control():
                     if sys.stdin.buffer.readline()==b'interrupt\\n':_thread.interrupt_main()
                 if {mode in ("interrupt", "kill")!r}:threading.Thread(target=control).start()
@@ -75,11 +77,13 @@ class EscapedCommandTests(unittest.TestCase):
                         time.sleep(.005)
                     return original_wait(owner,timeout={0.1 if mode == "timeout" else 10!r})
                 target.wait=wait_after_readiness
-                try:
-                    release.run_command([sys.executable,'-u','-c',{parent!r}],name='owned-escape',environment=environment,directory=root,timeout=10,shutdown_timeout=2)
-                    outcome=dict(kind='returned')
-                except BaseException as error:
-                    outcome=dict(kind=type(error).__name__,message=str(error))
+                with record_command_closure(release) as closure:
+                    try:
+                        release.run_command([sys.executable,'-u','-c',{parent!r}],name='owned-escape',environment=environment,directory=root,timeout=10,shutdown_timeout=2)
+                        outcome=dict(kind='returned')
+                    except BaseException as error:
+                        outcome=dict(kind=type(error).__name__,message=str(error))
+                    outcome['closure_proved']=closure.joined()
                 Path({str(report)!r}).write_text(json.dumps(outcome))
             """)
             sibling_body = (
@@ -129,8 +133,10 @@ class EscapedCommandTests(unittest.TestCase):
                 process.wait(timeout=15)
                 self.assertEqual(process.returncode, 0)
                 outcome = json.loads(report.read_text())
+                self.assertTrue(outcome.get("closure_proved") is True, ("original session/Job closure was not proved", outcome))
+                self.assertNotIn("cleanup failed", outcome.get("message", ""))
                 readable, _, _ = select.select([connection], [], [], 0.1)
-                child_closed = bool(readable) and connection.recv(1) == b""
+                child_closed = bool(readable) and owned_control_closed(connection, joined=outcome["closure_proved"])
                 sibling_alive = sibling.poll() is None
                 print(
                     json.dumps(
@@ -405,7 +411,7 @@ if sys.platform.startswith("linux"):
                     "-I",
                     "-S",
                     "-c",
-                    "import sys; print('ready',flush=True); sys.stdin.buffer.read()",
+                    READY_STDOUT + ";sys.stdin.buffer.read()",
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,

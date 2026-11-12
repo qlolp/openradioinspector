@@ -1,6 +1,7 @@
 """The gate must catch real wire differences, not just matching status codes."""
 import json
 import copy
+from contextlib import closing
 import hashlib
 import math
 from pathlib import Path
@@ -563,9 +564,14 @@ class OwnedProducerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ori-capacity-layout-") as directory:
             root=Path(directory); (root/"data").mkdir()
             path=root/"data"/"sessions.sqlite3"
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("CREATE TABLE retained (id TEXT PRIMARY KEY)")
                 size=connection.execute("PRAGMA page_count").fetchone()[0]*connection.execute("PRAGMA page_size").fetchone()[0]
+            try:
+                with self.assertRaises(sqlite3.ProgrammingError):
+                    connection.execute("SELECT 1")
+            finally:
+                connection.close()
             original=path.read_bytes()
             case={"id":"capacity", "method":"GET", "path":"/api/v1/archive/capacity",
                   "operation":"GET /api/v1/archive/capacity", "payload":None, "status":200,

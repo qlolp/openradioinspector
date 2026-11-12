@@ -78,6 +78,15 @@ new sessions. Windows keeps its existing Job Object behavior. System build
 services outside the owned session and explicit nested registrations remain
 outside the runner's authority.
 
+Synthetic private control sockets can report Windows WSAECONNRESET (10054)
+after abrupt owned cleanup. A fixture accepts that specific Windows result only
+after the original managed process confirms closure, or an observed original
+POSIX release/empty Windows Job close and controller JOIN establish closure.
+Unknown accounting, live/unproved ownership, timeouts, other errors and received
+data still fail. This does not normalize HTTP or other application responses.
+Synthetic stdout readiness/capture producers write binary LF bytes, so strict
+wire comparisons stay unchanged even with Windows text newline translation.
+
 The focused regressions use synthetic children and a private socket lifeline.
 They verify timeout, KeyboardInterrupt and a zero-exit parent with a changed-PGID
 child while an unrelated sibling session remains alive. Numeric models cover
