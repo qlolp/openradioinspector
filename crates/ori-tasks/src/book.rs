@@ -204,7 +204,7 @@ fn publish(source: &Path, target: &Path) -> TaskResult<()> {
 fn publish(source: &Path, target: &Path) -> TaskResult<()> {
     use std::os::windows::ffi::OsStrExt;
     use winapi::um::{
-        fileapi::MoveFileExW,
+        winbase::MoveFileExW,
         winbase::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH},
     };
     let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();

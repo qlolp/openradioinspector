@@ -55,7 +55,7 @@ impl Cancellation {
     }
 }
 
-use crate::{Error, lease::validate_path, process::OwnedChild};
+use crate::{Error, process::OwnedChild};
 const CONTROL_REQUEST_BYTES: usize = 65_536;
 const ANALYSIS_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 // Offline workers need an executable/locale/temp context, never the core's
@@ -463,9 +463,9 @@ impl LinuxCgroup {
         #[cfg(not(target_os = "linux"))]
         {
             let _ = (command, memory, capabilities);
-            return Err(Error::Unsafe(
+            Err(Error::Unsafe(
                 "Linux cgroups are unavailable on this platform".into(),
-            ));
+            ))
         }
         #[cfg(target_os = "linux")]
         {
@@ -473,7 +473,7 @@ impl LinuxCgroup {
                 ffi::CString,
                 os::unix::{ffi::OsStrExt, process::CommandExt},
             };
-            validate_path(&self.path)?;
+            crate::lease::validate_path(&self.path)?;
             if !self.path.starts_with("/sys/fs/cgroup")
                 || self.path == std::path::Path::new("/sys/fs/cgroup")
             {
