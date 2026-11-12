@@ -1,12 +1,5 @@
 # Rust instrument-control coordinator
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
-The delivery lock retains the reviewed foundation `futures-util 0.3.34` and
-activates its required cached `futures-macro 0.3.34`. Root `416f5f5` aligns Core's
-exact constraint with this same version; stage 13 adds its remaining feature
-edges without a dependency downgrade or an inherited checksum change.
-
 Status: implemented library, verified on owned synthetic transports and temporary
 SQLite archives. Hardware validation is **not run**.
 Base: `21f9c20036fdd0c40f84f2d5adc7eb4278e69ffd`.

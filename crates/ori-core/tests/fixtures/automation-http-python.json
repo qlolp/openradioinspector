@@ -1,0 +1,258 @@
+{
+  "defaults": {
+    "detection": {
+      "status": 200,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "data": {
+          "policy": {
+            "enabled": false,
+            "interval_seconds": 1.0,
+            "stream_id": null,
+            "threshold_dbm": -70.0,
+            "dedup_bandwidth_hz": 100000,
+            "cooldown_seconds": 60.0,
+            "max_candidates_per_sweep": 10
+          },
+          "runtime": {
+            "last_run_at": null,
+            "last_sweep_id": null,
+            "last_result": "disabled",
+            "last_error": null,
+            "sweeps_processed": 0,
+            "candidates_created": 0,
+            "duplicates_suppressed": 0
+          },
+          "scheduler_alive": false,
+          "policy_persistent": false,
+          "restart_requires_opt_in": true,
+          "processes_existing_archive": false,
+          "automatically_enqueues_investigations": false
+        }
+      }
+    },
+    "handoff": {
+      "status": 200,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "data": {
+          "policy": {
+            "enabled": false,
+            "interval_seconds": 1.0,
+            "minimum_priority": 0,
+            "receiver_stream_id": null,
+            "max_consecutive_failures": 3,
+            "retry_delay_seconds": 30.0
+          },
+          "runtime": {
+            "last_run_at": null,
+            "last_investigation_id": null,
+            "last_result": "disabled",
+            "last_error": null,
+            "consecutive_failures": 0,
+            "successful_dispatches": 0,
+            "failed_dispatches": 0
+          },
+          "scheduler_alive": false,
+          "policy_persistent": false,
+          "restart_requires_opt_in": true
+        }
+      }
+    },
+    "completion": {
+      "status": 200,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "data": {
+          "policy": {
+            "enabled": false,
+            "interval_seconds": 1.0,
+            "minimum_listening_seconds": 0.0,
+            "minimum_observations": 1,
+            "receiver_stream_id": null
+          },
+          "runtime": {
+            "last_run_at": null,
+            "last_investigation_id": null,
+            "last_result": "disabled",
+            "last_error": null,
+            "completed_investigations": 0,
+            "skipped_investigations": 0
+          },
+          "scheduler_alive": false,
+          "policy_persistent": false,
+          "restart_requires_opt_in": true,
+          "automatic_fail_or_cancel": false
+        }
+      }
+    }
+  },
+  "errors": {
+    "detection": {
+      "status": 400,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "error": {
+          "code": "invalid_request",
+          "message": "Неизвестные поля политики: unknown"
+        }
+      }
+    },
+    "handoff": {
+      "status": 400,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "error": {
+          "code": "invalid_request",
+          "message": "Неизвестные поля политики: unknown"
+        }
+      }
+    },
+    "completion": {
+      "status": 400,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "error": {
+          "code": "invalid_request",
+          "message": "Неизвестные поля политики: unknown"
+        }
+      }
+    }
+  },
+  "after_detection_opt_in": {
+    "handoff": {
+      "status": 200,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "data": {
+          "policy": {
+            "enabled": false,
+            "interval_seconds": 1.0,
+            "minimum_priority": 0,
+            "receiver_stream_id": null,
+            "max_consecutive_failures": 3,
+            "retry_delay_seconds": 30.0
+          },
+          "runtime": {
+            "last_run_at": null,
+            "last_investigation_id": null,
+            "last_result": "disabled",
+            "last_error": null,
+            "consecutive_failures": 0,
+            "successful_dispatches": 0,
+            "failed_dispatches": 0
+          },
+          "scheduler_alive": false,
+          "policy_persistent": false,
+          "restart_requires_opt_in": true
+        }
+      }
+    },
+    "completion": {
+      "status": 200,
+      "body": {
+        "contract": "openradioinspector-platform",
+        "contract_version": 1,
+        "data": {
+          "policy": {
+            "enabled": false,
+            "interval_seconds": 1.0,
+            "minimum_listening_seconds": 0.0,
+            "minimum_observations": 1,
+            "receiver_stream_id": null
+          },
+          "runtime": {
+            "last_run_at": null,
+            "last_investigation_id": null,
+            "last_result": "disabled",
+            "last_error": null,
+            "completed_investigations": 0,
+            "skipped_investigations": 0
+          },
+          "scheduler_alive": false,
+          "policy_persistent": false,
+          "restart_requires_opt_in": true,
+          "automatic_fail_or_cancel": false
+        }
+      }
+    }
+  },
+  "draft_opt_in": {
+    "sweep": {
+      "id": "after-draft-opt-in",
+      "session_id": "automation-http-oracle",
+      "stream_id": "spectrum",
+      "interval": {
+        "started_at": "2026-11-11T12:00:00.123456Z",
+        "ended_at": "2026-11-11T12:00:01.123456Z"
+      },
+      "frequencies_hz": [
+        100000000,
+        100100000,
+        100200000,
+        100300000,
+        100400000,
+        100500000,
+        100600000
+      ],
+      "levels": [
+        -90.0,
+        -55.0,
+        -45.0,
+        -80.0,
+        -50.0,
+        -48.0,
+        -90.0
+      ],
+      "level_unit": "dBm",
+      "settings": {
+        "rbw_hz": 10000
+      }
+    },
+    "candidates": [
+      {
+        "source_stream_id": "spectrum",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:01.123456Z"
+        },
+        "center_frequency_hz": 100200000,
+        "bandwidth_hz": 100000,
+        "peak_level": -45.0,
+        "score": 15.0,
+        "level_unit": "dBm",
+        "state": "new"
+      },
+      {
+        "source_stream_id": "spectrum",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:01.123456Z"
+        },
+        "center_frequency_hz": 100500000,
+        "bandwidth_hz": 100000,
+        "peak_level": -48.0,
+        "score": 12.0,
+        "level_unit": "dBm",
+        "state": "new"
+      }
+    ]
+  },
+  "source_sha256": {
+    "radioinspector/automatic_detection.py": "140639faf39d26f730afc01831d9985937b2fd1f1ce249b1435235dea76e4020",
+    "radioinspector/automatic_handoff.py": "1daea062d03dd9c24eff434fd89524772e7c2dd7dd07ebcfc9593404e8461542",
+    "radioinspector/automatic_completion.py": "1a4da3d75c50ef7d3d628fc204c63c47d243a96da79c81b8c94c3774eea5a649",
+    "radioinspector/web/server.py": "adf679a1e6e6fcf6363e72e4719c4f963ed63b9b981fc2e07ac5d4be718aeed3"
+  },
+  "runtime": {
+    "python": "3.15.1",
+    "implementation": "CPython"
+  }
+}

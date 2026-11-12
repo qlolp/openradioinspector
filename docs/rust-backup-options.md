@@ -1,7 +1,5 @@
 # Explicit recovery backup budgets
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 Raw HTTP archive export uses `SnapshotExport::open_live`; it does not need a
 full recovery copy. Recovery backup is a separate, explicitly admitted operation.
 `Archive::backup_with_options(destination, BackupOptions)` adds per-operation

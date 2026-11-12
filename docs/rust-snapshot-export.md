@@ -1,7 +1,5 @@
 # Owned read-only archive exports
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori_archive::SnapshotExport::open_live(archive.clone(), query, limits)` opens
 one read-only transaction on the Archive's trusted canonical file. It creates
 no database copy and accepts no public filesystem path. `BEGIN` and the first

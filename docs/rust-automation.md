@@ -1,7 +1,5 @@
 # Legacy per-session automation facade
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-automation` preserves the opt-in Python `automatic_detection`,
 `automatic_handoff`, and `automatic_completion` policies separately from
 Project Guard. Core owns the HTTP routes, archive, recovery, workers, scientific

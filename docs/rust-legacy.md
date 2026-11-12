@@ -1,7 +1,5 @@
 # Legacy panorama workspace
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-legacy` provides the existing panorama workspace as an independent Rust
 library. Its scientific callback runs the original Python `ApplicationState`,
 `Handler`, `PanoramaStore`, threshold, signal, coverage and measurement helpers.

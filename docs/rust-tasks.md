@@ -1,7 +1,5 @@
 # Rust TaskBook scheduler
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-tasks` implements the existing local `ControlTask` software lifecycle.
 The authority is `radioinspector/tasks.py`, `task_scheduler.py`, and the existing
 `/api/v1/task-scheduler` routes. Eighteen crate tests pass against real files,

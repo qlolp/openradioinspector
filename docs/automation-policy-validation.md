@@ -1,7 +1,5 @@
 # Pure validation before external authority staging
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `AutomationService::validated_policy_patch(kind, payload, session)` exposes the
 existing closed policy validator and its existing 16 KiB payload bound without
 admitting, allocating, enabling, or publishing a policy. It returns the same

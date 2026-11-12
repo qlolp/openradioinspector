@@ -1,7 +1,5 @@
 # Rust instrument adapters
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-instruments` is a standalone Rust 1.99.1 / edition 2024 library. It owns
 one asynchronous transport per adapter and never writes SQLite, assigns archive
 IDs, or discovers ports. Its default build has no physical serial dependency.

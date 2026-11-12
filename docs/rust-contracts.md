@@ -5,8 +5,7 @@ baseline: 117 paths, 135 operation IDs and the existing schemas and codecs.
 `contracts/runtime-extension-v1.json` is the reviewed additive source for the
 Rust candidate. The generator composes it into
 `contracts/generated/runtime-openapi-v1.json` (130 paths, 149 operations).
-The later Core delivery slice will consume
-`ori_contracts::RUNTIME_OPENAPI_V1_JSON`; it must not maintain a
+Core consumes `ori_contracts::RUNTIME_OPENAPI_V1_JSON`; it must not maintain a
 second handcrafted OpenAPI document or derive the contract from a running node.
 The companion runtime manifest records the baseline, extension and runtime
 document SHA-256 fingerprints.
@@ -84,8 +83,8 @@ keys, component replacement, operation ID/path collisions, unresolved schema
 references and unresolved path parameters fail before outputs are written.
 Selecting the legacy variant still validates the supplied extension.
 
-The owned runtime probe and its process helpers arrive in the final verification
-delivery slice. Once those tools are present,
+The owned live-node probe and its process helpers are delivered in stage 14.
+Once that verification slice is present,
 `tools/contracts/probe_runtime.py --core-binary IMMUTABLE_BINARY --report-dir
 FRESH_DIRECTORY` starts one owned replay node on ephemeral loopback, uses only
 new synthetic measurements, and joins it before completion. It retains raw

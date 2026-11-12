@@ -1,8 +1,7 @@
 # Derived History HTTP contract
 
-The additive Rust runtime document describes the History service contract at
-`/api/v1/history/*`; its implementation arrives in the later History and Core
-delivery slices. The original Python OpenAPI and its generated baseline
+The additive Rust runtime document describes the existing History service at
+`/api/v1/history/*`. The original Python OpenAPI and its generated baseline
 artifacts are unchanged. Runtime DTOs are imported from the existing TypeScript
 `runtime.ts`, Swift `ORIContracts` module and Rust `ori_contracts::runtime` module.
 

@@ -1,7 +1,5 @@
 # Original instrument control grants
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 Guard grants provide cache-only authorization for Core-owned instrument actors.
 They never open ports or issue RF commands. Core retains the original grant,
 authentication receipt, worker instance and connection/revision gate and checks

@@ -1,7 +1,5 @@
 # Rust monitoring guard
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 The Rust candidate ports the existing Python monitoring domain. Python remains
 the authority for `robust-city-v1` detector behavior and monitoring-v4 records;
 this work does not switch the default core or establish hardware acceptance.

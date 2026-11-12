@@ -1,7 +1,5 @@
 # Canonical policy admission handoff
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `AutomationEffects::policy_committed` is an additive default, cache-only
 callback after the policy-change event's canonical ACK and before any policy
 dispatch. Existing providers receive the default no-op. Checked configuration

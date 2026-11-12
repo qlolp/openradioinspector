@@ -1,7 +1,5 @@
 # Rust history and derived analytics
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-history` adds an owned history service alongside the canonical `Archive`.
 It does not own acquisition, stop/disarm a guard, change source measurements,
 or install a service. Python remains the accepted default until the assembled

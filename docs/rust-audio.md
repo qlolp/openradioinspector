@@ -1,7 +1,5 @@
 # Core audio capture
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-audio` owns one bounded capture actor. It does not depend on Guard, Archive,
 HTTP or Python. Core maps the existing `InstrumentControl::audio_inputs` and
 `record_audio` callbacks onto this library and keeps the original permit and

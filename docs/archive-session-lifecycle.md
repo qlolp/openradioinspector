@@ -1,7 +1,5 @@
 # Archive session lifecycle receipts
 
-This delivery slice provides the library and its recorded synthetic fixtures. Core/HTTP integration is delivered separately in stage 13; the integration interfaces below do not advertise an enabled Rust service.
-
 `ori-archive` provides an opaque receipt for the actual committed lifecycle of a
 session. A Core dispatch can check that receipt before its existing execution
 boundaries, including after an asynchronous analysis or device operation. The
