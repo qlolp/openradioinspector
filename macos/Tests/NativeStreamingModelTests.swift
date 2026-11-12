@@ -50,7 +50,7 @@ final class NativeStreamingModelTests: XCTestCase {
         var eventRequests: [Int64] = []
         private var holdMetadata = false
         private var heldMetadata: (Stub, [String: Any])?
-        private var restoredWatermark: Int64?
+        private var committedWatermark: Int64 = 0
         private var snapshotID = "initial"
         private var snapshotLevels: [Double] = [-100, -90, -80]
         private var healthStatus = 200
@@ -73,7 +73,17 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         func holdNextMetadata() { lock.withLock { holdMetadata = true } }
         func restoreArchive(watermark: Int64, id: String = "restored", levels: [Double] = [-98.125, -87.5, -76.25]) {
-            lock.withLock { restoredWatermark = watermark; snapshotID = id; snapshotLevels = levels }
+            lock.withLock { committedWatermark = watermark; snapshotID = id; snapshotLevels = levels }
+        }
+        /// Like Core, commit before publishing. Direct Stub.sweep calls are
+        /// replay/old-subscription delivery and cannot mutate this archive HWM.
+        func commitSweep(sequence: Int, id: String, levels: [Double]) {
+            let connection = lock.withLock {
+                committedWatermark = max(committedWatermark, Int64(sequence))
+                timeline?.mark("commit sequence=\(sequence) HWM=\(committedWatermark)")
+                return stream
+            }
+            connection?.sweep(sequence: sequence, id: id, levels: levels)
         }
         func failHealth(_ status: Int) { lock.withLock { healthStatus = status } }
         func releaseMetadata() {
@@ -89,7 +99,7 @@ final class NativeStreamingModelTests: XCTestCase {
                 case "/api/v1/capabilities": stub.json(["features": [:]])
                 case "/api/v1/health":
                     healthReads += 1
-                    let value = restoredWatermark ?? (healthReads == 1 ? 0 : 10000)
+                    let value = committedWatermark
                     timeline?.mark("health read=\(healthReads) value=\(value) held=\(holdHealth)")
                     if holdHealth { holdHealth = false; heldHealth = (stub, value, healthStatus) }
                     else { stub.json(["last_event_id": value], status: healthStatus) }
@@ -141,8 +151,8 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
         let reads = responses.sweepReads, connection = try XCTUnwrap(responses.eventConnection)
-        connection.sweep(sequence: 1, id: "initial", levels: [-100, -90, -80])
-        connection.sweep(sequence: 2, id: "committed", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "initial", levels: [-100, -90, -80])
+        responses.commitSweep(sequence: 2, id: "committed", levels: [-60, -50, -40])
         try await wait { model.current.map(\.y) == [-60, -50, -40] }
         XCTAssertEqual(responses.sweepReads, reads)
         XCTAssertEqual(model.spectrumPresentation.sweeps.map(\.id), ["initial", "committed"])
@@ -178,8 +188,7 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
         model.toggleSpectrumPause()
-        let connection = try XCTUnwrap(responses.eventConnection)
-        connection.sweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40])
         try await wait { model.eventStatus.contains("принято событие 1") }
         XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "initial")
@@ -209,7 +218,7 @@ final class NativeStreamingModelTests: XCTestCase {
         let refresh = Task { await model.refresh() }
         try await wait { responses.metadataIsHeld }
         mark("send event1")
-        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "during-metadata", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "during-metadata", levels: [-60, -50, -40])
         try await wait { model.current.map(\.y) == [-60, -50, -40] }
         mark("observed current event1")
         responses.releaseMetadata()
@@ -224,11 +233,11 @@ final class NativeStreamingModelTests: XCTestCase {
     @MainActor func testSequenceGapChecksCurrentHealthButReplaysLastAppliedCursor() async throws {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
-        let reads = responses.sweepReads, connection = try XCTUnwrap(responses.eventConnection)
-        connection.sweep(sequence: 1, id: "first", levels: [-70, -60, -50])
+        let reads = responses.sweepReads
+        responses.commitSweep(sequence: 1, id: "first", levels: [-70, -60, -50])
         try await wait { model.current.map(\.y) == [-70, -60, -50] }
         let watermarks = responses.watermarkReads
-        connection.sweep(sequence: 3, id: "after-gap", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 3, id: "after-gap", levels: [-60, -50, -40])
         try await wait { responses.resumeCursors.count == 2 }
         XCTAssertEqual(responses.resumeCursors, [0, 1])
         XCTAssertGreaterThan(responses.watermarkReads, watermarks)
@@ -246,7 +255,7 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
         let oldStream = try XCTUnwrap(responses.eventConnection)
-        oldStream.sweep(sequence: 1, id: "old-committed", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "old-committed", levels: [-60, -50, -40])
         try await wait { model.comparisonSweeps.last?.id == "old-committed" }
         model.comparisonSelectionID = "old-committed"; model.pinComparisonReference()
         model.phonogram.perform("status"); model.audioStream.perform("status")
@@ -278,7 +287,7 @@ final class NativeStreamingModelTests: XCTestCase {
     @MainActor func testRollbackWhileMetadataIsHeldRejectsOldRefreshCompletion() async throws {
         let responses = Responses(), model = try await connected(responses)
         defer { responses.releaseMetadata(); model.disconnect() }
-        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "old", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "old", levels: [-60, -50, -40])
         try await wait { model.comparisonSweeps.last?.id == "old" }
         responses.holdNextMetadata()
         let oldRefresh = Task { await model.refresh() }
@@ -294,14 +303,12 @@ final class NativeStreamingModelTests: XCTestCase {
     @MainActor func testFrameAppliedWhileHealthIsHeldDoesNotCauseFalseRollback() async throws {
         let responses = Responses(), model = try await connected(responses)
         defer { responses.releaseHealth(); model.disconnect() }
-        responses.restoreArchive(watermark: 0, id: "initial", levels: [-100, -90, -80])
         responses.holdNextHealth()
         let generation = model.generation
         let refresh = Task { await model.refresh() }
         try await wait { responses.healthIsHeld }
-        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "during-health", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "during-health", levels: [-60, -50, -40])
         try await wait { model.comparisonSweeps.last?.id == "during-health" }
-        responses.restoreArchive(watermark: 1, id: "initial", levels: [-100, -90, -80])
         responses.releaseHealth(); await refresh.value
         XCTAssertEqual(model.generation, generation)
         XCTAssertEqual(model.comparisonSweeps.map(\.id), ["initial", "during-health"])
@@ -319,7 +326,7 @@ final class NativeStreamingModelTests: XCTestCase {
         await workspace.refreshStatus()
         await workspace.loadHistory(start: "", end: "", minHz: "", maxHz: "", eventID: nil)
         XCTAssertFalse(workspace.history.isEmpty)
-        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "old", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "old", levels: [-60, -50, -40])
         try await wait { model.comparisonSweeps.last?.id == "old" }
         responses.restoreArchive(watermark: 0)
         await model.refresh() // Do not call workspace.refreshStatus after the rollback.
@@ -335,7 +342,7 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
         let oldStream = try XCTUnwrap(responses.eventConnection)
-        oldStream.sweep(sequence: 1, id: "applied", levels: [-70, -60, -50])
+        responses.commitSweep(sequence: 1, id: "applied", levels: [-70, -60, -50])
         try await wait { model.comparisonSweeps.last?.id == "applied" }
         responses.failHealth(503)
         let published = model.waterfallRevision
@@ -353,7 +360,7 @@ final class NativeStreamingModelTests: XCTestCase {
         try await wait { responses.resumeCursors.count == 2 }
         XCTAssertEqual(responses.resumeCursors, [0, 1])
         XCTAssertEqual(model.comparisonSweeps.map(\.id), ["initial", "applied"])
-        try XCTUnwrap(responses.eventConnection).sweep(sequence: 2, id: "replayed", levels: [-65.25, -55.125, -45.5])
+        responses.commitSweep(sequence: 2, id: "replayed", levels: [-65.25, -55.125, -45.5])
         try await wait { model.comparisonSweeps.last?.id == "replayed" }
         XCTAssertEqual(model.current.map(\.y), [-65.25, -55.125, -45.5])
         XCTAssertEqual(responses.mutations, 0)
