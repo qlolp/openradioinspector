@@ -211,8 +211,20 @@ async fn cold_monitoring_ui_serves_truthful_preflight_and_scoped_crud_without_op
     }
     assert_eq!(
         capabilities["data"]["features"]["automatic_investigation_completion"],
-        false
+        true
     );
+    assert_eq!(
+        capabilities["data"]["features"]["automatic_investigation_completion_opt_in_required"],
+        true
+    );
+    let (status, completion) = server
+        .request("GET", "/api/v1/sessions/domain/automatic-completion", None)
+        .await;
+    assert_eq!(status, 200, "{completion}");
+    assert_eq!(completion["data"]["policy"]["enabled"], false);
+    assert_eq!(completion["data"]["scheduler_alive"], false);
+    assert_eq!(completion["data"]["runtime"]["last_result"], "disabled");
+    assert_eq!(completion["data"]["policy_persistent"], false);
     assert_eq!(
         capabilities["data"]["features"]["named_sweep_references"], false,
         "creating a reference requires the configured scientific worker"
