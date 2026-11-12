@@ -1,7 +1,7 @@
 import { t } from './i18n';
 import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
-import { historyQuery, type HistoryFilters } from './api';
+import { historyQuery, ResourceScope, type HistoryFilters } from './api';
 import { Spectrum } from './charts';
 import { Panel, hz, titleCase, utc } from './components';
 import { prepareSweep, type UnsupportedSweep } from './pipeline';
@@ -36,7 +36,9 @@ export function Research({
   const [leaseRevision, setLeaseRevision] = useState(0),
     [now, setNow] = useState(Date.now());
   const ticket = useRef(0),
-    controller = useRef<AbortController | undefined>(undefined);
+    controller = useRef<AbortController | undefined>(undefined),
+    comparisonScope = useRef(new ResourceScope()),
+    selectedSource = useRef<string | undefined>(undefined);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
@@ -48,6 +50,8 @@ export function Research({
   useEffect(() => {
     ticket.current++;
     controller.current?.abort();
+    comparisonScope.current.dispose();
+    selectedSource.current = undefined;
     setItems([]);
     setCursor(null);
     setPast([]);
@@ -58,8 +62,21 @@ export function Research({
     setLoaded(false);
     setFilters({});
     setEventId('');
-  }, [desk.projectId]);
-  useEffect(() => () => controller.current?.abort(), []);
+  }, [desk.projectId, desk.connectionVersion]);
+  useEffect(() => {
+    ticket.current++;
+    controller.current?.abort();
+    comparisonScope.current.dispose();
+    setComparison(undefined);
+  }, [filters]);
+  useEffect(
+    () => () => {
+      ticket.current++;
+      controller.current?.abort();
+      comparisonScope.current.dispose();
+    },
+    [],
+  );
   const lease = leases.current.get(desk.projectId)?.get(role);
   const expired = lease && now >= lease.expires;
   const remote = desk.guard?.manual.find((x) => x.role === role);
@@ -68,11 +85,38 @@ export function Research({
   void leaseRevision;
 
   function selectSource(source?: Sweep) {
+    comparisonScope.current.dispose();
+    selectedSource.current = source?.id;
     const prepared = source ? prepareSweep(source) : {};
     setSelected(prepared.sweep);
     setUnsupported(prepared.unsupported);
     setComparison(undefined);
     return prepared.sweep;
+  }
+
+  function compareSource(source: Sweep) {
+    const prepared = selectSource(source),
+      projectId = desk.projectId,
+      scope = comparisonScope.current.next();
+    return desk.run(
+      'Compare baseline',
+      async () => {
+        if (!comparisonScope.current.current(scope.generation)) return;
+        if (!prepared) throw Error('Source frequency outside supported display range');
+        const result = await desk.api.project<Comparison>(
+          projectId,
+          'history/' + encodePathSegment(source.id) + '/comparison',
+          undefined,
+          scope.signal,
+        );
+        if (
+          comparisonScope.current.current(scope.generation) &&
+          selectedSource.current === source.id
+        )
+          setComparison(result);
+      },
+      [],
+    );
   }
 
   async function history(next = '', historyStack: string[] = []) {
@@ -287,24 +331,7 @@ export function Research({
                 </small>
               </button>
               <div className="actions">
-                <button
-                  disabled={desk.busy}
-                  onClick={() =>
-                    void desk.run(
-                      'Compare baseline',
-                      async () => {
-                        if (!selectSource(item))
-                          throw Error('Source frequency outside supported display range');
-                        const result = await desk.api.project<Comparison>(
-                          desk.projectId,
-                          'history/' + encodePathSegment(item.id) + '/comparison',
-                        );
-                        setComparison(result);
-                      },
-                      [],
-                    )
-                  }
-                >
+                <button disabled={desk.busy} onClick={() => void compareSource(item)}>
                   {t('Compare baseline')}
                 </button>
                 <button disabled={desk.busy} onClick={() => openOriginal(item.id)}>
