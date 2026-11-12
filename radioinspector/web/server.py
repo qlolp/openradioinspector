@@ -361,7 +361,10 @@ class Handler(BaseHTTPRequestHandler):
     def finish(self) -> None:
         try:
             remaining = getattr(self, "_rejected_body_budget", 0)
+            no_read_grace = getattr(self, "_rejected_body_grace", False)
             self._rejected_body_budget = 0
+            self._rejected_body_grace = False
+            self._unconsumed_post_body = False
             if remaining:
                 # Only a correctly framed oversize request can set this budget.
                 # Flush its error and send FIN before waiting for upload bytes;
@@ -390,6 +393,24 @@ class Handler(BaseHTTPRequestHandler):
                         self.connection.settimeout(previous_timeout)
                     except OSError:
                         pass
+            elif no_read_grace and (
+                self.headers.get_all("Transfer-Encoding")
+                or any(value.strip("0") for value in self.headers.get_all("Content-Length", []))
+            ):
+                # Access/framing refusals must never read the upload. Give the
+                # peer a bounded opportunity to receive the final response and
+                # FIN before closing with unread input (which can cause RST).
+                deadline = time.monotonic() + min(
+                    _REJECTED_BODY_LINGER_SECONDS, REQUEST_BODY_TIMEOUT_SECONDS
+                )
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    wait = deadline - time.monotonic()
+                    if wait > 0:
+                        threading.Event().wait(wait)
+                except OSError:
+                    pass
         finally:
             super().finish()
 
@@ -405,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        self._rejected_body_grace = status >= 400 and getattr(self, "_unconsumed_post_body", False)
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -480,6 +502,7 @@ class Handler(BaseHTTPRequestHandler):
             self._rejected_body_budget = max_bytes + 1
             raise RequestError(f"Тело запроса превышает {max_bytes} байт", 413)
         length = int(digits)
+        self._unconsumed_post_body = False
         if length == 0 and allow_empty:
             return {}
         previous_timeout = self.connection.gettimeout()
@@ -697,6 +720,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         self._rejected_body_budget = 0
+        self._rejected_body_grace = False
+        self._unconsumed_post_body = True
         if self._runtime_request('POST'):
             return
         try:
