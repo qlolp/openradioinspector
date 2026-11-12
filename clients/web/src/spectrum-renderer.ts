@@ -1,5 +1,36 @@
 import type { Comparison, DisplaySweep } from './types';
-import { peakPosition, sourceLevels, traceVertices, type FrequencyRange } from './spectrum-view';
+import {
+  peakPosition,
+  sourceLevels,
+  traceVertices,
+  type FrequencyRange,
+  type LevelRange,
+} from './spectrum-view';
+import { isSwiftShaderContext } from './graphics-policy';
+
+interface SpectrumSnapshot {
+  sweep?: DisplaySweep;
+  comparison?: Comparison;
+  range: FrequencyRange;
+}
+export interface DrawnSpectrum extends SpectrumSnapshot {
+  levels: LevelRange;
+  webgl: boolean;
+}
+/** The display DTO preserves full bounds/count, not the raw interior frequency grid. */
+export function sameSpectrumContext(first?: DisplaySweep, second?: DisplaySweep): boolean {
+  if (first === second) return true;
+  if (!first || !second) return false;
+  return (
+    first.session_id === second.session_id &&
+    first.stream_id === second.stream_id &&
+    first.level_unit === second.level_unit &&
+    first.frequencies_hz[0] === second.frequencies_hz[0] &&
+    first.frequencies_hz.at(-1) === second.frequencies_hz.at(-1) &&
+    (first.original_point_count ?? first.frequencies_hz.length) ===
+      (second.original_point_count ?? second.frequencies_hz.length)
+  );
+}
 const GRID = new Float32Array(
   Array.from({ length: 5 }, (_, i) => {
     const p = i / 2 - 1;
@@ -37,10 +68,17 @@ export class SpectrumRenderer {
   private active?: HTMLCanvasElement;
   private frame = 0;
   private acknowledgements = new Set<number>();
+  private latest?: SpectrumSnapshot;
+  private pending: SpectrumSnapshot[] = [];
+  private awaitingSource = false;
+  private ownerGeneration = 0;
+  private releaseScheduled = false;
+  private coalescedSources = 0;
   constructor(
     private canvas: HTMLCanvasElement,
     private fallback: HTMLCanvasElement,
     private report: (mode: string) => void,
+    private onDraw?: (snapshot: DrawnSpectrum) => void,
   ) {
     this.context = fallback.getContext('2d')!;
     this.gl = canvas.getContext('webgl2', {
@@ -54,6 +92,11 @@ export class SpectrumRenderer {
   private initialize() {
     const gl = this.gl;
     if (!gl || gl.isContextLost()) {
+      this.report('Canvas fallback');
+      return;
+    }
+    if (isSwiftShaderContext(gl)) {
+      this.program = null;
       this.report('Canvas fallback');
       return;
     }
@@ -103,6 +146,43 @@ export class SpectrumRenderer {
     comparison: Comparison | undefined,
     range: FrequencyRange,
   ) {
+    if (this.disposed) return;
+    const snapshot = { sweep, comparison, range: { ...range } };
+    const previous = this.latest;
+    this.latest = snapshot;
+    if (!sameSpectrumContext(previous?.sweep, sweep)) {
+      this.invalidateCanvas();
+      this.accept(snapshot, true);
+    } else if (this.sweep?.id === sweep?.id) this.accept(snapshot, false);
+    else if (this.awaitingSource) {
+      const index = this.pending.findIndex((item) => item.sweep?.id === sweep?.id);
+      if (index !== -1) this.pending[index] = snapshot;
+      else if (this.pending.length < 64) this.pending.push(snapshot);
+      else {
+        // Preserve the owner and FIFO prefix; only the undrawn tail is replaced.
+        this.pending[63] = snapshot;
+        this.coalescedSources = Math.min(Number.MAX_SAFE_INTEGER, this.coalescedSources + 1);
+      }
+    } else this.accept(snapshot, true);
+  }
+  /** Display-only backlog diagnostics; source storage and applied ACKs are independent. */
+  get presentationStatus() {
+    return { pendingSources: this.pending.length, coalescedSources: this.coalescedSources };
+  }
+  view(range: FrequencyRange) {
+    if (this.disposed) return;
+    const view = { ...range };
+    this.range = view;
+    if (this.latest) this.latest = { ...this.latest, range: view };
+    this.pending = this.pending.map((snapshot) => ({ ...snapshot, range: view }));
+    this.schedule();
+  }
+  private accept({ sweep, comparison, range }: SpectrumSnapshot, newOwner: boolean) {
+    if (newOwner) {
+      this.ownerGeneration++;
+      this.awaitingSource = !!sweep?.id;
+      this.releaseScheduled = false;
+    }
     if (comparison !== this.comparison)
       this.baseline = comparison?.compatible
         ? {
@@ -130,16 +210,24 @@ export class SpectrumRenderer {
   lost() {
     this.program = null;
     this.invalidateCanvas();
+    if (this.latest) this.accept(this.latest, true);
     this.report('Canvas fallback · graphics context lost');
     this.schedule();
   }
   restore() {
     this.initialize();
     this.invalidateCanvas();
+    if (this.latest) this.accept(this.latest, true);
     this.schedule();
   }
   private invalidateCanvas() {
     this.sourceGeneration++;
+    this.ownerGeneration++;
+    this.awaitingSource = false;
+    this.releaseScheduled = false;
+    this.pending = [];
+    for (const id of this.acknowledgements) cancelAnimationFrame(id);
+    this.acknowledgements.clear();
     this.drawnSource = '';
     delete this.canvas.dataset.sweepId;
     delete this.fallback.dataset.sweepId;
@@ -153,13 +241,16 @@ export class SpectrumRenderer {
   }
   private draw() {
     if (this.disposed) return;
+    const sweep = this.sweep,
+      comparison = this.comparison,
+      range = this.range;
     const gl = this.gl && this.program && !this.gl.isContextLost() ? this.gl : null;
     const canvas = gl ? this.canvas : this.fallback;
     const pixelWidth = Math.max(1, Math.round(this.width * this.scale)),
       pixelHeight = Math.max(1, Math.round(this.height * this.scale));
     if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
     if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    const bounds = sourceLevels(this.sweep);
+    const bounds = sourceLevels(sweep);
     if (gl) {
       gl.viewport(0, 0, pixelWidth, pixelHeight);
       gl.clearColor(0, 0, 0, 0);
@@ -227,7 +318,7 @@ export class SpectrumRenderer {
       const peak = peakPosition(this.sweep, this.range, bounds);
       if (peak) line(new Float32Array(peak), this.colors.signal, true);
     }
-    const id = this.sweep?.id ?? '';
+    const id = sweep?.id ?? '';
     if (this.active !== canvas || this.drawnSource !== id) {
       this.sourceGeneration++;
       this.drawnSource = id;
@@ -235,9 +326,11 @@ export class SpectrumRenderer {
       delete this.canvas.dataset.sweepId;
       delete this.fallback.dataset.sweepId;
     }
-    if (!id || this.width <= 1 || this.height <= 1) return;
     const sourceGeneration = this.sourceGeneration,
-      frame = ++this.frame;
+      ownerGeneration = this.ownerGeneration;
+    this.onDraw?.({ sweep, comparison, range: { ...range }, levels: bounds, webgl: !!gl });
+    if (!id || this.width <= 1 || this.height <= 1) return;
+    const frame = ++this.frame;
     // One scheduled draw per animation frame. Interactions do not starve source
     // acknowledgement; two RAFs retain the existing conservative paint barrier.
     const first = requestAnimationFrame(() => {
@@ -248,6 +341,22 @@ export class SpectrumRenderer {
           return;
         if (canvas.dataset.sweepId !== id) canvas.dataset.sweepId = id;
         canvas.dataset.renderFrame = String(frame);
+        if (
+          this.awaitingSource &&
+          ownerGeneration === this.ownerGeneration &&
+          !this.releaseScheduled
+        ) {
+          this.releaseScheduled = true;
+          // Attribute mutation queues MutationObserver delivery first. Promote
+          // only afterward, then draw the next source in a later animation frame.
+          queueMicrotask(() => {
+            if (this.disposed || ownerGeneration !== this.ownerGeneration) return;
+            this.awaitingSource = false;
+            this.releaseScheduled = false;
+            const next = this.pending.shift();
+            if (next) this.accept(next, true);
+          });
+        }
       });
       this.acknowledgements.add(second);
     });
@@ -256,8 +365,11 @@ export class SpectrumRenderer {
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
-    for (const id of this.acknowledgements) cancelAnimationFrame(id);
-    this.acknowledgements.clear();
+    this.invalidateCanvas();
+    this.latest = undefined;
+    this.sweep = undefined;
+    this.comparison = undefined;
+    this.baseline = undefined;
     this.gl?.deleteBuffer(this.buffer);
     this.gl?.deleteProgram(this.program);
     this.gl?.deleteVertexArray(this.vao);

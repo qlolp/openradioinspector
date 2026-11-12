@@ -29,6 +29,8 @@ class _ViewportDiagnostics:
         self.stream = sys.stderr if stream is None else stream
         self.started = time.monotonic()
         self.timer_ids, self.observer_ids = [], []
+        self.observer_lines = {}
+        self.active = True
         self.counts = {name: dict(count=0, width=None, height=None) for name in targets}
 
     def _write(self, record):
@@ -71,7 +73,7 @@ class _ViewportDiagnostics:
             def observed(event=None, name=name, widget=widget):
                 # Toplevel bindtags also see descendant events. Count only the
                 # named window, rather than misreporting child geometry as root.
-                if event is not None and getattr(event, 'widget', None) is not widget:
+                if not self.active or (event is not None and getattr(event, 'widget', None) is not widget):
                     return
                 record = self.counts[name]
                 record['count'] = min(record['count'] + 1, 1_000_000_000)
@@ -82,6 +84,12 @@ class _ViewportDiagnostics:
             try:
                 identifier = widget.bind('<Configure>', observed, add='+')
                 self.observer_ids.append((widget, identifier))
+                script = str(widget.tk.call('bind', widget._w, '<Configure>'))
+                lines = [line for line in script.splitlines(keepends=True)
+                         if line.startswith('if {"[' + identifier + ' ')]
+                if len(lines) != 1 or script.count(identifier) != 1:
+                    raise ValueError('Unexpected owned binding representation')
+                self.observer_lines[identifier] = lines[0]
             except Exception as error:
                 self._error('bind-' + name, error)
         for delay in (30000, 60000):
@@ -93,6 +101,7 @@ class _ViewportDiagnostics:
         return self
 
     def __exit__(self, _kind, _error, _traceback):
+        self.active = False
         for identifier in self.timer_ids:
             try:
                 self.root.after_cancel(identifier)
@@ -100,8 +109,21 @@ class _ViewportDiagnostics:
                 self._error('cancel-owned-timer', error)
         for widget, identifier in self.observer_ids:
             try:
-                widget.unbind('<Configure>', identifier)
+                # Python 3.10 unbind(sequence, funcid) clears every callback.
+                # Read CURRENT Tcl state on the same UI thread so callbacks
+                # registered after ours survive, in their original byte order.
+                script = str(widget.tk.call('bind', widget._w, '<Configure>'))
+                owned_line = self.observer_lines.get(identifier)
+                lines = script.splitlines(keepends=True)
+                if (owned_line is None or lines.count(owned_line) != 1
+                        or script.count(identifier) != 1):
+                    raise ValueError('Owned binding changed unexpectedly')
+                widget.tk.call('bind', widget._w, '<Configure>',
+                               ''.join(line for line in lines if line != owned_line))
+                widget.deletecommand(identifier)
             except Exception as error:
+                # Preserve unknown scripts and their commands until the test's
+                # root is destroyed. Our inactive observer becomes a no-op.
                 self._error('remove-owned-observer', error)
         return False
 
@@ -509,8 +531,9 @@ class MonitoringTkTests(unittest.TestCase):
 
     def test_viewport_diagnostics_remove_only_their_own_callbacks(self):
         probe = self.app.ttk.Frame(self.root)
+        probe.winfo_id()
         original_calls = []
-        original_binding = probe.bind('<Configure>', lambda *_: original_calls.append(True))
+        original_binding = probe.bind('<Configure>', lambda *_: original_calls.append('original'))
         original_script = probe.bind('<Configure>')
         original_timer = self.root.after(90000, lambda: original_calls.append('timer'))
         existing_timers = set(self.root.tk.call('after', 'info'))
@@ -525,23 +548,27 @@ class MonitoringTkTests(unittest.TestCase):
                                      existing_timers | owned_timers)
                     self.assertIn(original_script, probe.bind('<Configure>'))
                     self.assertEqual(len(owned_observers), 1)
-                    # Exercise the actual registered Tcl/Python callbacks without
-                    # draining or changing the native window's event queue.
-                    self.root.tk.call(owned_observers[0][1])
-                    self.root.tk.call(original_binding)
+                    later_binding = probe.bind('<Configure>',
+                                               lambda *_: original_calls.append('later'), add='+')
+                    latest_script = probe.bind('<Configure>')
+                    owned_lines = [line for line in latest_script.splitlines(keepends=True)
+                                   if line.startswith('if {"[' + owned_observers[0][1] + ' ')]
+                    self.assertEqual(len(owned_lines), 1)
+                    expected_current_others = latest_script.replace(owned_lines[0], '', 1)
+                    # Real event dispatch verifies both other handlers' order.
+                    probe.event_generate('<Configure>', width=37, height=29, when='now')
                     diagnostic.phase('helper-test')
                     self.assertEqual(diagnostic.counts['probe']['count'], 1)
-                    self.assertEqual(original_calls, [True])
+                    self.assertEqual(original_calls, ['original', 'later'])
                     raise AssertionError('original body assertion')
-            # Tkinter's funcid-only unbind can retain an empty separator line.
-            # Every actual handler line and its order must remain byte-identical.
-            self.assertEqual([line for line in probe.bind('<Configure>').splitlines() if line],
-                             [line for line in original_script.splitlines() if line])
+            self.assertEqual(probe.bind('<Configure>'), expected_current_others)
             self.assertEqual(set(self.root.tk.call('after', 'info')), existing_timers)
             for _widget, identifier in owned_observers:
                 self.assertFalse(self.root.tk.call('info', 'commands', identifier))
-            self.root.tk.call(original_binding)
-            self.assertEqual(original_calls, [True, True])
+            self.assertTrue(self.root.tk.call('info', 'commands', original_binding))
+            self.assertTrue(self.root.tk.call('info', 'commands', later_binding))
+            probe.event_generate('<Configure>', width=41, height=31, when='now')
+            self.assertEqual(original_calls, ['original', 'later', 'original', 'later'])
             records = [json.loads(line) for line in output.getvalue().splitlines()]
             record = next(item for item in records if item['phase'] == 'helper-test')
             self.assertEqual(record['configure']['probe']['count'], 1)
@@ -552,6 +579,7 @@ class MonitoringTkTests(unittest.TestCase):
             print(json.dumps(dict(phase='helper-ownership',
                                   original_callback_calls=len(original_calls),
                                   original_handler_lines_preserved=True,
+                                  later_handler_preserved=True,
                                   original_timer=original_timer,
                                   owned_timer_ids=sorted(owned_timers),
                                   remaining_after_ids=sorted(existing_timers),
@@ -560,7 +588,34 @@ class MonitoringTkTests(unittest.TestCase):
                   file=sys.stderr, flush=True)
         finally:
             self.root.after_cancel(original_timer)
-            probe.unbind('<Configure>', original_binding)
+            probe.destroy()
+
+    def test_viewport_diagnostics_preserve_unexpected_current_binding(self):
+        probe = self.app.ttk.Frame(self.root)
+        probe.winfo_id()
+        calls = []
+        probe.bind('<Configure>', lambda *_: calls.append('original'))
+        output = io.StringIO()
+        existing_timers = set(self.root.tk.call('after', 'info'))
+        try:
+            with _ViewportDiagnostics(self.root, {'probe': probe}, stream=output) as diagnostic:
+                identifier = diagnostic.observer_ids[0][1]
+                later = probe.bind('<Configure>', lambda *_: calls.append('later'), add='+')
+                script = str(probe.tk.call('bind', probe._w, '<Configure>'))
+                # Another reference makes deletion of this Tcl command unsafe.
+                unexpected = script + diagnostic.observer_lines[identifier]
+                probe.tk.call('bind', probe._w, '<Configure>', unexpected)
+            self.assertEqual(probe.bind('<Configure>'), unexpected)
+            self.assertEqual(set(self.root.tk.call('after', 'info')), existing_timers)
+            self.assertTrue(probe.tk.call('info', 'commands', identifier))
+            self.assertTrue(probe.tk.call('info', 'commands', later))
+            probe.event_generate('<Configure>', width=41, height=31, when='now')
+            self.assertEqual(calls, ['original', 'later'])
+            self.assertEqual(diagnostic.counts['probe']['count'], 0)
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([item for item in records if item['phase'] == 'remove-owned-observer'],
+                             [dict(phase='remove-owned-observer', diagnostic_error='ValueError')])
+        finally:
             probe.destroy()
 
 

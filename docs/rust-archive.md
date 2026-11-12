@@ -1,5 +1,9 @@
 # Canonical Rust archive
 
+Publication directories are explicitly non-recursive on every platform. Unix-only
+file permissions and directory fsync remain conditional; non-Unix builds retain
+the same operations without unused-variable or unused-mut lint exceptions.
+
 `ori-archive` is a standalone Rust 2024 crate for the existing canonical SQLite archive. The service owns device actors, guard/lease/domain decisions and the cross-process data-directory writer lease. This crate owns SQL transactions, validation, read budgets, capacity enforcement and recovery files. It has no hardware access or runtime Python dependency.
 
 ## Compatibility and precision

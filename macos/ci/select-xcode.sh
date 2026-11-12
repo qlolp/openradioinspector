@@ -18,3 +18,4 @@ grep -Eq '^(Apple )?Swift version 6[.]4[.]2([[:space:]]|$)' "$RUNNER_TEMP/native
 native_swift_binary="$(xcrun --find swift)"
 printf 'DEVELOPER_DIR=%s\n' "$DEVELOPER_DIR" >> "$GITHUB_ENV"
 printf '%s\n' "${native_swift_binary%/*}" >> "$GITHUB_PATH"
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/prepare_c_sdk.py"

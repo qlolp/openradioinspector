@@ -703,7 +703,12 @@ export function App({
               </span>
             }
           >
-            <div className="spectrum-metrics">
+            <p className="muted">{t('Latest saved measurement')}</p>
+            <div
+              className="spectrum-metrics"
+              role="group"
+              aria-label={t('Latest saved measurement')}
+            >
               <div>
                 <small>{t('PEAK FREQUENCY')}</small>
                 <strong className="mono">{hz(latest?.peak.frequency_hz)}</strong>
@@ -735,7 +740,7 @@ export function App({
             ) : (
               <Spectrum sweep={latest} />
             )}
-            <div className="chart-caption">
+            <div className="chart-caption" role="group" aria-label={t('Latest saved measurement')}>
               <span>{t('Frequency · MHz')}</span>
               <span>
                 {unavailable?.point_count ?? latest?.original_point_count ?? 0}
@@ -743,7 +748,7 @@ export function App({
               </span>
             </div>
             <Waterfall rows={desk.live.rows} />
-            <div className="source-footer">
+            <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
               <span data-testid="source-id">
                 {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
               </span>
