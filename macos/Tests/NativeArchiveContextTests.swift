@@ -116,6 +116,7 @@ final class NativeArchiveContextTests: XCTestCase {
         XCTAssertFalse(model.hasPlayback, file: file, line: line)
         XCTAssertFalse(model.audioLoading, file: file, line: line)
         XCTAssertEqual(model.audioNotice, "", file: file, line: line)
+        XCTAssertFalse(model.baselineConfirmed, file: file, line: line)
     }
 
     @MainActor func testSameProjectArchiveRollbackClearsAllOldEvidenceWithoutDisarmingCore() async throws {
@@ -127,6 +128,7 @@ final class NativeArchiveContextTests: XCTestCase {
         XCTAssertNotEqual(model.baselineComparison, .null)
         XCTAssertTrue(model.canPlay)
         model.audioNotice = "old-evidence.wav"
+        model.baselineConfirmed = true
         responses.restore(7)
         await model.refreshStatus()
         assertCleared(model)
@@ -162,10 +164,30 @@ final class NativeArchiveContextTests: XCTestCase {
         let responses = Responses(), model = try await workspace(responses)
         defer { model.stopAudio(); model.stopOperations() }
         await seed(model)
+        model.baselineConfirmed = true
         responses.restore(101); await model.refreshStatus()
         XCTAssertEqual(model.history.map(\.id), ["sweep-old"])
         XCTAssertEqual(model.rawSweep?.levels, [-98.125, -87.5])
         XCTAssertEqual(model.selectedSweepID, "sweep-old")
+        XCTAssertEqual(model.selectedEvent, "event-old")
+        XCTAssertNotEqual(model.baselineComparison, .null)
+        XCTAssertTrue(model.baselineConfirmed, "Ordinary refresh does not invalidate a current operator confirmation")
+        model.selected = "another-project"
+        XCTAssertFalse(model.baselineConfirmed)
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testOlderHeldHealthCannotRollBackANewerSuccessfulStatusRefresh() async throws {
+        let responses = Responses(), model = try await workspace(responses)
+        defer { responses.release(); model.stopAudio(); model.stopOperations() }
+        await seed(model)
+        responses.holdNext("/health")
+        let oldRefresh = Task { await model.refreshStatus() }
+        try await wait { responses.pendingCount == 1 }
+        responses.restore(101); await model.refreshStatus()
+        responses.release(); await oldRefresh.value
+        responses.restore(102); await model.refreshStatus()
+        XCTAssertEqual(model.history.map(\.id), ["sweep-old"])
         XCTAssertEqual(model.selectedEvent, "event-old")
         XCTAssertNotEqual(model.baselineComparison, .null)
         XCTAssertEqual(responses.mutations, 0)

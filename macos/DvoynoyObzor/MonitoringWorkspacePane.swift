@@ -24,7 +24,6 @@ struct MonitoringWorkspacePane: View {
     @State private var verdictComment = ""
     @State private var name = "Наблюдение"
     @State private var site = "Объект"
-    @State private var confirm = false
     @State private var preparationExpanded = true
     @State private var allowedName = "Разрешённый сигнал"
     @State private var allowedStart = "100000000"
@@ -84,7 +83,6 @@ struct MonitoringWorkspacePane: View {
             workspace.configure(server, client: client); await workspace.load()
         }
         .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
-            confirm = false
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
         }
         .onChange(of: workspace.selectedInput) { _, _ in workspace.audioConfirmed = false }
@@ -199,11 +197,11 @@ struct MonitoringWorkspacePane: View {
                 baselineProgress
                 Text("4. Подтвердите обычную обстановку и сохраните эталон").font(.headline)
                 HStack {
-                    Toggle("Подтверждаю обычную обстановку", isOn: $confirm)
+                    Toggle("Подтверждаю обычную обстановку", isOn: $workspace.baselineConfirmed)
                     Button("Зафиксировать эталон") {
-                        let body: [String: MonitoringValue] = ["name": .string(name), "location": .string(site), "confirm": .boolean(confirm)]
+                        let body: [String: MonitoringValue] = ["name": .string(name), "location": .string(site), "confirm": .boolean(workspace.baselineConfirmed)]
                         workspace.perform { await workspace.command("baselines", body: body, success: "Эталон сохранён.") }
-                    }.disabled(!confirm || workspace.isArmed || workspace.preflight["baseline_collection"]["ready"].bool != true || (!workspace.preparationSimulation && (!workspace.savedPreparationReady || workspace.preparationDirty)))
+                    }.disabled(!workspace.baselineConfirmed || workspace.isArmed || workspace.preflight["baseline_collection"]["ready"].bool != true || (!workspace.preparationSimulation && (!workspace.savedPreparationReady || workspace.preparationDirty)))
                     Button("Анализ новых свипов") { workspace.perform { await workspace.command("analyze", success: "Анализ новых свипов выполнен.") } }
                 }.disabled(workspace.selected.isEmpty || workspace.pending || workspace.operationsPending.contains("preparation"))
                 if workspace.preflight != .null {

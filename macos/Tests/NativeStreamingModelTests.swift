@@ -40,6 +40,8 @@ final class NativeStreamingModelTests: XCTestCase {
         private var snapshotID = "initial"
         private var snapshotLevels: [Double] = [-100, -90, -80]
         private var healthStatus = 200
+        private var holdHealth = false
+        private var heldHealth: (Stub, Int64, Int)?
         var mutations = 0
         static func sweep(id: String = "initial", levels: [Double] = [-100, -90, -80]) -> [String: Any] {
             ["id": id, "session_id": "s", "stream_id": "a", "interval": ["started_at": "2026-11-11T00:00:00Z", "ended_at": "2026-11-11T00:00:01Z"], "frequencies_hz": [100, 200, 300], "levels": levels, "level_unit": "dBm"]
@@ -49,6 +51,12 @@ final class NativeStreamingModelTests: XCTestCase {
         var resumeCursors: [Int64] { lock.withLock { eventRequests } }
         var watermarkReads: Int { lock.withLock { healthReads } }
         var metadataIsHeld: Bool { lock.withLock { heldMetadata != nil } }
+        var healthIsHeld: Bool { lock.withLock { heldHealth != nil } }
+        func holdNextHealth() { lock.withLock { holdHealth = true } }
+        func releaseHealth() {
+            let held = lock.withLock { let held = heldHealth; heldHealth = nil; return held }
+            if let held { held.0.json(["last_event_id": held.1], status: held.2) }
+        }
         func holdNextMetadata() { lock.withLock { holdMetadata = true } }
         func restoreArchive(watermark: Int64, id: String = "restored", levels: [Double] = [-98.125, -87.5, -76.25]) {
             lock.withLock { restoredWatermark = watermark; snapshotID = id; snapshotLevels = levels }
@@ -66,7 +74,9 @@ final class NativeStreamingModelTests: XCTestCase {
                 case "/api/v1/capabilities": stub.json(["features": [:]])
                 case "/api/v1/health":
                     healthReads += 1
-                    stub.json(["last_event_id": restoredWatermark ?? (healthReads == 1 ? 0 : 10000)], status: healthStatus)
+                    let value = restoredWatermark ?? (healthReads == 1 ? 0 : 10000)
+                    if holdHealth { holdHealth = false; heldHealth = (stub, value, healthStatus) }
+                    else { stub.json(["last_event_id": value], status: healthStatus) }
                 case "/api/v1/events":
                     eventRequests.append(Int64(stub.request.value(forHTTPHeaderField: "Last-Event-ID") ?? "-1")!)
                     stream = stub; stub.events()
@@ -81,6 +91,10 @@ final class NativeStreamingModelTests: XCTestCase {
                     stub.json(["session_id": "s", "stream_id": "a", "sample_rate_hz": 48000, "recording": true,
                                "pre_history_seconds": 5.0, "buffered_seconds": 2.5, "recorded_seconds": 1.25,
                                "started_at": "2026-11-11T00:00:00Z", "last": NSNull()])
+                case "/api/v1/monitoring-projects/p/status":
+                    stub.json(["active": true, "project": ["id": "p", "state": "armed", "coverage": "wide"]])
+                case "/api/v1/monitoring-projects/p/history":
+                    stub.json(["items": [NativeArchiveContextTests.Responses.row], "next_cursor": "old-page"])
                 case "/api/v1/sessions/s/workers", "/api/v1/sessions/s/observations": stub.json([])
                 default: stub.json([:], status: 404)
                 }
@@ -95,12 +109,12 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         XCTFail("Synthetic streaming state was not published")
     }
-    @MainActor private func connected(_ responses: Responses) async throws -> RemoteDualModel {
+    @MainActor private func connected(_ responses: Responses, onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }) async throws -> RemoteDualModel {
         Stub.handle = responses.handle
         let model = RemoteDualModel(makeClient: { url in
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
-        })
+        }, onArchiveContextReset: onArchiveContextReset)
         model.connect()
         try await wait { responses.eventConnection != nil && !model.current.isEmpty }
         return model
@@ -237,6 +251,46 @@ final class NativeStreamingModelTests: XCTestCase {
         await model.refresh()
         responses.releaseMetadata(); await oldRefresh.value
         XCTAssertEqual(model.current.map(\.y), [-98.125, -87.5, -76.25])
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testFrameAppliedWhileHealthIsHeldDoesNotCauseFalseRollback() async throws {
+        let responses = Responses(), model = try await connected(responses)
+        defer { responses.releaseHealth(); model.disconnect() }
+        responses.restoreArchive(watermark: 0, id: "initial", levels: [-100, -90, -80])
+        responses.holdNextHealth()
+        let generation = model.generation
+        let refresh = Task { await model.refresh() }
+        try await wait { responses.healthIsHeld }
+        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "during-health", levels: [-60, -50, -40])
+        try await wait { model.comparisonSweeps.last?.id == "during-health" }
+        responses.restoreArchive(watermark: 1, id: "initial", levels: [-100, -90, -80])
+        responses.releaseHealth(); await refresh.value
+        XCTAssertEqual(model.generation, generation)
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["initial", "during-health"])
+        XCTAssertEqual(responses.resumeCursors, [0])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testLiveRollbackSynchronouslyInvalidatesWorkspaceBeforeItsNextPoll() async throws {
+        let responses = Responses(), workspace = MonitoringWorkspaceModel()
+        let model = try await connected(responses, onArchiveContextReset: { [weak workspace] watermark in
+            workspace?.resetArchiveContext(watermark: watermark)
+        })
+        defer { model.disconnect(); workspace.stopAudio(); workspace.stopOperations() }
+        workspace.configure(model.serverURL, client: model.client); workspace.selected = "p"
+        await workspace.refreshStatus()
+        await workspace.loadHistory(start: "", end: "", minHz: "", maxHz: "", eventID: nil)
+        XCTAssertFalse(workspace.history.isEmpty)
+        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "old", levels: [-60, -50, -40])
+        try await wait { model.comparisonSweeps.last?.id == "old" }
+        responses.restoreArchive(watermark: 0)
+        await model.refresh() // Do not call workspace.refreshStatus after the rollback.
+        XCTAssertTrue(workspace.history.isEmpty)
+        XCTAssertEqual(workspace.selectedSweepID, "")
+        XCTAssertEqual(workspace.status, .null)
+        XCTAssertEqual(workspace.selected, "p")
         XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
         XCTAssertEqual(responses.mutations, 0)
     }

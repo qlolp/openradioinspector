@@ -102,7 +102,7 @@ final class MeasurementResultsModel: ObservableObject {
     func reset() { configure(client: nil, scope: nil) }
     func clear() {
         revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
-        pending = false; errorText = nil
+        pending = false; errorText = nil; infoText = nil
     }
     func refresh() {
         guard let client, let scope else { return }
