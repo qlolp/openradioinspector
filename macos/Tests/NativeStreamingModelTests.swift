@@ -36,6 +36,10 @@ final class NativeStreamingModelTests: XCTestCase {
         var eventRequests: [Int64] = []
         private var holdMetadata = false
         private var heldMetadata: (Stub, [String: Any])?
+        private var restoredWatermark: Int64?
+        private var snapshotID = "initial"
+        private var snapshotLevels: [Double] = [-100, -90, -80]
+        private var healthStatus = 200
         var mutations = 0
         static func sweep(id: String = "initial", levels: [Double] = [-100, -90, -80]) -> [String: Any] {
             ["id": id, "session_id": "s", "stream_id": "a", "interval": ["started_at": "2026-11-11T00:00:00Z", "ended_at": "2026-11-11T00:00:01Z"], "frequencies_hz": [100, 200, 300], "levels": levels, "level_unit": "dBm"]
@@ -46,6 +50,10 @@ final class NativeStreamingModelTests: XCTestCase {
         var watermarkReads: Int { lock.withLock { healthReads } }
         var metadataIsHeld: Bool { lock.withLock { heldMetadata != nil } }
         func holdNextMetadata() { lock.withLock { holdMetadata = true } }
+        func restoreArchive(watermark: Int64, id: String = "restored", levels: [Double] = [-98.125, -87.5, -76.25]) {
+            lock.withLock { restoredWatermark = watermark; snapshotID = id; snapshotLevels = levels }
+        }
+        func failHealth(_ status: Int) { lock.withLock { healthStatus = status } }
         func releaseMetadata() {
             let held = lock.withLock { let held = heldMetadata; heldMetadata = nil; return held }
             if let held { held.0.json(held.1) }
@@ -58,7 +66,7 @@ final class NativeStreamingModelTests: XCTestCase {
                 case "/api/v1/capabilities": stub.json(["features": [:]])
                 case "/api/v1/health":
                     healthReads += 1
-                    stub.json(["last_event_id": healthReads == 1 ? 0 : 10000])
+                    stub.json(["last_event_id": restoredWatermark ?? (healthReads == 1 ? 0 : 10000)], status: healthStatus)
                 case "/api/v1/events":
                     eventRequests.append(Int64(stub.request.value(forHTTPHeaderField: "Last-Event-ID") ?? "-1")!)
                     stream = stub; stub.events()
@@ -66,7 +74,13 @@ final class NativeStreamingModelTests: XCTestCase {
                 case "/api/v1/sessions/s":
                     if holdMetadata { holdMetadata = false; heldMetadata = (stub, session) }
                     else { stub.json(session) }
-                case "/api/v1/sessions/s/sweeps": reads += 1; stub.json([Self.sweep()])
+                case "/api/v1/sessions/s/sweeps": reads += 1; stub.json([Self.sweep(id: snapshotID, levels: snapshotLevels)])
+                case "/api/v1/sessions/s/audio/status":
+                    stub.json(["session_id": "s", "stream_id": "a", "subscribers": 1, "max_subscribers": 4, "queued_blocks": 2, "dropped_blocks": 0])
+                case "/api/v1/sessions/s/phonogram/status":
+                    stub.json(["session_id": "s", "stream_id": "a", "sample_rate_hz": 48000, "recording": true,
+                               "pre_history_seconds": 5.0, "buffered_seconds": 2.5, "recorded_seconds": 1.25,
+                               "started_at": "2026-11-11T00:00:00Z", "last": NSNull()])
                 case "/api/v1/sessions/s/workers", "/api/v1/sessions/s/observations": stub.json([])
                 default: stub.json([:], status: 404)
                 }
@@ -157,7 +171,7 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(responses.resumeCursors, [0])
         XCTAssertEqual(responses.mutations, 0)
     }
-    @MainActor func testSequenceGapReplaysFromLastAppliedCursorWithoutReadingLatestHealth() async throws {
+    @MainActor func testSequenceGapChecksCurrentHealthButReplaysLastAppliedCursor() async throws {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect() }
         let reads = responses.sweepReads, connection = try XCTUnwrap(responses.eventConnection)
@@ -167,7 +181,7 @@ final class NativeStreamingModelTests: XCTestCase {
         connection.sweep(sequence: 3, id: "after-gap", levels: [-60, -50, -40])
         try await wait { responses.resumeCursors.count == 2 }
         XCTAssertEqual(responses.resumeCursors, [0, 1])
-        XCTAssertEqual(responses.watermarkReads, watermarks)
+        XCTAssertGreaterThan(responses.watermarkReads, watermarks)
         XCTAssertEqual(responses.sweepReads, reads)
         XCTAssertEqual(model.current.map(\.y), [-70, -60, -50])
         let resumed = try XCTUnwrap(responses.eventConnection)
@@ -175,6 +189,65 @@ final class NativeStreamingModelTests: XCTestCase {
         resumed.sweep(sequence: 3, id: "after-gap", levels: [-60, -50, -40])
         try await wait { model.current.map(\.y) == [-60, -50, -40] }
         XCTAssertEqual(model.spectrumPresentation.sweeps.map(\.id), ["initial", "first", "missing", "after-gap"])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testSameIDArchiveRollbackLoadsFreshSpectrumAndClearsPinnedAndAudioState() async throws {
+        let responses = Responses(), model = try await connected(responses)
+        defer { model.disconnect() }
+        let oldStream = try XCTUnwrap(responses.eventConnection)
+        oldStream.sweep(sequence: 1, id: "old-committed", levels: [-60, -50, -40])
+        try await wait { model.comparisonSweeps.last?.id == "old-committed" }
+        model.comparisonSelectionID = "old-committed"; model.pinComparisonReference()
+        model.phonogram.perform("status"); model.audioStream.perform("status")
+        try await wait { model.phonogram.status != nil && model.audioStream.status != nil }
+        let generation = model.generation
+        responses.restoreArchive(watermark: 0)
+        await model.refresh()
+        XCTAssertGreaterThan(model.generation, generation)
+        XCTAssertNil(model.comparisonReference)
+        XCTAssertNil(model.sweepComparison)
+        XCTAssertNil(model.phonogram.status)
+        XCTAssertNil(model.audioStream.status)
+        XCTAssertNil(model.audioStream.sample)
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
+        XCTAssertEqual(model.current.map(\.y), [-98.125, -87.5, -76.25])
+        XCTAssertEqual(model.spectrumPresentation.sweeps.map(\.id), ["restored"])
+        XCTAssertEqual(model.selectedSessionID, "s")
+        XCTAssertEqual(model.analyzer?.id, "a")
+        try await wait { responses.resumeCursors.count == 2 }
+        XCTAssertEqual(responses.resumeCursors, [0, 0])
+        oldStream.sweep(sequence: 2, id: "late-old-archive", levels: [-1, -2, -3])
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(model.current.map(\.y), [-98.125, -87.5, -76.25])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testRollbackWhileMetadataIsHeldRejectsOldRefreshCompletion() async throws {
+        let responses = Responses(), model = try await connected(responses)
+        defer { responses.releaseMetadata(); model.disconnect() }
+        try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "old", levels: [-60, -50, -40])
+        try await wait { model.comparisonSweeps.last?.id == "old" }
+        responses.holdNextMetadata()
+        let oldRefresh = Task { await model.refresh() }
+        try await wait { responses.metadataIsHeld }
+        responses.restoreArchive(watermark: 0)
+        await model.refresh()
+        responses.releaseMetadata(); await oldRefresh.value
+        XCTAssertEqual(model.current.map(\.y), [-98.125, -87.5, -76.25])
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+
+    @MainActor func testUnavailableHealthDoesNotRepublishAnUnverifiedRetainedCache() async throws {
+        let responses = Responses(), model = try await connected(responses)
+        defer { model.disconnect() }
+        responses.failHealth(503)
+        let published = model.waterfallRevision
+        await model.refresh()
+        XCTAssertNotNil(model.errorText)
+        XCTAssertTrue(model.current.isEmpty)
+        XCTAssertGreaterThan(model.waterfallRevision, published)
         XCTAssertEqual(responses.mutations, 0)
     }
 }
