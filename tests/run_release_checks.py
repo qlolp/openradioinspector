@@ -359,8 +359,17 @@ class WindowsJob:
             _fields_ += [(name, wintypes.DWORD) for name in
                          ("TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses")]
 
+        class ProcessList(ctypes.Structure):
+            # Windows DWORD is always 32 bits; ULONG_PTR follows the process ABI.
+            _fields_ = [("assigned", ctypes.c_uint32), ("listed", ctypes.c_uint32),
+                        ("pids", ctypes.c_size_t * 32)]
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", ctypes.c_uint32), ("high", ctypes.c_uint32)]
+
         self.ctypes = ctypes
         self.Accounting = Accounting
+        self.ProcessList, self.FileTime = ProcessList, FileTime
         self.api = ctypes.WinDLL("kernel32", use_last_error=True)
         for name, argtypes, restype in (
             ("CreateJobObjectW", [ctypes.c_void_p, wintypes.LPCWSTR], wintypes.HANDLE),
@@ -368,6 +377,13 @@ class WindowsJob:
             ("AssignProcessToJobObject", [wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
             ("QueryInformationJobObject", [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p], wintypes.BOOL),
             ("TerminateJobObject", [wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
+            ("OpenProcess", [ctypes.c_uint32, wintypes.BOOL, ctypes.c_uint32], wintypes.HANDLE),
+            ("IsProcessInJob", [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(ctypes.c_int32)], wintypes.BOOL),
+            ("GetProcessTimes", [wintypes.HANDLE, *([ctypes.POINTER(FileTime)] * 4)], wintypes.BOOL),
+            ("QueryFullProcessImageNameW", [wintypes.HANDLE, ctypes.c_uint32, wintypes.LPWSTR,
+                                           ctypes.POINTER(ctypes.c_uint32)], wintypes.BOOL),
+            ("WaitForSingleObject", [wintypes.HANDLE, ctypes.c_uint32], ctypes.c_uint32),
+            ("GetExitCodeProcess", [wintypes.HANDLE, ctypes.POINTER(ctypes.c_uint32)], wintypes.BOOL),
             ("CloseHandle", [wintypes.HANDLE], wintypes.BOOL),
         ):
             function = getattr(self.api, name)
@@ -392,6 +408,78 @@ class WindowsJob:
             raise self.ctypes.WinError(self.ctypes.get_last_error())
         return accounting.ActiveProcesses
 
+    def snapshot_diagnostics(self) -> dict:
+        """Observe at most 32 members; never use these PID observations to signal.
+
+        Membership can change between listing and opening. Query details only
+        after the opened handle is confirmed in this exact, still-owned Job.
+        All subsequent facts refer to that stable handle, not a fresh PID lookup.
+        """
+        c = self.ctypes
+        report = {"version": 1, "capacity": 32, "status": "closed", "members": []}
+        if not self.handle:
+            return report
+        listed = self.ProcessList()
+        if not self.api.QueryInformationJobObject(self.handle, 3, c.byref(listed), c.sizeof(listed), None):
+            error = c.get_last_error()
+            report.update(status="overflow" if error == 234 else "query_failed", winerror=error)
+            return report
+        report.update(status="complete", assigned_count=listed.assigned, listed_count=listed.listed)
+        if listed.listed > 32 or listed.listed > listed.assigned:
+            report["status"] = "invalid_count"
+            return report
+        for pid in listed.pids[:listed.listed]:
+            row = {"pid": pid, "membership": "invalid_pid"}
+            report["members"].append(row)
+            if not 0 < pid <= 0xFFFFFFFF:
+                continue
+            # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE; no signal rights.
+            handle = self.api.OpenProcess(0x00101000, False, pid)
+            if not handle:
+                row.update(membership="open_failed", winerror=c.get_last_error())
+                continue
+            errors = []
+            def failed(operation):
+                errors.append({"operation": operation, "winerror": c.get_last_error()})
+            try:
+                member = c.c_int32()
+                if not self.api.IsProcessInJob(handle, self.handle, c.byref(member)):
+                    row.update(membership="query_failed", winerror=c.get_last_error())
+                    continue
+                if not member.value:
+                    row["membership"] = "not_in_original_job"
+                    continue
+                row["membership"] = "confirmed"
+                times = [self.FileTime() for _ in range(4)]
+                if self.api.GetProcessTimes(handle, *(c.byref(value) for value in times)):
+                    row["birth_filetime"] = (times[0].high << 32) | times[0].low
+                else:
+                    failed("GetProcessTimes")
+                image, length = c.create_unicode_buffer(1024), c.c_uint32(1024)
+                if not self.api.QueryFullProcessImageNameW(handle, 0, image, c.byref(length)):
+                    failed("QueryFullProcessImageNameW")
+                elif not 0 < length.value < 1024:
+                    errors.append({"operation": "QueryFullProcessImageNameW", "invalid_length": length.value})
+                else:
+                    row["image"] = image[:length.value]
+                wait = self.api.WaitForSingleObject(handle, 0)
+                if wait in (0, 258):
+                    row["wait"] = "signaled" if wait == 0 else "not_signaled"
+                else:
+                    failed("WaitForSingleObject")
+                code = c.c_uint32()
+                if self.api.GetExitCodeProcess(handle, c.byref(code)):
+                    # 259 can also be a real exit status; retain the separate wait fact.
+                    row["exit_code"] = code.value
+                else:
+                    failed("GetExitCodeProcess")
+            finally:
+                if not self.api.CloseHandle(handle):
+                    failed("CloseHandle")
+                if errors:
+                    row["errors"] = errors
+        return report
+
     def terminate(self) -> None:
         if not self.api.TerminateJobObject(self.handle, 1):
             raise self.ctypes.WinError(self.ctypes.get_last_error())
@@ -401,6 +489,19 @@ class WindowsJob:
             handle, self.handle = self.handle, None
             if not self.api.CloseHandle(handle):
                 raise self.ctypes.WinError(self.ctypes.get_last_error())
+
+
+def _save_windows_job_diagnostics(job: WindowsJob, path: Path) -> None:
+    """Best effort only: neither collection nor persistence can replace the gate."""
+    try:
+        try:
+            report = job.snapshot_diagnostics()
+        except BaseException as error:
+            report = {"version": 1, "status": "collection_failed", "error_type": type(error).__name__}
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except BaseException:
+        # The original strict failure still drives original-Job termination below.
+        pass
 
 
 def _linux_group_has_live_members(group: int, proc_root: Path = Path("/proc")) -> bool | None:
@@ -648,6 +749,7 @@ def run_command(command: list[str], *, name: str, environment: dict[str, str],
             process.stdin.close()
             process.wait(timeout=timeout)
             if job is not None and _job_still_active(job,shutdown_timeout):
+                _save_windows_job_diagnostics(job, directory / (name + ".windows-job.json"))
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
             if job is None and _signal_group(process, 0):
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
