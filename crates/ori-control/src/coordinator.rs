@@ -854,6 +854,16 @@ impl Coordinator {
         }
         let lab = job.context.status.lock().unwrap().get("mode") == Some(&json!("lab"));
         let lease_required = needs_lease(&operation, lab);
+        if lease_required && job.lease.is_none() {
+            // Report an absent original lab permission only while the original
+            // owner is still valid. Revocation/cancellation keeps its distinct
+            // authority failure, and the same per-I/O check remains below.
+            job.owner.revalidate()?;
+            if job.cancel.is_cancelled() {
+                return Err(ControlError::Denied);
+            }
+            return Err(ControlError::LabLeaseRequired);
+        }
         if lab
             && job.lease_liveness.is_none()
             && !matches!(
@@ -1392,6 +1402,7 @@ fn public_error(error: &ControlError) -> String {
         ControlError::Invalid(_)
         | ControlError::Conflict(_)
         | ControlError::Denied
+        | ControlError::LabLeaseRequired
         | ControlError::Unavailable(_) => error.to_string(),
         ControlError::Indeterminate(_) => {
             "Instrument state unknown; stop/start with a new owned connection required".into()
@@ -1551,14 +1562,16 @@ fn overlay_lease(status: &mut Value, context: &Context) {
             .as_ref()
             .is_some_and(|owner| owner.revalidate().is_ok());
     status["lease_active"] = json!(active);
-    status["lease_seconds"] = json!(if active {
-        lease
-            .expires
-            .saturating_duration_since(Instant::now())
-            .as_secs_f64()
+    status["lease_seconds"] = if active {
+        json!(
+            lease
+                .expires
+                .saturating_duration_since(Instant::now())
+                .as_secs_f64()
+        )
     } else {
-        0.
-    });
+        json!(0)
+    };
 }
 fn clear(context: &Context) {
     let mut lease = context.lease.lock().unwrap();
