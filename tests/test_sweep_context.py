@@ -447,24 +447,34 @@ class ContextEquivalenceTests(unittest.TestCase):
                                                 "after": max(0, position + after + 1 - len(ordered))})
 
 
+def seed_context_http_archive(service):
+    """Build the original private HTTP dataset through the public ingest API."""
+    session = create_session(service)
+    stream = session.streams[0].id
+    service.ingest_sweeps([
+        *(measurement(session.id, stream, number) for number in (0, 1, 2)),
+        measurement(session.id, stream, 3, settings={}),
+        measurement(session.id, stream, 4, id=" exact/+ sweep "),
+        measurement(session.id, stream, 5, id="😀" * 128),
+    ])
+    # Preserve the original session-created event between the two source groups.
+    other = create_session(service)
+    service.ingest_sweeps([
+        measurement(other.id, other.streams[0].id, 50),
+        *(measurement(session.id, session.streams[1].id, number,
+                      frequencies_hz=list(range(16384)), levels=[-50] * 16384)
+          for number in range(10, 19)),
+    ])
+    return session
+
+
 class ContextHTTPTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         path = str(Path(temporary.name) / "archive.sqlite")
         service = SessionService(store=SQLiteSessionStore(path))
-        self.session = create_session(service)
-        stream = self.session.streams[0].id
-        for number in (0, 1, 2):
-            service.ingest_sweep(measurement(self.session.id, stream, number))
-        service.ingest_sweep(measurement(self.session.id, stream, 3, settings={}))
-        service.ingest_sweep(measurement(self.session.id, stream, 4, id=" exact/+ sweep "))
-        service.ingest_sweep(measurement(self.session.id, stream, 5, id="😀" * 128))
-        other = create_session(service)
-        service.ingest_sweep(measurement(other.id, other.streams[0].id, 50))
-        for number in range(10, 19):
-            service.ingest_sweep(measurement(self.session.id, self.session.streams[1].id, number,
-                                           frequencies_hz=list(range(16384)), levels=[-50] * 16384))
+        self.session = seed_context_http_archive(service)
         size = service.archive_capacity()["database_bytes"]
         service.close()
         self.server = create_server(host="127.0.0.1", port=0, session_database=path, archive_max_bytes=size)
