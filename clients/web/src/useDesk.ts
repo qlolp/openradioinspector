@@ -179,6 +179,7 @@ export function useDesk(transport: Connection) {
       if (BigInt(value.last_event_id) < BigInt(cursor)) {
         cursor = value.last_event_id;
         liveStore.resetArchive(cursor);
+        setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
         const p = projectRef.current;
         if (p) {
@@ -232,6 +233,7 @@ export function useDesk(transport: Connection) {
       if (BigInt(h.last_event_id) < BigInt(after)) {
         after = h.last_event_id;
         liveStore.resetArchive(after);
+        setConnectionVersion((version) => version + 1);
         setAction({ state: 'Confirmed', text: 'Archive changed — display reset' });
       }
       await loadProjects();
@@ -301,7 +303,7 @@ export function useDesk(transport: Connection) {
     scopeProject.current = projectId;
     save('project', projectId);
     if (connected) void refresh();
-  }, [projectId, connected, refresh, liveStore]);
+  }, [projectId, connectionVersion, connected, refresh, liveStore]);
 
   useEffect(() => {
     if (!project) return;
@@ -316,6 +318,7 @@ export function useDesk(transport: Connection) {
     project?.analyzer_stream_id,
     search?.active,
     search?.session_id,
+    connectionVersion,
     seed,
   ]);
 
