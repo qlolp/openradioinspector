@@ -1,8 +1,22 @@
 import { expect, test } from '@playwright/test';
 import { openDesk } from './helpers';
+import { hardwareIdentityForRealGLTests } from './graphics-fixture.mjs';
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
+  await page.addInitScript(hardwareIdentityForRealGLTests);
+  testInfo.annotations.push({
+    type: 'test-only hardware identity',
+    description:
+      'Shader and restoration tests use the real underlying GL context; actual driver is attached separately. No hardware validation.',
+  });
+});
+test.afterEach(async ({ page }, testInfo) => {
+  const identity = await page.evaluate(() => (window as any).__oriTestHardwareIdentityFixture);
+  await testInfo.attach('actual-gl-renderer-and-test-identity.json', {
+    body: JSON.stringify(identity, null, 2),
+    contentType: 'application/json',
+  });
 });
 
 test('WebGL spectrum supports local wheel, pointer and keyboard views with Canvas loss recovery and an unchanged source peak', async ({

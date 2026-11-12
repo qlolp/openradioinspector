@@ -3,7 +3,7 @@ include run_tests.sh
 recursive-include requirements *.lock
 recursive-include docs *.md *.json *.tsv
 include docs/ardv1/command-matrix.csv
-recursive-include tools *.py *.txt *.md *.toml *.swift *.ts
+recursive-include tools *.py *.txt *.md *.toml *.swift *.ts *.mjs *.cjs
 recursive-include tests *.py *.cjs *.json
 recursive-include packaging *.py *.sh *.ps1 *.iss *.service *.md
 prune CD Ligtht 32314
@@ -17,7 +17,7 @@ recursive-include third_party *
 recursive-include contracts *.json *.ts *.swift *.rs *.toml *.proto *.py
 recursive-include crates *.rs *.toml *.json *.py *.md Cargo.lock
 recursive-include crates/ori-archive/tests/fixtures *.sqlite
-recursive-include clients *.tsx *.ts *.json *.html *.css *.rs *.toml *.py Cargo.lock *.ico
+recursive-include clients *.tsx *.ts *.json *.html *.css *.rs *.toml *.py *.mjs Cargo.lock *.ico
 recursive-include research *.py *.toml *.lock *.json *.in
 recursive-include benchmarks *.py *.mjs
 recursive-include radioinspector/web/modern *

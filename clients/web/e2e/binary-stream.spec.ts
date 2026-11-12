@@ -75,14 +75,31 @@ test('negotiated binary replay transfers 1205 committed sources through one slow
       },
     });
   });
+  const originalProjects = await request.get(CORE + '/monitoring-projects?limit=100');
+  expect(originalProjects.ok()).toBe(true);
+  const initialProject = (await originalProjects.json()).data.items[0];
+  expect(initialProject?.active_session_id).toBeTruthy();
   const { session, project } = await ownProject(request, 'Owned binary replay');
+  expect(initialProject.id).not.toBe(project.id);
+  await page.addInitScript(
+    (id: string) => localStorage.setItem('ori-modern-project', id),
+    initialProject.id,
+  );
   await advertiseBinary(page);
   await observeBinary(page, true);
   let sseRequests = 0;
   page.on('request', (r) => {
     if (new URL(r.url()).pathname === '/api/v1/events') sseRequests++;
   });
+  const initialSeed = page.waitForResponse((r) =>
+    r.url().includes('/sessions/' + initialProject.active_session_id + '/sweeps?'),
+  );
   await openDesk(page);
+  await initialSeed;
+  await expect(page.getByTestId('project-select')).toHaveValue(initialProject.id);
+  // The workspace heading precedes asynchronous project/subscription setup.
+  // Observe the intentionally disconnected first socket before changing scope.
+  await expect.poll(() => page.evaluate(() => (window as any).__socket.opened)).toBe(1);
   const seed = page.waitForResponse((r) =>
     r.url().includes('/sessions/' + session.id + '/sweeps?'),
   );

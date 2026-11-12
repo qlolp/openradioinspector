@@ -7,6 +7,11 @@ It does not own acquisition, stop/disarm a guard, change source measurements,
 or install a service. Python remains the accepted default until the assembled
 software and physical acceptance gates pass.
 
+Owned snapshot child directories and history storage roots are explicitly
+non-recursive on all platforms; the Unix-only `0700` permission request remains
+conditional. This preserves the directory-creation policy and keeps non-Unix
+builds free of an unused mutable-builder warning.
+
 ## Integration and lifetime
 
 Construct `HistoryService::new(archive.clone(), shared_pool.clone(), worker,
