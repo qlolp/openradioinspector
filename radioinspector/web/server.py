@@ -23,6 +23,7 @@ import math
 import mimetypes
 import queue
 import re
+import socket
 import sys
 import tempfile
 import threading
@@ -91,6 +92,7 @@ from .event_streams import EventStreams, peer_disconnected
 
 STATIC_DIR = Path(__file__).parent / "static"
 MODERN_DIR = Path(__file__).parent / 'modern'
+_REJECTED_BODY_LINGER_SECONDS = 0.25
 
 
 def state_locked(method):
@@ -356,6 +358,62 @@ class Handler(BaseHTTPRequestHandler):
     workers: DeviceWorkerManager
     runtime_bridge = None
 
+    def finish(self) -> None:
+        try:
+            remaining = getattr(self, "_rejected_body_budget", 0)
+            no_read_grace = getattr(self, "_rejected_body_grace", False)
+            self._rejected_body_budget = 0
+            self._rejected_body_grace = False
+            self._unconsumed_post_body = False
+            if remaining:
+                # Only a correctly framed oversize request can set this budget.
+                # Flush its error and send FIN before waiting for upload bytes;
+                # closing immediately with unread input can discard the 413 on
+                # Windows. Neither the advertised size nor JSON is allocated.
+                previous_timeout = self.connection.gettimeout()
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    deadline = time.monotonic() + min(
+                        _REJECTED_BODY_LINGER_SECONDS, REQUEST_BODY_TIMEOUT_SECONDS
+                    )
+                    while remaining:
+                        wait = deadline - time.monotonic()
+                        if wait <= 0:
+                            break
+                        self.connection.settimeout(wait)
+                        block = self.rfile.read1(min(remaining, 65_536))
+                        if not block:
+                            break
+                        remaining -= len(block)
+                except OSError:
+                    pass  # The response is already sent; cleanup is bounded.
+                finally:
+                    try:
+                        self.connection.settimeout(previous_timeout)
+                    except OSError:
+                        pass
+            elif no_read_grace and (
+                self.headers.get_all("Transfer-Encoding")
+                or any(value.strip("0") for value in self.headers.get_all("Content-Length", []))
+            ):
+                # Access/framing refusals must never read the upload. Give the
+                # peer a bounded opportunity to receive the final response and
+                # FIN before closing with unread input (which can cause RST).
+                deadline = time.monotonic() + min(
+                    _REJECTED_BODY_LINGER_SECONDS, REQUEST_BODY_TIMEOUT_SECONDS
+                )
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    wait = deadline - time.monotonic()
+                    if wait > 0:
+                        threading.Event().wait(wait)
+                except OSError:
+                    pass
+        finally:
+            super().finish()
+
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
 
@@ -368,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        self._rejected_body_grace = status >= 400 and getattr(self, "_unconsumed_post_body", False)
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -447,8 +506,12 @@ class Handler(BaseHTTPRequestHandler):
         digits = (lengths[0].lstrip("0") or "0") if lengths else "0"
         maximum = str(max_bytes)
         if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+            # Framing was validated without converting an unbounded integer.
+            # Since length > max_bytes, this is min(length, max_bytes + 1).
+            self._rejected_body_budget = max_bytes + 1
             raise RequestError(f"Тело запроса превышает {max_bytes} байт", 413)
         length = int(digits)
+        self._unconsumed_post_body = False
         if length == 0 and allow_empty:
             return bytearray()
         previous_timeout = self.connection.gettimeout()
@@ -662,6 +725,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802
+        self._rejected_body_budget = 0
+        self._rejected_body_grace = False
+        self._unconsumed_post_body = True
         if self._runtime_request('POST'):
             return
         try:
