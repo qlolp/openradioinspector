@@ -1,0 +1,59 @@
+# Canonical source and generated text must have identical bytes on every host.
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.dockerignore text eol=lf
+.python-version text eol=lf
+LICENSE text eol=lf
+Makefile text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.swift text eol=lf
+*.proto text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.sql text eol=lf
+*.lock text eol=lf
+*.in text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.iss text eol=lf
+*.service text eol=lf
+*.plist text eol=lf
+*.pbxproj text eol=lf
+*.xcscheme text eol=lf
+*.xcworkspacedata text eol=lf
+
+# Archives, wire evidence and raw fixtures are opaque, even if they look textual.
+*.sqlite -text
+*.sqlite3 -text
+*.db -text
+*.bin -text
+*.pb -text
+*.wav -text
+*.ico -text
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.webp -text
+*.pdf -text
+*.zip -text
+*.tar -text
+*.gz -text
+*.xz -text
+*.bz2 -text
+*.7z -text
+**/fixtures/** -text !eol
+**/Fixtures/** -text !eol
