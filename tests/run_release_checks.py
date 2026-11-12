@@ -1,7 +1,7 @@
 """Run the complete synthetic release checks, without accessing physical devices.
 
 Usage: python -m tests.run_release_checks [--swift]
-       python -m tests.run_release_checks --modern --research-python PATH [--swift]
+       python -m tests.run_release_checks --modern --research-python PATH [--swift] [--windows-llvm]
 Requires NumPy, pySerial, Node and a working Tk display (use xvfb-run on Linux).
 --swift additionally runs both macOS packages and an unsigned Xcode build.
 --modern selects the additive modernization profile; its --swift checks only
@@ -715,8 +715,13 @@ def _run_posix_command(command: list[str], *, name: str, environment: dict[str, 
 
 
 def run_command(command: list[str], *, name: str, environment: dict[str, str],
-                directory: Path, timeout: float, shutdown_timeout: float = 15) -> str:
+                directory: Path, timeout: float, shutdown_timeout: float = 15,
+                _llvm_negative_probe=None) -> str:
     """Capture UTF-8 diagnostics and reap only this command's owned process tree."""
+    if _llvm_negative_probe is not None:
+        from tools.modernization import windows_llvm
+        windows_llvm.validate_negative_invocation(_llvm_negative_probe, command, name=name,
+                                                  directory=directory, platform=sys.platform)
     if os.name == "posix" and sys.platform != "win32":
         return _run_posix_command(command, name=name, environment=environment,
                                   directory=directory, timeout=timeout, shutdown_timeout=shutdown_timeout)
@@ -795,7 +800,11 @@ def run_command(command: list[str], *, name: str, environment: dict[str, str],
                 _retire_stopped_group(record, process)
     output = _read(path)
     print(output, end="" if output.endswith("\n") else "\n", flush=True)
-    if process.returncode:
+    if _llvm_negative_probe is not None:
+        # Only the literal private compiler probe may expect status 1. All of
+        # the original Windows Job, descendant and JOIN gates above ran first.
+        windows_llvm.validate_probe(process.returncode, output, _llvm_negative_probe.obj, negative=True)
+    elif process.returncode:
         raise ReleaseCheckError(f"{name} exited with status {process.returncode}")
     return output
 
@@ -920,12 +929,14 @@ def modern_commands(directory, environment, *, research_python, swift):
     return commands(ROOT,directory,environment,research_python=research_python,swift=swift)
 
 
-def run_modern_checks(directory, environment, *, research_python, swift, command_timeout, shutdown_timeout):
+def run_modern_checks(directory, environment, *, research_python, swift, command_timeout, shutdown_timeout,
+                      windows_llvm=False):
     from tools.modernization.checks import count_tests
     path=directory/'modern-results.json'
     report={'profile':'modern','successful':False,'hardware_validation':'not_run',
             'swift_scope':'portable-contracts' if swift else 'not_requested','checks':[]}
     current=None
+    llvm_tools=None
     try:
         if not research_python:
             raise ReleaseCheckError('--modern requires --research-python pointing to an isolated Python 3.15.1 environment')
@@ -940,8 +951,29 @@ def run_modern_checks(directory, environment, *, research_python, swift, command
             try:
                 child=environment.copy()
                 child.update(check.environment)
-                output=run_command(check.command,name=check.name,environment=child,directory=directory,
-                                   timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                use_llvm=False
+                if windows_llvm:
+                    from tools.modernization import windows_llvm as llvm
+                    use_llvm=check.name in llvm.BUILD_CHECKS
+                    if use_llvm:
+                        if llvm_tools is None:
+                            llvm_tools=llvm.preflight(directory,environment,run_command=run_command,
+                                timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                        child=llvm.environment_for(child,platform=sys.platform,modern=True,opt_in=True,
+                                                   check_name=check.name,tools=llvm_tools)
+                        llvm.verify_tools(llvm_tools,environment=child)
+                try:
+                    output=run_command(check.command,name=check.name,environment=child,directory=directory,
+                                       timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                except BaseException:
+                    if use_llvm:
+                        try:llvm.audit_cargo(directory,environment['CARGO_TARGET_DIR'],llvm_tools,check_name=check.name,
+                                             environment=child,command_succeeded=False)
+                        except Exception as audit_error:
+                            print(f'[windows-llvm] failed-command cache audit: {type(audit_error).__name__}',flush=True)
+                    raise
+                if use_llvm:
+                    llvm.audit_cargo(directory,environment['CARGO_TARGET_DIR'],llvm_tools,check_name=check.name,environment=child)
                 if check.version and re.search(check.version,output,re.M) is None:
                     raise ReleaseCheckError(f'{check.name}: runtime version does not match the pinned toolchain')
                 if check.kind=='swift':
@@ -970,7 +1002,12 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     destination = Path(tempfile.mkdtemp(prefix="run-", dir=report_dir))
     for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json', *directory.glob("modern-*.json")]:
         if source.is_file():
+            if source.name.startswith('modern-windows-llvm-') and source.suffix == '.log':
+                continue  # The opt-in helper retains only its fixed, bounded probe logs.
             shutil.copy2(source, destination / source.name)
+    if (directory / 'modern-windows-llvm').is_dir():
+        from tools.modernization.windows_llvm import retain_artifacts
+        retain_artifacts(directory, destination)
     summary = {
         "successful": failure is None and not cleanup_errors,
         "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -1013,7 +1050,9 @@ def _release_temporary_directory(*, modern: bool):
 
 def release_checks(*, swift: bool = False, modern: bool = False, research_python: str | None = None, startup_timeout: float = 20,
                    command_timeout: float = 600, shutdown_timeout: float = 15,
-                   report_dir: Path | None = None) -> None:
+                   report_dir: Path | None = None, windows_llvm: bool = False) -> None:
+    if windows_llvm and (not modern or sys.platform != 'win32'):
+        raise ReleaseCheckError('--windows-llvm requires --modern on Windows')
     environment = child_environment()
     environment.pop("ORI_RELEASE_PROCESS_REGISTRY", None)
     children: list[Fixture] = []
@@ -1044,7 +1083,8 @@ def release_checks(*, swift: bool = False, modern: bool = False, research_python
                 environment.update(CARGO_BUILD_JOBS="2",RUST_TEST_THREADS="2",GOMAXPROCS="2",RAYON_NUM_THREADS="2",UV_THREADPOOL_SIZE="2",CARGO_TARGET_DIR=str(directory/"modern-rust-target"),
                                    OPENBLAS_NUM_THREADS="1",OMP_NUM_THREADS="1",MKL_NUM_THREADS="1",VECLIB_MAXIMUM_THREADS="1")
                 run_modern_checks(directory,environment,research_python=research_python,swift=swift,
-                                  command_timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                                  command_timeout=command_timeout,shutdown_timeout=shutdown_timeout,
+                                  **({'windows_llvm':True} if windows_llvm else {}))
             else:
                 if swift and sys.platform != "darwin":
                     raise ReleaseCheckError("--swift requires macOS with Xcode")
@@ -1158,6 +1198,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swift", action="store_true", help="Run native macOS/Xcode checks, or portable contracts with --modern")
     parser.add_argument("--modern",action="store_true",help="Select modernization checks; full release also requires the legacy profile")
+    parser.add_argument("--windows-llvm",action="store_true",help="Opt into verified existing LLVM tools only for Windows modern Cargo children")
     parser.add_argument("--research-python",help="Explicit isolated Python 3.15.1 interpreter for --modern")
     parser.add_argument("--startup-timeout", type=positive_seconds, default=20, metavar="SECONDS")
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
@@ -1172,6 +1213,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.research_python and not args.modern:
         parser.error("--research-python requires --modern")
+    if args.windows_llvm and (not args.modern or sys.platform != 'win32'):
+        parser.error("--windows-llvm requires --modern on Windows")
     if args._single_test is not None and args._python_suite is None:
         parser.error("--_single-test requires --_python-suite")
     if args._session_owner is not None and (args._supervise_command is None or os.name != "posix"):
@@ -1198,7 +1241,7 @@ def main(argv: list[str] | None = None) -> int:
             previous[signum] = signal.signal(signum, _interrupted)
         release_checks(swift=args.swift,modern=args.modern,research_python=args.research_python,startup_timeout=args.startup_timeout,
                        command_timeout=args.command_timeout, shutdown_timeout=args.shutdown_timeout,
-                       report_dir=args.report_dir)
+                       report_dir=args.report_dir, **({'windows_llvm':True} if args.windows_llvm else {}))
     except KeyboardInterrupt as error:
         print(f"Release checks interrupted: {error}", file=sys.stderr)
         return 130

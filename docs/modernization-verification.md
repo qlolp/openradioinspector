@@ -54,6 +54,10 @@ python3.15 -m venv /path/to/research-venv
 
 On Windows the venv interpreter is `Scripts/python.exe`. Pass the interpreter
 explicitly with `--research-python`; no interpreter fallback is attempted. The
+Windows modern CI lane also passes the explicit [`--windows-llvm` build option](windows-llvm-build.md).
+Its existing-tool preflight and actual CMake selections must pass under the
+original owned launcher; native compatibility remains to be measured in Windows CI.
+The option does not change the default profile or application/package environments. The
 research child requires a venv prefix distinct from the core, Python 3.15.1 and
 its pinned NumPy 2.5.4, DuckDB 2.0.0 and PyArrow 26.0.1 distributions. Core Python
 never imports these research dependencies. The modern CI core interpreter is

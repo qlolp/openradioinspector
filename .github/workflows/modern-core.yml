@@ -125,6 +125,7 @@ jobs:
         run: |
           args=()
           if [[ "$RUNNER_OS" == "macOS" ]]; then args+=(--swift); fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then args+=(--windows-llvm); fi
           "$CORE_PYTHON" -m tests.run_release_checks --modern --research-python "$ORI_RESEARCH_PYTHON" "${args[@]}" --command-timeout 1200 --report-dir release-reports/modern
       - name: Record setup failures as diagnostics too
         if: always()

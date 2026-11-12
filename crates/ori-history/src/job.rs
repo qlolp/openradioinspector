@@ -229,3 +229,7 @@ async fn execute(
         .map_err(|_| HistoryError::Internal)??;
     Ok((output, bytes))
 }
+
+#[cfg(all(test, unix))]
+#[path = "job_tests.rs"]
+mod tests;

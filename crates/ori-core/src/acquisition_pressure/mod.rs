@@ -63,6 +63,8 @@ pub(crate) struct AcquisitionPressureStatus {
 }
 pub(crate) type Completion = watch::Receiver<Option<std::result::Result<(), &'static str>>>;
 pub(crate) struct AcquisitionPressure {
+    #[cfg(test)]
+    probe: Arc<owned_tests::ObserverProbe>,
     status: Arc<Mutex<AcquisitionPressureStatus>>,
     stop: watch::Sender<bool>,
     task: Mutex<Option<tokio::task::JoinHandle<std::result::Result<(), &'static str>>>>,
@@ -87,14 +89,29 @@ impl AcquisitionPressure {
         let (stop, receiver) = watch::channel(false);
         let runtime = tokio::runtime::Handle::current();
         let own_status = status.clone();
+        #[cfg(test)]
+        let probe = Arc::new(owned_tests::ObserverProbe::default());
+        #[cfg(test)]
+        let own_probe = probe.clone();
         let task = runtime.spawn(async move {
-            let result = observe(devices, qos, options, receiver, &own_status).await;
+            let result = observe(
+                devices,
+                qos,
+                options,
+                receiver,
+                &own_status,
+                #[cfg(test)]
+                &own_probe,
+            )
+            .await;
             let mut state = own_status.lock().expect("acquisition status poisoned");
             state.observer_running = false;
             state.last_error = result.as_ref().err().copied();
             result
         });
         Ok(Arc::new(Self {
+            #[cfg(test)]
+            probe,
             status,
             stop,
             task: Mutex::new(Some(task)),
@@ -161,6 +178,7 @@ async fn observe(
     options: AcquisitionPressureOptions,
     mut stop: watch::Receiver<bool>,
     status: &Mutex<AcquisitionPressureStatus>,
+    #[cfg(test)] probe: &owned_tests::ObserverProbe,
 ) -> std::result::Result<(), &'static str> {
     let mut ticker = tokio::time::interval(options.sample_interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -176,6 +194,12 @@ async fn observe(
             biased;
             _ = stop.changed() => return Ok(()),
             _ = ticker.tick() => {}
+        }
+        #[cfg(test)]
+        tokio::select! {
+            biased;
+            _ = stop.changed() => return Ok(()),
+            _ = probe.pause() => {}
         }
         let rows = match devices.acquisition_health() {
             Ok(rows) => rows,
@@ -202,6 +226,8 @@ async fn observe(
                 .map_err(|_| "acquisition pressure drain failed")?;
             applied = decision.pressure;
         }
+        #[cfg(test)]
+        probe.record(&rows, &policy);
     }
 }
 

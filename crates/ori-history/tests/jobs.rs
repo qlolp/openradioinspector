@@ -421,7 +421,19 @@ async fn source_cap_and_worker_resource_failure_are_visible_without_removing_ori
     let id = history.submit(request(Operation::Export)).await.unwrap();
     let failed = finished(&history, &id).await;
     assert_eq!(failed.phase, JobPhase::Failed);
-    assert_eq!(failed.failure.unwrap().code, "resource_limit");
+    let failure = failed.failure.unwrap();
+    // Only Linux has the parent RSS sampler. Other supported Unix platforms
+    // must preserve the installed worker's exact cooperative RSS failure.
+    if cfg!(target_os = "linux") {
+        assert!(matches!(
+            failure.code.as_str(),
+            "resource_limit" | "rss_limit_exceeded"
+        ));
+    } else {
+        assert_eq!(failure.code, "rss_limit_exceeded");
+    }
+    assert!(failure.retryable);
+    assert!(!failed.result_available);
     assert!(pool.try_reserve().is_ok(), "failed child was not reaped");
     assert!(
         archive

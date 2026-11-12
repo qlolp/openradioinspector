@@ -18,6 +18,42 @@ use tokio::{
     sync::Semaphore,
 };
 
+#[derive(Clone, Debug)]
+struct ObservedEpoch {
+    epoch: u64,
+    cycles: u64,
+    samples: u32,
+    pressured: bool,
+}
+#[derive(Default)]
+pub(super) struct ObserverProbe {
+    hold: Latch,
+    epochs: Mutex<BTreeMap<String, ObservedEpoch>>,
+}
+impl ObserverProbe {
+    pub(super) async fn pause(&self) {
+        self.hold.pause().await;
+    }
+    pub(super) fn record(&self, rows: &[AcquisitionHealth], policy: &Policy) {
+        *self.epochs.lock().unwrap() = rows
+            .iter()
+            .filter_map(|row| {
+                policy.trackers.get(&row.worker_instance).map(|tracker| {
+                    (
+                        row.worker_instance.clone(),
+                        ObservedEpoch {
+                            epoch: tracker.epoch,
+                            cycles: tracker.last_cycles,
+                            samples: tracker.samples,
+                            pressured: tracker.pressured,
+                        },
+                    )
+                })
+            })
+            .collect();
+    }
+}
+
 struct Latch {
     held: AtomicBool,
     entered: AtomicU64,
@@ -202,15 +238,123 @@ async fn until(mut condition: impl FnMut() -> bool) -> bool {
     .await
     .is_ok()
 }
-async fn calibrated(manager: &DeviceManager) {
+fn consumed(observer: &AcquisitionPressure, row: &AcquisitionHealth, cycles: u64) -> bool {
+    observer
+        .probe
+        .epochs
+        .lock()
+        .unwrap()
+        .get(&row.worker_instance)
+        .is_some_and(|seen| {
+            seen.epoch == row.configuration_epoch && seen.cycles >= cycles && seen.samples >= 3
+        })
+}
+async fn calibrated(manager: &DeviceManager, observer: &AcquisitionPressure) {
     assert!(
         until(|| manager
             .acquisition_health()
             .unwrap()
             .iter()
-            .any(|health| health.completed_cycles >= 4))
+            .any(|health| health.completed_cycles >= 4 && consumed(observer, health, 4)))
         .await,
-        "actual analyzer did not commit its calibration captures"
+        "actual analyzer calibration captures were not consumed by its observer"
+    );
+}
+
+fn pressure_evidence(
+    manager: &DeviceManager,
+    observer: &AcquisitionPressure,
+    qos: &BackgroundQos,
+    cancellation: &Cancellation,
+) -> Value {
+    let rows = manager.acquisition_health().unwrap().into_iter().map(|row| json!({
+        "worker":row.worker_instance,"epoch":row.configuration_epoch,"cycles":row.completed_cycles,
+        "active":row.active,"paused":row.intentionally_paused,
+        "poll_us":row.last_poll_duration.map(|d|d.as_micros()),
+        "commit_us":row.last_commit_duration.map(|d|d.as_micros()),
+        "poll_in_flight_us":row.poll_started_at.map(|at|at.elapsed().as_micros()),
+        "commit_in_flight_us":row.commit_started_at.map(|at|at.elapsed().as_micros())
+    })).collect::<Vec<_>>();
+    let seen = observer
+        .probe
+        .epochs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(worker, seen)| {
+            json!({
+                "worker":worker,"epoch":seen.epoch,"cycles":seen.cycles,
+                "samples":seen.samples,"pressured":seen.pressured
+            })
+        })
+        .collect::<Vec<_>>();
+    let state = observer.status();
+    let budget = qos.status();
+    json!({"rows":rows,"observed":seen,"observer_active":state.active_analyzers,
+        "calibrating":state.calibrating_analyzers,"delayed":state.delayed_analyzers,
+        "observer_pressure":state.acquisition_pressure,"qos_pressure":budget.acquisition_pressure,
+        "registered_work":budget.registered_work,"cancelled":cancellation.is_cancelled()})
+}
+
+#[tokio::test]
+async fn committed_cycles_do_not_prove_that_the_observer_consumed_calibration() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, manager, factory) = manager(root.path()).await;
+    let observer =
+        AcquisitionPressure::start(manager.clone(), BackgroundQos::default(), fast_options())
+            .unwrap();
+    observer.probe.hold.held.store(true, Ordering::Release);
+    start(&manager, "a").await;
+    let held = until(|| observer.probe.hold.entered.load(Ordering::Acquire) > 0).await;
+    let committed = until(|| manager.acquisition_health().unwrap()[0].completed_cycles >= 4).await;
+    let row = manager.acquisition_health().unwrap().remove(0);
+    let before = observer
+        .probe
+        .epochs
+        .lock()
+        .unwrap()
+        .get(&row.worker_instance)
+        .cloned();
+    let mut calibration = Box::pin(calibrated(&manager, &observer));
+    // Poll exactly once: no sleep can turn a counter into an observer receipt.
+    let returned_without_observation = if committed {
+        std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(calibration.as_mut(), cx).is_ready())
+        })
+        .await
+    } else {
+        false
+    };
+    drop(calibration);
+    observer.probe.hold.resume();
+    let consumed = until(|| {
+        observer
+            .probe
+            .epochs
+            .lock()
+            .unwrap()
+            .get(&row.worker_instance)
+            .is_some_and(|value| value.samples >= 3)
+    })
+    .await;
+    let after = observer
+        .probe
+        .epochs
+        .lock()
+        .unwrap()
+        .get(&row.worker_instance)
+        .cloned();
+    observer.close().await.unwrap();
+    manager.close().await.unwrap();
+    factory.join().await;
+    archive.close().await.unwrap();
+    assert!(
+        held && committed && before.is_none() && consumed,
+        "controlled fixture must hold observation while real raw commits progress: held={held}, committed={committed}, before={before:?}, after={after:?}"
+    );
+    assert!(
+        !returned_without_observation,
+        "calibrated() accepted committed cycles without an observer epoch receipt: row={row:?}, before={before:?}, after={after:?}"
     );
 }
 
@@ -296,7 +440,7 @@ async fn latched_actual_analyzer_cancels_original_work_grant_and_fresh_retry_fol
     let observer =
         AcquisitionPressure::start(manager.clone(), qos.clone(), fast_options()).unwrap();
     start(&manager, "a").await;
-    calibrated(&manager).await;
+    calibrated(&manager, &observer).await;
     let cancellation = Cancellation::default();
     let pool = ResearchPool::default();
     let permit = pool.try_reserve().unwrap();
@@ -381,24 +525,31 @@ async fn independently_latched_receiver_does_not_pause_healthy_analyzer_or_resea
     let observer =
         AcquisitionPressure::start(manager.clone(), qos.clone(), fast_options()).unwrap();
     start(&manager, "a").await;
-    calibrated(&manager).await;
+    calibrated(&manager, &observer).await;
     factory.receiver.held.store(true, Ordering::Release);
     start(&manager, "r").await;
     let receiver_waiting = until(|| factory.receiver.entered.load(Ordering::Acquire) > 0).await;
     let before = manager.acquisition_health().unwrap()[0].completed_cycles;
-    let analyzer_progressed =
-        until(|| manager.acquisition_health().unwrap()[0].completed_cycles >= before + 12).await;
+    let analyzer_progressed = until(|| {
+        let row = manager.acquisition_health().unwrap().remove(0);
+        row.completed_cycles >= before + 12 && consumed(&observer, &row, before + 12)
+    })
+    .await;
     let cancellation = Cancellation::default();
     let allowed = qos.register(cancellation.clone()).is_ok();
     let isolated = manager.acquisition_health().unwrap().len() == 1
         && !qos.status().acquisition_pressure
         && !cancellation.is_cancelled();
+    let evidence = pressure_evidence(&manager, &observer, &qos, &cancellation);
     factory.receiver.resume();
     observer.close().await.unwrap();
     manager.close().await.unwrap();
     factory.join().await;
     archive.close().await.unwrap();
-    assert!(receiver_waiting && analyzer_progressed && isolated && allowed);
+    assert!(
+        receiver_waiting && analyzer_progressed && isolated && allowed,
+        "receiver_waiting={receiver_waiting}, analyzer_progressed={analyzer_progressed}, isolated={isolated}, allowed={allowed}; captured_before_cleanup={evidence}"
+    );
 }
 
 #[tokio::test]
@@ -443,7 +594,7 @@ async fn dropping_close_waiter_keeps_actual_observer_join_owned_through_pressure
     let observer =
         AcquisitionPressure::start(manager.clone(), qos.clone(), fast_options()).unwrap();
     start(&manager, "a").await;
-    calibrated(&manager).await;
+    calibrated(&manager, &observer).await;
     let cancellation = Cancellation::default();
     let grant = qos.register(cancellation.clone()).unwrap();
     factory.analyzer.held.store(true, Ordering::Release);
@@ -483,7 +634,8 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
         .unwrap();
     instrument_call(&core, axum::http::Method::POST, "start", Some(json!({}))).await;
     let manager = core.devices.as_ref().unwrap();
-    calibrated(manager).await;
+    let observer = core.acquisition_pressure.get().unwrap();
+    calibrated(manager, observer).await;
     let before = manager.acquisition_health().unwrap().remove(0);
     assert!(until(|| before.started_at.elapsed() > Duration::from_millis(1100)).await);
     let qos = &core.background.as_ref().unwrap().qos;
@@ -500,11 +652,14 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     let terminal = completed_setting(&core, submitted["operation_id"].as_str().unwrap()).await;
     let changed = manager.acquisition_health().unwrap().remove(0);
     let progressed = until(|| {
-        manager.acquisition_health().unwrap()[0].completed_cycles >= changed.completed_cycles + 4
+        let row = manager.acquisition_health().unwrap().remove(0);
+        row.completed_cycles >= changed.completed_cycles + 4
+            && consumed(observer, &changed, changed.completed_cycles + 4)
     })
     .await;
-    let status = core.acquisition_pressure.get().unwrap().status();
+    let status = observer.status();
     let kept_original_grant = !cancellation.is_cancelled() && !qos.status().acquisition_pressure;
+    let evidence = pressure_evidence(manager, observer, qos, &cancellation);
     drop(grant);
     core.close().await.unwrap();
     factory.join().await;
@@ -520,7 +675,8 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     assert!(changed.configuration_changed_at > before.configuration_changed_at);
     assert!(
         progressed && kept_original_grant && status.calibrating_analyzers == 0,
-        "confirmed new cadence must calibrate, while overload alone must not create an epoch"
+        "confirmed new cadence must calibrate, while overload alone must not create an epoch: progressed={progressed}, kept_original_grant={kept_original_grant}, calibrating={}; captured_before_cleanup={evidence}",
+        status.calibrating_analyzers
     );
 }
 
