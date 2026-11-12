@@ -60,7 +60,7 @@ pub(crate) async fn initialize(core: &Arc<Core>) -> crate::Result<()> {
     }
     let worker = options.worker.clone().or_else(|| {
         core.config.analysis_worker.clone().map(|mut worker| {
-            worker.args = vec!["-I".into(), "-m".into(), "ori_research".into()];
+            worker.args = vec!["-I".into(), "-B".into(), "-m".into(), "ori_research".into()];
             worker
         })
     });

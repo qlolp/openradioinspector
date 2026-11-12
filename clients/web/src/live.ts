@@ -8,9 +8,11 @@ import {
 } from './pipeline';
 import type { Connection } from './transport';
 import type { DisplaySweep, Observation, Sweep } from './types';
+import type { PresentationReceipt } from './live-presentation';
 
 export interface LiveSnapshot {
   rows: DisplaySweep[];
+  presentation: PresentationReceipt;
   observation?: Observation;
   unsupported?: UnsupportedSweep;
   sequence: EventSequence;
@@ -51,7 +53,14 @@ export class LiveStore {
   private receiverSession = '';
   private status = 'Connecting';
   private gaps = 0;
-  private snapshot: LiveSnapshot = { rows: [], sequence: 0, state: 'Connecting', gaps: 0 };
+  private presentation: PresentationReceipt = { epoch: {}, total: 0n };
+  private snapshot: LiveSnapshot = {
+    rows: [],
+    presentation: this.presentation,
+    sequence: 0,
+    state: 'Connecting',
+    gaps: 0,
+  };
   onGap: () => void = () => {};
   onInvalidate: (resources: string[]) => void = () => {};
   constructor(private transport: Connection) {}
@@ -110,6 +119,7 @@ export class LiveStore {
   }
   restore(value: LiveCheckpoint) {
     this.stop();
+    this.fencePresentation();
     this.buffer.clear();
     this.scope(value.session, value.stream, value.receiver, value.receiverSession);
     this.gate.reset(value.sequence);
@@ -124,7 +134,10 @@ export class LiveStore {
     this.publish();
   }
   scope(session: string, stream: string, receiver: string, receiverSession = session) {
-    if (session !== this.session || stream !== this.stream) this.unsupported = undefined;
+    if (session !== this.session || stream !== this.stream) {
+      this.unsupported = undefined;
+      this.fencePresentation();
+    }
     if (
       session !== this.session ||
       stream !== this.stream ||
@@ -216,14 +229,22 @@ export class LiveStore {
       ) {
         this.buffer.clear();
         this.provisional = false;
+        this.fencePresentation();
       }
+      const previous = this.buffer.rows;
       this.buffer.append(frame.sweep);
+      if (this.buffer.rows !== previous)
+        this.presentation = { epoch: this.presentation.epoch, total: this.presentation.total + 1n };
     }
     if (
       frame.unsupported?.session_id === this.session &&
       frame.unsupported.stream_id === this.stream
-    )
+    ) {
       this.unsupported = frame.unsupported;
+      // App unmounts the plot for an unsupported source. A later valid source
+      // starts a new display baseline rather than replaying that old plot.
+      this.fencePresentation();
+    }
     if (
       frame.observation?.session_id === this.receiverSession &&
       frame.observation.stream_id === this.receiver
@@ -245,6 +266,7 @@ export class LiveStore {
       this.raf = 0;
       this.snapshot = {
         rows: this.buffer.rows,
+        presentation: this.presentation,
         observation: this.observation,
         unsupported: this.unsupported,
         sequence: this.gate.last,
@@ -268,6 +290,7 @@ export class LiveStore {
   }
   resetArchive(after: EventSequence = 0) {
     this.stop();
+    this.fencePresentation();
     this.gate.reset(after);
     this.anchored = true;
     this.buffer.clear();
@@ -277,6 +300,9 @@ export class LiveStore {
     this.unsupported = undefined;
     this.status = 'Archive changed — display reset';
     this.publish();
+  }
+  private fencePresentation() {
+    this.presentation = { epoch: {}, total: 0n };
   }
   dispose() {
     this.disposed = true;

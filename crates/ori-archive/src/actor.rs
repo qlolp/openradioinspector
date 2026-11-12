@@ -62,6 +62,7 @@ pub(crate) struct Inner {
     pub domain_coordinator: Arc<tokio::sync::Mutex<()>>,
     pub(crate) lifecycle: crate::session_lifecycle::Registry,
     pub writer_synchronous: i64,
+    checkpoint: Arc<crate::checkpoint::Control>,
     pub live_export_path: std::path::PathBuf,
     live_exports: Mutex<Vec<Weak<crate::snapshot_export::LiveExportOwner>>>,
     writer: Mutex<Option<SyncSender<WriterCommand>>>,
@@ -75,6 +76,22 @@ pub(crate) struct Inner {
     close_notify: Notify,
     pub backup_busy: AtomicBool,
     pub notices: broadcast::Sender<CommitNotice>,
+}
+
+// The maintenance executor MUST join before the connection/process lease can
+// drop, including a failed writer-thread launch or an abandoned Archive owner.
+// After Drop runs, Rust drops these fields in declaration order.
+struct WriterOwned {
+    connection: Option<Connection>,
+    maintenance: Option<crate::checkpoint::Owner>,
+    _lease: schema::ProcessWriterLease,
+}
+impl Drop for WriterOwned {
+    fn drop(&mut self) {
+        if let Some(owner) = self.maintenance.take() {
+            owner.join();
+        }
+    }
 }
 
 struct LimitedCount {
@@ -121,9 +138,34 @@ fn run_outbox(
 
 impl Inner {
     pub fn open(config: ArchiveConfig) -> Result<Arc<Self>> {
+        Self::open_with_checkpoint_budget(
+            config,
+            Arc::new(crate::checkpoint::LocalBudget::default()),
+        )
+    }
+    pub fn open_with_checkpoint_budget(
+        config: ArchiveConfig,
+        budget: Arc<dyn crate::CheckpointBudget>,
+    ) -> Result<Arc<Self>> {
         config.validate()?;
         let lease = schema::ProcessWriterLease::acquire(&config.path)?;
-        let mut connection = schema::writer(&config)?;
+        let (checkpoint, checkpoint_requests) = crate::checkpoint::Control::new();
+        let maintenance = crate::checkpoint::Owner::start(
+            checkpoint.clone(),
+            checkpoint_requests,
+            lease.path().to_owned(),
+            budget,
+        )?;
+        let mut owned = WriterOwned {
+            connection: None,
+            maintenance: Some(maintenance),
+            _lease: lease,
+        };
+        owned.connection = Some(schema::writer(&config, &checkpoint)?);
+        let connection = owned
+            .connection
+            .as_ref()
+            .ok_or(ArchiveError::WorkerStopped)?;
         let live_export_path = config.path.canonicalize()?;
         let writer_synchronous =
             connection.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0))?;
@@ -145,87 +187,148 @@ impl Inner {
         let capture_budget = config.max_response_bytes;
         let lifecycle = crate::session_lifecycle::Registry::default();
         let writer_lifecycle = lifecycle.clone();
-        let writer_handle=thread::Builder::new().name("ori-canonical-writer".into()).spawn(move||{
-            let _lease=lease;
-            let _lifecycle = crate::session_lifecycle::WriterLifetime(writer_lifecycle.clone());
-            while let Ok(command)=writer_rx.recv(){match command{
-                WriterCommand::Apply{mutations,reservation,reply}=>{
-                    pending.fetch_sub(1,Ordering::AcqRel);
-                    let outcome=writer::apply(&mut connection,mutations,capacity,capture_budget,&writer_lifecycle).map(|mut value|{value.reservation=Some(reservation);value});
-                    if let Ok(committed)=&outcome && let (Some(first),Some(last))=(committed.first_sequence,committed.last_sequence) {
-                        // The canonical transaction has already committed. Notices contain no raw payloads.
-                        let _=publication.send(CommitNotice{first_sequence:first,last_sequence:last});
+        let writer_checkpoint = checkpoint.clone();
+        let writer_handle = thread::Builder::new()
+            .name("ori-canonical-writer".into())
+            .spawn(move || {
+                let mut owned = owned;
+                let Some(connection) = owned.connection.as_mut() else {
+                    return;
+                };
+                let _lifecycle = crate::session_lifecycle::WriterLifetime(writer_lifecycle.clone());
+                while let Ok(command) = writer_rx.recv() {
+                    match command {
+                        WriterCommand::Apply {
+                            mutations,
+                            reservation,
+                            reply,
+                        } => {
+                            pending.fetch_sub(1, Ordering::AcqRel);
+                            let outcome = if writer_checkpoint.failed() {
+                                Err(ArchiveError::WorkerStopped)
+                            } else {
+                                writer::apply(
+                                    connection,
+                                    mutations,
+                                    capacity,
+                                    capture_budget,
+                                    &writer_lifecycle,
+                                )
+                                .map(|mut value| {
+                                    value.reservation = Some(reservation);
+                                    value
+                                })
+                            };
+                            if let Ok(committed) = &outcome
+                                && let (Some(first), Some(last)) =
+                                    (committed.first_sequence, committed.last_sequence)
+                            {
+                                // The canonical transaction has already committed. Notices contain no raw payloads.
+                                let _ = publication.send(CommitNotice {
+                                    first_sequence: first,
+                                    last_sequence: last,
+                                });
+                            }
+                            let _ = reply.send(outcome);
+                        }
+                        WriterCommand::Outbox {
+                            operation,
+                            reservation,
+                            timeout,
+                            reply,
+                        } => {
+                            pending.fetch_sub(1, Ordering::AcqRel);
+                            let outcome = if writer_checkpoint.failed() {
+                                Err(ArchiveError::WorkerStopped)
+                            } else {
+                                run_outbox(connection, operation, capture_budget, timeout)
+                            };
+                            drop(reservation);
+                            let _ = reply.send(outcome);
+                        }
+                        WriterCommand::Checkpoint { reply } => {
+                            // Preserve the existing writer-ordered barrier, but
+                            // never perform checkpoint I/O on this executor.
+                            writer_checkpoint.enqueue(reply);
+                        }
+                        WriterCommand::CaptureLifecycle {
+                            id,
+                            reservation,
+                            reply,
+                        } => {
+                            pending.fetch_sub(1, Ordering::AcqRel);
+                            let outcome = writer_lifecycle.capture(connection, &id);
+                            drop(reservation);
+                            let _ = reply.send(outcome);
+                        }
+                        WriterCommand::Close => {
+                            break;
+                        }
                     }
-                    let _=reply.send(outcome);
-                },
-                WriterCommand::Checkpoint{reply}=>{let outcome=connection.query_row("PRAGMA wal_checkpoint(PASSIVE)",[],|row|Ok(serde_json::json!({"busy":row.get::<_,i64>(0)?,"wal_frames":row.get::<_,i64>(1)?,"checkpointed_frames":row.get::<_,i64>(2)?}))).map_err(Into::into);let _=reply.send(outcome);},
-                WriterCommand::Outbox{operation,reservation,timeout,reply}=>{
-                    pending.fetch_sub(1,Ordering::AcqRel);
-                    let outcome=run_outbox(&mut connection,operation,capture_budget,timeout);
-                    drop(reservation);
-                    let _=reply.send(outcome);
-                },
-                WriterCommand::CaptureLifecycle{id,reservation,reply}=>{
-                    pending.fetch_sub(1,Ordering::AcqRel);
-                    let outcome=writer_lifecycle.capture(&connection,&id);
-                    drop(reservation);
-                    let _=reply.send(outcome);
-                },
-                WriterCommand::Close=>{let _=connection.execute_batch("PRAGMA wal_checkpoint(PASSIVE)");break;},
-            }}
-            drop(connection);drop(_lease);
-        })?;
+                }
+                drop(owned);
+            })?;
         let mut handles = Vec::new();
         for (index, mut connection) in read_connections.into_iter().enumerate() {
             let receiver = reader_rx.clone();
-            handles.push(
-                thread::Builder::new()
-                    .name(format!("ori-archive-reader-{index}"))
-                    .spawn(move || {
-                        loop {
-                            let command = match receiver.lock() {
-                                Ok(receiver) => receiver.recv(),
-                                Err(_) => return,
-                            };
-                            let Ok(command) = command else { return };
-                            let Some(deadline) = Instant::now().checked_add(command.timeout) else {
-                                let _ = command.reply.send(Err(crate::error::invalid(
-                                    "archive reader deadline overflow",
-                                )));
-                                continue;
-                            };
-                            if let Err(error) = connection
-                                .progress_handler(10000, Some(move || Instant::now() > deadline))
-                            {
-                                let _ = command.reply.send(Err(error.into()));
-                                continue;
-                            }
-                            let outcome = connection
-                                .execute_batch("BEGIN")
-                                .map_err(Into::into)
-                                .and_then(|_| (command.run)(&mut connection));
-                            let clear = connection.progress_handler(0, None::<fn() -> bool>);
-                            let rollback = if connection.is_autocommit() {
-                                Ok(())
-                            } else {
-                                connection.execute_batch("ROLLBACK")
-                            };
-                            let outcome = match outcome {
-                                Err(ArchiveError::Sql(rusqlite::Error::SqliteFailure(
-                                    error,
-                                    _,
-                                ))) if error.code == rusqlite::ErrorCode::OperationInterrupted => {
-                                    Err(ArchiveError::QueryBudget)
-                                }
-                                Ok(_) if rollback.is_err() || clear.is_err() => {
-                                    Err(ArchiveError::WorkerStopped)
-                                }
-                                other => other,
-                            };
-                            let _ = command.reply.send(outcome);
+            let handle = thread::Builder::new()
+                .name(format!("ori-archive-reader-{index}"))
+                .spawn(move || {
+                    loop {
+                        let command = match receiver.lock() {
+                            Ok(receiver) => receiver.recv(),
+                            Err(_) => return,
+                        };
+                        let Ok(command) = command else { return };
+                        let Some(deadline) = Instant::now().checked_add(command.timeout) else {
+                            let _ = command.reply.send(Err(crate::error::invalid(
+                                "archive reader deadline overflow",
+                            )));
+                            continue;
+                        };
+                        if let Err(error) = connection
+                            .progress_handler(10000, Some(move || Instant::now() > deadline))
+                        {
+                            let _ = command.reply.send(Err(error.into()));
+                            continue;
                         }
-                    })?,
-            );
+                        let outcome = connection
+                            .execute_batch("BEGIN")
+                            .map_err(Into::into)
+                            .and_then(|_| (command.run)(&mut connection));
+                        let clear = connection.progress_handler(0, None::<fn() -> bool>);
+                        let rollback = if connection.is_autocommit() {
+                            Ok(())
+                        } else {
+                            connection.execute_batch("ROLLBACK")
+                        };
+                        let outcome = match outcome {
+                            Err(ArchiveError::Sql(rusqlite::Error::SqliteFailure(error, _)))
+                                if error.code == rusqlite::ErrorCode::OperationInterrupted =>
+                            {
+                                Err(ArchiveError::QueryBudget)
+                            }
+                            Ok(_) if rollback.is_err() || clear.is_err() => {
+                                Err(ArchiveError::WorkerStopped)
+                            }
+                            other => other,
+                        };
+                        let _ = command.reply.send(outcome);
+                    }
+                });
+            match handle {
+                Ok(handle) => handles.push(handle),
+                Err(error) => {
+                    checkpoint.request_stop();
+                    drop(reader_tx);
+                    drop(writer_tx);
+                    for handle in handles {
+                        let _ = handle.join();
+                    }
+                    let _ = writer_handle.join();
+                    return Err(error.into());
+                }
+            }
         }
         handles.push(writer_handle);
         Ok(Arc::new(Self {
@@ -233,6 +336,7 @@ impl Inner {
             lifecycle,
             config,
             writer_synchronous,
+            checkpoint,
             live_export_path,
             live_exports: Mutex::new(Vec::new()),
             writer: Mutex::new(Some(writer_tx)),
@@ -252,6 +356,9 @@ impl Inner {
     pub async fn apply(&self, mut mutations: Vec<Mutation>) -> Result<CommittedBatch> {
         if self.closing.load(Ordering::Acquire) {
             return Err(ArchiveError::Closed);
+        }
+        if self.checkpoint.failed() {
+            return Err(ArchiveError::WorkerStopped);
         }
         validate::mutations(&mut mutations)?;
         // Stream the estimate without a second JSON allocation. Closed binary payloads are
@@ -543,7 +650,7 @@ impl Inner {
         self.close_failed.store(true, Ordering::Release);
     }
     pub(crate) fn ensure_cleanup_valid(&self) -> Result<()> {
-        if self.close_failed.load(Ordering::Acquire) {
+        if self.close_failed.load(Ordering::Acquire) || self.checkpoint.failed() {
             Err(ArchiveError::WorkerStopped)
         } else {
             Ok(())
@@ -569,6 +676,7 @@ impl Inner {
     }
     pub async fn close(self: &Arc<Self>) -> Result<()> {
         self.lifecycle.close();
+        self.checkpoint.request_stop();
         if self.closing.swap(true, Ordering::AcqRel) {
             loop {
                 let done = self.close_notify.notified();
@@ -634,7 +742,10 @@ impl Inner {
                     if let Some(handle) = writer {
                         failed |= handle.join().is_err();
                     }
-                    if failed || completion.close_failed.load(Ordering::Acquire) {
+                    if failed
+                        || completion.close_failed.load(Ordering::Acquire)
+                        || completion.checkpoint.failed()
+                    {
                         Err(ArchiveError::WorkerStopped)
                     } else {
                         Ok(())
@@ -665,6 +776,7 @@ impl Inner {
 impl Drop for Inner {
     fn drop(&mut self) {
         self.lifecycle.close();
+        self.checkpoint.request_stop();
     }
 }
 

@@ -153,11 +153,12 @@ mod fixture {
         config.audio.native_enabled = false;
         config.max_archive_bytes = Some(profile.max_snapshot_bytes);
         // Exact trusted executable/argv policy from production main.rs. History
-        // uses its existing production adaptation to `-I -m ori_research`.
+        // uses its existing production adaptation to `-I -B -m ori_research`.
         config.analysis_worker = Some(WorkerSpec {
             program: profile.analysis_python.clone(),
             args: vec![
                 "-I".into(),
+                "-B".into(),
                 "-m".into(),
                 "radioinspector.research_rpc".into(),
             ],

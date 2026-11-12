@@ -17,7 +17,10 @@ config).await`. The `ResearchPool` must be the same instance used by scientific
 analysis; create it once per core, never per request. Set `config.qos` to the
 same `BackgroundQos` used by other derivative work. The worker configuration
 must name an installed isolated Python 3.15 interpreter with exactly
-`["-I", "-m", "ori_research"]`. A source checkout/PYTHONPATH is not equivalent.
+`["-I", "-B", "-m", "ori_research"]`. A source checkout/PYTHONPATH is not equivalent.
+`-B` keeps the installed prefix unchanged: isolated mode ignores the
+`PYTHONDONTWRITEBYTECODE` environment setting. Existing caches remain readable;
+worker results, deadlines and containment requirements are unchanged.
 The scoped-source integration requires worker **0.2.2** or later. Existing
 sealed recovery-bundle input remains supported by that worker.
 

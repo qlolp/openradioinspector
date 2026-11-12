@@ -374,6 +374,7 @@ impl Server {
                     .unwrap_or_else(|| "/usr/bin/python3".into()),
                 args: vec![
                     "-I".into(),
+                    "-B".into(),
                     "-m".into(),
                     "radioinspector.research_rpc".into(),
                 ],

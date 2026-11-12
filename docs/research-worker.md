@@ -225,6 +225,14 @@ caches are retained; a full cache returns a quota error rather than evicting
 unrelated content automatically.
 
 Parquet writers close and fsync before file hashes and manifest creation.
+Their output passes through a bounded 64 KiB buffer before the quota-aware,
+paced file writer, so small Parquet writes do not each reserve a separate slot
+on the shared I/O timeline. Quota admission and accounting still precede the
+actual file writes. Sweep points use typed Arrow columns instead of per-point
+Python dictionaries. Integer Hz, original point indices, raw binary64 values
+and validated scope/unit text retain their existing cells and order. Repeated
+text is costed once per sweep using the same conservative UTF-8 byte estimate;
+small sweeps share batches, and both the 1,024-row and 4 MiB ceilings remain.
 The source is rechecked before a same-filesystem directory rename publishes
 `cache-<sha256>`. No final cache path exists during construction. On failure,
 staging is removed; on process kill, the next admitted child removes its

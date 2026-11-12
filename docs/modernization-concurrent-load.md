@@ -25,11 +25,11 @@ cargo build --locked -p ori-core --release --example benchmark_background
 ```
 
 Supply an absolute installed research Python. The example uses production
-`main.rs`'s exact trusted `WorkerSpec`: `PYTHON -I -m
+`main.rs`'s exact trusted `WorkerSpec`: `PYTHON -I -B -m
 radioinspector.research_rpc`, empty explicit environment, 30,000 ms deadline,
 and either a delegated cgroup with hard memory required or an explicitly
 selected best-effort policy. Core's existing History binding changes only the
-worker module to `-I -m ori_research`. Missing worker/containment is an error,
+worker module to `-I -B -m ori_research`. Missing worker/containment is an error,
 not a scientific stub or an automatic fallback. The report records the selected
 executable SHA-256, argv, policy and the actual History result's enforcement.
 

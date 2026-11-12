@@ -34,9 +34,30 @@ change owner/source generations, or copy measurement arrays. Repeated
 views of an already displayed source can draw once per animation frame and do
 not wait for each previous view's two-frame marker.
 
-This queue begins at `SpectrumRenderer.update`. It cannot recover sources
-already coalesced by the upstream publication path. The surrounding peak/event
-summary, original-point caption and source footer describe the latest incoming
+The live App forwards every newly committed row retained in the existing
+256-row buffer, even when one RAF publication or React commit contains several
+sources. A local presentation receipt carries an opaque epoch and an exact
+`bigint` append count. Spectrum advances its cursor only in committed effects,
+then offers the new suffix in order to `SpectrumRenderer.update`. DTOs and
+measurement vectors are passed by reference. The first live A/B/C snapshot
+admits A before B and C; latest C is not admitted separately ahead of that suffix.
+
+Seed and restored checkpoint rows are a zero-new-source baseline: the latest
+baseline may display once, but its history is not queued for replay. Analyzer
+scope changes, archive resets (including reused IDs), restore and an unsupported
+source fence the presentation epoch. Same-scope reconnect preserves it. The
+receipt is neither persisted in checkpoints nor added to any wire/source field.
+Disposed plots cancel their source barriers and discard their local cursor.
+
+This handoff adds no unbounded queue. If a publication misses more new rows than
+the 256-row buffer retains, `LiveSourceCursor.presentationStatus` reports the
+exact `retainedRowEvictions` count for that epoch. The renderer's separate
+64-entry pending FIFO and explicit overflow-coalescing policy remain unchanged.
+Neither count manufactures a paint marker or makes incomplete source rendering
+pass an acceptance check. ACKs still follow parsing/application without waiting
+for RAF publication, drawing or paint.
+
+The surrounding peak/event summary, original-point caption and source footer describe the latest incoming
 saved measurement, independently of the spectrum's current display snapshot.
 The visible localized “Latest saved measurement” label and accessible groups
 identify that distinction. Waterfall history also follows incoming history.
@@ -56,3 +77,17 @@ the next scheduled draw, and checks that B inherits that view. The
 existing 1,205-event functional and interaction probes keep their original
 counts, deadlines and frame-rate requirement. Synthetic tests do not establish
 Raspberry Pi, physical-device or long-duration performance acceptance.
+
+A controlled native browser regression mounts the real App, hooks, LiveStore
+and Spectrum with an empty seed. Production `parseFrame` handles three exact
+290-point sources; only Worker completion scheduling is controlled. Three
+sequential applied ACKs complete within one publication checkpoint, while native
+Canvas/RAF/MutationObserver must observe A, B and C separately. A spaced control
+requires the same markers. The baseline showed only C for the coalesced case.
+This isolates a reachable publication-loss path; the earlier thirty-minute
+observer did not record per-frame client apply telemetry and cannot attribute
+each missing historical marker to this path. Cursor/store/component tests cover
+baseline, restore, same-ID reset, duplicates, wrong scope, exact counts beyond
+JavaScript safe integers, retained-row eviction, initial admission and obsolete
+marker cancellation. Original source IDs, UTC precision, units and every level
+and frequency remain unchanged, including negative zero and decomposed IDs.

@@ -21,7 +21,7 @@ fn spec() -> WorkerSpec {
         program: std::env::var_os("ORI_RESEARCH_PYTHON")
             .map(Into::into)
             .expect("Set ORI_RESEARCH_PYTHON to the installed isolated research interpreter"),
-        args: vec!["-I".into(), "-m".into(), "ori_research".into()],
+        args: vec!["-I".into(), "-B".into(), "-m".into(), "ori_research".into()],
         environment: BTreeMap::new(),
         deadline_ms: 10_000,
         require_hard_memory: false,

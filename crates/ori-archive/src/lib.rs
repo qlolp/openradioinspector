@@ -2,6 +2,7 @@
 mod actor;
 mod backup;
 mod candidate_precision;
+mod checkpoint;
 mod domains;
 mod error;
 mod json;
@@ -18,6 +19,7 @@ mod writer;
 pub use backup::{
     BackupCancellation, BackupIoBudget, BackupOptions, restore_backup, verify_backup,
 };
+pub use checkpoint::{CheckpointBudget, CheckpointIoPermit};
 pub use error::{ArchiveError, Result};
 pub use json::parse_json_value;
 pub use model::*;
@@ -48,6 +50,15 @@ impl Archive {
     pub fn open(config: ArchiveConfig) -> Result<Self> {
         Ok(Self {
             inner: actor::Inner::open(config)?,
+        })
+    }
+    /// Supply the trusted embedding's shared background I/O policy.
+    pub fn open_with_checkpoint_budget(
+        config: ArchiveConfig,
+        budget: Arc<dyn CheckpointBudget>,
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: actor::Inner::open_with_checkpoint_budget(config, budget)?,
         })
     }
     pub async fn apply(&self, mutations: Vec<Mutation>) -> Result<CommittedBatch> {

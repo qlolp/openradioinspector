@@ -21,7 +21,7 @@ impl Server {
                     program: std::env::var_os("ORI_RESEARCH_PYTHON")
                         .expect("Set ORI_RESEARCH_PYTHON to the installed isolated research interpreter")
                         .into(),
-                    args: vec!["-I".into(), "-m".into(), "ori_research".into()],
+                    args: vec!["-I".into(), "-B".into(), "-m".into(), "ori_research".into()],
                     environment: BTreeMap::new(),
                     deadline_ms: 10_000,
                     require_hard_memory: false,

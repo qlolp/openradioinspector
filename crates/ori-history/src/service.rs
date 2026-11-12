@@ -109,7 +109,7 @@ impl HistoryService {
         config.validate()?;
         if !worker.program.is_absolute()
             || !worker.program.is_file()
-            || worker.args != ["-I", "-m", "ori_research"]
+            || worker.args != ["-I", "-B", "-m", "ori_research"]
             || worker.deadline_ms == 0
             || worker.deadline_ms > 86_400_000
             || worker.require_hard_memory && worker.linux_cgroup.is_none()

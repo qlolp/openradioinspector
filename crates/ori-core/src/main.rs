@@ -362,6 +362,7 @@ async fn execute() -> Result<()> {
             program: program.clone(),
             args: vec![
                 "-I".into(),
+                "-B".into(),
                 "-m".into(),
                 "radioinspector.research_rpc".into(),
             ],

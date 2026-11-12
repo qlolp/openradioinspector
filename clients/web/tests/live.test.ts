@@ -236,3 +236,112 @@ it('replays from the last applied cursor after a gap and ignores cancelled parse
   await vi.waitFor(() => expect(store.getSnapshot().rows).toEqual([]));
   store.dispose();
 });
+
+it('receipts every selected append in a coalesced publication, excluding duplicates and other scopes', async () => {
+  const { store, deliver, parser } = fixture();
+  store.scope('s', 'a', 'r');
+  await store.start(0);
+  for (const [sequence, id] of [
+    [1n, 'A'],
+    [2n, 'B'],
+    [3n, 'C'],
+  ] as const) {
+    const done = deliver(event(sequence, id));
+    parser().complete();
+    expect(await done).toBe(Number(sequence));
+  }
+  await vi.waitFor(() =>
+    expect(store.getSnapshot().rows.map((row) => row.id)).toEqual(['A', 'B', 'C']),
+  );
+  const receipt = store.getSnapshot().presentation;
+  expect(receipt.total).toBe(3n);
+  for (const raw of [
+    event(3n, 'C'),
+    event(4n, 'C'),
+    event(5n, 'wrong').replace('"stream_id":"a"', '"stream_id":"other"'),
+  ]) {
+    const done = deliver(raw);
+    parser().complete();
+    await done;
+  }
+  await vi.waitFor(() => expect(store.getSnapshot().sequence).toBe(5));
+  expect(store.getSnapshot().rows.map((row) => row.id)).toEqual(['A', 'B', 'C']);
+  expect(store.getSnapshot().presentation).toBe(receipt);
+  store.dispose();
+});
+
+it('treats seed and restored rows as baseline, including a same-ID restore into an existing store', async () => {
+  const { store, transport, deliver, parser } = fixture();
+  store.scope('s', 'a', 'r');
+  store.seed([JSON.parse(event(1n, 'seed')).data.payload.sweep], []);
+  await store.start(0);
+  await vi.waitFor(() => expect(store.getSnapshot().rows[0]?.id).toBe('seed'));
+  expect(store.getSnapshot().presentation.total).toBe(0n);
+  const seededEpoch = store.getSnapshot().presentation.epoch;
+  const done = deliver(event(1n, 'committed'));
+  parser().complete();
+  await done;
+  await vi.waitFor(() => expect(store.getSnapshot().rows[0]?.id).toBe('committed'));
+  expect(store.getSnapshot().presentation.total).toBe(1n);
+  expect(store.getSnapshot().presentation.epoch).not.toBe(seededEpoch);
+  const original = store.getSnapshot().presentation;
+  const checkpoint = store.checkpoint()!;
+  expect(checkpoint).not.toHaveProperty('presentation');
+  store.restore(checkpoint);
+  await vi.waitFor(() => expect(store.getSnapshot().presentation.epoch).not.toBe(original.epoch));
+  expect(store.getSnapshot().rows[0]).toBe(checkpoint.rows[0]);
+  expect(store.getSnapshot().presentation.total).toBe(0n);
+  const restored = new LiveStore(transport);
+  restored.restore(checkpoint);
+  await vi.waitFor(() => expect(restored.getSnapshot().rows).toHaveLength(1));
+  expect(restored.getSnapshot().presentation.total).toBe(0n);
+  expect(restored.getSnapshot().presentation.epoch).not.toBe(
+    store.getSnapshot().presentation.epoch,
+  );
+  store.dispose();
+  restored.dispose();
+});
+
+it('fences same-ID archive resets and unsupported plots but preserves same-scope reconnect receipts', async () => {
+  const { store, deliver, parser } = fixture();
+  store.scope('s', 'a', 'r');
+  await store.start(0);
+  const first = deliver(event(1n, 'same-id'));
+  parser().complete();
+  await first;
+  await vi.waitFor(() => expect(store.getSnapshot().rows).toHaveLength(1));
+  const receipt = store.getSnapshot().presentation;
+  await store.start(store.lastApplied());
+  store.scope('s', 'a', 'different-receiver');
+  await vi.waitFor(() => expect(store.getSnapshot().state).toBe('Connecting'));
+  expect(store.getSnapshot().presentation).toBe(receipt);
+  const unsupported = deliver(
+    event(2n, 'not-plotted').replace(
+      '"frequencies_hz":[100]',
+      '"frequencies_hz":[9007199254740993]',
+    ),
+  );
+  parser().complete();
+  await unsupported;
+  await vi.waitFor(() => expect(store.getSnapshot().unsupported?.id).toBe('not-plotted'));
+  expect(store.getSnapshot().presentation.total).toBe(0n);
+  expect(store.getSnapshot().presentation.epoch).not.toBe(receipt.epoch);
+  const beforeReset = store.getSnapshot().presentation;
+  store.resetArchive();
+  await store.start(0);
+  const same = deliver(event(1n, 'same-id'));
+  parser().complete();
+  await same;
+  // The old published row deliberately has the same ID. Wait for the reset
+  // cursor's publication rather than mistaking that old row for completion.
+  await vi.waitFor(() => expect(store.getSnapshot().sequence).toBe(1));
+  await vi.waitFor(() => expect(store.getSnapshot().rows[0]?.id).toBe('same-id'));
+  expect(store.getSnapshot().presentation.total).toBe(1n);
+  expect(store.getSnapshot().presentation.epoch).not.toBe(beforeReset.epoch);
+  const resetReceipt = store.getSnapshot().presentation;
+  store.scope('other-session', 'a', 'r');
+  await vi.waitFor(() => expect(store.getSnapshot().rows).toHaveLength(0));
+  expect(store.getSnapshot().presentation.total).toBe(0n);
+  expect(store.getSnapshot().presentation.epoch).not.toBe(resetReceipt.epoch);
+  store.dispose();
+});

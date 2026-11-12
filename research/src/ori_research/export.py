@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+import io
 import json
 import math
 
@@ -34,15 +35,18 @@ SCHEMAS = {
 class BatchWriter:
     def __init__(self, name, path, budget, stack):
         self.schema,self.budget = SCHEMAS[name],budget
-        self.target = stack.enter_context(QuotaFile(path,budget))
+        self.target = stack.enter_context(io.BufferedWriter(QuotaFile(path,budget),buffer_size=65_536))
         self.writer = stack.enter_context(pq.ParquetWriter(self.target,self.schema,
             compression='zstd',use_dictionary=False,write_statistics=True))
         self.rows,self.bytes,self.count = [],0,0
+        self.columns,self.column_rows = [],0
 
     def append(self, row):
         size = 64 + sum(len(v.encode('utf-8'))+8 if isinstance(v,str) else 16 for v in row.values())
         if size > self.budget.limits['batch_bytes']:
             raise WorkerError('source_record_too_large', 'A source record exceeds the bounded batch budget')
+        if self.column_rows:
+            self.flush()
         if self.rows and (len(self.rows) >= self.budget.limits['batch_rows']
                           or self.bytes+size > self.budget.limits['batch_bytes']):
             self.flush()
@@ -51,14 +55,49 @@ class BatchWriter:
         self.count += 1
 
     def flush(self):
-        if self.rows:
+        if self.rows or self.column_rows:
             self.budget.checkpoint()
-            table = pa.Table.from_pylist(self.rows,schema=self.schema)
-            self.budget.metrics['max_batch_rows'] = max(self.budget.metrics['max_batch_rows'],len(self.rows))
-            self.budget.metrics['max_batch_bytes'] = max(self.budget.metrics['max_batch_bytes'],table.nbytes)
-            self.writer.write_table(table,row_group_size=len(self.rows))
+            table = (pa.Table.from_pylist(self.rows,schema=self.schema) if self.rows else
+                     pa.Table.from_batches(self.columns,schema=self.schema))
+            self._write(table)
             self.rows.clear()
+            self.columns.clear()
+            self.column_rows = 0
             self.bytes = 0
+
+    def _write(self, table):
+        if table.num_rows > self.budget.limits['batch_rows'] or table.nbytes > self.budget.limits['batch_bytes']:
+            raise WorkerError('source_record_too_large', 'An Arrow batch exceeds the bounded batch budget')
+        self.budget.metrics['max_batch_rows'] = max(self.budget.metrics['max_batch_rows'],table.num_rows)
+        self.budget.metrics['max_batch_bytes'] = max(self.budget.metrics['max_batch_bytes'],table.nbytes)
+        self.writer.write_table(table,row_group_size=table.num_rows)
+
+    def points(self, scope, frequencies, levels, indices):
+        # Scope text is constant across a sweep. Preserve the scalar writer's
+        # conservative UTF-8 cost, including all three per-point numeric cells.
+        size = 64 + sum(len(v.encode('utf-8'))+8 if isinstance(v,str) else 16 for v in scope.values()) + 3*16
+        if size > self.budget.limits['batch_bytes']:
+            raise WorkerError('source_record_too_large', 'A source record exceeds the bounded batch budget')
+        if self.rows:
+            self.flush()
+        constants = {name:pa.scalar(value,type=self.schema.field(name).type) for name,value in scope.items()}
+        vectors = dict(point_index=indices,frequency_hz=frequencies,level=levels)
+        offset = 0
+        while offset < len(indices):
+            self.budget.checkpoint()
+            available = min(self.budget.limits['batch_rows']-self.column_rows,
+                            (self.budget.limits['batch_bytes']-self.bytes)//size)
+            if not available:
+                self.flush()
+                continue
+            count = min(available,len(indices)-offset)
+            columns = [pa.repeat(constants[field.name],count) if field.name in constants
+                else pa.array(vectors[field.name][offset:offset+count],type=field.type) for field in self.schema]
+            self.columns.append(pa.RecordBatch.from_arrays(columns,schema=self.schema))
+            self.column_rows += count
+            self.bytes += count*size
+            self.count += count
+            offset += count
 
 
 def _scope(row):
@@ -93,14 +132,15 @@ def _sweep(writers,row,filters,budget):
             raise ValueError()
     except (ValueError,TypeError,OverflowError,RecursionError):
         raise WorkerError('source_record_invalid','Invalid sweep sample arrays') from None
-    selected = 0
-    for index,hz_value in enumerate(hz):
+    for hz_value in hz:
         frequency(hz_value)
-        if frequency_selected(hz_value,filters):
-            writers['sweep_points'].append(dict(sweep_id=identifier,**common,point_index=index,
-                frequency_hz=hz_value,level=float(values[index]),level_unit=unit))
-            selected += 1
+    frequencies = np.asarray(hz,dtype=np.int64)
+    indices = np.flatnonzero((frequencies >= filters.get('min_frequency_hz',0)) &
+                            (frequencies <= filters.get('max_frequency_hz',2**63-1)))
+    selected = len(indices)
     if selected:
+        writers['sweep_points'].points(dict(sweep_id=identifier,**common,level_unit=unit),
+                                      frequencies[indices],values[indices],indices)
         writers['sweeps'].append(dict(id=identifier,**common,level_unit=unit,
             settings_json=json_object(row['settings_json'],budget.limits['max_record_bytes']),
             source_point_count=len(hz),exported_point_count=selected))

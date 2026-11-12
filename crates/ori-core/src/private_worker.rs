@@ -203,9 +203,9 @@ async fn run_owned(
         .ok_or(Error::Unsafe("background owner unavailable".into()))?;
     let guard = background.qos.register(cancel.clone()).map_err(qos)?;
     let shared = background.qos.worker_io();
-    let trusted = spec.args == ["-I", "-m", "radioinspector.research_rpc"]
-        || spec.args == ["-I", "-m", "radioinspector.legacy_rpc"];
-    let expected = if spec.args == ["-I", "-m", "radioinspector.legacy_rpc"] {
+    let trusted = spec.args == ["-I", "-B", "-m", "radioinspector.research_rpc"]
+        || spec.args == ["-I", "-B", "-m", "radioinspector.legacy_rpc"];
+    let expected = if spec.args == ["-I", "-B", "-m", "radioinspector.legacy_rpc"] {
         IoClass::Files
     } else {
         IoClass::MemoryOnly

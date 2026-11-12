@@ -20,26 +20,34 @@ import {
   type FrequencyRange,
 } from './spectrum-view';
 import type { Comparison, DisplaySweep } from './types';
+import { LiveSourceCursor, type LiveSources } from './live-presentation';
 
-export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparison?: Comparison }) {
+interface SpectrumProps {
+  sweep?: DisplaySweep;
+  comparison?: Comparison;
+  liveSources?: LiveSources;
+}
+export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
   const locale = useLocale();
   const plot = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
     fallback = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<SpectrumRenderer | null>(null);
-  const [display, setDisplay] = useState<DrawnSpectrum>(),
+  const sourceCursor = useRef<LiveSourceCursor | null>(null);
+  const [display, setDisplay] = useState<DrawnSpectrum & { presentationEpoch?: object }>(),
     [mode, setMode] = useState('Starting renderer');
   const full = sourceRange(sweep);
-  const current = useRef({ sweep, comparison, full, range: full });
+  const current = useRef({ sweep, comparison, liveSources, full, range: full });
   const changed = !sameSpectrumContext(current.current.sweep, sweep);
   const desiredRange = changed ? full : clampRange(current.current.range, full);
-  current.current = { sweep, comparison, full, range: desiredRange };
+  current.current = { sweep, comparison, liveSources, full, range: desiredRange };
   const dragging = useRef<
     { id: number; x: number; width: number; range: FrequencyRange } | undefined
   >(undefined);
   if (changed) dragging.current = undefined;
   const drawn =
     display &&
+    display.presentationEpoch === liveSources?.presentation.epoch &&
     sameSpectrumContext(display.sweep, sweep) &&
     display.webgl === mode.startsWith('WebGL2')
       ? display
@@ -53,6 +61,24 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
     current.current = { ...data, range: bounded };
     renderer.current?.view(bounded);
   }, []);
+  const forward = useCallback(
+    (graph: SpectrumRenderer, data: SpectrumProps, range: FrequencyRange) => {
+      const cursor = sourceCursor.current!;
+      if (data.liveSources) {
+        const batch = cursor.take(data.liveSources);
+        // A new archive/scope can reuse every visible identity. Explicitly cancel
+        // the previous source barrier even when its IDs/grid/unit are identical.
+        if (batch.reset) graph.update(undefined, undefined, range);
+        for (const row of batch.rows) graph.update(row, data.comparison, range);
+        if (batch.rows.length) return;
+      } else if (cursor.epoch) {
+        sourceCursor.current = new LiveSourceCursor();
+        graph.update(undefined, undefined, range);
+      }
+      graph.update(data.sweep, data.comparison, range);
+    },
+    [],
+  );
   useEffect(() => {
     const element = plot.current!;
     const glCanvas = canvas.current!,
@@ -61,9 +87,10 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
       if (!sameSpectrumContext(snapshot.sweep, current.current.sweep)) return;
       // This callback follows actual pixel submission. Commit its labels before
       // paint and the original two-RAF marker, without changing source/Worker ACKs.
-      flushSync(() => setDisplay(snapshot));
+      flushSync(() => setDisplay({ ...snapshot, presentationEpoch: sourceCursor.current?.epoch }));
     });
     renderer.current = graph;
+    sourceCursor.current = new LiveSourceCursor();
     const resize = new ResizeObserver((entries) => {
       const size = entries[0]?.contentRect;
       if (size) graph.resize(Math.max(1, size.width - 60), Math.max(1, size.height - 42));
@@ -99,7 +126,7 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
     system.addEventListener('change', systemTheme);
     glCanvas.addEventListener('webglcontextlost', lost);
     glCanvas.addEventListener('webglcontextrestored', restored);
-    graph.update(current.current.sweep, current.current.comparison, current.current.range);
+    forward(graph, { sweep, comparison, liveSources }, current.current.range);
     return () => {
       resize.disconnect();
       theme.disconnect();
@@ -109,11 +136,13 @@ export function Spectrum({ sweep, comparison }: { sweep?: DisplaySweep; comparis
       glCanvas.removeEventListener('webglcontextrestored', restored);
       graph.dispose();
       renderer.current = null;
+      sourceCursor.current = null;
     };
   }, []);
   useEffect(() => {
-    renderer.current?.update(sweep, comparison, current.current.range);
-  }, [sweep, comparison]);
+    if (renderer.current)
+      forward(renderer.current, { sweep, comparison, liveSources }, current.current.range);
+  }, [sweep, comparison, liveSources?.rows, liveSources?.presentation, forward]);
   const pan = (direction: number) => {
     const data = current.current;
     change(panRange(data.range, data.full, (data.range.high - data.range.low) * direction * 0.2));

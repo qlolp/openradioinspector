@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS ori_observation_level_bits(observation_id TEXT PRIMAR
 static OPEN_WRITERS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 pub(crate) struct ProcessWriterLease(PathBuf);
 impl ProcessWriterLease {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
     pub fn acquire(path: &Path) -> Result<Self> {
         let parent = path
             .parent()
@@ -122,7 +125,10 @@ pub(crate) fn functions(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn writer(config: &ArchiveConfig) -> Result<Connection> {
+pub(crate) fn writer(
+    config: &ArchiveConfig,
+    checkpoint: &std::sync::Arc<crate::checkpoint::Control>,
+) -> Result<Connection> {
     if config.path.exists() {
         let probe = Connection::open_with_flags(
             &config.path,
@@ -145,6 +151,7 @@ pub(crate) fn writer(config: &ArchiveConfig) -> Result<Connection> {
         return Err(ArchiveError::Corrupt("WAL could not be enabled".into()));
     }
     db.pragma_update(None, "synchronous", "FULL")?;
+    checkpoint.install(&mut db)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let (main, monitoring, _) = versions(&tx)?;
     // Only fixed canonical DDL from the actual Python empty archive.

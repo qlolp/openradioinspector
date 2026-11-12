@@ -121,7 +121,12 @@ impl LegacyScience for Science {
             .clone()
             .or_else(|| {
                 core.config.analysis_worker.clone().map(|mut spec| {
-                    spec.args = vec!["-I".into(), "-m".into(), "radioinspector.legacy_rpc".into()];
+                    spec.args = vec![
+                        "-I".into(),
+                        "-B".into(),
+                        "-m".into(),
+                        "radioinspector.legacy_rpc".into(),
+                    ];
                     spec
                 })
             })

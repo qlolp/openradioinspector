@@ -10,6 +10,7 @@ mod audio_http;
 pub use audio::AudioOptions;
 mod automation_binding;
 mod background;
+mod checkpoint_budget;
 mod core_backup;
 pub mod devices;
 mod domain_http;
@@ -240,7 +241,7 @@ impl Core {
             identity.validate()?;
         }
         let security = security::SecurityState::open(config.lan_security.as_ref())?;
-        let (writer, archive) = if config.mode == CoreMode::Replay {
+        let (writer, archive, background) = if config.mode == CoreMode::Replay {
             reject_symlinks(&config.database)?;
             if config.database.parent() != Some(config.data_directory.as_path()) {
                 return Err(CoreError::Invalid(
@@ -273,20 +274,38 @@ impl Core {
                 Err(error) => return Err(error.into()),
             }
             let mut lease = StartingWriter(Some(WriterLease::acquire(&config.data_directory)?));
+            let background = match background::Background::open(&config.data_directory) {
+                Ok(background) => background,
+                Err(error) => {
+                    // No Archive thread has launched at this point.
+                    lease.0.take();
+                    return Err(error);
+                }
+            };
             let mut archive_config = ArchiveConfig::new(&config.database);
             archive_config.max_database_bytes = config.max_archive_bytes;
-            let archive = tokio::task::spawn_blocking(move || Archive::open(archive_config))
-                .await
-                .map_err(|_| CoreError::Task)??;
+            let checkpoint_budget = checkpoint_budget::Budget::new(background.clone());
+            let archive = match tokio::task::spawn_blocking(move || {
+                Archive::open_with_checkpoint_budget(archive_config, checkpoint_budget)
+            })
+            .await
+            {
+                Ok(Ok(archive)) => archive,
+                Ok(Err(error)) => {
+                    let _ = background.close().await;
+                    return Err(error.into());
+                }
+                Err(_) => return Err(CoreError::Task),
+            };
             if let Err(error) = recovery::recover(&archive).await {
-                if archive.close().await.is_ok() {
+                if archive.close().await.is_ok() && background.close().await.is_ok() {
                     lease.0.take();
                 }
                 return Err(error);
             }
-            (Some(lease), Some(archive))
+            (Some(lease), Some(archive), Some(background))
         } else {
-            (None, None)
+            (None, None, None)
         };
         let mutation_order = archive
             .as_ref()
@@ -298,11 +317,6 @@ impl Core {
             .map(|archive| devices::DeviceManager::new(archive.clone(), config.devices.clone()));
         let audio = if archive.is_some() {
             audio::Audio::open(&config.audio)?
-        } else {
-            None
-        };
-        let background = if archive.is_some() {
-            Some(background::Background::open(&config.data_directory)?)
         } else {
             None
         };
@@ -513,11 +527,13 @@ impl Core {
                 Err(error) => return Err(error.into()),
             }
         };
+        if let Some(archive) = &self.archive {
+            // Maintenance retains the original shared ledger through actual
+            // native connection cleanup/JOIN. Only then may its files go away.
+            archive.close().await?;
+        }
         if let Some(background) = &self.background {
             background.close().await?;
-        }
-        if let Some(archive) = &self.archive {
-            archive.close().await?;
         }
         self.writer
             .lock()

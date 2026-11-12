@@ -209,7 +209,7 @@ disabled. Secrets and private filesystem failures are not included in responses.
 ### Derived history jobs
 
 `CoreConfig.history` supplies optional trusted worker and source/cache budgets.
-The CLI inherits `--analysis-python`, fixes argv to `-I -m ori_research`, and
+The CLI inherits `--analysis-python`, fixes argv to `-I -B -m ori_research`, and
 uses the installed worker 0.2.2 protocol. Missing containment or no configured
 worker leaves the cold UI available and returns `history_worker_unavailable`
 for history calls. `candidate.history_worker_configured` describes configuration,
@@ -499,7 +499,7 @@ ori-core --mode replay --data-dir /absolute/private-replay --analysis-python /ab
 ```
 
 Install the root wheel in that isolated environment first. The argv is fixed to
-`-I -m radioinspector.research_rpc`; no HTTP parameter selects a command, module,
+`-I -B -m radioinspector.research_rpc`; no HTTP parameter selects a command, module,
 SQL statement or filename. The child environment is sanitized by `ori-runtime`.
 Default timeout is 30 seconds (`--research-deadline-ms`). Hard child memory
 requires an actually delegated cgroup. `--research-best-effort` is an explicit
@@ -651,7 +651,7 @@ a worker. The stream sends the initial snapshot and latest version changes with
 one-second keep-alive comments; it shares the Core's eight subscriber slots.
 
 The trusted configured analysis interpreter is reused with fixed argv
-(-I -m radioinspector.legacy_rpc). The same single ResearchPool reservation is
+(-I -B -m radioinspector.legacy_rpc). The same single ResearchPool reservation is
 taken before private source preparation and retained through child reap.
 The original I/O budget also retains that reservation through the final
 canonical write and SQL/snapshot cleanup, after the child has exited. Parent

@@ -738,7 +738,10 @@ export function App({
                 </button>
               </div>
             ) : (
-              <Spectrum sweep={latest} />
+              <Spectrum
+                sweep={latest}
+                liveSources={{ rows: desk.live.rows, presentation: desk.live.presentation }}
+              />
             )}
             <div className="chart-caption" role="group" aria-label={t('Latest saved measurement')}>
               <span>{t('Frequency · MHz')}</span>

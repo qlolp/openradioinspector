@@ -55,6 +55,7 @@ impl Server {
                 (
                     vec![
                         "-I".into(),
+                        "-B".into(),
                         "-m".into(),
                         "radioinspector.research_rpc".into(),
                     ],
