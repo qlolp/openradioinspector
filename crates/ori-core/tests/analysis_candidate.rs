@@ -31,6 +31,9 @@ impl Server {
             require_hard_memory: false,
             linux_cgroup: None,
         });
+        Self::with_config(config).await
+    }
+    async fn with_config(config: CoreConfig) -> Self {
         let core = Core::open(config).await.unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -290,4 +293,54 @@ async fn scientific_get_queries_reject_malformed_percent_encoding_utf8_and_dupli
         assert_eq!(status, 400, "{suffix}: {value}");
     }
     server.stop().await;
+}
+
+#[tokio::test]
+async fn configured_scientific_http_does_not_report_research_http_as_unsupported() {
+    let directory = tempfile::tempdir().unwrap();
+    seed(directory.path()).await;
+    let mut server = Server::start(directory.path(), "echo", None).await;
+    let path = route("/sweep-comparison?reference_id=exact-source-000&target_id=exact-source-071");
+    let (result_status, result) = server.request("GET", &path, None).await;
+    let (cap_status, cap) = server.request("GET", "/api/v1/capabilities", None).await;
+    server.stop().await;
+    assert_eq!(result_status, 200, "{result}");
+    assert_eq!(result["data"]["method"], "compare_sweeps");
+    assert_eq!(cap_status, 200);
+    assert_eq!(cap["data"]["features"]["sweep_comparison"], true);
+    assert!(
+        !cap["data"]["candidate"]["unsupported_features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "research_http"),
+        "a successful configured HTTP operation is still reported as unsupported"
+    );
+}
+
+#[tokio::test]
+async fn absent_scientific_worker_stays_unavailable_and_retains_research_http_diagnostic() {
+    let directory = tempfile::tempdir().unwrap();
+    seed(directory.path()).await;
+    let mut server = Server::with_config(CoreConfig::replay(directory.path())).await;
+    let (result_status, result) = server
+        .request(
+            "POST",
+            &route("/sweep-quality"),
+            Some(&json!({"sweep_id":"exact-source-001","edge_margin_db":10,"high_level_dbm":-20})),
+        )
+        .await;
+    let (cap_status, cap) = server.request("GET", "/api/v1/capabilities", None).await;
+    server.stop().await;
+    assert_eq!(result_status, 503, "{result}");
+    assert_eq!(result["error"]["code"], "research_unavailable");
+    assert_eq!(cap_status, 200);
+    assert_eq!(cap["data"]["features"]["sweep_comparison"], false);
+    assert!(
+        cap["data"]["candidate"]["unsupported_features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "research_http")
+    );
 }

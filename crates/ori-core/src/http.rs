@@ -913,7 +913,7 @@ fn capabilities(core: &Core) -> Value {
         value["candidate"]["unsupported_features"]
             .as_array_mut()
             .expect("static capability list")
-            .retain(|v| v != "advanced_analysis");
+            .retain(|v| v != "advanced_analysis" && v != "research_http");
     }
     if value["features"]["legacy_panorama_workspace"] == true {
         value["candidate"]["unsupported_features"]

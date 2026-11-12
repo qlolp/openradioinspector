@@ -491,6 +491,10 @@ routes use the installed `radioinspector.research_rpc` worker. Core passes exact
 selected archive DTOs and the original request to one owned child; it never
 proxies a mutation to a Python writer or opens a Python archive in that child.
 The scientific algorithms and their existing validation remain authoritative.
+With an explicit worker in replay mode, capabilities enable the scientific
+features and remove `research_http` from the unsupported diagnostic list.
+Without a worker the features stay false, scientific requests return 503, and
+the diagnostic remains present.
 
 Configure an absolute environment executable, preserving its venv symlink:
 
