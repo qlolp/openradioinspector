@@ -16,6 +16,12 @@ from tests import run_release_checks as release
 
 class DiagnosticTimerOwnershipTests(unittest.TestCase):
     def test_darwin_315_returns_after_success_without_entering_blocked_native_cancel(self):
+        self._assert_returns_without_native_cancel((3, 15, 2))
+
+    def test_darwin_314_returns_after_success_without_entering_blocked_native_cancel(self):
+        self._assert_returns_without_native_cancel((3, 14, 10))
+
+    def _assert_returns_without_native_cancel(self, version):
         published = threading.Event()
         returned = threading.Event()
         cancel_entered = threading.Event()
@@ -44,7 +50,7 @@ class DiagnosticTimerOwnershipTests(unittest.TestCase):
                     returned.set()
 
             with patch.object(release.sys, "platform", "darwin"), \
-                    patch.object(release.sys, "version_info", (3, 15, 2)), \
+                    patch.object(release.sys, "version_info", version), \
                     patch.object(release, "run_python_suite", side_effect=suite) as run, \
                     patch.object(release.faulthandler, "enable"), \
                     patch.object(release.faulthandler, "dump_traceback_later") as arm, \
@@ -71,7 +77,9 @@ class DiagnosticTimerOwnershipTests(unittest.TestCase):
             ("darwin", (3, 15, 0), False), ("darwin", (3, 15, 1), False),
             ("darwin", (3, 15, 2), False), ("darwin", (3, 15, 99), False),
             ("linux", (3, 15, 2), True), ("win32", (3, 15, 2), True),
-            ("darwin", (3, 14, 1), True), ("darwin", (3, 16, 0), True),
+            ("darwin", (3, 14, 1), False), ("darwin", (3, 14, 10), False),
+            ("linux", (3, 14, 10), True), ("win32", (3, 14, 10), True),
+            ("darwin", (3, 16, 0), True),
             ("darwin", (3, 12, 10), False),
         )
         for platform, version, native in profiles:
