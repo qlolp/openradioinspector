@@ -31,7 +31,11 @@ fn new_lan_requires_tls_existing_loopback_requires_explicit_migration() {
 
 #[test]
 fn private_identity_reloads_and_authenticates_real_tls_with_installed_local_ca() {
-    let temp = tempfile::tempdir().unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir()
+        .unwrap();
     let identity = TlsIdentity::create(temp.path(), vec!["ori.local".into()]).unwrap();
     let fingerprint = identity.fingerprint_sha256();
     assert_eq!(fingerprint.len(), 64);
@@ -75,7 +79,6 @@ fn private_identity_reloads_and_authenticates_real_tls_with_installed_local_ca()
     stream.read_exact(&mut pong).unwrap();
     assert_eq!(&pong, b"pong");
     thread.join().unwrap();
-    use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(
         temp.path().join("identity.json"),
         std::fs::Permissions::from_mode(0o644),
