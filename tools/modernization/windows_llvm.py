@@ -74,7 +74,9 @@ LOG_SUFFIXES = ('rustc-path', 'rustc-version', 'rustc-sysroot', 'clang-version',
 
 
 class LLVMError(ValueError):
-    pass
+    def __init__(self, message, *, rejected_receipt=None):
+        super().__init__(message)
+        self.rejected_receipt = rejected_receipt
 
 
 @dataclass(frozen=True)
@@ -176,27 +178,40 @@ def _receipt(path, *, provenance):
 
 
 def executable_receipt(path, *, name, provenance):
+    diagnostic = None
     try:
         path = Path(path)
         if not path.is_absolute() or path.name.lower() != name.lower():
             raise LLVMError(f'{name}: expected existing absolute executable path')
         result = _receipt(path, provenance=provenance)
+        diagnostic = {'path': result['path'][:1024], 'path_truncated': len(result['path']) > 1024,
+                      'bytes': result['bytes'], 'sha256': result['sha256'],
+                      'dos_signature_hex': None, 'pe_offset': None,
+                      'pe_signature_hex': None, 'machine_code': None}
         # Read the bounded DOS/PE headers, never load or execute the image here.
         with path.open('rb') as source:
             dos = source.read(64)
+            diagnostic['dos_signature_hex'] = dos[:2].hex()
             if len(dos) != 64 or dos[:2] != b'MZ':
                 raise LLVMError(f'{name}: invalid PE header')
             offset = struct.unpack_from('<I', dos, 60)[0]
+            diagnostic['pe_offset'] = offset
             if not 64 <= offset <= min(result['bytes'] - 6, 1024 * 1024):
                 raise LLVMError(f'{name}: invalid PE offset')
             source.seek(offset)
-            if source.read(6) != b'PE\0\0\x64\x86':
+            header = source.read(6)
+            diagnostic['pe_signature_hex'] = header[:4].hex()
+            if len(header) == 6:
+                diagnostic['machine_code'] = struct.unpack_from('<H', header, 4)[0]
+            if header != b'PE\0\0\x64\x86':
                 raise LLVMError(f'{name}: expected x64 PE executable')
         return {**result, 'machine': 'x86_64'}
     except (OSError, ValueError) as error:
         if isinstance(error, LLVMError):
+            error.rejected_receipt = diagnostic
             raise
-        raise LLVMError(f'{name}: executable is unavailable ({type(error).__name__})') from error
+        raise LLVMError(f'{name}: executable is unavailable ({type(error).__name__})',
+                        rejected_receipt=diagnostic) from error
 
 
 def verify_tools(tools, *, environment=None):
@@ -504,7 +519,12 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
             path = str(Path(sibling) / name) if sibling else shutil.which(name, path=environment.get('PATH') if search_path is None else search_path)
             if path is None:
                 raise LLVMError(f'{name}: required existing tool is missing; no installation or fallback')
-            receipt = executable_receipt(path, name=name, provenance=provenance)
+            try:
+                receipt = executable_receipt(path, name=name, provenance=provenance)
+            except LLVMError as error:
+                if error.rejected_receipt is not None:
+                    report.setdefault('rejected_tools', {})[key] = error.rejected_receipt
+                raise
             tools[key] = receipt['path']
             report['tools'][key] = receipt
         for key, name in (('clang_cl', 'clang-cl.exe'), ('cmake', 'cmake.exe'),

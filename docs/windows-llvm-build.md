@@ -102,6 +102,12 @@ closure remain CI requirements.
 
 `modern-windows-llvm.json` records preflight evidence; per-Cargo CMake audit JSON
 files remain separate from framework test counts. Failure reports retain the
+resolved path (at most 1,024 characters), byte count, SHA256 and bounded DOS/PE
+signature, offset and numeric machine fields in `rejected_tools` when a hashed
+executable fails validation. This diagnostic receipt preserves the rejection;
+it does not establish a different host architecture or allow another machine.
+No executable contents or environment values are exported by that receipt.
+Failure reports also retain the
 literal sources and fixed build products, with a 2 MiB per-file and 8 MiB total
 artifact bound. The fourteen required preflight logs, plus two when NASM is
 available, retain at most 64 KiB each,

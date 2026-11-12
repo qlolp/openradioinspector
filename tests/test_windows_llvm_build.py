@@ -231,6 +231,45 @@ class LLVMToolAndCacheTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(llvm.LLVMError):
                 llvm.executable_receipt(path, name='clang-cl.exe', provenance='existing')
 
+    def test_rejected_ninja_retains_bounded_header_receipt_without_running_any_tool(self):
+        for machine, signature in ((0x014c, b'PE\0\0'), (0xaa64, b'PE\0\0'), (0x8664, b'PX\0\0')):
+            with self.subTest(machine=machine, signature=signature):
+                driver = self.prepare_driver()
+                binary = bytearray(pe_x64())
+                binary[64:68] = signature
+                struct.pack_into('<H', binary, 68, machine)
+                path = Path(self.tools['ninja'])
+                path.write_bytes(binary)
+                with self.assertRaisesRegex(llvm.LLVMError, 'ninja.exe: expected x64 PE executable'):
+                    self.preflight(driver)
+                report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+                self.assertFalse(report['successful'])
+                self.assertEqual(self.calls, [], 'rejected executable must not start any owned command')
+                self.assertNotIn('ninja', report['tools'])
+                self.assertIn('ninja', report.get('rejected_tools', {}))
+                self.assertEqual(report['rejected_tools']['ninja'], {
+                    'path': str(path.resolve()), 'path_truncated': False,
+                    'bytes': 128, 'sha256': hashlib.sha256(binary).hexdigest(),
+                    'dos_signature_hex': '4d5a', 'pe_offset': 64,
+                    'pe_signature_hex': signature.hex(), 'machine_code': machine})
+
+    def test_rejected_receipt_caps_only_diagnostic_path_and_keeps_source_receipt_immutable(self):
+        path = Path(self.tools['ninja'])
+        binary = bytearray(pe_x64())
+        struct.pack_into('<H', binary, 68, 0x014c)
+        path.write_bytes(binary)
+        canonical = {'path': 'C:\\' + 'x' * 2048, 'bytes': 128, 'sha256': 'a' * 64,
+                     'provenance': 'existing child PATH'}
+        before = canonical.copy()
+        with patch.object(llvm, '_receipt', return_value=canonical), self.assertRaises(llvm.LLVMError) as caught:
+            llvm.executable_receipt(path, name='ninja.exe', provenance='existing child PATH')
+        diagnostic = getattr(caught.exception, 'rejected_receipt', None)
+        self.assertIsNotNone(diagnostic, 'a hashed rejected executable needs a structured diagnostic receipt')
+        self.assertEqual(diagnostic['path'], 'C:\\' + 'x' * 1021)
+        self.assertTrue(diagnostic['path_truncated'])
+        self.assertEqual(diagnostic['machine_code'], 0x014c)
+        self.assertEqual(canonical, before)
+
     def test_archive_must_contain_the_exact_verified_positive_object(self):
         obj = self.directory / 'positive.obj'
         obj.write_bytes(coff_x64())
