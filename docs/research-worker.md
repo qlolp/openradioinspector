@@ -241,6 +241,13 @@ schema and context. Corruption triggers a reported rebuild (`cache_rebuilt`),
 never silent reuse. Queries register only the two fixed local Arrow scanners;
 DuckDB external access and extension auto-install/autoload are disabled.
 
+Scoped derived records compute their SHA-256 while the bounded record iterator
+validates their envelopes and complete counts. Cold builds and cache hits must
+finish that pass, then recheck source/manifest identity and sidecars before
+publication or querying. If parsing, materialization or quota admission fails
+before the digest is complete, a charged whole-file digest check preserves the
+original corruption-error precedence. Recovery SQLite verification is unchanged.
+
 ## Resource enforcement and acquisition priority
 
 An optional `limits` object may **lower**, never raise, these defaults:

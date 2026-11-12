@@ -484,9 +484,13 @@ impl GuardService {
         self.wake.notify_waiters();
         let stored = async {
             let _tx = self.coordinator.lock().await;
+            let mut current = self.project(id).await?;
+            for field in ["state", "coverage", "last_error"] {
+                current[field] = p[field].clone();
+            }
             let note = self.notification(
-                &p,
-                s(&p, "active_session_id")?,
+                &current,
+                s(&current, "active_session_id")?,
                 "coverage_error",
                 "critical",
                 &message,
@@ -494,11 +498,12 @@ impl GuardService {
             )?;
             self.archive
                 .apply(vec![
-                    Self::mutation("project", p.clone()),
+                    Self::mutation("project", current.clone()),
                     ori_archive::Mutation::EnqueueNotification(note),
                 ])
                 .await?;
             self.update_runtime(id, |r| {
+                r.cached_project = current;
                 if let Some(a) = r.critical_alert.as_mut() {
                     a["volatile"] = json!(false);
                 }
@@ -725,3 +730,7 @@ impl GuardService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "supervisor_tests.rs"]
+mod tests;

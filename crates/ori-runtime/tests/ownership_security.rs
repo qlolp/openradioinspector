@@ -1,7 +1,10 @@
+#[cfg(unix)]
+use ori_runtime::security::Credentials;
 use ori_runtime::{
     lease::{InstanceLease, WriterLease},
-    security::{AccessPolicy, Credentials, PairingWindow},
+    security::{AccessPolicy, PairingWindow},
 };
+#[cfg(unix)]
 use std::fs;
 
 #[test]

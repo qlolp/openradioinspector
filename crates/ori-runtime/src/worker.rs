@@ -75,7 +75,7 @@ const WORKER_ENVIRONMENT: &[&str] = &[
 use std::{
     io::{Read, Write},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{Mutex, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -85,13 +85,100 @@ struct WorkerOwner {
     child: OwnedChild,
     threads: Vec<thread::JoinHandle<()>>,
     joined: bool,
+    cleanup_error_reported: bool,
 }
+
+fn cleanup_error_record(pid: u32, error: &Error) -> String {
+    let (variant, errno) = match error {
+        Error::Io(error) => ("Io", error.raw_os_error()),
+        Error::Unsafe(_) => ("Unsafe", None),
+        Error::Busy => ("Busy", None),
+        Error::Unauthorized => ("Unauthorized", None),
+        Error::PairingUnavailable => ("PairingUnavailable", None),
+        Error::Cancelled => ("Cancelled", None),
+        Error::Deadline => ("Deadline", None),
+        Error::ResourceLimit => ("ResourceLimit", None),
+        Error::OutputLimit => ("OutputLimit", None),
+        Error::Protocol(_) => ("Protocol", None),
+        Error::Json(_) => ("Json", None),
+    };
+    let errno = errno.map_or_else(|| "none".into(), |value| value.to_string());
+    let mut record = format!(
+        "ori-research-cleanup-error owned_pid={pid} variant={variant} raw_os_errno={errno}"
+    );
+    // Every field is bounded ASCII, never an error message or child payload.
+    record.truncate(511);
+    record.push('\n');
+    record
+}
+
+enum CleanupLoggerState {
+    New,
+    Ready(mpsc::SyncSender<String>),
+    Unavailable,
+}
+
+static CLEANUP_LOGGER: Mutex<CleanupLoggerState> = Mutex::new(CleanupLoggerState::New);
+
+fn cleanup_logger_sender_from(
+    state: &Mutex<CleanupLoggerState>,
+    start: impl FnOnce(mpsc::Receiver<String>) -> std::io::Result<()>,
+) -> Option<mpsc::SyncSender<String>> {
+    let mut state = state.try_lock().ok()?;
+    match &*state {
+        CleanupLoggerState::Ready(sender) => return Some(sender.clone()),
+        CleanupLoggerState::Unavailable => return None,
+        CleanupLoggerState::New => {}
+    }
+    // Even a failed spawn is attempted only once for this process.
+    *state = CleanupLoggerState::Unavailable;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    start(receiver).ok()?;
+    *state = CleanupLoggerState::Ready(sender.clone());
+    Some(sender)
+}
+
+fn drain_cleanup_records(receiver: mpsc::Receiver<String>, output: &mut impl Write) {
+    for record in receiver {
+        let _ = output.write_all(record.as_bytes());
+    }
+}
+
+fn cleanup_logger_sender() -> Option<mpsc::SyncSender<String>> {
+    cleanup_logger_sender_from(&CLEANUP_LOGGER, |receiver| {
+        thread::Builder::new()
+            .name("ori-cleanup-log".into())
+            .stack_size(128 * 1024)
+            .spawn(move || {
+                // This process-lifetime best-effort logger owns no child,
+                // reservation, archive, or Core cleanup receipt.
+                drain_cleanup_records(receiver, &mut std::io::stderr());
+            })
+            .map(drop)
+    })
+}
+
+fn dispatch_cleanup_error_once(
+    reported: &mut bool,
+    pid: u32,
+    error: &Error,
+    logger: impl FnOnce() -> Option<mpsc::SyncSender<String>>,
+) {
+    if !*reported {
+        *reported = true;
+        if let Some(sender) = logger() {
+            let _ = sender.try_send(cleanup_error_record(pid, error));
+        }
+    }
+}
+
 impl WorkerOwner {
     fn spawn(command: &mut Command) -> Result<Self> {
         Ok(Self {
             child: OwnedChild::spawn(command)?,
             threads: Vec::with_capacity(3),
             joined: false,
+            cleanup_error_reported: false,
         })
     }
     fn thread(&mut self, name: &str, work: impl FnOnce() + Send + 'static) -> Result<()> {
@@ -104,7 +191,15 @@ impl WorkerOwner {
         let exit = loop {
             match self.child.terminate_and_reap() {
                 Ok(exit) => break exit,
-                Err(_) => thread::sleep(Duration::from_millis(10)),
+                Err(error) => {
+                    dispatch_cleanup_error_once(
+                        &mut self.cleanup_error_reported,
+                        self.child.pid(),
+                        &error,
+                        cleanup_logger_sender,
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
             }
         };
         let mut failed = false;
@@ -576,3 +671,7 @@ fn strict_json(bytes: &[u8]) -> Result<serde_json::Value> {
     ori_contracts::parse_json_value(bytes, ANALYSIS_MESSAGE_BYTES)
         .map_err(|_| Error::Protocol("invalid strict worker JSON".into()))
 }
+
+#[cfg(test)]
+#[path = "worker_cleanup_tests.rs"]
+mod cleanup_tests;

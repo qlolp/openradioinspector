@@ -19,14 +19,18 @@ class DerivedRecords:
     def __init__(self, path, manifest, budget):
         self.path,self.manifest,self.budget = path,manifest,budget
         self.validated = False
+        self.digest_checked = False
 
     def records(self):
         counts = dict(streams=0,sweeps=0,observations=0)
         previous = None
         maximum = self.budget.limits['max_record_bytes']
+        digest = hashlib.sha256()
+        self.validated = self.digest_checked = False
         with self.path.open('rb') as source:
             while raw := source.readline(maximum+1):
                 self.budget.account_io(len(raw),'source_bytes_read')
+                digest.update(raw)
                 if len(raw)>maximum:
                     raise WorkerError('source_record_too_large','Derived source record exceeds the read budget')
                 try:
@@ -52,6 +56,9 @@ class DerivedRecords:
                 previous = order
                 counts[name] += 1
                 yield record['kind'],record['value']
+        self.digest_checked = True
+        if digest.hexdigest()!=self.manifest['records']['sha256']:
+            _invalid()
         if counts!=self.manifest['counts']:
             _invalid()
         self.validated = True
@@ -89,18 +96,25 @@ def open_derived(path, filters, budget):
             raise WorkerError('invalid_filter','Filters do not match the sealed derived selection')
         signature = path.stat()
         metadata_signature = metadata.stat()
-        if signature.st_size!=entry['bytes'] or file_digest(path,budget,source=True)!=entry['sha256']:
+        if signature.st_size!=entry['bytes']:
             _invalid()
         records = DerivedRecords(path,manifest,budget)
         source = dict(kind='scoped-derived-v1',derived=True,sha256=entry['sha256'],bytes=entry['bytes'],
             event_watermark=manifest['event_watermark'],counts=counts,selection=filters,
             source_manifest_sha256=hashlib.sha256(raw).hexdigest(),audio_payloads_copied=False)
-        yield records,source
-        # A cache hit still verifies the bounded record envelopes/counts. A
-        # fresh build has already consumed the same immutable iterator.
-        if not records.validated:
-            for _ in records.records():
-                pass
+        try:
+            yield records,source
+            # A cache hit must also finish the same digest/envelope/count pass.
+            # The caller cannot publish or query until this context returns.
+            if not records.validated:
+                for _ in records.records():
+                    pass
+        except Exception:
+            # Preserve the original digest-error precedence when a consumer
+            # stops early. Failed paths still pay for the whole-file check.
+            if not records.digest_checked and file_digest(path,budget,source=True)!=entry['sha256']:
+                _invalid()
+            raise
         for file,original in ((path,signature),(metadata,metadata_signature)):
             _file(file)
             current = file.stat()

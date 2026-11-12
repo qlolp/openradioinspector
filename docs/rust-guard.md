@@ -62,6 +62,12 @@ disarm clears restart intent. `close().await` is the convenience API; a subseque
 explicit call may retry failed cleanup, while an existing handle retains its
 original completion result.
 
+An in-flight failure reloads the canonical project under that coordinator before
+committing its state, coverage and error fields. It cannot overwrite acknowledged
+restart intent or newer operator metadata with an earlier project snapshot. A
+failed reload or write keeps the volatile critical alert and still stops the
+original owned workers; the persistence failure remains visible.
+
 The shared archive coordinator covers short read/modify/commit sections.
 Hardware/audio/network effects, long calculations and waits run outside it.
 Receiver investigation transitions reuse `ori-session` with a per-job effects
