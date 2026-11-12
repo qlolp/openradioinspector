@@ -32,11 +32,14 @@ pub(crate) fn initialize(core: &Arc<Core>) -> crate::Result<()> {
         return Ok(());
     }
     let stage = if core.config.task_book.is_none() {
-        Some(
-            tempfile::Builder::new()
-                .prefix(".ori-tasks-")
-                .tempdir_in(&core.config.data_directory)?,
-        )
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".ori-tasks-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        Some(builder.tempdir_in(&core.config.data_directory)?)
     } else {
         None
     };

@@ -46,9 +46,14 @@ pub(crate) async fn initialize(core: &Arc<Core>) -> crate::Result<()> {
     if core.archive.is_none() {
         return Ok(());
     }
-    let stage = tempfile::Builder::new()
-        .prefix(".ori-legacy-")
-        .tempdir_in(&core.config.data_directory)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-legacy-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let stage = builder.tempdir_in(&core.config.data_directory)?;
     let options = LegacyOptions {
         library: core.config.legacy.library.clone(),
         scratch_directory: stage.path().to_owned(),

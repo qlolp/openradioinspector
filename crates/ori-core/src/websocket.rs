@@ -1,4 +1,8 @@
 //! Committed ledger transport with one application-acknowledged frame in flight.
+#[cfg(test)]
+#[path = "websocket_encoding_tests.rs"]
+mod encoding_tests;
+
 use crate::{
     Core,
     admission::MutationGuard,
@@ -207,6 +211,16 @@ impl Context {
             .await?
             .map_err(|_| End::Client)
     }
+    async fn encoder_permit(&mut self, deadline: Instant) -> Result<OwnedSemaphorePermit, End> {
+        let capacity = self.core.stream_encoding.clone().acquire_owned();
+        self.wait(capacity, Some(deadline))
+            .await
+            .map_err(|end| match end {
+                End::Timeout => End::Busy,
+                other => other,
+            })?
+            .map_err(|_| End::Busy)
+    }
 }
 fn incoming(error: axum::Error) -> End {
     match error
@@ -268,12 +282,7 @@ async fn run(context: &mut Context, socket: &mut WebSocket, mut cursor: u64) -> 
                 .as_u64()
                 .filter(|value| *value > cursor)
                 .ok_or(End::Gap)?;
-            let encoding = context
-                .core
-                .stream_encoding
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| End::Busy)?;
+            let encoding = context.encoder_permit(Instant::now() + ACK_TIMEOUT).await?;
             let budget = context.core.stream_bytes.clone();
             // The connection retains its admission guard through this actual
             // blocking join, even if shutdown/revocation arrives mid-encoding.

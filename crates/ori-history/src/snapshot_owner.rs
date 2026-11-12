@@ -39,9 +39,14 @@ fn same(left: &Metadata, right: &Metadata) -> bool {
 }
 impl SnapshotOwner {
     pub(crate) fn new(roots: Arc<Roots>) -> Result<Self> {
-        let temporary = io(tempfile::Builder::new()
-            .prefix(".history-snapshot-")
-            .tempdir_in(&roots.snapshots))?;
+        let mut builder = tempfile::Builder::new();
+        builder.prefix(".history-snapshot-");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            builder.permissions(fs::Permissions::from_mode(0o700));
+        }
+        let temporary = io(builder.tempdir_in(&roots.snapshots))?;
         let mut owner = Self {
             temporary: Some(temporary),
             roots,
@@ -154,5 +159,33 @@ impl Drop for SnapshotOwner {
                 self.roots.cleanup_failure();
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::HistoryConfig;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn new_snapshot_is_private_before_its_marker_and_owned_cleanup() {
+        let data = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        let config = HistoryConfig::new(data.path().join("cache"), data.path().join("snapshots"));
+        let roots = Arc::new(Roots::open(&config).unwrap());
+        let owner = SnapshotOwner::new(roots.clone()).unwrap();
+        let path = owner.path().unwrap().to_owned();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::read(path.join(".history-owned")).unwrap(),
+            b"ori-history-owned-v1\n"
+        );
+        owner.validate().unwrap();
+        drop(owner);
+        assert!(!path.exists());
+        assert!(!roots.cleanup_failed());
     }
 }

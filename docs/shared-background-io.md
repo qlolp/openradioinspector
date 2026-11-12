@@ -7,6 +7,10 @@ The default constructor retains the existing process-local implementation.
 This feature does not establish physical I/O, hard filesystem or hardware
 performance limits. Windows shared-budget construction fails explicitly.
 
+Core creates its temporary background, TaskBook and Legacy workspace containers
+with explicit Unix mode `0700` before starting their file users. A private
+ancestor does not replace this leaf-directory policy.
+
 Reserve a background work guard before preparing a source and retain it until
 the actual SQL/file owner or child process has joined. Inject `worker_io()` only
 into a trusted child envelope's `shared_io` field. This Serialize-only capability
