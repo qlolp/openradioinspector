@@ -6,8 +6,10 @@ import { App } from '../src/App';
 import { Research } from '../src/Research';
 import { setLocale } from '../src/i18n';
 import { useDesk } from '../src/useDesk';
+import { parseFrame, type FrameInput } from '../src/pipeline';
 import type { Connection } from '../src/transport';
-import type { Comparison, MonitoringEvent, Project, Sweep } from '../src/types';
+import type { Comparison, Health, MonitoringEvent, Project, Sweep } from '../src/types';
+import type { EventSequence } from '../src/sequence';
 
 // Graphics need a real browser; state, hooks, API envelopes and response ordering
 // below are real. Assertions target Research/App DOM, never this drawing stub.
@@ -63,6 +65,13 @@ function ProjectHost({ transport }: { transport: Connection }) {
       <button onClick={() => desk.setProjectId(otherProject.id)}>Select other project</button>
       <output data-testid="action-state">{desk.action.state + ' ' + desk.action.text}</output>
       <output data-testid="busy-state">{String(desk.busy)}</output>
+      <output data-testid="health-cursor">{String(desk.health?.last_event_id ?? '')}</output>
+      <output data-testid="live-cursor">{String(desk.live.sequence)}</output>
+      <output data-testid="archive-generation">{String(desk.connectionVersion)}</output>
+      <button onClick={() => void desk.resync()}>Request replay</button>
+      <button onClick={() => void desk.connect('http://127.0.0.1:18771')}>
+        Connect another owned node
+      </button>
       <Research desk={desk} openOriginal={() => {}} />
     </>
   );
@@ -91,7 +100,7 @@ function comparison(id: string): Comparison {
   };
 }
 class CoreFixture {
-  highWater = 100;
+  highWater: EventSequence = 100;
   restored = false;
   comparison = deferred<Comparison>();
   comparisonSignal?: AbortSignal;
@@ -105,6 +114,10 @@ class CoreFixture {
   reviewSignal?: AbortSignal;
   heldAudio?: ReturnType<typeof deferred<Blob>>;
   audioSignal?: AbortSignal;
+  healthReplies: ReturnType<typeof deferred<Health>>[] = [];
+  connectHighWater?: EventSequence;
+  receive?: Parameters<Connection['subscribe']>[1];
+  cursors: EventSequence[] = [];
   state?: Parameters<Connection['subscribe']>[2];
   requests: { path: string; body: unknown }[] = [];
   event(): MonitoringEvent {
@@ -135,7 +148,12 @@ class CoreFixture {
   }
   transport: Connection = {
     native: false,
-    connect: async () => {},
+    connect: async () => {
+      if (this.connectHighWater !== undefined) {
+        this.highWater = this.connectHighWater;
+        this.restored = true;
+      }
+    },
     pair: async () => {},
     revokePairing: async () => {},
     openLegacy: async () => {},
@@ -144,7 +162,9 @@ class CoreFixture {
       this.audioSignal = signal;
       return this.heldAudio.promise;
     },
-    subscribe: async (_after, _receive, state) => {
+    subscribe: async (after, receive, state) => {
+      this.cursors.push(after);
+      this.receive = receive;
       this.state = state;
       return () => {};
     },
@@ -157,8 +177,10 @@ class CoreFixture {
         return envelope(await this.heldReview.promise);
       }
       if (body !== undefined) throw Error('No device/service commands are allowed in this fixture');
-      if (route === '/health')
-        return envelope({ status: 'ok', last_event_id: this.highWater, sessions: 1 });
+      if (route === '/health') {
+        const held = this.healthReplies.shift();
+        return envelope(held ? await held.promise : health(this.highWater));
+      }
       if (route === '/capabilities')
         return envelope({ features: {}, limitations: [], hardware_validated: false });
       if (route === '/sessions')
@@ -227,6 +249,21 @@ class CoreFixture {
     // Actual transport disconnect notification; no event sequence is relabelled.
     this.state?.(false, 'Owned connection interrupted');
   }
+  async deliver(sequence: EventSequence) {
+    const source = JSON.stringify(sweep('committed-' + sequence));
+    const raw =
+      '{"contract":"openradioinspector-platform","contract_version":1,"data":' +
+      '{"sequence":' +
+      sequence +
+      ',"event_type":"sweep.received","payload":{"sweep":' +
+      source +
+      '}}}';
+    if (!this.receive) throw Error('Original subscription is not ready');
+    return this.receive(raw);
+  }
+}
+function health(sequence: EventSequence): Health {
+  return { status: 'ok', last_event_id: sequence, sessions: 1, running_sessions: 0 };
 }
 
 let root: Root | undefined;
@@ -286,10 +323,25 @@ beforeEach(() => {
   vi.stubGlobal(
     'Worker',
     class {
-      postMessage() {
-        throw Error('No event delivery is needed in this component fixture');
+      onmessage?: (message: { data: unknown }) => void;
+      terminated = false;
+      postMessage(message: { raw: FrameInput; generation: number }) {
+        // Real strict parsing/preparation and LiveStore apply/ACK; only the
+        // browser worker scheduling boundary is represented in this DOM host.
+        queueMicrotask(() => {
+          if (this.terminated) return;
+          try {
+            this.onmessage?.({
+              data: { frame: parseFrame(message.raw), generation: message.generation },
+            });
+          } catch (error) {
+            this.onmessage?.({ data: { error: String(error), generation: message.generation } });
+          }
+        });
       }
-      terminate() {}
+      terminate() {
+        this.terminated = true;
+      }
     },
   );
   let serial = 0;
@@ -640,4 +692,174 @@ it('does not surface a discarded history read rejection after filter invalidatio
   expect(action()).not.toContain('Discarded filtered history failed');
   expect(action()).not.toContain('Load history');
   expect(busy()).toBe(false);
+});
+
+it('does not replay or reset evidence when a frame applies after its health request began', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  await click(button('Original', row('A')));
+  expect(container.querySelector('dialog')).toBeTruthy();
+  const held = deferred<Health>();
+  fixture.healthReplies.push(held);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.highWater = 101;
+  let acknowledged: unknown;
+  await act(async () => {
+    acknowledged = await fixture.deliver(101);
+  });
+  await settle();
+  expect(acknowledged).toBe(101);
+  const subscriptions = fixture.cursors.length;
+  await act(async () => held.resolve(health(100)));
+  await settle();
+  expect(fixture.cursors).toHaveLength(subscriptions);
+  expect(row('A')).toBeTruthy();
+  expect(container.querySelectorAll('dialog')).toHaveLength(1);
+  expect(action()).not.toContain('Archive changed');
+});
+it('invalidates same-project evidence when an observed head goes backwards ahead of applied data', async () => {
+  const fixture = new CoreFixture();
+  fixture.highWater = 50;
+  await load(fixture);
+  await click(button('Original', row('A')));
+  fixture.highWater = 100;
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  await settle();
+  fixture.highWater = 99;
+  fixture.restored = true;
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  await settle();
+  expect(action()).toContain('Archive changed');
+  expect(container.querySelectorAll('[data-testid="history-row"]')).toHaveLength(0);
+  expect(container.querySelectorAll('dialog')).toHaveLength(0);
+});
+it('ignores an older health response after a newer replay health response', async () => {
+  const fixture = new CoreFixture();
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  const old = deferred<Health>();
+  fixture.healthReplies.push(old);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.highWater = 101;
+  await click(button('Request replay'));
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('101');
+  await act(async () => old.resolve(health(100)));
+  await settle();
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('101');
+  expect(container.querySelector('[data-testid="archive-generation"]')!.textContent).toBe('0');
+});
+it('ignores an old-node health response after an explicit connection epoch changes', async () => {
+  const fixture = new CoreFixture();
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  const old = deferred<Health>();
+  fixture.healthReplies.push(old);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.connectHighWater = 10;
+  await click(button('Connect another owned node'));
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('10');
+  await act(async () => old.resolve(health(100)));
+  await settle();
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('10');
+});
+it('retains observed-head identity with the existing applied checkpoint across a real remount', async () => {
+  const fixture = new CoreFixture();
+  fixture.highWater = 50;
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  fixture.highWater = 100;
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  await settle();
+  expect(container.querySelector('[data-testid="live-cursor"]')!.textContent).toBe('50');
+  await act(async () => root!.unmount());
+  fixture.highWater = 99;
+  fixture.restored = true;
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  expect(action()).toContain('Archive changed');
+  expect(container.querySelector('[data-testid="live-cursor"]')!.textContent).toBe('99');
+});
+it('preserves exact large applied cursors when a newer committed frame overtakes health', async () => {
+  const fixture = new CoreFixture();
+  const before = 9007199254740992n;
+  fixture.highWater = before;
+  await load(fixture);
+  const held = deferred<Health>();
+  fixture.healthReplies.push(held);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.highWater = before + 1n;
+  let acknowledged: unknown;
+  await act(async () => {
+    acknowledged = await fixture.deliver(before + 1n);
+  });
+  expect(acknowledged).toBe(before + 1n);
+  const subscriptions = fixture.cursors.length;
+  await act(async () => held.resolve(health(before)));
+  await settle();
+  expect(fixture.cursors).toHaveLength(subscriptions);
+  expect(row('A')).toBeTruthy();
+  expect(action()).not.toContain('Archive changed');
+});
+it('ignores an old-node health failure after the new node has acknowledged health', async () => {
+  const fixture = new CoreFixture();
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  const old = deferred<Health>();
+  fixture.healthReplies.push(old);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.connectHighWater = 10;
+  await click(button('Connect another owned node'));
+  await act(async () => old.reject(Error('Original node request failed late')));
+  await settle();
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('10');
+});
+it('retains a confirmed head rollback while the replacement archive grows before resync', async () => {
+  const fixture = new CoreFixture();
+  fixture.highWater = 50;
+  await load(fixture);
+  await click(button('Original', row('A')));
+  fixture.highWater = 100;
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  const low = deferred<Health>();
+  fixture.highWater = 99;
+  fixture.restored = true;
+  fixture.healthReplies.push(low);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  fixture.highWater = 101;
+  await act(async () => low.resolve(health(99)));
+  await settle();
+  expect(action()).toContain('Archive changed');
+  expect(fixture.cursors.at(-1)).toBe(101);
+  expect(container.querySelectorAll('[data-testid="history-row"]')).toHaveLength(0);
+  expect(container.querySelectorAll('dialog')).toHaveLength(0);
+});
+it('does not treat overlapping samples read in reverse order as an archive rollback', async () => {
+  const fixture = new CoreFixture();
+  root = createRoot(container);
+  await act(async () => root!.render(<ProjectHost transport={fixture.transport} />));
+  await settle();
+  await click(button('Load history'));
+  const olderRequest = deferred<Health>();
+  fixture.healthReplies.push(olderRequest);
+  await act(async () => vi.advanceTimersByTimeAsync(15000));
+  const newerRequest = deferred<Health>();
+  fixture.healthReplies.push(newerRequest);
+  await click(button('Request replay'));
+  // Both requests began after observed100. The older request reads105 later
+  // than the newer request read104, then its response happens to arrive first.
+  fixture.highWater = 105;
+  await act(async () => olderRequest.resolve(health(105)));
+  await settle();
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('105');
+  await act(async () => newerRequest.resolve(health(104)));
+  await settle();
+  expect(container.querySelector('[data-testid="health-cursor"]')!.textContent).toBe('105');
+  expect(container.querySelector('[data-testid="archive-generation"]')!.textContent).toBe('0');
+  expect(row('A')).toBeTruthy();
+  expect(action()).not.toContain('Archive changed');
 });
