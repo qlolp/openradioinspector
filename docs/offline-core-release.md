@@ -48,7 +48,7 @@ replaced with the exact supplied artifact hashes, versions and source revision:
     "python_version": "3.15.1",
     "packages": {
       "openradioinspector": "0.4.0.dev0",
-      "ori-research": "0.2.1",
+      "ori-research": "0.2.2",
       "numpy": "2.5.4",
       "duckdb": "2.0.0",
       "pyarrow": "26.0.1"
@@ -68,6 +68,12 @@ No wheel is installed or executed. Runtime package maps must describe **all**
 installed distributions, using lowercase names with underscores changed to
 hyphens. The documented core/worker dependency sets are mandatory; additional
 prepared distributions require their exact versions too. Research requires 3.15.
+
+The existing packaging evidence step also checks wheel modern UI files against
+`modern-build.json` before writing checksums or notices. It rejects orphan or
+missing assets, unsafe/duplicate paths and a missing index; legacy wheels with
+no modern UI remain supported. This file-closure check does not establish build
+provenance or a complete license inventory.
 
 Each runtime has `bin/python3`, its own interpreter/base prefix, standard library
 and site-packages. An ordinary venv pointing at an external base fails. Editable
