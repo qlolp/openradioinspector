@@ -863,3 +863,53 @@ it('does not treat overlapping samples read in reverse order as an archive rollb
   expect(row('A')).toBeTruthy();
   expect(action()).not.toContain('Archive changed');
 });
+
+it('places research before live charts and preserves its state while switching local workspaces', async () => {
+  const fixture = new CoreFixture();
+  await load(fixture);
+  const research = container.querySelector<HTMLElement>(
+    'section[aria-label="Research workspace"]',
+  )!;
+  const live = container.querySelector<HTMLElement>('.live-grid')!;
+  const status = container.querySelector<HTMLElement>('[data-testid="action-state"]')!;
+  expect(research.hidden).toBe(false);
+  expect(status.compareDocumentPosition(research) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(research.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const minimum = research.querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
+  expect(minimum.closest('label')!.textContent).toContain('Minimum frequency');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      minimum,
+      '100000000',
+    );
+    minimum.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(row('B').querySelector<HTMLElement>('.history-select')!);
+  const selected = row('B');
+  const subscriptions = fixture.cursors.length;
+  const historyReads = fixture.requests.filter((request) =>
+    request.path.split('?')[0].endsWith('/history'),
+  ).length;
+  await click(button('Monitoring'));
+  expect(research.hidden).toBe(true);
+  expect(container.querySelector('section[aria-label="Research workspace"]')).toBe(research);
+  expect(research.querySelector('input[inputmode="numeric"]')).toBe(minimum);
+  expect(row('B')).toBe(selected);
+  fixture.highWater = 101;
+  await act(async () => {
+    expect(await fixture.deliver(101)).toBe(101);
+  });
+  await settle();
+  expect(container.querySelector('.live-grid')).toBe(live);
+  expect(container.querySelector('[data-testid="source-id"]')!.textContent).toBe('committed-101');
+  await click(button('Research'));
+  expect(research.hidden).toBe(false);
+  expect(container.querySelectorAll('section[aria-label="Research workspace"]')).toHaveLength(1);
+  expect(minimum.value).toBe('100000000');
+  expect(row('B')).toBe(selected);
+  expect(selected.classList.contains('selected')).toBe(true);
+  expect(fixture.cursors).toHaveLength(subscriptions);
+  expect(
+    fixture.requests.filter((request) => request.path.split('?')[0].endsWith('/history')),
+  ).toHaveLength(historyReads);
+});
