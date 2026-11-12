@@ -1,10 +1,22 @@
 import Foundation
+import Dispatch
 import Combine
 import XCTest
 import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeStreamingModelTests: XCTestCase {
+    final class Timeline: @unchecked Sendable {
+        private let lock = NSLock()
+        private var records: [String] = []
+        func mark(_ value: String) {
+            lock.withLock {
+                guard records.count < 64 else { return }
+                records.append("\(DispatchTime.now().uptimeNanoseconds) \(value.prefix(240))")
+            }
+        }
+        var text: String { lock.withLock { records.joined(separator: "\n") } }
+    }
     final class Stub: URLProtocol {
         static var handle: ((Stub) -> Void)?
         override class func canInit(with request: URLRequest) -> Bool { true }
@@ -29,6 +41,8 @@ final class NativeStreamingModelTests: XCTestCase {
         }
     }
     final class Responses: @unchecked Sendable {
+        private let timeline: Timeline?
+        init(timeline: Timeline? = nil) { self.timeline = timeline }
         let lock = NSLock()
         var stream: Stub?
         var reads = 0
@@ -64,6 +78,7 @@ final class NativeStreamingModelTests: XCTestCase {
         func failHealth(_ status: Int) { lock.withLock { healthStatus = status } }
         func releaseMetadata() {
             let held = lock.withLock { let held = heldMetadata; heldMetadata = nil; return held }
+            timeline?.mark("metadata release held=\(held != nil)")
             if let held { held.0.json(held.1) }
         }
         func handle(_ stub: Stub) {
@@ -75,13 +90,16 @@ final class NativeStreamingModelTests: XCTestCase {
                 case "/api/v1/health":
                     healthReads += 1
                     let value = restoredWatermark ?? (healthReads == 1 ? 0 : 10000)
+                    timeline?.mark("health read=\(healthReads) value=\(value) held=\(holdHealth)")
                     if holdHealth { holdHealth = false; heldHealth = (stub, value, healthStatus) }
                     else { stub.json(["last_event_id": value], status: healthStatus) }
                 case "/api/v1/events":
                     eventRequests.append(Int64(stub.request.value(forHTTPHeaderField: "Last-Event-ID") ?? "-1")!)
+                    timeline?.mark("subscription after=\(eventRequests.last!)")
                     stream = stub; stub.events()
                 case "/api/v1/sessions": stub.json([session])
                 case "/api/v1/sessions/s":
+                    timeline?.mark("metadata request held=\(holdMetadata)")
                     if holdMetadata { holdMetadata = false; heldMetadata = (stub, session) }
                     else { stub.json(session) }
                 case "/api/v1/sessions/s/sweeps": reads += 1; stub.json([Self.sweep(id: snapshotID, levels: snapshotLevels)])
@@ -171,15 +189,33 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "while-paused")
     }
     @MainActor func testMetadataRefreshUsesFramesAppliedWhileItsRequestWasInFlight() async throws {
-        let responses = Responses(), model = try await connected(responses)
-        defer { responses.releaseMetadata(); model.disconnect() }
+        let timeline = Timeline(), responses = Responses(timeline: timeline)
+        let model = try await connected(responses)
+        // Diagnostics inspect only this test's owned objects; no production test getter.
+        let stream = Mirror(reflecting: model).children.first { $0.label == "measurementStream" }?.value as? RemoteMeasurementStream
+        @MainActor func mark(_ phase: String) {
+            let render = Mirror(reflecting: model).children.first { $0.label == "spectrumRenderRevision" }?.value as? Int
+            let revision = stream.flatMap { value in Mirror(reflecting: value).children.first { $0.label == "revision" }?.value as? Int }
+            timeline.mark("\(phase) gen=\(model.generation) render=\(render ?? -1) streamRev=\(revision ?? -1) active=\(stream?.isActive ?? false) source=\(stream?.appliedSourceCursor ?? 0) cache=\(stream?.measurements?.cursor ?? -1)")
+        }
+        let observations = [
+            model.$current.sink { _ in mark("publish current") },
+            model.$comparisonSweeps.sink { _ in mark("publish comparison sources") },
+            model.$eventStatus.sink { value in mark("status \(value.prefix(100))") }
+        ]
+        defer { observations.forEach { $0.cancel() }; responses.releaseMetadata(); model.disconnect() }
+        mark("control start")
         responses.holdNextMetadata()
         let refresh = Task { await model.refresh() }
         try await wait { responses.metadataIsHeld }
+        mark("send event1")
         try XCTUnwrap(responses.eventConnection).sweep(sequence: 1, id: "during-metadata", levels: [-60, -50, -40])
         try await wait { model.current.map(\.y) == [-60, -50, -40] }
+        mark("observed current event1")
         responses.releaseMetadata()
         await refresh.value
+        mark("metadata refresh returned")
+        if responses.resumeCursors != [0] { print("[native-stream-timeline]\n\(timeline.text)") }
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "during-metadata")
         XCTAssertEqual(responses.resumeCursors, [0])
