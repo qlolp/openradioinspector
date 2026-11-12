@@ -1,12 +1,120 @@
 #![cfg(unix)]
+#[path = "support/shared_io_child.rs"]
+mod shared_io_child;
+
 use ori_runtime::{qos::BackgroundQos, worker::Cancellation};
 use serde_json::Value;
+use shared_io_child::OwnedChild;
 use std::{
     io::{BufRead, BufReader, Write},
-    process::{Command, Stdio},
+    process::Command,
     sync::Arc,
     time::{Duration, Instant},
 };
+
+fn python() -> std::ffi::OsString {
+    std::env::var_os("ORI_RESEARCH_PYTHON")
+        .or_else(|| std::env::var_os("ORI_CORE_PYTHON"))
+        .unwrap_or_else(|| "python3".into())
+}
+
+fn assert_reaped(pid: u32) {
+    let mut status = 0;
+    // SAFETY: WNOHANG only queries this fixture's known child PID; no signal is sent.
+    let result = unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) };
+    assert_eq!(result, -1, "owned child was not already reaped");
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ECHILD)
+    );
+}
+
+#[test]
+fn failed_python_startup_keeps_bounded_stderr_and_reaps_before_assertions() {
+    let child = OwnedChild::spawn(Command::new(python()).args([
+        "-I",
+        "-B",
+        "-c",
+        "import sys;sys.stderr.write('x'*65536);sys.exit(7)",
+    ]))
+    .unwrap();
+    let pid = child.id();
+    let result = child.join().unwrap();
+    assert_reaped(pid);
+    assert_eq!(result.status.code(), Some(7));
+    assert_eq!(result.stderr, vec![b'x'; shared_io_child::STDERR_BYTES]);
+    assert!(result.stderr_overflow);
+}
+
+#[test]
+fn dropping_a_worker_before_readiness_joins_and_reaps_the_original_child() {
+    let child = OwnedChild::spawn(Command::new(python()).args([
+        "-I",
+        "-B",
+        "-c",
+        "import sys;sys.stdin.read()",
+    ]))
+    .unwrap();
+    let pid = child.id();
+    drop(child);
+    assert_reaped(pid);
+}
+
+#[test]
+fn declared_research_python_works_with_an_unprepared_python_on_path() {
+    let declared = std::env::var_os("ORI_RESEARCH_PYTHON").unwrap_or_else(python);
+    let metadata = Command::new(&declared)
+        .args(["-I", "-B", "-c", "import sys;print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(metadata.status.success(), "{metadata:?}");
+    let declared = std::path::PathBuf::from(
+        String::from_utf8(metadata.stdout)
+            .unwrap()
+            .trim_end_matches(['\r', '\n']),
+    );
+    assert!(declared.is_absolute()); // Preserve its venv symlink; do not canonicalize.
+    let root = tempfile::tempdir().unwrap();
+    let prefix = root.path().join("unprepared-python");
+    let prepared = Command::new(&declared)
+        .args(["-I", "-B", "-m", "venv", "--without-pip"])
+        .arg(&prefix)
+        .output()
+        .unwrap();
+    assert!(prepared.status.success(), "{prepared:?}");
+    let fresh = prefix.join("bin/python3");
+    let inventory = Command::new(&fresh)
+        .args([
+            "-I", "-B", "-c",
+            "import importlib.util;assert all(importlib.util.find_spec(name) is None for name in ('ori_research','numpy','radioinspector'))",
+        ])
+        .output()
+        .unwrap();
+    assert!(inventory.status.success(), "{inventory:?}");
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::env::join_paths(
+        std::iter::once(prefix.join("bin")).chain(std::env::split_paths(&inherited)),
+    )
+    .unwrap();
+    let result = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "two_native_actors_and_python_worker_budget_share_one_timeline",
+            "--nocapture",
+        ])
+        .env("ORI_RESEARCH_PYTHON", &declared)
+        .env_remove("ORI_CORE_PYTHON")
+        .env("PATH", path)
+        .env("RUST_BACKTRACE", "0")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "declared research interpreter was ignored; joined test child stdout={} stderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
 
 fn path(qos: &BackgroundQos) -> std::path::PathBuf {
     serde_json::to_value(qos.worker_io().unwrap()).unwrap()["path"]
@@ -36,21 +144,31 @@ assert sys.stdin.readline().strip()=='go'
 budget.account_io(2*1024*1024,'source_bytes_read')
 print(budget.metrics['source_bytes_read'],flush=True)
 "#;
-    let mut child =
-        Command::new(std::env::var_os("ORI_CORE_PYTHON").unwrap_or_else(|| "python3".into()))
-            .args(["-I", "-c", script])
-            .arg(repository)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-    let mut input = child.stdin.take().unwrap();
+    let mut child = OwnedChild::spawn(
+        Command::new(python())
+            .args(["-I", "-B", "-c", script])
+            .arg(repository),
+    )
+    .unwrap();
+    let child_pid = child.id();
+    let mut input = child.stdin();
     writeln!(input, "{capability}").unwrap();
-    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut output = BufReader::new(child.stdout());
     let mut ready = String::new();
-    output.read_line(&mut ready).unwrap();
-    assert_eq!(ready.trim(), "ready");
+    let readiness = output.read_line(&mut ready);
+    if readiness.is_err() || ready.trim() != "ready" {
+        drop(input);
+        drop(output);
+        let result = child.join().unwrap();
+        assert_reaped(child_pid);
+        panic!(
+            "Python shared-I/O startup failed after child JOIN: readiness={readiness:?}, \
+             stdout={ready:?}, status={}, stderr_overflow={}, stderr={}",
+            result.status,
+            result.stderr_overflow,
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
     let gate = Arc::new(tokio::sync::Barrier::new(3));
     let began = Instant::now();
     let asynchronous = {
@@ -78,18 +196,28 @@ print(budget.metrics['source_bytes_read'],flush=True)
     drop(input);
     let child = tokio::task::spawn_blocking(move || {
         let mut line = String::new();
-        output.read_line(&mut line).unwrap();
-        assert_eq!(line.trim(), (2 * 1024 * 1024).to_string());
-        child.wait_with_output().unwrap()
+        let read = output.read_line(&mut line);
+        let result = child.join();
+        (read, line, result)
     });
-    asynchronous.await.unwrap().unwrap();
-    blocking.await.unwrap().unwrap();
-    let result = child.await.unwrap();
+    let asynchronous = asynchronous.await;
+    let blocking = blocking.await;
+    let (read, line, result) = child.await.unwrap();
+    let result = result.unwrap();
+    assert_reaped(child_pid);
     assert!(
         result.status.success(),
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+    assert!(
+        !result.stderr_overflow,
+        "Python stderr exceeded its byte budget"
+    );
+    asynchronous.unwrap().unwrap();
+    blocking.unwrap().unwrap();
+    read.unwrap();
+    assert_eq!(line.trim(), (2 * 1024 * 1024).to_string());
     assert!(
         began.elapsed() >= Duration::from_millis(280),
         "independent timelines exceeded the aggregate rate"
