@@ -9,6 +9,10 @@ test('Russian is default across operator flows and English switching preserves p
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page.getByRole('button', { name: 'Радиомониторинг', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Исследование', exact: true })).toBeVisible();
+  await expect(page.getByText('Последнее сохранённое измерение', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('group', { name: 'Последнее сохранённое измерение', exact: true }),
+  ).toHaveCount(3);
   await page.getByTestId('project-select').selectOption({ label: 'North laboratory' });
   await expect(page.getByRole('button', { name: 'Включить охрану', exact: true })).toBeVisible();
   await expect(
@@ -29,6 +33,10 @@ test('Russian is default across operator flows and English switching preserves p
     'true',
   );
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.getByText('Latest saved measurement', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('group', { name: 'Latest saved measurement', exact: true }),
+  ).toHaveCount(3);
   expect(await page.getByTestId('project-select').inputValue()).toBe(project);
   await expect(page.getByLabel('Tune frequency (Hz)')).toHaveValue('101500000');
   expect(mutations).toEqual([]);
