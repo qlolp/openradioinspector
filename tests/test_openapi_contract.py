@@ -94,3 +94,56 @@ class OpenAPIContractTests(unittest.TestCase):
                 response.begin()
                 self.assertNotEqual(response.status, 413, 'Documented maximum exceeds the real reader budget')
                 response.read()
+
+    def test_calibrated_field_schema_validates_the_actual_request_and_result(self):
+        from copy import deepcopy
+        from pathlib import Path
+        from radioinspector.contracts import to_primitive
+        from tests.test_sweep_comparison import create_session
+        from tests.test_field_strength_rms import source
+        spec = self.contract()
+        path = '/api/v1/sessions/{id}/field-strength-rms-v2'
+        operation = spec['paths'][path]['post']
+        self.assertEqual(operation['x-ori-max-request-bytes'], 65536)
+        self.assertEqual(operation['x-ori-body-deadline-seconds'], 10)
+        schema = operation['requestBody']['content']['application/json']['schema']
+        validator = Draft202012Validator({'components': spec['components'], **schema})
+        fixture = json.loads((Path(__file__).parent / 'fixtures/field-strength-rms-v2.json').read_text())
+        session = create_session(self.server.session_service)
+        sweep = source()
+        sweep.session_id = session.id
+        sweep.stream_id = session.streams[0].id
+        self.server.session_service.ingest_sweep(to_primitive(sweep))
+        body = fixture['request']
+        body['sweep_id'] = sweep.id
+        validator.validate(body)
+        for mutate in ('extra', 'fractional_hz', 'missing_uncertainty', 'unknown_condition'):
+            bad = deepcopy(body)
+            if mutate == 'extra': bad['calibration']['unexpected'] = True
+            elif mutate == 'fractional_hz': bad['frequency_hz'] = 1.5
+            elif mutate == 'missing_uncertainty': del bad['calibration']['points'][0]['uncertainty_db']
+            else: bad['calibration']['detector'] = 'PEAK'
+            self.assertFalse(validator.is_valid(bad), mutate)
+        for uncertainty in (3.0, None):
+            if uncertainty is None:
+                for point in body['calibration']['points']: point['uncertainty_db'] = None
+            status, result = self.request('POST', path.replace('{id}', session.id), body)
+            self.assertEqual(status, 200, result)
+            self.validate_response(spec, path, 'post', status, result)
+            self.assertEqual(result['data']['uncertainty_db'], uncertainty)
+
+    def test_calibrated_field_response_keeps_existing_long_session_and_stream_ids(self):
+        from radioinspector.contracts import to_primitive
+        from tests.test_field_strength_rms import profile, source
+        session_id, stream_id = 's' * 513, 'r' * 513
+        session = self.server.session_service.create_session({'id': session_id, 'name': 'Long existing IDs',
+            'streams': [{'id': stream_id, 'device': 'fixture', 'role': 'spectrum_analyzer', 'level_unit': 'dBm'}]})
+        sweep = source(); sweep.session_id = session.id; sweep.stream_id = stream_id
+        self.server.session_service.ingest_sweep(to_primitive(sweep))
+        path = '/api/v1/sessions/{id}/field-strength-rms-v2'
+        status, response = self.request('POST', path.replace('{id}', session.id),
+            {'sweep_id': sweep.id, 'frequency_hz': 200, 'calibration': profile()})
+        self.assertEqual(status, 200, response)
+        self.assertEqual((response['data']['source']['session_id'], response['data']['source']['stream_id']),
+                         (session_id, stream_id))
+        self.validate_response(self.contract(), path, 'post', status, response)

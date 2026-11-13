@@ -164,12 +164,40 @@ class ResearchRpcParityTests(unittest.TestCase):
             self.assertEqual(envelope["error"]["http_status"], 404)
         return envelope["error"]
 
-    def test_all_fourteen_methods_exact_success_and_error_parity(self):
-        self.assertEqual(set(rpc.METHODS), set(METHODS))
+    def test_legacy_analysis_methods_exact_success_and_error_parity(self):
+        self.assertEqual(set(rpc.METHODS), set(METHODS) | {'field_strength_rms_v2'})
         for method, payload in payloads().items():
             with self.subTest(method=method):
                 self.assert_parity(request(method, payload))
                 self.assert_error_parity(request(method, {}))
+
+    def field_document(self):
+        fixture = json.loads((ROOT / 'tests/fixtures/field-strength-rms-v2.json').read_text())
+        document = request('field_strength_rms_v2', fixture['request'])
+        source = fixture['source']
+        source['session_id'] = document['session']['id']
+        document.update(sweeps=[source], candidates=[])
+        return document, fixture
+
+    def test_calibrated_field_rpc_preserves_physical_fixture_and_raw_source(self):
+        document, fixture = self.field_document()
+        actual = self.assert_parity(document)
+        expected = fixture['result']
+        self.assertEqual(actual['value_dbuv_per_m'], 55.0)
+        self.assertEqual(actual['value'], expected['value'])
+        self.assertEqual(actual['uncertainty_db'], 3.0)
+        self.assertEqual(actual['source']['id'], 'sweep-0')
+        self.assertEqual(actual['calibration'], expected['calibration'])
+
+    def test_calibrated_field_rpc_reports_unknown_uncertainty_and_unavailable_chain(self):
+        document, _ = self.field_document()
+        for point in document['payload']['calibration']['points']:
+            point['uncertainty_db'] = None
+        self.assertIsNone(self.assert_parity(document)['uncertainty_db'])
+        document['sweeps'][0]['settings']['measurement_chain_id'] = 'different-receiver'
+        error = self.assert_error_parity(document)
+        self.assertEqual((error['http_status'], error['api_code']),
+                         (409, 'field_strength_unavailable'))
 
     def test_missing_session_preserves_each_methods_validation_error_priority(self):
         # The worker receives the actual absence of a session, without a

@@ -3,6 +3,7 @@ import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
 import { historyQuery, ResourceScope, type HistoryFilters } from './api';
 import { Spectrum } from './charts';
+import { FieldStrengthPanel } from './FieldStrength';
 import { Panel, hz, titleCase, utc } from './components';
 import { prepareSweep, type UnsupportedSweep } from './pipeline';
 import type { Desk } from './useDesk';
@@ -298,6 +299,12 @@ export function Research({
         {selected && (
           <>
             <Spectrum sweep={selected} comparison={comparison} />
+            <FieldStrengthPanel
+              api={desk.api}
+              source={selected}
+              available={desk.capabilities?.features.field_strength_rms_v2 === true}
+              connectionVersion={desk.connectionVersion}
+            />
             <div className="chart-caption">
               <span>
                 {comparison

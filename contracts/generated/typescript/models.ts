@@ -4,6 +4,10 @@ export type {JSONValue, JSONObject, Integer} from './codec.ts';
 
 export type CandidateState = "new" | "queued" | "investigating" | "resolved" | "dismissed";
 export type DeviceRole = "spectrum_analyzer" | "receiver" | "simulator";
+export type FieldStrengthCalibrationDetector = "RMS";
+export type FieldStrengthCalibrationWaveform = "CW";
+export type FieldStrengthResultMethodology = "field_strength_rms_v2";
+export type FieldStrengthResultUnit = "V/m";
 export interface ArtifactSummary {
   created_at: string;
   filename: string;
@@ -67,6 +71,73 @@ export interface ErrorEnvelope {
   contract: "openradioinspector-platform";
   contract_version: 1;
   error: PlatformError;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthCalibration {
+  detector: FieldStrengthCalibrationDetector;
+  id: string;
+  impedance_ohm: number;
+  instrument_profile: string;
+  measurement_chain_id: string;
+  points: Array<FieldStrengthCalibrationPoint>;
+  rbw_hz: number;
+  reference_plane: string;
+  uncertainty_basis: string;
+  valid_from: string;
+  valid_until: string;
+  version: Integer;
+  waveform: FieldStrengthCalibrationWaveform;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthCalibrationEvidence {
+  coefficients: FieldStrengthCalibrationPoint;
+  profile: FieldStrengthCalibration;
+  sha256: string;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthCalibrationPoint {
+  antenna_factor_db_per_m: number;
+  cable_loss_db: number;
+  frequency_hz: Integer;
+  level_correction_db: number;
+  preamp_gain_db: number;
+  uncertainty_db: number | null;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthRequest {
+  calibration: FieldStrengthCalibration;
+  frequency_hz: Integer;
+  sweep_id: string;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthResult {
+  applicability: string;
+  calibration: FieldStrengthCalibrationEvidence;
+  methodology: FieldStrengthResultMethodology;
+  source: FieldStrengthSource;
+  uncertainty_db: number | null;
+  unit: FieldStrengthResultUnit;
+  value: number;
+  value_dbuv_per_m: number;
+  warnings: Array<string>;
+  [key: string]: unknown;
+}
+
+export interface FieldStrengthSource {
+  bin_index: Integer;
+  frequency_hz: Integer;
+  id: string;
+  interval: TimeInterval;
+  level: number;
+  level_unit: string;
+  session_id: string;
+  settings: JSONObject;
+  stream_id: string;
   [key: string]: unknown;
 }
 

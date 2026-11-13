@@ -33,6 +33,42 @@ impl crate::RestoreKeys for DeviceRole {
     fn restore_keys(&mut self) {}
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldStrengthCalibrationDetector {
+    #[serde(rename = "RMS")]
+    Rms,
+}
+impl crate::RestoreKeys for FieldStrengthCalibrationDetector {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldStrengthCalibrationWaveform {
+    #[serde(rename = "CW")]
+    Cw,
+}
+impl crate::RestoreKeys for FieldStrengthCalibrationWaveform {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldStrengthResultMethodology {
+    #[serde(rename = "field_strength_rms_v2")]
+    FieldStrengthRmsV2,
+}
+impl crate::RestoreKeys for FieldStrengthResultMethodology {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FieldStrengthResultUnit {
+    #[serde(rename = "V/m")]
+    VM,
+}
+impl crate::RestoreKeys for FieldStrengthResultUnit {
+    fn restore_keys(&mut self) {}
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactSummary {
     pub created_at: UtcTimestamp,
@@ -161,6 +197,131 @@ impl crate::RestoreKeys for ErrorEnvelope {
     fn restore_keys(&mut self) {
         crate::RestoreKeys::restore_keys(&mut self.extra);
         crate::RestoreKeys::restore_keys(&mut self.error);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthCalibration {
+    pub detector: FieldStrengthCalibrationDetector,
+    pub id: String,
+    pub impedance_ohm: f64,
+    pub instrument_profile: String,
+    pub measurement_chain_id: String,
+    pub points: Vec<FieldStrengthCalibrationPoint>,
+    pub rbw_hz: f64,
+    pub reference_plane: String,
+    pub uncertainty_basis: String,
+    pub valid_from: UtcTimestamp,
+    pub valid_until: UtcTimestamp,
+    pub version: u64,
+    pub waveform: FieldStrengthCalibrationWaveform,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthCalibration {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.points);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthCalibrationEvidence {
+    pub coefficients: FieldStrengthCalibrationPoint,
+    pub profile: FieldStrengthCalibration,
+    pub sha256: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthCalibrationEvidence {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.coefficients);
+        crate::RestoreKeys::restore_keys(&mut self.profile);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthCalibrationPoint {
+    pub antenna_factor_db_per_m: f64,
+    pub cable_loss_db: f64,
+    pub frequency_hz: u64,
+    pub level_correction_db: f64,
+    pub preamp_gain_db: f64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub uncertainty_db: Option<f64>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthCalibrationPoint {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthRequest {
+    pub calibration: FieldStrengthCalibration,
+    pub frequency_hz: u64,
+    pub sweep_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.calibration);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthResult {
+    pub applicability: String,
+    pub calibration: FieldStrengthCalibrationEvidence,
+    pub methodology: FieldStrengthResultMethodology,
+    pub source: FieldStrengthSource,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub uncertainty_db: Option<f64>,
+    pub unit: FieldStrengthResultUnit,
+    pub value: f64,
+    pub value_dbuv_per_m: f64,
+    pub warnings: Vec<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthResult {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.calibration);
+        crate::RestoreKeys::restore_keys(&mut self.source);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStrengthSource {
+    pub bin_index: u64,
+    pub frequency_hz: u64,
+    pub id: String,
+    pub interval: TimeInterval,
+    pub level: f64,
+    pub level_unit: String,
+    pub session_id: String,
+    pub settings: JSONObject,
+    pub stream_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FieldStrengthSource {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.interval);
+        crate::RestoreKeys::restore_keys(&mut self.settings);
     }
 }
 

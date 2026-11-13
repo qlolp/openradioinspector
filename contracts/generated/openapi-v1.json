@@ -278,6 +278,308 @@
         ],
         "type": "object"
       },
+      "FieldStrengthCalibration": {
+        "additionalProperties": false,
+        "description": "Operator-supplied calibration snapshot, not hardware certification. Points must have strictly increasing integer Hz. No extrapolation. The full source UTC interval and all seven receiver/chain/plane/impedance/RMS/RBW/CW settings must match.",
+        "properties": {
+          "detector": {
+            "enum": [
+              "RMS"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "impedance_ohm": {
+            "format": "double",
+            "minimum": 1e-12,
+            "type": "number"
+          },
+          "instrument_profile": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "measurement_chain_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/FieldStrengthCalibrationPoint"
+            },
+            "maxItems": 128,
+            "minItems": 1,
+            "type": "array"
+          },
+          "rbw_hz": {
+            "format": "double",
+            "minimum": 1e-12,
+            "type": "number"
+          },
+          "reference_plane": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "uncertainty_basis": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "valid_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "format": "uint64",
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "waveform": {
+            "enum": [
+              "CW"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "instrument_profile",
+          "measurement_chain_id",
+          "reference_plane",
+          "impedance_ohm",
+          "detector",
+          "rbw_hz",
+          "waveform",
+          "valid_from",
+          "valid_until",
+          "uncertainty_basis",
+          "points"
+        ],
+        "type": "object"
+      },
+      "FieldStrengthCalibrationEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "coefficients": {
+            "$ref": "#/components/schemas/FieldStrengthCalibrationPoint"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/FieldStrengthCalibration"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile",
+          "sha256",
+          "coefficients"
+        ],
+        "type": "object"
+      },
+      "FieldStrengthCalibrationPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "antenna_factor_db_per_m": {
+            "format": "double",
+            "type": "number"
+          },
+          "cable_loss_db": {
+            "format": "double",
+            "type": "number"
+          },
+          "frequency_hz": {
+            "format": "uint64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "level_correction_db": {
+            "format": "double",
+            "type": "number"
+          },
+          "preamp_gain_db": {
+            "format": "double",
+            "type": "number"
+          },
+          "uncertainty_db": {
+            "description": "Declared combined uncertainty in dB; null means unknown, never zero.",
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "frequency_hz",
+          "antenna_factor_db_per_m",
+          "cable_loss_db",
+          "preamp_gain_db",
+          "level_correction_db",
+          "uncertainty_db"
+        ],
+        "type": "object"
+      },
+      "FieldStrengthRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "calibration": {
+            "$ref": "#/components/schemas/FieldStrengthCalibration"
+          },
+          "frequency_hz": {
+            "format": "uint64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sweep_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "sweep_id",
+          "frequency_hz",
+          "calibration"
+        ],
+        "type": "object"
+      },
+      "FieldStrengthResult": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "calibration": {
+            "$ref": "#/components/schemas/FieldStrengthCalibrationEvidence"
+          },
+          "methodology": {
+            "enum": [
+              "field_strength_rms_v2"
+            ],
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/FieldStrengthSource"
+          },
+          "uncertainty_db": {
+            "description": "Declared combined uncertainty in dB; null means unknown, never zero.",
+            "format": "double",
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "enum": [
+              "V/m"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "value_dbuv_per_m": {
+            "format": "double",
+            "type": "number"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "methodology",
+          "value",
+          "unit",
+          "value_dbuv_per_m",
+          "uncertainty_db",
+          "warnings",
+          "source",
+          "calibration",
+          "applicability"
+        ],
+        "type": "object"
+      },
+      "FieldStrengthSource": {
+        "additionalProperties": false,
+        "properties": {
+          "bin_index": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "frequency_hz": {
+            "format": "uint64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/TimeInterval"
+          },
+          "level": {
+            "format": "double",
+            "type": "number"
+          },
+          "level_unit": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "session_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/JSONObject"
+          },
+          "stream_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "stream_id",
+          "interval",
+          "frequency_hz",
+          "bin_index",
+          "level",
+          "level_unit",
+          "settings"
+        ],
+        "type": "object"
+      },
       "Investigation": {
         "additionalProperties": true,
         "properties": {
@@ -10669,6 +10971,156 @@
         },
         "x-ori-body-deadline-seconds": 10.0,
         "x-ori-max-request-bytes": 8192
+      }
+    },
+    "/api/v1/sessions/{id}/field-strength-rms-v2": {
+      "post": {
+        "operationId": "post_api_v1_sessions_id_field_strength_rms_v2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldStrengthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/FieldStrengthResult"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        },
+        "x-ori-body-deadline-seconds": 10.0,
+        "x-ori-max-request-bytes": 65536
       }
     },
     "/api/v1/sessions/{id}/frequency-counter": {

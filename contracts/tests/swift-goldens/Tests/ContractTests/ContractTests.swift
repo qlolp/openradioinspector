@@ -3,6 +3,30 @@ import Foundation
 import ORIContracts
 
 final class ContractTests: XCTestCase {
+    func testCalibratedFieldSharedFixtureAndRequiredUnknownUncertainty() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("tests/fixtures/field-strength-rms-v2.json"))
+        let fixture = try StrictJSON.parse(data)
+        let request = try FieldStrengthRequest(json: XCTUnwrap(fixture.object?["request"]))
+        XCTAssertEqual(request.frequency_hz, 200)
+        XCTAssertEqual(request.calibration.measurement_chain_id, "SYNTHETIC-receiver-antenna-cable-preamp-v1")
+        var json = try XCTUnwrap(fixture.object?["result"]?.object)
+        let result = try FieldStrengthResult(json: .object(json))
+        XCTAssertEqual(result.value_dbuv_per_m, 55)
+        XCTAssertEqual(result.value.bitPattern, Double(0.000562341325190349).bitPattern)
+        XCTAssertEqual(result.source.id, "sweep-0")
+        XCTAssertEqual(result.uncertainty_db, 3)
+        XCTAssertEqual(result.calibration.sha256, "f049d2a41686fd59a002637a5cde735d3843395308073a74ef4689731eb5b5b6")
+        json["uncertainty_db"] = .null
+        let unknown = try FieldStrengthResult(json: .object(json))
+        XCTAssertNil(unknown.uncertainty_db)
+        XCTAssertEqual(try StrictJSON.parse(StrictJSON.encode(unknown)).object?["uncertainty_db"], .null)
+        json.removeValue(forKey: "uncertainty_db")
+        XCTAssertThrowsError(try FieldStrengthResult(json: .object(json)))
+        json["uncertainty_db"] = .null; json["unit"] = .string("dBm")
+        XCTAssertThrowsError(try FieldStrengthResult(json: .object(json)))
+    }
     func testIntegerMinusZeroMatchesLegacyPythonSemantics() throws {
         let json = try StrictJSON.parse(Data(#"{"integer":-0,"float":-0.0}"#.utf8))
         XCTAssertEqual(json.object?["integer"], .integer("0"))

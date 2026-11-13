@@ -487,6 +487,13 @@ pub const OPERATIONS: &[Operation] = &[
         max_request_bytes: Some(8192),
     },
     Operation {
+        operation_id: "post_api_v1_sessions_id_field_strength_rms_v2",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/field-strength-rms-v2",
+        query: &[],
+        max_request_bytes: Some(65536),
+    },
+    Operation {
         operation_id: "post_api_v1_sessions_id_frequency_counter",
         method: "POST",
         path: "/api/v1/sessions/{id}/frequency-counter",

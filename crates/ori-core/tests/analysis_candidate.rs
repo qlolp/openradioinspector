@@ -153,6 +153,7 @@ async fn candidate_openapi_declares_scientific_routes_and_their_actual_body_budg
         ("sweep-context", "post", 8192),
         ("sweep-mask-analysis", "post", 524288),
         ("measurement-map", "post", 262144),
+        ("field-strength-rms-v2", "post", 65536),
     ] {
         let path = format!("/api/v1/sessions/{{id}}/{operation}");
         let entry = &spec["paths"][&path][verb];
@@ -162,6 +163,41 @@ async fn candidate_openapi_declares_scientific_routes_and_their_actual_body_budg
         }
     }
     server.stop().await;
+}
+
+#[tokio::test]
+async fn calibrated_field_route_selects_one_source_and_keeps_the_control_body_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    seed(directory.path()).await;
+    let mut server = Server::start(directory.path(), "echo", None).await;
+    let before = server
+        .request("GET", "/api/v1/events/history?after=0&limit=100", None)
+        .await;
+    let payload = json!({"sweep_id":"exact-source-001","frequency_hz":100000001,"calibration":{}});
+    let (status, response) = server
+        .request("POST", &route("/field-strength-rms-v2"), Some(&payload))
+        .await;
+    let (_, capabilities) = server.request("GET", "/api/v1/capabilities", None).await;
+    let mut oversized = payload.clone();
+    oversized["calibration"]["description"] = Value::String("x".repeat(65536));
+    let (large_status, _) = server
+        .request("POST", &route("/field-strength-rms-v2"), Some(&oversized))
+        .await;
+    let after = server
+        .request("GET", "/api/v1/events/history?after=0&limit=100", None)
+        .await;
+    server.stop().await;
+    assert_eq!(status, 200, "{response}");
+    assert_eq!(response["data"]["method"], "field_strength_rms_v2");
+    assert_eq!(response["data"]["sweeps"].as_array().unwrap().len(), 1);
+    assert_eq!(response["data"]["sweeps"][0]["id"], "exact-source-001");
+    assert_eq!(response["data"]["payload"], payload);
+    assert_eq!(
+        capabilities["data"]["features"]["field_strength_rms_v2"],
+        true
+    );
+    assert_eq!(large_status, 413);
+    assert_eq!(after, before);
 }
 
 #[tokio::test]
@@ -337,6 +373,7 @@ async fn absent_scientific_worker_stays_unavailable_and_retains_research_http_di
     assert_eq!(result["error"]["code"], "research_unavailable");
     assert_eq!(cap_status, 200);
     assert_eq!(cap["data"]["features"]["sweep_comparison"], false);
+    assert_eq!(cap["data"]["features"]["field_strength_rms_v2"], false);
     assert!(
         cap["data"]["candidate"]["unsupported_features"]
             .as_array()

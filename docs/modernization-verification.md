@@ -95,11 +95,13 @@ the locked browser, verifies that path and publishes it through `GITHUB_ENV`.
   features with warnings denied, and locked workspace tests with all features.
   The separate `clients/windows` Cargo workspace remains in its own Tauri CI.
 - Exercise the freshly built Rust HTTP server with the installed isolated
-  scientific worker. Unix checks all fourteen numerical methods against the
+  scientific worker. Unix checks all fifteen numerical methods against the
   existing service, missing-session validation priority and unchanged event
   history. Windows checks the explicit unavailable-worker response until owned
   process-tree containment exists. Both paths require graceful fixture exit;
   neither creates a skipped test or uses a fake scientific response.
+  The calibrated field case shares the physical fixture with all generated
+  SDKs, retains unknown uncertainty and checks a 409 for a different chain.
 - Compile generated TypeScript and run the shared contract tests with Node TAP.
 - Check deterministic Protobuf fixtures without rewriting them, and run their
   Rust and TypeScript decoders against shared valid and malformed frames.

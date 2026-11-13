@@ -1704,6 +1704,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "post_api_v1_sessions_id_field_strength_rms_v2",
+        method: "POST",
+        path: "/api/v1/sessions/{id}/field-strength-rms-v2",
+        backends: &["python-legacy", "rust-candidate"],
+        features: &["field_strength_rms_v2"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["id"],
+        max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "post_api_v1_sessions_id_frequency_counter",
         method: "POST",
         path: "/api/v1/sessions/{id}/frequency-counter",

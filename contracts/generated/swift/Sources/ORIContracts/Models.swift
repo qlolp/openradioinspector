@@ -25,6 +25,42 @@ public enum DeviceRole: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum FieldStrengthCalibrationDetector: String, Sendable, Codable, CaseIterable {
+    case RMS = "RMS"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum FieldStrengthCalibrationWaveform: String, Sendable, Codable, CaseIterable {
+    case CW = "CW"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum FieldStrengthResultMethodology: String, Sendable, Codable, CaseIterable {
+    case field_strength_rms_v2 = "field_strength_rms_v2"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
+public enum FieldStrengthResultUnit: String, Sendable, Codable, CaseIterable {
+    case V_m = "V/m"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public struct ArtifactSummary: ContractModel, Equatable, Sendable {
     public var created_at: UtcTimestamp
     public var filename: String
@@ -319,6 +355,311 @@ public struct ErrorEnvelope: ContractModel, Equatable, Sendable {
         object["contract"] = .string(contract)
         object["contract_version"] = .integer(String(contract_version))
         object["error"] = error.json
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthCalibration: ContractModel, Equatable, Sendable {
+    public var detector: FieldStrengthCalibrationDetector
+    public var id: String
+    public var impedance_ohm: Double
+    public var instrument_profile: String
+    public var measurement_chain_id: String
+    public var points: [FieldStrengthCalibrationPoint]
+    public var rbw_hz: Double
+    public var reference_plane: String
+    public var uncertainty_basis: String
+    public var valid_from: UtcTimestamp
+    public var valid_until: UtcTimestamp
+    public var version: UInt64
+    public var waveform: FieldStrengthCalibrationWaveform
+    public var extra: JSONObject
+    public init(detector: FieldStrengthCalibrationDetector, id: String, impedance_ohm: Double, instrument_profile: String, measurement_chain_id: String, points: [FieldStrengthCalibrationPoint], rbw_hz: Double, reference_plane: String, uncertainty_basis: String, valid_from: UtcTimestamp, valid_until: UtcTimestamp, version: UInt64, waveform: FieldStrengthCalibrationWaveform, extra: JSONObject = [:]) {
+        self.detector = detector
+        self.id = id
+        self.impedance_ohm = impedance_ohm
+        self.instrument_profile = instrument_profile
+        self.measurement_chain_id = measurement_chain_id
+        self.points = points
+        self.rbw_hz = rbw_hz
+        self.reference_plane = reference_plane
+        self.uncertainty_basis = uncertainty_basis
+        self.valid_from = valid_from
+        self.valid_until = valid_until
+        self.version = version
+        self.waveform = waveform
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let detectorValue = object.removeValue(forKey: "detector") else { throw ContractError.invalid("Missing detector") }
+        detector = try FieldStrengthCalibrationDetector(json: detectorValue)
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let impedance_ohmValue = object.removeValue(forKey: "impedance_ohm") else { throw ContractError.invalid("Missing impedance_ohm") }
+        impedance_ohm = try impedance_ohmValue.requireDouble()
+        guard let instrument_profileValue = object.removeValue(forKey: "instrument_profile") else { throw ContractError.invalid("Missing instrument_profile") }
+        instrument_profile = try instrument_profileValue.requireString()
+        guard let measurement_chain_idValue = object.removeValue(forKey: "measurement_chain_id") else { throw ContractError.invalid("Missing measurement_chain_id") }
+        measurement_chain_id = try measurement_chain_idValue.requireString()
+        guard let pointsValue = object.removeValue(forKey: "points") else { throw ContractError.invalid("Missing points") }
+        points = try pointsValue.requireArray().map { try FieldStrengthCalibrationPoint(json: $0) }
+        guard let rbw_hzValue = object.removeValue(forKey: "rbw_hz") else { throw ContractError.invalid("Missing rbw_hz") }
+        rbw_hz = try rbw_hzValue.requireDouble()
+        guard let reference_planeValue = object.removeValue(forKey: "reference_plane") else { throw ContractError.invalid("Missing reference_plane") }
+        reference_plane = try reference_planeValue.requireString()
+        guard let uncertainty_basisValue = object.removeValue(forKey: "uncertainty_basis") else { throw ContractError.invalid("Missing uncertainty_basis") }
+        uncertainty_basis = try uncertainty_basisValue.requireString()
+        guard let valid_fromValue = object.removeValue(forKey: "valid_from") else { throw ContractError.invalid("Missing valid_from") }
+        valid_from = try UtcTimestamp(json: valid_fromValue)
+        guard let valid_untilValue = object.removeValue(forKey: "valid_until") else { throw ContractError.invalid("Missing valid_until") }
+        valid_until = try UtcTimestamp(json: valid_untilValue)
+        guard let versionValue = object.removeValue(forKey: "version") else { throw ContractError.invalid("Missing version") }
+        version = try versionValue.requireUInt64()
+        guard let waveformValue = object.removeValue(forKey: "waveform") else { throw ContractError.invalid("Missing waveform") }
+        waveform = try FieldStrengthCalibrationWaveform(json: waveformValue)
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["detector"] = detector.json
+        object["id"] = .string(id)
+        object["impedance_ohm"] = .number(impedance_ohm)
+        object["instrument_profile"] = .string(instrument_profile)
+        object["measurement_chain_id"] = .string(measurement_chain_id)
+        object["points"] = .array(points.map { $0.json })
+        object["rbw_hz"] = .number(rbw_hz)
+        object["reference_plane"] = .string(reference_plane)
+        object["uncertainty_basis"] = .string(uncertainty_basis)
+        object["valid_from"] = valid_from.json
+        object["valid_until"] = valid_until.json
+        object["version"] = .integer(String(version))
+        object["waveform"] = waveform.json
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthCalibrationEvidence: ContractModel, Equatable, Sendable {
+    public var coefficients: FieldStrengthCalibrationPoint
+    public var profile: FieldStrengthCalibration
+    public var sha256: String
+    public var extra: JSONObject
+    public init(coefficients: FieldStrengthCalibrationPoint, profile: FieldStrengthCalibration, sha256: String, extra: JSONObject = [:]) {
+        self.coefficients = coefficients
+        self.profile = profile
+        self.sha256 = sha256
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let coefficientsValue = object.removeValue(forKey: "coefficients") else { throw ContractError.invalid("Missing coefficients") }
+        coefficients = try FieldStrengthCalibrationPoint(json: coefficientsValue)
+        guard let profileValue = object.removeValue(forKey: "profile") else { throw ContractError.invalid("Missing profile") }
+        profile = try FieldStrengthCalibration(json: profileValue)
+        guard let sha256Value = object.removeValue(forKey: "sha256") else { throw ContractError.invalid("Missing sha256") }
+        sha256 = try sha256Value.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["coefficients"] = coefficients.json
+        object["profile"] = profile.json
+        object["sha256"] = .string(sha256)
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthCalibrationPoint: ContractModel, Equatable, Sendable {
+    public var antenna_factor_db_per_m: Double
+    public var cable_loss_db: Double
+    public var frequency_hz: UInt64
+    public var level_correction_db: Double
+    public var preamp_gain_db: Double
+    public var uncertainty_db: Double?
+    public var extra: JSONObject
+    public init(antenna_factor_db_per_m: Double, cable_loss_db: Double, frequency_hz: UInt64, level_correction_db: Double, preamp_gain_db: Double, uncertainty_db: Double? = nil, extra: JSONObject = [:]) {
+        self.antenna_factor_db_per_m = antenna_factor_db_per_m
+        self.cable_loss_db = cable_loss_db
+        self.frequency_hz = frequency_hz
+        self.level_correction_db = level_correction_db
+        self.preamp_gain_db = preamp_gain_db
+        self.uncertainty_db = uncertainty_db
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let antenna_factor_db_per_mValue = object.removeValue(forKey: "antenna_factor_db_per_m") else { throw ContractError.invalid("Missing antenna_factor_db_per_m") }
+        antenna_factor_db_per_m = try antenna_factor_db_per_mValue.requireDouble()
+        guard let cable_loss_dbValue = object.removeValue(forKey: "cable_loss_db") else { throw ContractError.invalid("Missing cable_loss_db") }
+        cable_loss_db = try cable_loss_dbValue.requireDouble()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let level_correction_dbValue = object.removeValue(forKey: "level_correction_db") else { throw ContractError.invalid("Missing level_correction_db") }
+        level_correction_db = try level_correction_dbValue.requireDouble()
+        guard let preamp_gain_dbValue = object.removeValue(forKey: "preamp_gain_db") else { throw ContractError.invalid("Missing preamp_gain_db") }
+        preamp_gain_db = try preamp_gain_dbValue.requireDouble()
+        guard let uncertainty_dbValue = object.removeValue(forKey: "uncertainty_db") else { throw ContractError.invalid("Missing uncertainty_db") }
+        uncertainty_db = uncertainty_dbValue == .null ? nil : try uncertainty_dbValue.requireDouble()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["antenna_factor_db_per_m"] = .number(antenna_factor_db_per_m)
+        object["cable_loss_db"] = .number(cable_loss_db)
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["level_correction_db"] = .number(level_correction_db)
+        object["preamp_gain_db"] = .number(preamp_gain_db)
+        if let value = uncertainty_db { object["uncertainty_db"] = .number(value) } else { object["uncertainty_db"] = .null }
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthRequest: ContractModel, Equatable, Sendable {
+    public var calibration: FieldStrengthCalibration
+    public var frequency_hz: UInt64
+    public var sweep_id: String
+    public var extra: JSONObject
+    public init(calibration: FieldStrengthCalibration, frequency_hz: UInt64, sweep_id: String, extra: JSONObject = [:]) {
+        self.calibration = calibration
+        self.frequency_hz = frequency_hz
+        self.sweep_id = sweep_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let calibrationValue = object.removeValue(forKey: "calibration") else { throw ContractError.invalid("Missing calibration") }
+        calibration = try FieldStrengthCalibration(json: calibrationValue)
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let sweep_idValue = object.removeValue(forKey: "sweep_id") else { throw ContractError.invalid("Missing sweep_id") }
+        sweep_id = try sweep_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["calibration"] = calibration.json
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["sweep_id"] = .string(sweep_id)
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthResult: ContractModel, Equatable, Sendable {
+    public var applicability: String
+    public var calibration: FieldStrengthCalibrationEvidence
+    public var methodology: FieldStrengthResultMethodology
+    public var source: FieldStrengthSource
+    public var uncertainty_db: Double?
+    public var unit: FieldStrengthResultUnit
+    public var value: Double
+    public var value_dbuv_per_m: Double
+    public var warnings: [String]
+    public var extra: JSONObject
+    public init(applicability: String, calibration: FieldStrengthCalibrationEvidence, methodology: FieldStrengthResultMethodology, source: FieldStrengthSource, uncertainty_db: Double? = nil, unit: FieldStrengthResultUnit, value: Double, value_dbuv_per_m: Double, warnings: [String], extra: JSONObject = [:]) {
+        self.applicability = applicability
+        self.calibration = calibration
+        self.methodology = methodology
+        self.source = source
+        self.uncertainty_db = uncertainty_db
+        self.unit = unit
+        self.value = value
+        self.value_dbuv_per_m = value_dbuv_per_m
+        self.warnings = warnings
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let applicabilityValue = object.removeValue(forKey: "applicability") else { throw ContractError.invalid("Missing applicability") }
+        applicability = try applicabilityValue.requireString()
+        guard let calibrationValue = object.removeValue(forKey: "calibration") else { throw ContractError.invalid("Missing calibration") }
+        calibration = try FieldStrengthCalibrationEvidence(json: calibrationValue)
+        guard let methodologyValue = object.removeValue(forKey: "methodology") else { throw ContractError.invalid("Missing methodology") }
+        methodology = try FieldStrengthResultMethodology(json: methodologyValue)
+        guard let sourceValue = object.removeValue(forKey: "source") else { throw ContractError.invalid("Missing source") }
+        source = try FieldStrengthSource(json: sourceValue)
+        guard let uncertainty_dbValue = object.removeValue(forKey: "uncertainty_db") else { throw ContractError.invalid("Missing uncertainty_db") }
+        uncertainty_db = uncertainty_dbValue == .null ? nil : try uncertainty_dbValue.requireDouble()
+        guard let unitValue = object.removeValue(forKey: "unit") else { throw ContractError.invalid("Missing unit") }
+        unit = try FieldStrengthResultUnit(json: unitValue)
+        guard let valueValue = object.removeValue(forKey: "value") else { throw ContractError.invalid("Missing value") }
+        value = try valueValue.requireDouble()
+        guard let value_dbuv_per_mValue = object.removeValue(forKey: "value_dbuv_per_m") else { throw ContractError.invalid("Missing value_dbuv_per_m") }
+        value_dbuv_per_m = try value_dbuv_per_mValue.requireDouble()
+        guard let warningsValue = object.removeValue(forKey: "warnings") else { throw ContractError.invalid("Missing warnings") }
+        warnings = try warningsValue.requireArray().map { try $0.requireString() }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["applicability"] = .string(applicability)
+        object["calibration"] = calibration.json
+        object["methodology"] = methodology.json
+        object["source"] = source.json
+        if let value = uncertainty_db { object["uncertainty_db"] = .number(value) } else { object["uncertainty_db"] = .null }
+        object["unit"] = unit.json
+        object["value"] = .number(value)
+        object["value_dbuv_per_m"] = .number(value_dbuv_per_m)
+        object["warnings"] = .array(warnings.map { .string($0) })
+        return .object(object)
+    }
+}
+
+public struct FieldStrengthSource: ContractModel, Equatable, Sendable {
+    public var bin_index: UInt64
+    public var frequency_hz: UInt64
+    public var id: String
+    public var interval: TimeInterval
+    public var level: Double
+    public var level_unit: String
+    public var session_id: String
+    public var settings: JSONObject
+    public var stream_id: String
+    public var extra: JSONObject
+    public init(bin_index: UInt64, frequency_hz: UInt64, id: String, interval: TimeInterval, level: Double, level_unit: String, session_id: String, settings: JSONObject, stream_id: String, extra: JSONObject = [:]) {
+        self.bin_index = bin_index
+        self.frequency_hz = frequency_hz
+        self.id = id
+        self.interval = interval
+        self.level = level
+        self.level_unit = level_unit
+        self.session_id = session_id
+        self.settings = settings
+        self.stream_id = stream_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let bin_indexValue = object.removeValue(forKey: "bin_index") else { throw ContractError.invalid("Missing bin_index") }
+        bin_index = try bin_indexValue.requireUInt64()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireUInt64()
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let intervalValue = object.removeValue(forKey: "interval") else { throw ContractError.invalid("Missing interval") }
+        interval = try TimeInterval(json: intervalValue)
+        guard let levelValue = object.removeValue(forKey: "level") else { throw ContractError.invalid("Missing level") }
+        level = try levelValue.requireDouble()
+        guard let level_unitValue = object.removeValue(forKey: "level_unit") else { throw ContractError.invalid("Missing level_unit") }
+        level_unit = try level_unitValue.requireString()
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        guard let settingsValue = object.removeValue(forKey: "settings") else { throw ContractError.invalid("Missing settings") }
+        settings = try JSONObject(json: settingsValue)
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["bin_index"] = .integer(String(bin_index))
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["id"] = .string(id)
+        object["interval"] = interval.json
+        object["level"] = .number(level)
+        object["level_unit"] = .string(level_unit)
+        object["session_id"] = .string(session_id)
+        object["settings"] = settings.json
+        object["stream_id"] = .string(stream_id)
         return .object(object)
     }
 }

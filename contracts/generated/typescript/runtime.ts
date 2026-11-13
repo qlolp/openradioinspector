@@ -2740,6 +2740,25 @@ export const runtimeOperations = [
     ],
     "capabilities": [],
     "features": [
+      "field_strength_rms_v2"
+    ],
+    "max_request_bytes": 65536,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_field_strength_rms_v2",
+    "path": "/api/v1/sessions/{id}/field-strength-rms-v2",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy",
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
       "frequency_counter"
     ],
     "max_request_bytes": 8192,

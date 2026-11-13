@@ -461,5 +461,17 @@
   "Source peak is outside the displayed frequency range": "Пик исходного свипа за пределами показанного диапазона",
   "View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset": "Только вид · перетащите для сдвига, колесо или +/− для масштаба, стрелки для сдвига, Home для сброса",
   "Waiting for committed spectrum data": "Ожидание сохранённого свипа",
-  "WebGL2": "WebGL2"
+  "WebGL2": "WebGL2",
+  "RMS-equivalent narrowband field": "RMS-эквивалентное узкополосное поле",
+  "Operator-supplied calibration · RMS/CW only · core checks the recorded measurement chain. Legacy field_strength is an uncalibrated level estimate.": "Калибровку задаёт оператор · только RMS/CW · ядро проверяет записанные настройки тракта. Прежний field_strength — некалиброванная оценка уровня.",
+  "Unavailable on this core": "Недоступно на этом ядре",
+  "Select an original sweep": "Выберите исходный свип",
+  "Calibration request exceeds 64 KiB": "Запрос калибровки превышает 64 КиБ",
+  "Analysis deadline exceeded": "Истёк срок расчёта",
+  "Source evidence mismatch": "Ответ не соответствует исходнику или калибровке",
+  "Invalid calibration": "Некорректная калибровка",
+  "Frequency (Hz)": "Частота (Гц)",
+  "Calibration profile (JSON)": "Калибровочный профиль (JSON)",
+  "Estimate field": "Рассчитать поле",
+  "Uncertainty unknown": "Погрешность неизвестна"
 }

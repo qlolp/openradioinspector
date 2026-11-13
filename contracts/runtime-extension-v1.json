@@ -443,6 +443,12 @@
         "frequency_counter"
       ]
     },
+    "post_api_v1_sessions_id_field_strength_rms_v2": {
+      "capabilities": [],
+      "features": [
+        "field_strength_rms_v2"
+      ]
+    },
     "post_api_v1_sessions_id_frequency_rounding": {
       "capabilities": [],
       "features": [

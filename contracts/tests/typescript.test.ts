@@ -3,11 +3,26 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import './history_runtime.test.ts';
 import {parseJSON, stringifyJSON, decodeSweep, decodeReceiverObservation, normalizeUTC, encodePathSegment, operationPath, encodeSweep, decodeEnvelope, decodeErrorEnvelope} from '../generated/typescript/index.ts';
+import {decodeFieldStrengthRequest, decodeFieldStrengthResult, encodeFieldStrengthResult} from '../generated/typescript/index.ts';
 import {decodeSecurityStatus, encodeSecurityStatus, decodeBrowserPairing, decodeNativePairing,
     decodeMeasurementWebSocket, encodeMeasurementWebSocket, decodeSweepSummaryPage,
     selectRuntimeOperations, runtimeOperations} from '../generated/typescript/runtime.ts';
 
 const fixtureText = readFileSync(new URL('../fixtures/measurement-v1.json', import.meta.url), 'utf8');
+test('calibrated field shared fixture preserves source, calibration and nullable uncertainty', () => {
+    const fixture=parseJSON(readFileSync(new URL('../../tests/fixtures/field-strength-rms-v2.json',import.meta.url),'utf8')) as any;
+    const request=decodeFieldStrengthRequest(fixture.request);
+    assert.equal(request.frequency_hz,200); assert.equal(request.calibration.measurement_chain_id,'SYNTHETIC-receiver-antenna-cable-preamp-v1');
+    const result=decodeFieldStrengthResult(fixture.result);
+    assert.equal(result.value_dbuv_per_m,55); assert.equal(result.value,0.000562341325190349);
+    assert.equal(result.uncertainty_db,3); assert.equal(result.source.id,'sweep-0');
+    assert.equal(result.calibration.sha256,'f049d2a41686fd59a002637a5cde735d3843395308073a74ef4689731eb5b5b6');
+    result.uncertainty_db=null;
+    assert.equal(decodeFieldStrengthResult(parseJSON(encodeFieldStrengthResult(result))).uncertainty_db,null);
+    delete fixture.result.uncertainty_db;
+    assert.throws(()=>decodeFieldStrengthResult(fixture.result),/uncertainty_db/);
+    assert.throws(()=>decodeFieldStrengthResult({...fixture.result,uncertainty_db:null,unit:'dBm'}));
+});
 test('integer minus zero matches legacy Python while explicit float retains sign', () => {
     const value = parseJSON('{"integer":-0,"float":-0.0}') as any;
     assert.equal(Object.is(value.integer, -0), false);
@@ -41,7 +56,9 @@ test('runtime backend and request feature selection fails closed', () => {
     assert.deepEqual(runtimeOperations.find(op=>op.operation_id==='get_api_v1_events_ws')!.query,['after']);
     const ids=(backend:string,features:string[]=[],capabilities:string[]=[],request:any={})=>selectRuntimeOperations(backend,features,capabilities,request).map(op=>op.operation_id);
     assert.throws(()=>ids('unknown'));
-    assert.equal(ids('python-legacy').length,135);
+    assert.equal(ids('python-legacy').length,136);
+    assert.ok(!ids('rust-candidate').includes('post_api_v1_sessions_id_field_strength_rms_v2'));
+    assert.ok(ids('rust-candidate',['field_strength_rms_v2']).includes('post_api_v1_sessions_id_field_strength_rms_v2'));
     assert.ok(!ids('python-legacy').includes('get_api_v1_security_status'));
     assert.ok(ids('rust-candidate').includes('get_api_v1_security_status'));
     assert.ok(!ids('rust-candidate').includes('get_api_v1_sessions_id_sweep_summaries'));

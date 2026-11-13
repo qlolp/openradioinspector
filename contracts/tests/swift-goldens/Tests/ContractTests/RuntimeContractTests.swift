@@ -38,7 +38,7 @@ final class RuntimeContractTests: XCTestCase {
         XCTAssertEqual(runtimeOperations.first { $0.operationId == "post_api_v1_security_pair" }?.maxRequestBytes, 4096)
         XCTAssertEqual(runtimeOperations.first { $0.operationId == "get_api_v1_sessions_id_sweep_summaries" }?.pathParameters, ["id"])
         XCTAssertThrowsError(try selectRuntimeOperations(backend: "unknown"))
-        XCTAssertEqual(try selectRuntimeOperations(backend: "python-legacy").count, 135)
+        XCTAssertEqual(try selectRuntimeOperations(backend: "python-legacy").count, 136)
         let bare = try selectRuntimeOperations(backend: "rust-candidate").map(\.operationId)
         XCTAssertTrue(bare.contains("get_api_v1_security_status"))
         XCTAssertFalse(bare.contains("get_api_v1_events_ws"))

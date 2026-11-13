@@ -35,6 +35,7 @@ METHODS = frozenset({
     "sweep_threshold", "sweep_three_thresholds", "sweep_context", "sweep_occupancy",
     "sweep_mask_analysis", "candidate_frequency_rounding", "frequency_rounding",
     "sweep_quality", "frequency_counter", "dvb_evaluation", "measurement_map",
+    "field_strength_rms_v2",
 })
 CONTROL_METHODS = frozenset({'peak', 'occupied_bandwidth', 'bandwidth_3db', 'centroid', 'channel_power'})
 DETECTION_METHOD = 'automatic_detection_regions'
@@ -67,6 +68,7 @@ _API_ERRORS = {
     "FrequencyRoundingIncompatibleError": (409, "frequency_rounding_incompatible"),
     "QualityIncompatibleError": (409, "quality_incompatible"),
     "CounterIncompatibleError": (409, "counter_incompatible"),
+    "FieldStrengthUnavailable": (409, "field_strength_unavailable"),
     "DvbEvaluationError": (409, "dvb_evaluation_error"),
     "MeasurementMapError": (409, "measurement_map_error"),
     "MaskIncompatibleError": (409, "mask_incompatible"),
@@ -453,6 +455,7 @@ def _analysis(request: dict[str, Any]) -> Any:
         "frequency_rounding": lambda: service.frequency_rounding(sid, payload),
         "sweep_quality": lambda: service.sweep_quality(sid, payload),
         "frequency_counter": lambda: service.frequency_counter(sid, payload),
+        "field_strength_rms_v2": lambda: service.field_strength_rms_v2(sid, payload),
         "dvb_evaluation": lambda: service.dvb_evaluation(sid, payload),
         "measurement_map": lambda: service.measurement_map(sid, payload),
     }

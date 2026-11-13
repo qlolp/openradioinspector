@@ -6,6 +6,47 @@ const RUNTIME_FIXTURE: &[u8] = include_bytes!("../fixtures/runtime-v1.json");
 const HISTORY_FIXTURE: &[u8] = include_bytes!("../fixtures/history-runtime-v1.json");
 
 #[test]
+fn calibrated_field_shared_fixture_keeps_physical_values_and_required_nullable_uncertainty() {
+    use ori_contracts::{FieldStrengthRequest, FieldStrengthResult};
+    let fixture: Value = from_json_slice(
+        include_bytes!("../../tests/fixtures/field-strength-rms-v2.json"),
+        65536,
+    )
+    .unwrap();
+    let request: FieldStrengthRequest =
+        from_json_slice(&to_json_vec(&fixture["request"]).unwrap(), 65536).unwrap();
+    assert_eq!(request.frequency_hz, 200);
+    assert_eq!(
+        request.calibration.measurement_chain_id,
+        "SYNTHETIC-receiver-antenna-cable-preamp-v1"
+    );
+    let mut result: FieldStrengthResult =
+        from_json_slice(&to_json_vec(&fixture["result"]).unwrap(), 65536).unwrap();
+    assert_eq!(result.value_dbuv_per_m, 55.);
+    assert_eq!(result.value.to_bits(), 0.000562341325190349_f64.to_bits());
+    assert_eq!(result.source.id, "sweep-0");
+    assert_eq!(result.uncertainty_db, Some(3.));
+    assert_eq!(
+        result.calibration.sha256,
+        "f049d2a41686fd59a002637a5cde735d3843395308073a74ef4689731eb5b5b6"
+    );
+    result.uncertainty_db = None;
+    let round: FieldStrengthResult =
+        from_json_slice(&to_json_vec(&result).unwrap(), 65536).unwrap();
+    assert!(round.uncertainty_db.is_none());
+    let mut missing = fixture["result"].clone();
+    missing.as_object_mut().unwrap().remove("uncertainty_db");
+    assert!(
+        from_json_slice::<FieldStrengthResult>(&to_json_vec(&missing).unwrap(), 65536).is_err()
+    );
+    missing["uncertainty_db"] = Value::Null;
+    missing["unit"] = serde_json::json!("dBm");
+    assert!(
+        from_json_slice::<FieldStrengthResult>(&to_json_vec(&missing).unwrap(), 65536).is_err()
+    );
+}
+
+#[test]
 fn history_signed_time_nullable_unsigned_boundary_and_nested_metadata_are_exact() {
     use ori_contracts::runtime::{HistoryJob, HistoryJobResult, HistoryRequest};
     let f: Value = from_json_slice(HISTORY_FIXTURE, HISTORY_FIXTURE.len()).unwrap();
@@ -269,7 +310,7 @@ fn runtime_backend_and_request_features_fail_closed() {
         select_operations("python-legacy", &[], &[], &empty)
             .unwrap()
             .len(),
-        135
+        136
     );
     let available = select_operations("rust-candidate", &[], &[], &empty).unwrap();
     assert!(

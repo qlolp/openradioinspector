@@ -31,6 +31,11 @@ def encode(value):
                       sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def field_fixture():
+    return json.loads((Path(__file__).resolve().parents[3] /
+                       'tests/fixtures/field-strength-rms-v2.json').read_text())
+
+
 def payloads():
     mask = {"format": "openradioinspector-spectral-mask", "format_version": 1, "name": "Mask",
             "frequency_unit": "Hz", "level_unit": "dBm", "interpolation": "linear_dbm",
@@ -56,6 +61,7 @@ def payloads():
         "frequency_rounding": {"candidate_ids": ["candidate-𐀀"], "table_json": encode(raster).decode()},
         "sweep_quality": {"sweep_id": "sweep-1", "edge_margin_db": 10, "high_level_dbm": -20},
         "frequency_counter": {"sweep_id": "sweep-1", "resolution_hz": 1, "start_hz": 100, "stop_hz": 400},
+        "field_strength_rms_v2": {**field_fixture()['request'], 'sweep_id': 'calibrated-source'},
         "dvb_evaluation": {"parameters": {"mer_db": 30, "ber_after_viterbi": 0.0001, "ber_after_rs": 0},
                            "thresholds": {"min_mer_db": 20, "max_ber_after_viterbi": 0.001, "max_ber_after_rs": 0},
                            "guard_interval": "1/32", "code_rate": "3/4"},
@@ -92,6 +98,9 @@ class ScientificHttpParity(unittest.TestCase):
                                  "ended_at": f"2026-11-11T00:00:0{number}.223456Z"},
                     "frequencies_hz": [100, 200, 300, 400], "levels": [-90.00000000000001, -80.0 + number, -60.0 + number, -90.0],
                     "level_unit": "dBm", "settings": {"rbw_hz": 10000, "extension": {"bits": [-0.0, 1.0000000000000002]}}}))
+            calibrated = field_fixture()['source']
+            calibrated.update(id='calibrated-source', session_id=session.id, stream_id='spectrum')
+            sweeps.append(stored.ingest_sweep(calibrated))
             candidate = stored.create_candidate(session.id, {"id": "candidate-𐀀", "source_stream_id": "receiver",
                 "interval": {"started_at": "2026-11-11T00:00:00.123456Z", "ended_at": "2026-11-11T00:00:00.123456Z"},
                 "center_frequency_hz": 103, "level_unit": "s_meter_count", "peak_level": 137.0,
@@ -162,7 +171,7 @@ class ScientificHttpParity(unittest.TestCase):
             return selected(session, **payload)
         return selected(session, payload)
 
-    def test_fourteen_http_methods_preserve_results_or_report_missing_worker_containment(self):
+    def test_supported_http_methods_preserve_results_or_report_missing_worker_containment(self):
         before = self.request("GET", "/api/v1/events/history?after=0&limit=100")
         for method, payload in payloads().items():
             with self.subTest(method=method):
@@ -175,6 +184,23 @@ class ScientificHttpParity(unittest.TestCase):
                 self.assertEqual(status, 200, value)
                 self.assertEqual(encode(value["data"]), encode(expected))
         self.assertEqual(self.request("GET", "/api/v1/events/history?after=0&limit=100"), before)
+
+    def test_calibrated_field_unknown_uncertainty_and_incompatible_tract_preserve_archive(self):
+        before = self.request('GET', '/api/v1/events/history?after=0&limit=100')
+        payload = payloads()['field_strength_rms_v2']
+        for point in payload['calibration']['points']:
+            point['uncertainty_db'] = None
+        status, value = self.analyze('field_strength_rms_v2', payload)
+        if os.name == 'nt':
+            self.assertEqual((status, value['error']['code']), (503, 'research_unavailable'))
+        else:
+            self.assertEqual(status, 200, value)
+            self.assertIsNone(value['data']['uncertainty_db'])
+            self.assertEqual(value['data']['value_dbuv_per_m'], 55.0)
+            payload['calibration']['measurement_chain_id'] = 'different-chain'
+            status, value = self.analyze('field_strength_rms_v2', payload)
+            self.assertEqual((status, value['error']['code']), (409, 'field_strength_unavailable'))
+        self.assertEqual(self.request('GET', '/api/v1/events/history?after=0&limit=100'), before)
 
     def test_missing_session_preserves_authoritative_validation_priority_without_a_fake_dto(self):
         if os.name == "nt":

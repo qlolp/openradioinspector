@@ -18,6 +18,7 @@ from ..sweep_three_thresholds import MAX_THREE_THRESHOLDS_REQUEST_BYTES
 from ..frequency_rounding import MAX_ROUNDING_REQUEST_BYTES
 from ..frequency_raster import MAX_ROUNDING_REQUEST_BYTES as MAX_RASTER_REQUEST_BYTES
 from ..frequency_counter import MAX_COUNTER_REQUEST_BYTES
+from ..field_strength import MAX_FIELD_REQUEST_BYTES, MAX_CALIBRATION_POINTS, MAX_HZ
 from ..dvb_parameters import MAX_DVB_REQUEST_BYTES
 from ..measurement_map import MAX_MAP_REQUEST_BYTES
 from ..signal_list import MAX_IMPORT_REQUEST_BYTES
@@ -30,6 +31,7 @@ ANALYSIS_BUDGETS = {
     'candidate-frequency-rounding': MAX_ROUNDING_REQUEST_BYTES, 'frequency-rounding': MAX_RASTER_REQUEST_BYTES,
     'frequency-counter': MAX_COUNTER_REQUEST_BYTES, 'dvb-evaluation': MAX_DVB_REQUEST_BYTES,
     'measurement-map': MAX_MAP_REQUEST_BYTES,
+    'field-strength-rms-v2': MAX_FIELD_REQUEST_BYTES,
 }
 
 
@@ -44,6 +46,54 @@ def obj(properties=None, required=()):
 
 def array(items):
     return {'type': 'array', 'items': items}
+
+
+def field_strength_schemas():
+    """The finite-input/calibration applicability rules remain core-owned."""
+    def closed(properties):
+        return {**obj(properties, tuple(properties)), 'additionalProperties': False}
+
+    text = {'type': 'string', 'minLength': 1, 'maxLength': 512}
+    identity = {'type': 'string', 'minLength': 1}
+    number = {'type': 'number', 'format': 'double'}
+    hz = {'type': 'integer', 'format': 'uint64', 'minimum': 0, 'maximum': MAX_HZ}
+    positive = {**number, 'minimum': 1e-12}
+    uncertainty = {'type': ['number', 'null'], 'format': 'double', 'minimum': 0,
+                   'description': 'Declared combined uncertainty in dB; null means unknown, never zero.'}
+    point = closed({'frequency_hz': hz, 'antenna_factor_db_per_m': number,
+        'cable_loss_db': number, 'preamp_gain_db': number, 'level_correction_db': number,
+        'uncertainty_db': uncertainty})
+    profile = closed({'id': text,
+        'version': {'type': 'integer', 'format': 'uint64', 'minimum': 1, 'maximum': MAX_HZ},
+        'instrument_profile': text, 'measurement_chain_id': text, 'reference_plane': text,
+        'impedance_ohm': positive, 'detector': {'type': 'string', 'enum': ['RMS']},
+        'rbw_hz': positive, 'waveform': {'type': 'string', 'enum': ['CW']},
+        'valid_from': {'type': 'string', 'format': 'date-time'},
+        'valid_until': {'type': 'string', 'format': 'date-time'}, 'uncertainty_basis': text,
+        'points': {**array(ref('FieldStrengthCalibrationPoint')), 'minItems': 1,
+                   'maxItems': MAX_CALIBRATION_POINTS}})
+    profile['description'] = ('Operator-supplied calibration snapshot, not hardware certification. '
+        'Points must have strictly increasing integer Hz. No extrapolation. The full source UTC '
+        'interval and all seven receiver/chain/plane/impedance/RMS/RBW/CW settings must match.')
+    return {
+        'FieldStrengthCalibrationPoint': point,
+        'FieldStrengthCalibration': profile,
+        'FieldStrengthRequest': closed({'sweep_id': text, 'frequency_hz': hz,
+                                       'calibration': ref('FieldStrengthCalibration')}),
+        'FieldStrengthSource': closed({'id': text, 'session_id': identity, 'stream_id': identity,
+            'interval': ref('TimeInterval'), 'frequency_hz': hz,
+            'bin_index': {'type': 'integer', 'format': 'uint64', 'minimum': 0},
+            'level': number, 'level_unit': text, 'settings': ref('JSONObject')}),
+        'FieldStrengthCalibrationEvidence': closed({'profile': ref('FieldStrengthCalibration'),
+            'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$'},
+            'coefficients': ref('FieldStrengthCalibrationPoint')}),
+        'FieldStrengthResult': closed({
+            'methodology': {'type': 'string', 'enum': ['field_strength_rms_v2']},
+            'value': {**number, 'minimum': 0}, 'unit': {'type': 'string', 'enum': ['V/m']},
+            'value_dbuv_per_m': number, 'uncertainty_db': uncertainty,
+            'warnings': array({'type': 'string'}), 'source': ref('FieldStrengthSource'),
+            'calibration': ref('FieldStrengthCalibrationEvidence'), 'applicability': text}),
+    }
 
 
 def schemas():
@@ -107,6 +157,7 @@ def schemas():
         'MonitoringProject': obj({'id': identifier, 'name': text, 'site': text, 'state': text,
             'active_session_id': nullable_text, 'baseline_id': nullable_text,
             'autostart': {'type': 'boolean'}, 'session_ids': array(identifier)}, ('id', 'name', 'site', 'state')),
+        **field_strength_schemas(),
         'Envelope': obj({'contract': {'type': 'string', 'const': CONTRACT_NAME},
             'contract_version': {'type': 'integer', 'const': CONTRACT_VERSION}, 'data': {}},
             ('contract', 'contract_version', 'data')),
@@ -200,6 +251,7 @@ def document():
                      'sweep-occupancy', 'frequency-rounding', 'sweep-quality', 'frequency-counter',
                      'dvb-evaluation', 'measurement-map', 'sweep-mask-analysis'):
         add(base+'/'+analysis, 'post', body=ref('JSONObject'))
+    add(base+'/field-strength-rms-v2', 'post', ref('FieldStrengthResult'), body=ref('FieldStrengthRequest'))
     add(base+'/sweep-comparison', queries=('reference_id', 'target_id'))
     add(base+'/sweep-threshold', queries=('sweep_id', 'window_points', 'margin_db'))
     add(base+'/sweep-references', queries=('limit', 'offset'))

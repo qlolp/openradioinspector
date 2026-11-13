@@ -775,6 +775,7 @@ fn capabilities(core: &Core) -> Value {
         "candidate_frequency_rounding",
         "sweep_quality",
         "frequency_counter",
+        "field_strength_rms_v2",
         "dvb_t_evaluation",
         "measurement_map",
     ] {

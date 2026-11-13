@@ -69,6 +69,7 @@ public let operations: [String: OperationDescriptor] = [
     "post_api_v1_sessions_id_candidates_candidate_id_dismiss": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/candidates/{candidate_id}/dismiss", query: [], maxRequestBytes: 65536),
     "post_api_v1_sessions_id_candidates_candidate_id_investigations": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/candidates/{candidate_id}/investigations", query: [], maxRequestBytes: 65536),
     "post_api_v1_sessions_id_dvb_evaluation": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/dvb-evaluation", query: [], maxRequestBytes: 8192),
+    "post_api_v1_sessions_id_field_strength_rms_v2": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/field-strength-rms-v2", query: [], maxRequestBytes: 65536),
     "post_api_v1_sessions_id_frequency_counter": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/frequency-counter", query: [], maxRequestBytes: 8192),
     "post_api_v1_sessions_id_frequency_rounding": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/frequency-rounding", query: [], maxRequestBytes: 524288),
     "get_api_v1_sessions_id_investigations": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/investigations", query: ["state"], maxRequestBytes: nil),
