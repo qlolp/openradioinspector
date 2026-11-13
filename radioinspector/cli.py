@@ -117,7 +117,11 @@ def cmd_demo(args: argparse.Namespace) -> int:
         # вертикальной сетки. Уровень сетки берётся по накопленному графику
         # максимумов за весь сеанс наблюдения.
         max_trace = store.max_trace()
-        assert max_trace is not None
+        if max_trace is None:
+            raise ValueError(
+                "Линия порога по умолчанию требует накопленного графика максимумов: "
+                "в архиве нет панорам"
+            )
         line = ThresholdLine.default_for(max_trace)
         store.save_threshold(line)
 
