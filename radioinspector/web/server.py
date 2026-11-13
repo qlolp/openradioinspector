@@ -72,7 +72,8 @@ from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflict
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..request_limits import (
-    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, REQUEST_BODY_TIMEOUT_SECONDS,
+    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, MAX_PAGE_LIMIT,
+    REQUEST_BODY_TIMEOUT_SECONDS,
 )
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -337,6 +338,39 @@ def finite_number(value):
     number = float(value)
     if not math.isfinite(number):
         raise ValueError("Число должно быть конечным")
+    return number
+
+
+def page_limit(value) -> int | None:
+    """Разбирает параметр ``limit`` постраничной выдачи.
+
+    Отсутствие параметра означает прежнее поведение — полный список.
+    Заданное значение ограничивается сверху, чтобы один запрос не мог
+    заставить сервер материализовать всю таблицу.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit должен быть целым числом") from exc
+    if number < 1:
+        raise ValueError("limit должен быть положительным целым числом")
+    if number > MAX_PAGE_LIMIT:
+        raise ValueError(f"limit не может превышать {MAX_PAGE_LIMIT}")
+    return number
+
+
+def page_offset(value) -> int:
+    """Разбирает параметр ``offset`` постраничной выдачи."""
+    if value is None or value == "":
+        return 0
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("offset должен быть целым числом") from exc
+    if number < 0:
+        raise ValueError("offset не может быть отрицательным")
     return number
 
 
@@ -785,8 +819,12 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in ("candidates", "investigations")
             ):
                 state = query.get("state", [None])[0]
+                limit = page_limit(query.get("limit", [None])[0])
+                offset = page_offset(query.get("offset", [None])[0])
                 if parts[4] == "candidates":
-                    result = self.sessions.list_candidates(parts[3], state=state)
+                    result = self.sessions.list_candidates(
+                        parts[3], state=state, limit=limit, offset=offset,
+                    )
                 else:
                     result = self.sessions.list_investigations(parts[3], state=state)
                 self._send_json(api_payload(result))

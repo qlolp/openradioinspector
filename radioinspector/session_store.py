@@ -1151,7 +1151,41 @@ class SQLiteSessionStore:
 
     def load_candidates(
         self, *, session_id: Optional[str] = None, state: Optional[str] = None,
+        limit: Optional[int] = None, offset: int = 0,
     ) -> list[Candidate]:
+        """Кандидаты сеанса в порядке появления.
+
+        ``limit`` и ``offset`` ограничивают объём выборки: без ``limit``
+        возвращаются все строки, как и раньше. Ограничение выборки на уровне
+        SQL не меняет порядок и не требует материализации всей таблицы.
+        """
+        if limit is not None and limit < 1:
+            raise ValueError("limit должен быть положительным целым числом")
+        if offset < 0:
+            raise ValueError("offset не может быть отрицательным")
+        clauses, parameters = [], []
+        if session_id is not None:
+            clauses.append("session_id = ?")
+            parameters.append(session_id)
+        if state is not None:
+            clauses.append("state = ?")
+            parameters.append(state)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        query = "SELECT * FROM candidates" + where + " ORDER BY started_at, id"
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            parameters.extend([int(limit), int(offset)])
+        elif offset:
+            query += " LIMIT -1 OFFSET ?"
+            parameters.append(int(offset))
+        with self._lock:
+            rows = self._connection.execute(query, parameters).fetchall()
+            return [self._candidate(row) for row in rows]
+
+    def count_candidates(
+        self, *, session_id: Optional[str] = None, state: Optional[str] = None,
+    ) -> int:
+        """Число кандидатов по тем же условиям отбора, что и load_candidates."""
         clauses, parameters = [], []
         if session_id is not None:
             clauses.append("session_id = ?")
@@ -1161,10 +1195,10 @@ class SQLiteSessionStore:
             parameters.append(state)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
-            rows = self._connection.execute(
-                "SELECT * FROM candidates" + where + " ORDER BY started_at, id", parameters,
-            ).fetchall()
-            return [self._candidate(row) for row in rows]
+            row = self._connection.execute(
+                "SELECT COUNT(*) FROM candidates" + where, parameters,
+            ).fetchone()
+            return int(row[0])
 
     def save_measurement_result(
         self, record: dict[str, Any], *, event: Optional[SessionEvent] = None

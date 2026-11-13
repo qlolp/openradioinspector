@@ -135,7 +135,8 @@ class SigmfRecording:
         digest = hashlib.sha512(data_path.read_bytes()).hexdigest()
         metadata["global"]["core:sha512"] = digest
         meta_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(metadata, ensure_ascii=False, indent=2, allow_nan=False),
+            encoding="utf-8",
         )
         return data_path, meta_path
 

@@ -268,7 +268,8 @@ def _import_stream_snapshot(
         if not chunk:
             return
         kind = current_kind
-        assert kind is not None
+        if kind is None:
+            raise ValueError("Пакет импорта не содержит типа записи")
         items = [to_primitive(item[1]) for item in chunk]
         if not dry_run:
             response = client.ingest_batch(session_id, KIND_NAMES[kind], items)
