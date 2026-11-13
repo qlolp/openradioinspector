@@ -461,5 +461,6 @@
   "Source peak is outside the displayed frequency range": "Source peak is outside the displayed frequency range",
   "View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset": "View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset",
   "Waiting for committed spectrum data": "Waiting for committed spectrum data",
-  "WebGL2": "WebGL2"
+  "WebGL2": "WebGL2",
+  "Combined {count} display updates. Original sweeps remain archived.": "Combined {count} display updates. Original sweeps remain archived."
 }

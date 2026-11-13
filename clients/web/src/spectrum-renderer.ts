@@ -157,11 +157,20 @@ export class SpectrumRenderer {
     else if (this.awaitingSource) {
       const index = this.pending.findIndex((item) => item.sweep?.id === sweep?.id);
       if (index !== -1) this.pending[index] = snapshot;
-      else if (this.pending.length < 64) this.pending.push(snapshot);
+      else if (this.pending.length < 2) this.pending.push(snapshot);
       else {
-        // Preserve the owner and FIFO prefix; only the undrawn tail is replaced.
-        this.pending[63] = snapshot;
-        this.coalescedSources = Math.min(Number.MAX_SAFE_INTEGER, this.coalescedSources + 1);
+        // An undrawn FIFO prefix can keep the live graph seconds behind its
+        // applied source. Keep the first strongest complete source and newest
+        // source instead. Never replace the reserved owner or its paint barrier.
+        const offered = [...this.pending, snapshot];
+        let peak = offered[0];
+        for (const item of offered.slice(1))
+          if (item.sweep!.peak.level > peak.sweep!.peak.level) peak = item;
+        this.pending = peak.sweep!.id === sweep!.id ? [snapshot] : [peak, snapshot];
+        this.coalescedSources = Math.min(
+          Number.MAX_SAFE_INTEGER,
+          this.coalescedSources + offered.length - this.pending.length,
+        );
       }
     } else this.accept(snapshot, true);
   }
@@ -226,6 +235,7 @@ export class SpectrumRenderer {
     this.awaitingSource = false;
     this.releaseScheduled = false;
     this.pending = [];
+    this.coalescedSources = 0;
     for (const id of this.acknowledgements) cancelAnimationFrame(id);
     this.acknowledgements.clear();
     this.drawnSource = '';

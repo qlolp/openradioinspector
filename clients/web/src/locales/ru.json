@@ -461,5 +461,6 @@
   "Source peak is outside the displayed frequency range": "Пик исходного свипа за пределами показанного диапазона",
   "View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset": "Только вид · перетащите для сдвига, колесо или +/− для масштаба, стрелки для сдвига, Home для сброса",
   "Waiting for committed spectrum data": "Ожидание сохранённого свипа",
-  "WebGL2": "WebGL2"
+  "WebGL2": "WebGL2",
+  "Combined {count} display updates. Original sweeps remain archived.": "Объединено обновлений графика: {count}. Исходные свипы сохранены в архиве."
 }

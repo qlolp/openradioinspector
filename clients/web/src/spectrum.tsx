@@ -34,7 +34,9 @@ export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
     fallback = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<SpectrumRenderer | null>(null);
   const sourceCursor = useRef<LiveSourceCursor | null>(null);
-  const [display, setDisplay] = useState<DrawnSpectrum & { presentationEpoch?: object }>(),
+  const [display, setDisplay] = useState<
+      DrawnSpectrum & { presentationEpoch?: object; coalescedSources: number }
+    >(),
     [mode, setMode] = useState('Starting renderer');
   const full = sourceRange(sweep);
   const current = useRef({ sweep, comparison, liveSources, full, range: full });
@@ -87,7 +89,13 @@ export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
       if (!sameSpectrumContext(snapshot.sweep, current.current.sweep)) return;
       // This callback follows actual pixel submission. Commit its labels before
       // paint and the original two-RAF marker, without changing source/Worker ACKs.
-      flushSync(() => setDisplay({ ...snapshot, presentationEpoch: sourceCursor.current?.epoch }));
+      flushSync(() =>
+        setDisplay({
+          ...snapshot,
+          presentationEpoch: sourceCursor.current?.epoch,
+          coalescedSources: renderer.current?.presentationStatus.coalescedSources ?? 0,
+        }),
+      );
     });
     renderer.current = graph;
     sourceCursor.current = new LiveSourceCursor();
@@ -342,6 +350,13 @@ export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
       <p className="spectrum-help">
         {t('View only · drag to pan, wheel or +/− to zoom, arrows to pan, Home to reset')}
       </p>
+      {!!drawn?.coalescedSources && (
+        <p className="spectrum-help" data-testid="spectrum-coalesced">
+          {t('Combined {count} display updates. Original sweeps remain archived.', {
+            count: drawn.coalescedSources,
+          })}
+        </p>
+      )}
     </div>
   );
 }

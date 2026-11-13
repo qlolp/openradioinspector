@@ -77,20 +77,28 @@ it('reserves a source even when another source arrives before its first draw', a
   expect(canvas.dataset.sweepId).toBe('source-1');
 });
 
-it('retains FIFO sources with a bounded pending tail and coalesces only undrawn overflow', async () => {
+it('keeps the reserved owner, first maximum and newest source without an old FIFO backlog', async () => {
   const { graph, canvas } = fixture();
   graph.update(sweep(0), undefined, range);
   await tick();
-  for (let i = 1; i <= 66; i++) graph.update(sweep(i), undefined, range);
-  expect(graph.presentationStatus).toEqual({ pendingSources: 64, coalescedSources: 2 });
+  for (let i = 1; i <= 66; i++) {
+    const source = sweep(i),
+      level = i === 22 || i === 23 ? -1 : -50;
+    source.levels[1] = level;
+    source.peak.level = level;
+    graph.update(source, undefined, range);
+  }
+  expect(graph.presentationStatus).toEqual({ pendingSources: 2, coalescedSources: 64 });
   const observed: string[] = [];
-  for (let i = 0; i < 280; i++) {
+  // The original two-RAF receipt remains. Even a burst cannot force dozens
+  // of already stale sources ahead of the latest committed panorama.
+  for (let i = 0; i < 10; i++) {
     await tick();
     const id = canvas.dataset.sweepId;
     if (id && id !== observed.at(-1)) observed.push(id);
   }
-  expect(observed).toEqual([...Array.from({ length: 64 }, (_, i) => 'source-' + i), 'source-66']);
-  expect(graph.presentationStatus).toEqual({ pendingSources: 0, coalescedSources: 2 });
+  expect(observed).toEqual(['source-0', 'source-22', 'source-66']);
+  expect(graph.presentationStatus).toEqual({ pendingSources: 0, coalescedSources: 64 });
 });
 
 it.each(['lost', 'restore'] as const)(
