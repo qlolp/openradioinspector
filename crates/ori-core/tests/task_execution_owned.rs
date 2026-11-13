@@ -210,10 +210,17 @@ impl TaskRun for Run {
         })
     }
 }
+fn fixture_path(directory: &str, filename: &str) -> PathBuf {
+    std::env::current_dir()
+        .unwrap()
+        .join("ori-task-execution-owned")
+        .join(directory)
+        .join(filename)
+}
 fn binding() -> TaskBinding {
     TaskBinding {
         task_name: NAME.into(),
-        input: TaskInput::FixedFrequencyList(PathBuf::from("/trusted/source-é.json")),
+        input: TaskInput::FixedFrequencyList(fixture_path("trusted", "source-é.json")),
         session_id: "session-e\u{301}".into(),
         stream_id: "stream-é".into(),
         level_unit: "dBm".into(),
@@ -229,7 +236,7 @@ fn config(probe: Arc<Probe>) -> TaskExecutionConfig {
 }
 fn task(status: &str) -> ControlTask {
     ControlTask::from_dict(
-        json!({"name":NAME,"task_file":"/trusted/source-é.json","status":status,
+        json!({"name":NAME,"task_file":fixture_path("trusted", "source-é.json"),"status":status,
         "start_at":"2026-11-11T12:00:00.123456+00:00","duration_s":10.0,
         "profiles":[{"bandwidth_hz":-0.0}],"extra_info":"é-e\u{301}"}),
     )
@@ -251,6 +258,44 @@ async fn enabled(probe: Arc<Probe>) -> (Arc<TaskExecution>, Arc<Authority>) {
         )
         .unwrap();
     (effects, original)
+}
+
+#[tokio::test]
+async fn host_absolute_sources_preserve_exact_binding_and_reject_unsafe_paths_before_capture() {
+    let probe = Arc::new(Probe::default());
+    let trusted = fixture_path("trusted", "source-é.json");
+    let untrusted = fixture_path("untrusted", "other.json");
+    let effects = TaskExecution::new(config(probe.clone())).unwrap();
+    let accepted = effects.validate_task(&task("В очереди на выполнение").as_dict());
+    let mut wrong = task("В очереди на выполнение").as_dict();
+    wrong["task_file"] = json!(untrusted);
+    let unbound = effects.validate_task(&wrong).unwrap_err();
+    effects.close().await.unwrap();
+    assert!(trusted.is_absolute() && untrusted.is_absolute());
+    assert_ne!(trusted, untrusted);
+    accepted.unwrap();
+    assert_eq!(unbound.http_status, 400);
+    assert_eq!(unbound.api_code, "task_execution_binding_invalid");
+    for invalid in [
+        PathBuf::from("trusted/source-é.json"),
+        fixture_path("trusted", "..").join("source-é.json"),
+    ] {
+        let mut options = config(probe.clone());
+        options.bindings[0].input = TaskInput::FixedFrequencyList(invalid);
+        match TaskExecution::new(options) {
+            Err(error) => {
+                assert_eq!(error.http_status, 400);
+                assert_eq!(error.api_code, "task_execution_binding_invalid");
+            }
+            Ok(effects) => {
+                effects.close().await.unwrap();
+                panic!("Unsafe task source binding was accepted");
+            }
+        }
+    }
+    assert_eq!(probe.captures.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.prepared.load(Ordering::SeqCst), 0);
+    assert_eq!(probe.starts.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -287,7 +332,7 @@ async fn unbound_paths_and_changed_epoch_never_reach_another_start_or_finish() {
     let probe = Arc::new(Probe::default());
     let (effects, _) = enabled(probe.clone()).await;
     let mut wrong = context(7).task.as_dict();
-    wrong["task_file"] = json!("/untrusted/other.json");
+    wrong["task_file"] = json!(fixture_path("untrusted", "other.json"));
     assert!(effects.validate_task(&wrong).is_err());
     assert!(
         effects
