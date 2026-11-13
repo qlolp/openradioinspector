@@ -1,0 +1,10 @@
+{
+  "fixture_version": 1,
+  "valid": [
+    {"api_version":"v1","features":{"persistent_archive":false},"candidate":{"mode":"shadow","native_connector_enabled":false,"release_accepted":false,"hardware_validation":"not_run"}},
+    {"api_version":"v1","features":{"persistent_archive":true},"candidate":{"mode":"replay","native_connector_enabled":false,"release_accepted":false,"hardware_validation":"not_run"}},
+    {"api_version":"v1","features":{"persistent_archive":true,"field_strength_rms_v2":false,"analog_audio_inputs":false},"candidate":{"mode":"live","native_connector_enabled":true,"release_accepted":false,"hardware_validation":"not_run","history_worker_configured":false,"resource_limits":{"measurement_request_bytes":16777216}},"future_metadata":{"integer":184467440737095516160000}},
+    {"api_version":"v1","features":{"persistent_archive":true}}
+  ],
+  "invalid_modes": ["LIVE", "live-ish", ""]
+}

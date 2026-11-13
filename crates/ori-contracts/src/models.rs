@@ -21,6 +21,19 @@ impl crate::RestoreKeys for CandidateState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CoreCandidateInfoMode {
+    #[serde(rename = "shadow")]
+    Shadow,
+    #[serde(rename = "replay")]
+    Replay,
+    #[serde(rename = "live")]
+    Live,
+}
+impl crate::RestoreKeys for CoreCandidateInfoMode {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeviceRole {
     #[serde(rename = "spectrum_analyzer")]
     SpectrumAnalyzer,
@@ -135,6 +148,56 @@ impl crate::RestoreKeys for Candidate {
     fn restore_keys(&mut self) {
         crate::RestoreKeys::restore_keys(&mut self.extra);
         crate::RestoreKeys::restore_keys(&mut self.interval);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoreCandidateInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility_complete: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_validation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_worker_configured: Option<bool>,
+    pub mode: CoreCandidateInfoMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_connector_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_accepted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_limits: Option<JSONObject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsupported_features: Option<Vec<String>>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for CoreCandidateInfo {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.resource_limits);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoreCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate: Option<CoreCandidateInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "crate::codec::deserialize_optional_contract_version")]
+    pub contract_version: Option<u64>,
+    pub features: JSONObject,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for CoreCapabilities {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.candidate);
+        crate::RestoreKeys::restore_keys(&mut self.features);
     }
 }
 

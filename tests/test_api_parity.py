@@ -15,6 +15,21 @@ from tools.modernization.api_parity import (
 
 
 class ExactWireTests(unittest.TestCase):
+    def test_reviewed_snapshot_history_is_bounded_without_dropping_old_revisions(self):
+        with tempfile.TemporaryDirectory(prefix='ori-reviewed-history-') as directory:
+            root = Path(directory)
+            (root / 'route.py').write_bytes(b'current reviewed route')
+            digest = hashlib.sha256(b'current reviewed route').hexdigest()
+            history = [{'revision': format(i, '040x'), 'source_sha256': {
+                'route.py': digest if i == 8 else format(i, '064x')}} for i in range(1, 9)]
+            inventory = {'python_source_revision': 'a'*40, 'source_sha256': {'route.py': '0'*64},
+                         'approved_source_snapshots': history}
+            self.assertEqual(approved_source_snapshot(root, inventory),
+                             (format(8, '040x'), {'route.py': digest}))
+            inventory['approved_source_snapshots'] = history + [history[-1]]
+            with self.assertRaises(ProtocolError):
+                approved_source_snapshot(root, inventory)
+
     def test_public_inventory_covers_openapi_and_calibrated_field_success(self):
         from radioinspector.web.openapi import document
         from tools.modernization.api_parity import public_cases

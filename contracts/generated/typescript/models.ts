@@ -3,6 +3,7 @@ import type {JSONValue, JSONObject, Integer} from './codec.ts';
 export type {JSONValue, JSONObject, Integer} from './codec.ts';
 
 export type CandidateState = "new" | "queued" | "investigating" | "resolved" | "dismissed";
+export type CoreCandidateInfoMode = "shadow" | "replay" | "live";
 export type DeviceRole = "spectrum_analyzer" | "receiver" | "simulator";
 export type FieldStrengthCalibrationDetector = "RMS";
 export type FieldStrengthCalibrationWaveform = "CW";
@@ -44,6 +45,26 @@ export interface Candidate {
   session_id: string;
   source_stream_id: string;
   state: CandidateState;
+  [key: string]: unknown;
+}
+
+export interface CoreCandidateInfo {
+  compatibility_complete?: boolean;
+  hardware_validation?: string;
+  history_worker_configured?: boolean;
+  mode: CoreCandidateInfoMode;
+  native_connector_enabled?: boolean;
+  release_accepted?: boolean;
+  resource_limits?: JSONObject;
+  unsupported_features?: Array<string>;
+  [key: string]: unknown;
+}
+
+export interface CoreCapabilities {
+  api_version?: string;
+  candidate?: CoreCandidateInfo;
+  contract_version?: Integer;
+  features: JSONObject;
   [key: string]: unknown;
 }
 

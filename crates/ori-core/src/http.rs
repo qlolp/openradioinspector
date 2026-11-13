@@ -1,5 +1,5 @@
 use crate::{
-    Core, CoreMode,
+    Core,
     error::{ApiError, ApiResult},
     new_id, utc_now,
 };
@@ -758,7 +758,7 @@ async fn get(
     Ok(envelope(StatusCode::OK, data))
 }
 fn capabilities(core: &Core) -> Value {
-    let archived = core.mode() == CoreMode::Replay;
+    let archived = core.mode().writes_archive();
     let domains = core.domains.get().is_some();
     let scientific = archived && core.config.analysis_worker.is_some();
     let mut value = json!({"api_version":"v1","contract_version":1,"hardware_ownership":"core","session_storage":if archived{"sqlite"}else{"shadow"},"storage_mode":if archived{"sqlite"}else{"shadow"},"persistent_archive":archived,"clients":["raspberry-pi-webui","windows-gui","macos-swiftui"],"features":{"sessions":archived,"monitoring_sessions":archived,"session_lifecycle":archived,"session_event_history":archived,"sse_replay":archived,"persistent_archive":archived,"measurement_ingest":archived,"measurement_archive":archived,"measurement_batch_ingest":archived,"measurement_batch_atomic":archived,"measurement_batch_limit":100,"measurement_batch_max_request_bytes":16777216,"sweep_summaries":archived,"audio_segment_ingest":archived,"event_stream":archived,"hardware_control":false,"monitoring_projects":false,"monitoring_guard":false,"session_recovery":archived,"session_analytics":archived,"session_analytics_archive_wide":archived,"session_archive_export":false,"archive_capacity_guard":archived,"archive_automatic_deletion":false,"control_task_scheduler":false,"automatic_investigation_completion":false},"candidate":{"mode":core.mode().as_str(),"compatibility_complete":false,"release_accepted":false,"hardware_validation":"not_run","unsupported_features":["legacy_panorama_workspace","guard_orchestration","instrument_workers","audio_capture_and_live_stream","research_http","tasks","advanced_analysis","archive_export"],"resource_limits":core.resource_capabilities()}});

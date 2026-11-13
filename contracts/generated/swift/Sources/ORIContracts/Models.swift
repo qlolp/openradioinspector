@@ -14,6 +14,17 @@ public enum CandidateState: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum CoreCandidateInfoMode: String, Sendable, Codable, CaseIterable {
+    case shadow = "shadow"
+    case replay = "replay"
+    case live = "live"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum DeviceRole: String, Sendable, Codable, CaseIterable {
     case spectrum_analyzer = "spectrum_analyzer"
     case receiver = "receiver"
@@ -235,6 +246,86 @@ public struct Candidate: ContractModel, Equatable, Sendable {
         object["session_id"] = .string(session_id)
         object["source_stream_id"] = .string(source_stream_id)
         object["state"] = state.json
+        return .object(object)
+    }
+}
+
+public struct CoreCandidateInfo: ContractModel, Equatable, Sendable {
+    public var compatibility_complete: Bool?
+    public var hardware_validation: String?
+    public var history_worker_configured: Bool?
+    public var mode: CoreCandidateInfoMode
+    public var native_connector_enabled: Bool?
+    public var release_accepted: Bool?
+    public var resource_limits: JSONObject?
+    public var unsupported_features: [String]?
+    public var extra: JSONObject
+    public init(compatibility_complete: Bool? = nil, hardware_validation: String? = nil, history_worker_configured: Bool? = nil, mode: CoreCandidateInfoMode, native_connector_enabled: Bool? = nil, release_accepted: Bool? = nil, resource_limits: JSONObject? = nil, unsupported_features: [String]? = nil, extra: JSONObject = [:]) {
+        self.compatibility_complete = compatibility_complete
+        self.hardware_validation = hardware_validation
+        self.history_worker_configured = history_worker_configured
+        self.mode = mode
+        self.native_connector_enabled = native_connector_enabled
+        self.release_accepted = release_accepted
+        self.resource_limits = resource_limits
+        self.unsupported_features = unsupported_features
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "compatibility_complete"), value != .null { compatibility_complete = try value.requireBool() } else { compatibility_complete = nil }
+        if let value = object.removeValue(forKey: "hardware_validation"), value != .null { hardware_validation = try value.requireString() } else { hardware_validation = nil }
+        if let value = object.removeValue(forKey: "history_worker_configured"), value != .null { history_worker_configured = try value.requireBool() } else { history_worker_configured = nil }
+        guard let modeValue = object.removeValue(forKey: "mode") else { throw ContractError.invalid("Missing mode") }
+        mode = try CoreCandidateInfoMode(json: modeValue)
+        if let value = object.removeValue(forKey: "native_connector_enabled"), value != .null { native_connector_enabled = try value.requireBool() } else { native_connector_enabled = nil }
+        if let value = object.removeValue(forKey: "release_accepted"), value != .null { release_accepted = try value.requireBool() } else { release_accepted = nil }
+        if let value = object.removeValue(forKey: "resource_limits"), value != .null { resource_limits = try value.requireObject() } else { resource_limits = nil }
+        if let value = object.removeValue(forKey: "unsupported_features"), value != .null { unsupported_features = try value.requireArray().map { try $0.requireString() } } else { unsupported_features = nil }
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = compatibility_complete { object["compatibility_complete"] = .bool(value) }
+        if let value = hardware_validation { object["hardware_validation"] = .string(value) }
+        if let value = history_worker_configured { object["history_worker_configured"] = .bool(value) }
+        object["mode"] = mode.json
+        if let value = native_connector_enabled { object["native_connector_enabled"] = .bool(value) }
+        if let value = release_accepted { object["release_accepted"] = .bool(value) }
+        if let value = resource_limits { object["resource_limits"] = .object(value) }
+        if let value = unsupported_features { object["unsupported_features"] = .array(value.map { .string($0) }) }
+        return .object(object)
+    }
+}
+
+public struct CoreCapabilities: ContractModel, Equatable, Sendable {
+    public var api_version: String?
+    public var candidate: CoreCandidateInfo?
+    public var contract_version: UInt64?
+    public var features: JSONObject
+    public var extra: JSONObject
+    public init(api_version: String? = nil, candidate: CoreCandidateInfo? = nil, contract_version: UInt64? = nil, features: JSONObject, extra: JSONObject = [:]) {
+        self.api_version = api_version
+        self.candidate = candidate
+        self.contract_version = contract_version
+        self.features = features
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        if let value = object.removeValue(forKey: "api_version"), value != .null { api_version = try value.requireString() } else { api_version = nil }
+        if let value = object.removeValue(forKey: "candidate"), value != .null { candidate = try CoreCandidateInfo(json: value) } else { candidate = nil }
+        if let value = object.removeValue(forKey: "contract_version"), value != .null { contract_version = try value.requireUInt64() } else { contract_version = nil }
+        guard let featuresValue = object.removeValue(forKey: "features") else { throw ContractError.invalid("Missing features") }
+        features = try featuresValue.requireObject()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = api_version { object["api_version"] = .string(value) }
+        if let value = candidate { object["candidate"] = value.json }
+        if let value = contract_version { object["contract_version"] = .integer(String(value)) }
+        object["features"] = .object(features)
         return .object(object)
     }
 }

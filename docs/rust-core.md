@@ -24,6 +24,20 @@ explicit private replay directory to exercise writes:
 cargo run --manifest-path crates/ori-core/Cargo.toml -- --mode replay --data-dir /absolute/private-replay --host 127.0.0.1 --port 8770
 ```
 
+The personal macOS RC uses explicit `--mode live` with its own RC data directory.
+Live shares the canonical writer, commit/publication ordering, device actors and
+shutdown barriers with replay; it does not certify hardware or release acceptance.
+The CLI refuses live without an explicit `--data-dir` and refuses native serial
+in shadow/replay. Physical connection requires the compiled `serial` feature,
+`--mode live --allow-serial`, and a separate explicit connect/start request.
+The default remains shadow. Existing trusted duplex fixtures are software
+transports, not a physical validation claim.
+
+`candidate.mode` is described by the common `CoreCandidateInfo` schema and all
+generated SDKs. Python capabilities without a candidate descriptor remain valid.
+An RC without an analysis worker/native audio reports their actual unavailability;
+it does not silently launch a Python server or substitute a simulator.
+
 The default archive is `data_dir/sessions.sqlite3`, matching Python LocalCore;
 `--database` is an explicit same-directory override only. Supervised operation
 requires that exact canonical filename; nested paths, symlinks and hardlinked

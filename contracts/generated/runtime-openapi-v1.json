@@ -186,6 +186,68 @@
         ],
         "type": "object"
       },
+      "CoreCandidateInfo": {
+        "additionalProperties": true,
+        "properties": {
+          "compatibility_complete": {
+            "type": "boolean"
+          },
+          "hardware_validation": {
+            "type": "string"
+          },
+          "history_worker_configured": {
+            "type": "boolean"
+          },
+          "mode": {
+            "enum": [
+              "shadow",
+              "replay",
+              "live"
+            ],
+            "type": "string"
+          },
+          "native_connector_enabled": {
+            "type": "boolean"
+          },
+          "release_accepted": {
+            "type": "boolean"
+          },
+          "resource_limits": {
+            "$ref": "#/components/schemas/JSONObject"
+          },
+          "unsupported_features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "type": "object"
+      },
+      "CoreCapabilities": {
+        "additionalProperties": true,
+        "properties": {
+          "api_version": {
+            "type": "string"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/CoreCandidateInfo"
+          },
+          "contract_version": {
+            "type": "integer"
+          },
+          "features": {
+            "$ref": "#/components/schemas/JSONObject"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "type": "object"
+      },
       "CredentialRevocation": {
         "properties": {
           "revoked": {
@@ -2126,7 +2188,7 @@
                     {
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/JSONObject"
+                          "$ref": "#/components/schemas/CoreCapabilities"
                         }
                       }
                     }
@@ -24776,7 +24838,7 @@
     "legacy_loopback": "API credential authentication is disabled; existing mutation-origin checks still apply.",
     "revocation": "Revocation invalidates the native credential and browser sessions."
   },
-  "x-ori-baseline-schema-sha256": "cca0428b653a0551137d73f3c5e4ecc4251c8433613b89c647dc9ce2635fdde0",
+  "x-ori-baseline-schema-sha256": "d39e64db82ada92d76c3296cbe74cd9ca5eef0eee0ad948a53604f39a5ee1877",
   "x-ori-contract": "openradioinspector-platform",
   "x-ori-contract-variant": "rust-candidate",
   "x-ori-contract-version": 1,

@@ -6,6 +6,25 @@ const RUNTIME_FIXTURE: &[u8] = include_bytes!("../fixtures/runtime-v1.json");
 const HISTORY_FIXTURE: &[u8] = include_bytes!("../fixtures/history-runtime-v1.json");
 
 #[test]
+fn core_execution_modes_keep_legacy_capabilities_and_unknown_metadata() {
+    use ori_contracts::CoreCapabilities;
+    let fixture: Value =
+        from_json_slice(include_bytes!("../fixtures/core-execution-v1.json"), 65536).unwrap();
+    for payload in fixture["valid"].as_array().unwrap() {
+        let decoded: CoreCapabilities =
+            from_json_slice(&to_json_vec(payload).unwrap(), 65536).unwrap();
+        let encoded: Value = from_json_slice(&to_json_vec(&decoded).unwrap(), 65536).unwrap();
+        assert_eq!(&encoded, payload);
+    }
+    for mode in fixture["invalid_modes"].as_array().unwrap() {
+        let payload = serde_json::json!({"features":{},"candidate":{"mode":mode}});
+        assert!(
+            from_json_slice::<CoreCapabilities>(&to_json_vec(&payload).unwrap(), 65536).is_err()
+        );
+    }
+}
+
+#[test]
 fn calibrated_field_shared_fixture_keeps_physical_values_and_required_nullable_uncertainty() {
     use ori_contracts::{FieldStrengthRequest, FieldStrengthResult};
     let fixture: Value = from_json_slice(

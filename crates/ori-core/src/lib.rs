@@ -56,13 +56,18 @@ use tokio::{
 pub enum CoreMode {
     Shadow,
     Replay,
+    Live,
 }
 impl CoreMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Shadow => "shadow",
             Self::Replay => "replay",
+            Self::Live => "live",
         }
+    }
+    pub fn writes_archive(self) -> bool {
+        matches!(self, Self::Replay | Self::Live)
     }
 }
 /// Process-only supervisor credential. Never serialized or Debug printed.
@@ -160,6 +165,11 @@ impl CoreConfig {
         result.mode = CoreMode::Replay;
         result
     }
+    pub fn live(data: impl Into<PathBuf>) -> Self {
+        let mut result = Self::new(data);
+        result.mode = CoreMode::Live;
+        result
+    }
 }
 pub struct Core {
     pub(crate) config: CoreConfig,
@@ -241,7 +251,7 @@ impl Core {
             identity.validate()?;
         }
         let security = security::SecurityState::open(config.lan_security.as_ref())?;
-        let (writer, archive, background) = if config.mode == CoreMode::Replay {
+        let (writer, archive, background) = if config.mode.writes_archive() {
             reject_symlinks(&config.database)?;
             if config.database.parent() != Some(config.data_directory.as_path()) {
                 return Err(CoreError::Invalid(
@@ -724,7 +734,7 @@ impl Core {
             .preparation(&devices::Target::new(session, stream))
     }
     pub fn resource_capabilities(&self) -> Value {
-        json!({"request_slots":16,"body_bytes":33554432,"control_request_bytes":65536,"measurement_request_bytes":16777216,"body_timeout_ms":self.config.body_timeout.as_millis(),"sse_subscribers":8,"event_subscribers_shared_sse_ws":8,"binary_frames_per_connection":1,"binary_frame_bytes_in_flight":33554432,"binary_encoders":2,"heavy_research_children":1,"device_workers":if self.mode()==CoreMode::Replay{self.config.devices.max_workers}else{0},"device_command_queue":self.config.devices.queue_capacity,"native_connector_enabled":self.mode()==CoreMode::Replay&&self.config.devices.transport.is_some(),"measured_rss_gate_passed":false})
+        json!({"request_slots":16,"body_bytes":33554432,"control_request_bytes":65536,"measurement_request_bytes":16777216,"body_timeout_ms":self.config.body_timeout.as_millis(),"sse_subscribers":8,"event_subscribers_shared_sse_ws":8,"binary_frames_per_connection":1,"binary_frame_bytes_in_flight":33554432,"binary_encoders":2,"heavy_research_children":1,"device_workers":if self.mode().writes_archive(){self.config.devices.max_workers}else{0},"device_command_queue":self.config.devices.queue_capacity,"native_connector_enabled":self.mode().writes_archive()&&self.config.devices.transport.is_some(),"measured_rss_gate_passed":false})
     }
     pub(crate) fn archive(&self) -> error::ApiResult<&Archive> {
         self.archive.as_ref().ok_or_else(|| {

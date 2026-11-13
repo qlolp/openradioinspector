@@ -165,6 +165,68 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "CoreCandidateInfo": {
+    "additionalProperties": true,
+    "properties": {
+      "compatibility_complete": {
+        "type": "boolean"
+      },
+      "hardware_validation": {
+        "type": "string"
+      },
+      "history_worker_configured": {
+        "type": "boolean"
+      },
+      "mode": {
+        "enum": [
+          "shadow",
+          "replay",
+          "live"
+        ],
+        "type": "string"
+      },
+      "native_connector_enabled": {
+        "type": "boolean"
+      },
+      "release_accepted": {
+        "type": "boolean"
+      },
+      "resource_limits": {
+        "$ref": "#/components/schemas/JSONObject"
+      },
+      "unsupported_features": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "mode"
+    ],
+    "type": "object"
+  },
+  "CoreCapabilities": {
+    "additionalProperties": true,
+    "properties": {
+      "api_version": {
+        "type": "string"
+      },
+      "candidate": {
+        "$ref": "#/components/schemas/CoreCandidateInfo"
+      },
+      "contract_version": {
+        "type": "integer"
+      },
+      "features": {
+        "$ref": "#/components/schemas/JSONObject"
+      }
+    },
+    "required": [
+      "features"
+    ],
+    "type": "object"
+  },
   "DeviceStream": {
     "additionalProperties": true,
     "properties": {

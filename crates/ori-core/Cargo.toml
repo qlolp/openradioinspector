@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.99.1"
 publish = false
 license = "MIT"
-description = "Explicit Rust replay candidate for the shared OpenRadioInspector core"
+description = "Explicit shadow, replay and live candidate for the shared OpenRadioInspector core"
 
 [features]
 default = []

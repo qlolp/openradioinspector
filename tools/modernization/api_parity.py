@@ -1051,7 +1051,7 @@ def approved_source_snapshot(source_root, inventory):
         raise ProtocolError("Invalid reviewed source path")
     snapshots=[{"revision":inventory["python_source_revision"],"source_sha256":original}]
     additional=inventory.get("approved_source_snapshots",[])
-    if not isinstance(additional,list) or len(additional)>4:
+    if not isinstance(additional,list) or len(additional)>8:
         raise ProtocolError("Invalid reviewed source snapshots")
     snapshots += additional
     for snapshot in snapshots:

@@ -168,12 +168,15 @@ forbidden analysis-query refusals. The latter consumes only correctly framed
 bodies within the existing route limit and absolute deadline; query validation
 still precedes JSON parsing, and Origin/Content-Type checks remain before reads.
 The RMS extension adds one operation to the original 135; the ten legacy
-operations and CLI inventory are unchanged. A fourth complete reviewed snapshot
+operations and CLI inventory are unchanged. A complete reviewed snapshot
 pins the integrated RMS authority at `fb0c0e3471c976e57d3687d5520c1027ecbd7fb4`.
 All seven hashes must match one snapshot together; mixing individually approved
 files, an unknown edit or a missing file fails before any node starts. The report
 records the matched revision and these actual source hashes. This pins the route
 inventory and reviewed transport code, rather than every file in the repository.
+The bounded history permits eight additional complete reviewed maps, so additive
+contracts can retain the historical evidence rather than replacing it. A ninth
+additional map is refused; every map still covers exactly the same seven paths.
 Historical source snapshots remain recorded, but a producer without the new RMS
 method cannot pass the extended public profile. The original source-only profile
 remains available; unavailable routes never satisfy a required successful case.

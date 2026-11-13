@@ -128,6 +128,15 @@ def schemas():
         ('id', 'session_id', 'stream_id', 'interval', 'frequency_hz', 'mode', 'level_unit'))
     return {'JSONObject': raw, 'TimeInterval': interval, 'DeviceStream': stream,
         'Session': session, 'Sweep': sweep, 'ReceiverObservation': observation,
+        'CoreCandidateInfo': obj({
+            'mode': {'type': 'string', 'enum': ['shadow', 'replay', 'live']},
+            'native_connector_enabled': {'type': 'boolean'},
+            'compatibility_complete': {'type': 'boolean'},
+            'release_accepted': {'type': 'boolean'}, 'hardware_validation': text,
+            'history_worker_configured': {'type': 'boolean'},
+            'unsupported_features': array(text), 'resource_limits': ref('JSONObject')}, ('mode',)),
+        'CoreCapabilities': obj({'api_version': text, 'contract_version': {'type': 'integer'},
+            'features': ref('JSONObject'), 'candidate': ref('CoreCandidateInfo')}, ('features',)),
         'SweepSummary': obj({'id':identifier,'session_id':identifier,'stream_id':identifier,
             'interval':ref('TimeInterval'),'level_unit':identifier,'point_count':{'type':'integer','minimum':1},
             'min_frequency_hz':hz,'max_frequency_hz':hz,'peak_frequency_hz':hz,'peak_level':number},
@@ -200,7 +209,7 @@ def document():
         paths.setdefault(path, {})[method] = operation
 
     for route in ('health', 'capabilities', 'archive/capacity', 'task-scheduler'):
-        add('/'+route)
+        add('/'+route, response=ref('CoreCapabilities') if route == 'capabilities' else None)
     add('/openapi.json')
     paths['/api/v1/openapi.json']['get']['responses']['200']['content']['application/json']['schema'] = \
         obj({'openapi': {'type': 'string'}, 'info': obj(), 'paths': obj()}, ('openapi', 'info', 'paths'))

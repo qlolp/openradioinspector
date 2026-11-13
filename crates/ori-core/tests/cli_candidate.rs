@@ -36,11 +36,14 @@ impl Drop for Process {
     }
 }
 fn launch(data: &Path, ready: &Path) -> Process {
+    launch_mode(data, ready, "replay")
+}
+fn launch_mode(data: &Path, ready: &Path, mode: &str) -> Process {
     let mut command = Command::new(env!("CARGO_BIN_EXE_ori-core"));
     command
         .args([
             "--mode",
-            "replay",
+            mode,
             "--host",
             "127.0.0.1",
             "--port",
@@ -60,6 +63,195 @@ fn launch(data: &Path, ready: &Path) -> Process {
         }
     }
     Process(command.spawn().unwrap())
+}
+
+async fn wait_for_cli_ready(process: &mut Process, ready: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        assert!(
+            process.0.try_wait().unwrap().is_none(),
+            "core exited before readiness"
+        );
+        assert!(Instant::now() < deadline, "core readiness deadline");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    std::fs::read_to_string(ready).unwrap()
+}
+
+async fn cli_json(
+    url: &str,
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    status: u16,
+) -> serde_json::Value {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let mut request = client.request(method.parse().unwrap(), format!("{url}{path}"));
+    if let Some(body) = body {
+        request = request
+            .header("Content-Type", "application/json")
+            .body(ori_contracts::to_json_vec(body).unwrap());
+    }
+    let response = request.send().await.unwrap();
+    assert_eq!(response.status().as_u16(), status);
+    ori_contracts::parse_json_value(&response.bytes().await.unwrap(), 16 * 1024 * 1024).unwrap()
+}
+
+async fn stop_cli(process: &mut Process) {
+    drop(process.0.stdin.take());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = process.0.try_wait().unwrap() {
+            assert!(status.success());
+            return;
+        }
+        assert!(Instant::now() < deadline, "core did not release its writer");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+#[tokio::test]
+async fn cli_live_preserves_sources_and_single_writer_across_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let ready = directory.path().join("ready.url");
+    let fixture = ori_contracts::parse_json_value(
+        include_bytes!("../../../contracts/fixtures/measurement-v1.json"),
+        65536,
+    )
+    .unwrap();
+    let session = ori_contracts::encode_path_segment(fixture["session"]["id"].as_str().unwrap());
+    let base = format!("/api/v1/sessions/{session}");
+    let mut process = launch_mode(directory.path(), &ready, "live");
+    let url = wait_for_cli_ready(&mut process, &ready).await;
+    let caps = cli_json(&url, "GET", "/api/v1/capabilities", None, 200).await;
+    assert_eq!(caps["data"]["candidate"]["mode"], "live");
+    assert_eq!(caps["data"]["persistent_archive"], true);
+    assert_eq!(caps["data"]["candidate"]["release_accepted"], false);
+    assert_eq!(caps["data"]["candidate"]["hardware_validation"], "not_run");
+    assert_eq!(caps["data"]["features"]["explicit_serial_adapters"], false);
+    assert_eq!(caps["data"]["features"]["field_strength_rms_v2"], false);
+    assert_eq!(caps["data"]["features"]["analog_audio_inputs"], false);
+    assert!(ori_runtime::lease::WriterLease::acquire(directory.path()).is_err());
+    cli_json(
+        &url,
+        "POST",
+        "/api/v1/sessions",
+        Some(&fixture["session"]),
+        201,
+    )
+    .await;
+    cli_json(
+        &url,
+        "POST",
+        &format!("{base}/start"),
+        Some(&serde_json::json!({})),
+        200,
+    )
+    .await;
+    let workers = cli_json(&url, "GET", "/api/v1/workers", None, 200).await;
+    let workers = workers["data"].as_array().unwrap();
+    assert_eq!(workers.len(), 2, "the API retains idle stream descriptors");
+    assert!(
+        workers.iter().all(|worker| worker["alive"] == false),
+        "session start must not connect instruments"
+    );
+    for (resource, key) in [("sweeps", "sweep"), ("observations", "observation")] {
+        cli_json(
+            &url,
+            "POST",
+            &format!("{base}/{resource}"),
+            Some(&fixture[key]),
+            201,
+        )
+        .await;
+    }
+    stop_cli(&mut process).await;
+    assert!(!ready.exists());
+    drop(ori_runtime::lease::WriterLease::acquire(directory.path()).unwrap());
+    let mut process = launch_mode(directory.path(), &ready, "live");
+    let url = wait_for_cli_ready(&mut process, &ready).await;
+    let sweeps = cli_json(&url, "GET", &format!("{base}/sweeps?limit=100"), None, 200).await;
+    assert_eq!(sweeps["data"].as_array().unwrap().len(), 1);
+    let sweep = &sweeps["data"][0];
+    assert_eq!(sweep["id"], fixture["sweep"]["id"]);
+    assert_eq!(sweep["frequencies_hz"], fixture["sweep"]["frequencies_hz"]);
+    assert_eq!(
+        sweep["interval"]["started_at"],
+        "2026-11-11T12:00:00.123456Z"
+    );
+    for (level, bits) in sweep["levels"].as_array().unwrap().iter().zip([
+        0xc059080000000000_u64,
+        0x8000000000000000,
+        0xbff0000000000001,
+        0xc040600000000000,
+    ]) {
+        assert_eq!(level.as_f64().unwrap().to_bits(), bits);
+    }
+    let observations = cli_json(
+        &url,
+        "GET",
+        &format!("{base}/observations?limit=100"),
+        None,
+        200,
+    )
+    .await;
+    assert_eq!(observations["data"].as_array().unwrap().len(), 1);
+    assert_eq!(observations["data"][0]["id"], fixture["observation"]["id"]);
+    assert_eq!(observations["data"][0]["level_unit"], "s_meter_count");
+    assert_eq!(observations["data"][0]["level"], 137.0);
+    stop_cli(&mut process).await;
+}
+
+#[test]
+fn cli_live_requires_an_explicit_data_directory_before_creating_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_ori-core"))
+        .args(["--mode", "live", "--port", "0", "--stdin-lifeline"])
+        .env("HOME", directory.path())
+        .env("LOCALAPPDATA", directory.path())
+        .env_remove("ORI_RUNTIME_DATA_DIR")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("live mode requires an explicit --data-dir")
+    );
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+}
+
+#[cfg(feature = "serial")]
+#[test]
+fn native_serial_cli_refuses_shadow_and_replay_before_opening_an_archive() {
+    for mode in ["shadow", "replay"] {
+        let directory = tempfile::tempdir().unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_ori-core"))
+            .args([
+                "--mode",
+                mode,
+                "--allow-serial",
+                "--port",
+                "0",
+                "--stdin-lifeline",
+                "--data-dir",
+            ])
+            .arg(directory.path())
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "physical serial was admitted in {mode}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("native serial requires --mode live")
+        );
+        assert!(!directory.path().join("sessions.sqlite3").exists());
+    }
 }
 #[test]
 fn cli_ready_file_and_stdin_lifeline_close_the_owned_core_and_writer() {

@@ -3,6 +3,20 @@ import Foundation
 import ORIContracts
 
 final class ContractTests: XCTestCase {
+    func testCoreExecutionModesPreserveLegacyCapabilitiesAndUnknownMetadata() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let fixture = try StrictJSON.parse(Data(contentsOf: root.appendingPathComponent("contracts/fixtures/core-execution-v1.json")))
+        for payload in try XCTUnwrap(fixture.object?["valid"]).requireArray() {
+            let decoded = try CoreCapabilities(json: payload)
+            XCTAssertEqual(try StrictJSON.parse(StrictJSON.encode(decoded)), payload)
+        }
+        for mode in try XCTUnwrap(fixture.object?["invalid_modes"]).requireArray() {
+            let invalid: JSONObject = ["features": .object([:]), "candidate": .object(["mode": mode])]
+            XCTAssertThrowsError(try CoreCapabilities(json: .object(invalid)))
+        }
+    }
+
     func testNamedJSONObjectReferencePreservesExactSourceMetadata() throws {
         let raw = Data(#"{"id":"source-1","session_id":"session","stream_id":"analyzer","interval":{"started_at":"2026-11-11T12:00:00.123456Z","ended_at":"2026-11-11T12:00:00.223456Z"},"frequency_hz":200,"bin_index":1,"level":-50.0,"level_unit":"dBm","settings":{"é":184467440737095516160000,"e\u0301":-0.0,"nested":[null,true,{"integer":9007199254740993}]}}"#.utf8)
         let json = try StrictJSON.parse(raw)

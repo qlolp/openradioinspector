@@ -4,11 +4,21 @@ import {readFileSync} from 'node:fs';
 import './history_runtime.test.ts';
 import {parseJSON, stringifyJSON, decodeSweep, decodeReceiverObservation, normalizeUTC, encodePathSegment, operationPath, encodeSweep, decodeEnvelope, decodeErrorEnvelope} from '../generated/typescript/index.ts';
 import {decodeFieldStrengthRequest, decodeFieldStrengthResult, encodeFieldStrengthResult} from '../generated/typescript/index.ts';
+import {decodeCoreCapabilities, encodeCoreCapabilities} from '../generated/typescript/index.ts';
 import {decodeSecurityStatus, encodeSecurityStatus, decodeBrowserPairing, decodeNativePairing,
     decodeMeasurementWebSocket, encodeMeasurementWebSocket, decodeSweepSummaryPage,
     selectRuntimeOperations, runtimeOperations} from '../generated/typescript/runtime.ts';
 
 const fixtureText = readFileSync(new URL('../fixtures/measurement-v1.json', import.meta.url), 'utf8');
+test('core execution modes preserve legacy capabilities and unknown metadata', () => {
+    const fixture = parseJSON(readFileSync(new URL('../fixtures/core-execution-v1.json', import.meta.url), 'utf8')) as any;
+    for (const payload of fixture.valid) {
+        assert.deepEqual(parseJSON(encodeCoreCapabilities(decodeCoreCapabilities(payload))), payload);
+    }
+    for (const mode of fixture.invalid_modes) {
+        assert.throws(() => decodeCoreCapabilities({features: {}, candidate: {mode}}));
+    }
+});
 test('calibrated field shared fixture preserves source, calibration and nullable uncertainty', () => {
     const fixture=parseJSON(readFileSync(new URL('../../tests/fixtures/field-strength-rms-v2.json',import.meta.url),'utf8')) as any;
     const request=decodeFieldStrengthRequest(fixture.request);

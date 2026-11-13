@@ -14,6 +14,7 @@ use tokio::{
 };
 struct Options {
     data: PathBuf,
+    data_explicit: bool,
     database: Option<PathBuf>,
     host: IpAddr,
     port: u16,
@@ -61,6 +62,7 @@ fn default_data() -> PathBuf {
 fn options() -> Result<Option<Options>> {
     let mut result = Options {
         data: default_data(),
+        data_explicit: false,
         database: None,
         host: IpAddr::V4(Ipv4Addr::LOCALHOST),
         port: 8770,
@@ -89,7 +91,7 @@ fn options() -> Result<Option<Options>> {
             .ok_or(CoreError::Invalid("option must be UTF-8"))?;
         if key == "--help" || key == "-h" {
             println!(
-                "ori-core --mode shadow|replay --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate; release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
+                "ori-core --mode shadow|replay|live --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate. Live requires --data-dir; native serial requires --mode live --allow-serial. Release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
             );
             println!(
                 "TaskBook uses ephemeral storage by default; --task-book FILE selects the operator's persistent book. This candidate supports planning; execution is unavailable. --allow-audio explicitly enables the compiled native audio backend; construction opens no input."
@@ -134,7 +136,10 @@ fn options() -> Result<Option<Options>> {
                     .parse()
                     .map_err(|_| CoreError::Invalid("control port"))?
             }
-            "--data-dir" => result.data = PathBuf::from(value(&mut args)?),
+            "--data-dir" => {
+                result.data = PathBuf::from(value(&mut args)?);
+                result.data_explicit = true;
+            }
             "--database" => result.database = Some(PathBuf::from(value(&mut args)?)),
             "--ready-file" => result.ready = Some(PathBuf::from(value(&mut args)?)),
             "--host" => {
@@ -162,7 +167,8 @@ fn options() -> Result<Option<Options>> {
                 result.mode = match value(&mut args)?.to_str() {
                     Some("shadow") => CoreMode::Shadow,
                     Some("replay") => CoreMode::Replay,
-                    _ => return Err(CoreError::Invalid("mode must be shadow or replay")),
+                    Some("live") => CoreMode::Live,
+                    _ => return Err(CoreError::Invalid("mode must be shadow, replay or live")),
                 }
             }
             _ => return Err(CoreError::Invalid("unknown option; see --help")),
@@ -170,6 +176,11 @@ fn options() -> Result<Option<Options>> {
     }
     if result.maximum == 0 {
         return Err(CoreError::Invalid("archive max bytes must be positive"));
+    }
+    if result.mode == CoreMode::Live && !result.data_explicit {
+        return Err(CoreError::Invalid(
+            "live mode requires an explicit --data-dir",
+        ));
     }
     if result.allow_serial && !cfg!(feature = "serial") {
         return Err(CoreError::Invalid(
@@ -180,6 +191,9 @@ fn options() -> Result<Option<Options>> {
         return Err(CoreError::Invalid(
             "audio support was not compiled; build the audio feature explicitly",
         ));
+    }
+    if result.allow_serial && result.mode != CoreMode::Live {
+        return Err(CoreError::Invalid("native serial requires --mode live"));
     }
     if result.research_deadline_ms == 0 || result.research_deadline_ms > 86400000 {
         return Err(CoreError::Invalid(
@@ -331,7 +345,7 @@ async fn execute() -> Result<()> {
             stop.send_replace(true);
         });
     }
-    if options.mode == CoreMode::Replay {
+    if options.mode.writes_archive() {
         let mut builder = fs::DirBuilder::new();
         builder.recursive(true);
         #[cfg(unix)]
