@@ -17,6 +17,7 @@ import faulthandler
 import importlib
 import json
 import os
+import stat
 from pathlib import Path
 import re
 import shutil
@@ -994,6 +995,72 @@ def run_modern_checks(directory, environment, *, research_python, swift, command
         path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 
 
+def _read_client_interop_diagnostic(directory: Path, name: str, limit: int) -> bytes:
+    if name not in ('web-diagnostics.json', 'web-final.png'):
+        raise ValueError('Unrecognized client diagnostic')
+    parent = directory / 'modern-core-client-interop'
+    parents = [(path, path.lstat()) for path in (directory, parent)]
+    reparse = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
+    if any(not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & reparse
+           for _, info in parents):
+        raise ValueError('Client diagnostic parent is not a regular directory')
+    source = parent / name
+    before = source.lstat()
+    if (not stat.S_ISREG(before.st_mode) or getattr(before, 'st_file_attributes', 0) & reparse
+            or not 0 < before.st_size <= limit):
+        raise ValueError('Client diagnostic is not a bounded regular file')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0)
+    with os.fdopen(os.open(source, flags), 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError('Client diagnostic identity changed')
+        for path, info in parents:
+            current = path.lstat()
+            if (getattr(current, 'st_file_attributes', 0) & reparse or
+                    (current.st_dev, current.st_ino, current.st_mode) != (info.st_dev, info.st_ino, info.st_mode)):
+                raise ValueError('Client diagnostic parent changed')
+        raw = stream.read(limit + 1)
+        after = os.fstat(stream.fileno())
+    if len(raw) != before.st_size or len(raw) > limit or (
+        after.st_size, after.st_mtime_ns
+    ) != (before.st_size, before.st_mtime_ns):
+        raise ValueError('Client diagnostic changed or exceeded its byte bound')
+    return raw
+
+
+def _retain_client_interop_diagnostics(directory: Path, destination: Path) -> None:
+    artifacts = []
+    for name, limit in (('web-diagnostics.json', 2 * 1024 * 1024), ('web-final.png', 1024 * 1024)):
+        item = {'path': 'modern-core-client-interop/' + name, 'status': 'missing'}
+        try:
+            raw = _read_client_interop_diagnostic(directory, name, limit)
+            if name.endswith('.json'):
+                value = json.loads(raw)
+                if (not isinstance(value, dict) or not isinstance(value.get('requests'), list)
+                        or len(value['requests']) > 128 or not isinstance(value.get('body'), str)
+                        or len(value['body']) > 32768 or not isinstance(value.get('state'), dict)):
+                    raise ValueError('Malformed client diagnostic JSON')
+            elif (len(raw) < 45 or raw[:8] != b'\x89PNG\r\n\x1a\n'
+                    or raw[8:16] != b'\x00\x00\x00\rIHDR'
+                    or raw[-12:] != b'\x00\x00\x00\x00IEND\xaeB`\x82'):
+                raise ValueError('Malformed client diagnostic PNG')
+            output = destination / ('modern-core-client-interop-' + name)
+            with tempfile.TemporaryDirectory(prefix='.client-interop-', dir=destination) as temporary:
+                staged = Path(temporary) / name
+                staged.write_bytes(raw)
+                staged.replace(output)
+            item['status'] = 'copied'
+            item['bytes'] = len(raw)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, RecursionError) as error:
+            item['status'] = 'rejected'
+            item['error'] = type(error).__name__
+        artifacts.append(item)
+    (destination / 'modern-core-client-interop-artifacts.json').write_text(
+        json.dumps({'artifacts': artifacts}, indent=2) + '\n', encoding='utf-8')
+
+
 def _persist_release_report(directory: Path, report_dir: Path, *,
                             failure: BaseException | None, cleanup_errors: list[str],
                             swift: bool, modern: bool = False) -> None:
@@ -1008,6 +1075,8 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     if (directory / 'modern-windows-llvm').is_dir():
         from tools.modernization.windows_llvm import retain_artifacts
         retain_artifacts(directory, destination)
+    if modern:
+        _retain_client_interop_diagnostics(directory, destination)
     summary = {
         "successful": failure is None and not cleanup_errors,
         "finished_at": datetime.now(timezone.utc).isoformat(),

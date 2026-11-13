@@ -169,6 +169,24 @@ output. Updated native Windows execution remains a separate CI gate; the prior
 generic success assertion discarded stderr, so its precise failure is inferred
 from the source policy.
 
+The public control integration still submits all 36 oracle rows covering 29
+operation kinds through the same injected in-memory transport and real HTTP
+routes. Guard fixtures use Windows-valid COM descriptors only inside that
+private Factory; they assert the actual preflight report before arming. Native
+serial ports remain outside these synthetic checks.
+
+Unix retains every real measurement worker result, artifact and numerical oracle.
+Windows first requires the exact Runtime process-tree refusal, an absent owned
+child PID marker and released admission. Its five public measurement requests
+still perform their exact instrument command sequences, then require the precise
+redacted failure with current context, no result and no new canonical artifact.
+The other 31 rows must succeed; committed terminal events must match every
+attempt. The three LAN credential/revocation cases require either their complete
+Unix TLS flows or the exact Windows DACL denial with pristine temporary storage
+and zero Core/session/transport side effects. Test names state these boundaries.
+These updated Windows assertions require native CI execution; the prior public
+measurement error alone did not expose the underlying Runtime error.
+
 ## Research child and real resource capabilities
 
 Use one shared `ResearchPool` across the service. `try_reserve()` admits one heavy

@@ -32,6 +32,144 @@ fn oracle() -> Value {
 fn bytes(value: &Value) -> Vec<u8> {
     STANDARD.decode(value.as_str().unwrap()).unwrap()
 }
+
+struct LanRefusal {
+    error: ori_runtime::Error,
+    pristine: bool,
+    opens: usize,
+    drops: usize,
+    commands: usize,
+    peers: usize,
+}
+fn lan_setup_matches_platform<T>(windows: bool, outcome: &Result<T, LanRefusal>) -> bool {
+    match outcome {
+        Ok(_) => !windows,
+        Err(refusal) => {
+            windows
+                && matches!(&refusal.error, ori_runtime::Error::Unsafe(message) if message == "private LAN state requires a verified owner-only Windows DACL; this build supports explicit loopback mode only")
+                && refusal.pristine
+                && refusal.opens == 0
+                && refusal.drops == 0
+                && refusal.commands == 0
+                && refusal.peers == 0
+        }
+    }
+}
+fn control_terminal_matches_platform(windows: bool, operation: &str, view: &Value) -> bool {
+    if view["operation"] != operation {
+        return false;
+    }
+    if windows && operation == "measurement" {
+        view["state"] == "failed"
+            && view["error"] == "Instrument operation failed"
+            && view["result"].is_null()
+            && view["context_current"] == true
+    } else {
+        view["state"] == "succeeded"
+    }
+}
+fn guard_fixture_ports(windows: bool) -> (&'static str, &'static str) {
+    if windows {
+        ("COM31", "COM32")
+    } else {
+        ("owned-analyzer-memory", "owned-receiver-memory")
+    }
+}
+#[test]
+fn platform_oracle_lan_requires_exact_denial_and_pristine_ownership() {
+    let denied = || {
+        LanRefusal {
+        error: ori_runtime::Error::Unsafe("private LAN state requires a verified owner-only Windows DACL; this build supports explicit loopback mode only".into()),
+        pristine: true,
+        opens: 0,
+        drops: 0,
+        commands: 0,
+        peers: 0,
+    }
+    };
+    let mut wrong_error = denied();
+    wrong_error.error = ori_runtime::Error::Unsafe("different unsafe condition".into());
+    let mut busy = denied();
+    busy.error = ori_runtime::Error::Busy;
+    let mut dirty = denied();
+    dirty.pristine = false;
+    let mut opened = denied();
+    opened.opens = 1;
+    let mut dropped = denied();
+    dropped.drops = 1;
+    let mut commands = denied();
+    commands.commands = 1;
+    let mut peers = denied();
+    peers.peers = 1;
+    for (name, outcome, expected) in [
+        ("TLS ready", Ok(()), [true, false]),
+        ("DACL refusal", Err(denied()), [false, true]),
+        ("wrong unsafe error", Err(wrong_error), [false, false]),
+        ("busy", Err(busy), [false, false]),
+        ("filesystem side effect", Err(dirty), [false, false]),
+        ("opened transport", Err(opened), [false, false]),
+        ("dropped transport", Err(dropped), [false, false]),
+        ("instrument command", Err(commands), [false, false]),
+        ("spawned peer", Err(peers), [false, false]),
+    ] {
+        for (windows, expected) in [false, true].into_iter().zip(expected) {
+            assert_eq!(
+                lan_setup_matches_platform(windows, &outcome),
+                expected,
+                "{name}: windows={windows}"
+            );
+        }
+    }
+}
+#[test]
+fn platform_oracle_control_requires_specific_measurement_refusal() {
+    let success = json!({"operation":"measurement","state":"succeeded","error":null,"result":{"measurement":{}},"context_current":true});
+    let denied = json!({"operation":"measurement","state":"failed","error":"Instrument operation failed","result":null,"context_current":true});
+    let mut wrong_error = denied.clone();
+    wrong_error["error"] = json!("different failure");
+    let mut result = denied.clone();
+    result["result"] = json!({"artifact":{"id":"unexpected"}});
+    let mut stale = denied.clone();
+    stale["context_current"] = json!(false);
+    let mut cancelled = denied.clone();
+    cancelled["state"] = json!("cancelled");
+    let mut other = denied.clone();
+    other["operation"] = json!("capture");
+    let mut capture = success.clone();
+    capture["operation"] = json!("capture");
+    for (name, operation, view, expected) in [
+        ("measurement success", "measurement", success, [true, false]),
+        ("measurement refusal", "measurement", denied, [false, true]),
+        ("wrong error", "measurement", wrong_error, [false, false]),
+        ("published result", "measurement", result, [false, false]),
+        ("lost context", "measurement", stale, [false, false]),
+        ("cancelled", "measurement", cancelled, [false, false]),
+        (
+            "wrong operation",
+            "measurement",
+            other.clone(),
+            [false, false],
+        ),
+        ("other operation failure", "capture", other, [false, false]),
+        ("other operation success", "capture", capture, [true, true]),
+    ] {
+        for (windows, expected) in [false, true].into_iter().zip(expected) {
+            assert_eq!(
+                control_terminal_matches_platform(windows, operation, &view),
+                expected,
+                "{name}: windows={windows}"
+            );
+        }
+    }
+}
+#[test]
+fn platform_oracle_guard_uses_host_valid_private_factory_descriptors() {
+    assert_eq!(
+        guard_fixture_ports(false),
+        ("owned-analyzer-memory", "owned-receiver-memory")
+    );
+    assert_eq!(guard_fixture_ports(true), ("COM31", "COM32"));
+}
 struct OwnedIo {
     inner: tokio::io::DuplexStream,
     drops: Arc<AtomicUsize>,
@@ -299,6 +437,76 @@ struct Server {
     client: reqwest::Client,
     bearer: Option<String>,
 }
+
+async fn lan_server_or_verified_windows_denial() -> Option<Server> {
+    let outcome = Server::try_configured_transport(false, true, true).await;
+    let valid = lan_setup_matches_platform(cfg!(windows), &outcome);
+    match outcome {
+        Ok(server) => {
+            if !valid {
+                server.stop().await;
+                panic!("Windows unexpectedly enabled private LAN identity persistence");
+            }
+            Some(server)
+        }
+        Err(refusal) => {
+            assert!(
+                valid,
+                "Unexpected LAN refusal or side effect: windows={}, pristine={}, opens={}, drops={}, commands={}, peers={}",
+                cfg!(windows),
+                refusal.pristine,
+                refusal.opens,
+                refusal.drops,
+                refusal.commands,
+                refusal.peers
+            );
+            None
+        }
+    }
+}
+
+async fn verify_windows_research_containment_refusal() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("worker.pid");
+    let spec = ori_runtime::worker::WorkerSpec {
+        program: std::env::var_os("ORI_RESEARCH_PYTHON")
+            .or_else(|| std::env::var_os("ORI_TEST_PYTHON"))
+            .map(Into::into)
+            .unwrap_or_else(|| "/usr/bin/python3".into()),
+        args: vec![
+            format!(
+                "{}/tests/private_worker_echo.py",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+            marker.to_str().unwrap().into(),
+            "success".into(),
+        ],
+        environment: BTreeMap::new(),
+        deadline_ms: 5000,
+        require_hard_memory: false,
+        linux_cgroup: None,
+    };
+    let pool = ori_runtime::worker::ResearchPool::default();
+    let outcome = pool
+        .run(
+            spec,
+            to_json_vec(&json!({"version":1,"request_id":"windows-control-policy","operation":"control_analysis"})).unwrap(),
+            ori_runtime::worker::Cancellation::default(),
+        )
+        .await;
+    let exact = matches!(outcome, Err(ori_runtime::Error::Unsafe(message)) if message == "research child requires an owned process-tree containment implementation on this platform");
+    let no_launch = !marker.try_exists().unwrap()
+        && !directory
+            .path()
+            .join("worker.pid.writing")
+            .try_exists()
+            .unwrap();
+    let released = pool.try_reserve().is_ok();
+    assert!(
+        exact && no_launch && released,
+        "Windows research policy: exact_refusal={exact}, no_launch={no_launch}, released={released}"
+    );
+}
 struct PcmBackend;
 struct PcmStream {
     sink: ori_audio::PcmSink,
@@ -360,6 +568,16 @@ impl Server {
         Self::configured_transport(features, lan, true).await
     }
     async fn configured_transport(features: bool, lan: bool, enabled: bool) -> Self {
+        match Self::try_configured_transport(features, lan, enabled).await {
+            Ok(server) => server,
+            Err(_) => panic!("Unexpected private LAN setup refusal"),
+        }
+    }
+    async fn try_configured_transport(
+        features: bool,
+        lan: bool,
+        enabled: bool,
+    ) -> Result<Self, LanRefusal> {
         let directory = tempfile::tempdir().unwrap();
         let factory = Factory::new();
         let mut config = CoreConfig::replay(directory.path());
@@ -392,16 +610,27 @@ impl Server {
         let url = format!("{}://{authority}", if lan { "https" } else { "http" });
         let client = if lan {
             let security = directory.path().join("security");
-            std::fs::create_dir(&security).unwrap();
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&security, std::fs::Permissions::from_mode(0o700))
-                    .unwrap();
-            }
-            let identity =
-                ori_runtime::security::TlsIdentity::create(&security, vec!["127.0.0.1".into()])
-                    .unwrap();
+            // Runtime creates/verifies owner-only state itself. A refused
+            // platform must reach the real typed boundary before Core::open.
+            let identity = match ori_runtime::security::TlsIdentity::create(
+                &security,
+                vec!["127.0.0.1".into()],
+            ) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    return Err(LanRefusal {
+                        error,
+                        pristine: std::fs::read_dir(directory.path())
+                            .unwrap()
+                            .next()
+                            .is_none(),
+                        opens: factory.opens.load(Ordering::SeqCst),
+                        drops: factory.drops.load(Ordering::SeqCst),
+                        commands: factory.commands.lock().unwrap().len(),
+                        peers: factory.peers.lock().unwrap().len(),
+                    });
+                }
+            };
             config.lan_security = Some(ori_core::LanSecurityConfig {
                 directory: security,
                 hosts: vec![authority],
@@ -438,7 +667,7 @@ impl Server {
         if lan {
             server.bearer = Some(server.pair().await);
         }
-        server
+        Ok(server)
     }
     async fn pair(&self) -> String {
         let code = self.core.begin_pairing_window(300, 10).unwrap();
@@ -536,6 +765,23 @@ impl Server {
     }
     async fn done(&self, id: &str, client: Option<&str>) -> Value {
         tokio::time::timeout(Duration::from_secs(5),async{loop{let(status,value)=self.request("GET",&format!("/api/v1/sessions/control-fixture/streams/source/instrument/operations/{id}"),None,client).await;assert_eq!(status,200,"{value}");if matches!(value["data"]["state"].as_str(),Some("succeeded"|"failed"|"unknown"|"cancelled")){return value["data"].clone();}tokio::time::sleep(Duration::from_millis(5)).await;}}).await.unwrap()
+    }
+    async fn artifact_ids(&self) -> std::collections::BTreeSet<String> {
+        let (status, value) = self
+            .request(
+                "GET",
+                "/api/v1/sessions/control-fixture/streams/source/instrument/artifacts",
+                None,
+                None,
+            )
+            .await;
+        assert_eq!(status, 200, "{value}");
+        value["data"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_owned())
+            .collect()
     }
     async fn stop(self) {
         self.core.request_shutdown();
@@ -750,7 +996,10 @@ fn normalize(value: &mut Value) {
     }
 }
 #[tokio::test]
-async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_canonical_artifacts() {
+async fn all_29_public_operations_keep_real_evidence_or_exact_windows_research_refusals() {
+    if cfg!(windows) {
+        verify_windows_research_containment_refusal().await;
+    }
     let server = Server::configured(true).await;
     server.setup().await;
     let (status, body) = server
@@ -764,10 +1013,18 @@ async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_cano
     assert_eq!(status, 200, "{body}");
     let mut secret = None;
     let mut kinds = std::collections::BTreeSet::new();
+    let mut refused = std::collections::BTreeSet::new();
+    let mut verified_artifacts = std::collections::BTreeSet::new();
     let fixture = oracle();
     for case in fixture["cases"].as_array().unwrap() {
         let operation = case["operation"].as_str().unwrap();
         kinds.insert(operation);
+        let expected_refusal = cfg!(windows) && operation == "measurement";
+        let artifacts_before = if expected_refusal {
+            Some(server.artifact_ids().await)
+        } else {
+            None
+        };
         let mut request = json!({"operation":operation,"parameters":case["parameters"]});
         if let Some(secret) = &secret {
             request["lease_id"] = json!(secret);
@@ -777,14 +1034,10 @@ async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_cano
         let view = server
             .done(queued["operation_id"].as_str().unwrap(), Some(CLIENT))
             .await;
-        assert_eq!(view["state"], "succeeded", "{operation}: {view}");
-        let mut actual = view["result"].clone();
-        if let Some(token) = actual["lease_id"].as_str() {
-            secret = Some(token.to_owned());
-        }
-        if matches!(operation, "lease.release" | "monitor.resume") {
-            secret = None;
-        }
+        assert!(
+            control_terminal_matches_platform(cfg!(windows), operation, &view),
+            "{operation}: {view}"
+        );
         let mut wire = server.factory.commands.lock().unwrap()[from..].to_vec();
         // Monitoring alone may produce its ordinary committed scan before the
         // lab pause/after explicit resume. Lab command order must be exact.
@@ -794,57 +1047,66 @@ async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_cano
             case["commands"],
             "actual public wire order {operation}"
         );
-        let mut expected = case["result"].clone();
-        if let Some(summary) = actual.get("artifact").cloned() {
-            let response = reqwest::get(format!(
+        if expected_refusal {
+            refused.insert(view["operation_id"].as_str().unwrap().to_owned());
+            assert_eq!(
+                server.artifact_ids().await,
+                artifacts_before.unwrap(),
+                "refused Windows measurement published a canonical artifact"
+            );
+        } else {
+            let mut actual = view["result"].clone();
+            if let Some(token) = actual["lease_id"].as_str() {
+                secret = Some(token.to_owned());
+            }
+            if matches!(operation, "lease.release" | "monitor.resume") {
+                secret = None;
+            }
+            let mut expected = case["result"].clone();
+            if let Some(summary) = actual.get("artifact").cloned() {
+                let response = reqwest::get(format!(
                 "{}/api/v1/sessions/control-fixture/streams/source/instrument/artifacts/{}/content",
                 server.url,
                 summary["id"].as_str().unwrap()
             ))
             .await
             .unwrap();
-            assert_eq!(response.status(), 200);
-            let raw = response.bytes().await.unwrap();
-            let original = bytes(&expected["artifact"]["data_base64"]);
-            if matches!(operation, "sd.read" | "audio.capture") {
-                assert_eq!(
-                    raw.as_ref(),
-                    original,
-                    "original binary payload {operation}"
-                );
-            } else {
-                let mut a = parse_json_value(&raw, 8 * 1024 * 1024).unwrap();
-                let mut b = parse_json_value(&original, 8 * 1024 * 1024).unwrap();
-                normalize(&mut a);
-                normalize(&mut b);
-                assert_eq!(a, b, "artifact source/science {operation}");
+                assert_eq!(response.status(), 200);
+                let raw = response.bytes().await.unwrap();
+                let original = bytes(&expected["artifact"]["data_base64"]);
+                if matches!(operation, "sd.read" | "audio.capture") {
+                    assert_eq!(
+                        raw.as_ref(),
+                        original,
+                        "original binary payload {operation}"
+                    );
+                } else {
+                    let mut a = parse_json_value(&raw, 8 * 1024 * 1024).unwrap();
+                    let mut b = parse_json_value(&original, 8 * 1024 * 1024).unwrap();
+                    normalize(&mut a);
+                    normalize(&mut b);
+                    assert_eq!(a, b, "artifact source/science {operation}");
+                }
+                for key in ["kind", "mime_type", "filename"] {
+                    assert_eq!(summary[key], expected["artifact"][key], "{operation} {key}");
+                }
+                verified_artifacts.insert(summary["id"].as_str().unwrap().to_owned());
+                actual.as_object_mut().unwrap().remove("artifact");
+                expected.as_object_mut().unwrap().remove("artifact");
             }
-            for key in ["kind", "mime_type", "filename"] {
-                assert_eq!(summary[key], expected["artifact"][key], "{operation} {key}");
+            if operation == "capture" {
+                let preview = actual.as_object_mut().unwrap().remove("preview").unwrap();
+                assert!(bytes(&preview["data_base64"]).starts_with(b"\x89PNG"));
+                expected.as_object_mut().unwrap().remove("artifact");
             }
-            actual.as_object_mut().unwrap().remove("artifact");
-            expected.as_object_mut().unwrap().remove("artifact");
+            normalize(&mut actual);
+            normalize(&mut expected);
+            assert_eq!(actual, expected, "original public result {operation}");
         }
-        if operation == "capture" {
-            let preview = actual.as_object_mut().unwrap().remove("preview").unwrap();
-            assert!(bytes(&preview["data_base64"]).starts_with(b"\x89PNG"));
-            expected.as_object_mut().unwrap().remove("artifact");
-        }
-        normalize(&mut actual);
-        normalize(&mut expected);
-        assert_eq!(actual, expected, "original public result {operation}");
     }
     assert_eq!(kinds.len(), 29);
+    assert_eq!(refused.len(), if cfg!(windows) { 5 } else { 0 });
     assert_eq!(server.factory.opens.load(Ordering::SeqCst), 1);
-    let (_, artifacts) = server
-        .request(
-            "GET",
-            "/api/v1/sessions/control-fixture/streams/source/instrument/artifacts",
-            None,
-            None,
-        )
-        .await;
-    assert!(artifacts["data"]["items"].as_array().unwrap().len() >= 9);
     let (_, events) = server
         .request(
             "GET",
@@ -859,7 +1121,32 @@ async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_cano
         .iter()
         .filter(|e| e["event_type"] == "instrument.operation.succeeded")
         .count();
-    assert_eq!(succeeded, fixture["cases"].as_array().unwrap().len());
+    assert_eq!(
+        succeeded,
+        fixture["cases"].as_array().unwrap().len() - refused.len()
+    );
+    let failures = events["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["event_type"] == "instrument.operation.failed")
+        .collect::<Vec<_>>();
+    let failed_ids = failures
+        .iter()
+        .map(|event| {
+            event["payload"]["operation_id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(failures.len(), refused.len());
+    assert_eq!(failed_ids, refused);
+    for event in failures {
+        assert_eq!(event["payload"]["operation"], "measurement");
+        assert_eq!(event["payload"]["error"], "Instrument operation failed");
+        assert!(event["payload"]["artifact"].is_null());
+    }
     let pauses = events["data"]
         .as_array()
         .unwrap()
@@ -900,6 +1187,30 @@ async fn all_29_public_operations_use_real_owned_transport_audio_worker_and_cano
     let retained = parse_json_value(&raw, 8 * 1024 * 1024).unwrap();
     assert_eq!(retained["kind"], "processed_trace");
     assert_eq!(retained["levels"], json!([-90., -80., -70.]));
+    verified_artifacts.insert(source["id"].as_str().unwrap().to_owned());
+    let (_, artifacts) = server
+        .request(
+            "GET",
+            "/api/v1/sessions/control-fixture/streams/source/instrument/artifacts",
+            None,
+            None,
+        )
+        .await;
+    let artifact_count = artifacts["data"]["items"].as_array().unwrap().len();
+    if !cfg!(windows) {
+        assert!(artifact_count >= 9);
+    }
+    let artifact_ids = artifacts["data"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(artifact_ids.len(), artifact_count);
+    assert_eq!(
+        artifact_ids, verified_artifacts,
+        "canonical artifacts must be exactly the verified successful results and single ordinary pause source"
+    );
     server.stop().await;
 }
 
@@ -1003,8 +1314,10 @@ async fn artifact_missing_session_and_receiver_scope_preserve_original_error_pre
 }
 
 #[tokio::test]
-async fn rejected_second_clients_revocation_cannot_replace_original_queued_authority() {
-    let server = Server::configured_mode(false, true).await;
+async fn rejected_second_clients_revocation_preserves_authority_or_exact_windows_lan_denial() {
+    let Some(server) = lan_server_or_verified_windows_denial().await else {
+        return;
+    };
     server.setup().await;
     let (status, body) = server
         .request(
@@ -1058,8 +1371,10 @@ async fn rejected_second_clients_revocation_cannot_replace_original_queued_autho
 }
 
 #[tokio::test]
-async fn original_credential_revocation_cancels_silent_io_and_never_replays_on_new_credential() {
-    let server = Server::configured_mode(false, true).await;
+async fn original_credential_revocation_joins_silent_io_or_exact_windows_lan_denial() {
+    let Some(server) = lan_server_or_verified_windows_denial().await else {
+        return;
+    };
     server.setup().await;
     let (status, body) = server
         .request(
@@ -1285,9 +1600,11 @@ async fn done_at(server: &Server, base: &str, id: &str) -> Value {
 #[tokio::test]
 async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition_paused() {
     let server = Server::new().await;
+    // These host-valid descriptors are consumed only by the injected Factory.
+    let (analyzer_port, receiver_port) = guard_fixture_ports(cfg!(windows));
     let session = json!({"id":"manual-control","name":"Owned serial Guard handoff","streams":[
-        {"id":"a","device":"Owned tinySA","role":"spectrum_analyzer","level_unit":"dBm","port":"owned-analyzer-memory","settings":{"adapter":"tinysa-serial","start_hz":100000000,"stop_hz":101000000,"points":3,"rbw_hz":10000,"period_s":0.01,"monitoring_instrument_context":"inspect"}},
-        {"id":"r","device":"Owned AR-DV1","role":"receiver","level_unit":"s_meter_count","port":"owned-receiver-memory","settings":{"adapter":"ardv1-serial","frequency_hz":145500000,"mode":"FM","period_s":0.05}}
+        {"id":"a","device":"Owned tinySA","role":"spectrum_analyzer","level_unit":"dBm","port":analyzer_port,"settings":{"adapter":"tinysa-serial","start_hz":100000000,"stop_hz":101000000,"points":3,"rbw_hz":10000,"period_s":0.01,"monitoring_instrument_context":"inspect"}},
+        {"id":"r","device":"Owned AR-DV1","role":"receiver","level_unit":"s_meter_count","port":receiver_port,"settings":{"adapter":"ardv1-serial","frequency_hz":145500000,"mode":"FM","period_s":0.05}}
     ]});
     let (status, value) = server
         .request("POST", "/api/v1/sessions", Some(session), None)
@@ -1368,13 +1685,21 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
             json!({"name":"Owned baseline","location":"Memory","confirm":true}),
             201,
         ),
-        ("arm", json!({}), 200),
     ] {
         let (actual, value) = server
             .request("POST", &format!("{project}/{path}"), Some(payload), None)
             .await;
         assert_eq!(actual, status, "{path}: {value}");
     }
+    let (status, preflight) = server
+        .request("GET", &format!("{project}/preflight"), None, None)
+        .await;
+    assert_eq!(status, 200, "{preflight}");
+    assert_eq!(preflight["data"]["ready"], true, "{preflight}");
+    let (status, armed) = server
+        .request("POST", &format!("{project}/arm"), Some(json!({})), None)
+        .await;
+    assert_eq!(status, 200, "{armed}");
     let (_, armed) = server.request("GET", &project, None, None).await;
     let sid = encode_path_segment(armed["data"]["active_session_id"].as_str().unwrap());
     let stream = armed["data"]["analyzer_stream_id"]
@@ -1524,8 +1849,10 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
 }
 
 #[tokio::test]
-async fn actual_lan_receiver_silent_tune_revocation_wakes_original_and_joins_before_error() {
-    let server = Server::configured_mode(false, true).await;
+async fn actual_lan_receiver_revocation_joins_original_or_exact_windows_lan_denial() {
+    let Some(server) = lan_server_or_verified_windows_denial().await else {
+        return;
+    };
     let(status,value)=server.request("POST","/api/v1/sessions",Some(json!({"id":"silent-receiver","name":"Owned silent receiver","streams":[{"id":"r","device":"Owned AR-DV1","role":"receiver","level_unit":"s_meter_count","port":"owned-receiver","settings":{"adapter":"ardv1-serial","frequency_hz":145500000,"mode":"FM","period_s":0.05}}]})),None).await;
     assert_eq!(status, 201, "{value}");
     let (status, value) = server

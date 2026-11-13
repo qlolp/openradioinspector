@@ -62,6 +62,16 @@ request bodies, browser diagnostics/screenshots and SDK results on failure.
 The modern profile retains the compact proof and, on failure, up to 16 KiB from
 the owned child log in its top-level stage log; large SDK vectors and private
 build trees are not copied into release reports.
+The modern report also preserves only the existing nested `web-diagnostics.json`
+(at most 2 MiB) and `web-final.png` (at most 1 MiB), under fixed prefixed names.
+These contain synthetic client proof and the final browser view. A two-entry
+`modern-core-client-interop-artifacts.json` records copied, missing or rejected
+files. The collector refuses linked paths, nonregular or changing files,
+oversized payloads and malformed JSON/PNG envelopes. It does not traverse other
+fixture files, vectors, databases, homes or build trees. Rejected diagnostics
+preserve the original check failure and cleanup evidence; they cannot turn it
+into a passing result. A successful local diagnostic control does not explain a
+native failure or establish performance acceptance.
 Command processes use the existing release runner's owned process cleanup.
 Core receives an EOF lifeline, drains and joins, and its executable checksum
 must remain unchanged. No serial/audio device, installed service or live

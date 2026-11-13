@@ -23,6 +23,189 @@ READY = {"url": "http://127.0.0.1:49152/platform", "dump_sha256_before": BEFORE}
 AFTER = {"dump_sha256_after": BEFORE, "unchanged": True}
 
 
+class ClientInteropDiagnosticRetentionTests(unittest.TestCase):
+    diagnostic = b'{"requests":[[200,"/modern/"]],"body":"Synthetic fixture","state":{"sources":[]}}\n'
+    png = bytes.fromhex(
+        '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489'
+        '0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082'
+    )
+
+    def persist(self, directory, reports, *, modern=True, failure=None, cleanup_errors=()):
+        with redirect_stdout(io.StringIO()):
+            try:
+                release._persist_release_report(directory, reports, failure=failure,
+                    cleanup_errors=list(cleanup_errors), swift=False, modern=modern)
+            except RecursionError:
+                self.fail('Unusable diagnostic JSON must not escape the collector or replace the primary failure')
+        return next(reports.glob('run-*'))
+
+    def receipt(self, destination):
+        path = destination / 'modern-core-client-interop-artifacts.json'
+        self.assertTrue(path.is_file(), 'Artifact retention must record both fixed-path dispositions')
+        return json.loads(path.read_text())
+
+    def test_retains_only_the_two_existing_synthetic_diagnostics_with_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+            (source / 'web-final.png').write_bytes(self.png)
+            for name in ('vectors.json', 'archive.sqlite3', 'credentials.json', 'web.json', 'web-cpu-profile.json'):
+                (source / name).write_text('must remain private')
+            (source / 'home').mkdir()
+            (source / 'home/secret').write_text('must remain private')
+            destination = self.persist(root / 'private', root / 'reports')
+            self.assertTrue((destination / 'modern-core-client-interop-web-diagnostics.json').is_file(), 'Synthetic Web diagnostics must survive private scope cleanup')
+            self.assertEqual((destination / 'modern-core-client-interop-web-diagnostics.json').read_bytes(), self.diagnostic)
+            self.assertEqual((destination / 'modern-core-client-interop-web-final.png').read_bytes(), self.png)
+            self.assertEqual({path.name for path in destination.iterdir()}, {
+                'summary.json', 'modern-core-client-interop-artifacts.json',
+                'modern-core-client-interop-web-diagnostics.json', 'modern-core-client-interop-web-final.png',
+            })
+            receipt = self.receipt(destination)
+            self.assertEqual([item['status'] for item in receipt['artifacts']], ['copied', 'copied'])
+
+    def test_rejects_malformed_json_or_png_without_copying_the_payload(self):
+        for name, payload in (
+            ('web-diagnostics.json', b'not json'), ('web-diagnostics.json', b'[]'),
+            ('web-diagnostics.json', b'{"requests":[],"body":"synthetic"}'),
+            ('web-diagnostics.json', b'[' * 2000 + b'0' + b']' * 2000),
+            ('web-final.png', b'not a PNG'), ('web-final.png', self.png[:20]),
+        ):
+            with self.subTest(name=name, payload=payload), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = root / 'private/modern-core-client-interop'
+                source.mkdir(parents=True)
+                (source / name).write_bytes(payload)
+                destination = self.persist(root / 'private', root / 'reports')
+                self.assertFalse((destination / ('modern-core-client-interop-' + name)).exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+
+    def test_rejects_oversized_files_before_retaining_any_payload(self):
+        for name, bound in (('web-diagnostics.json', 2 * 1024 * 1024), ('web-final.png', 1024 * 1024)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = root / 'private/modern-core-client-interop'
+                source.mkdir(parents=True)
+                with (source / name).open('wb') as stream:
+                    stream.truncate(bound + 1)
+                destination = self.persist(root / 'private', root / 'reports')
+                self.assertFalse((destination / ('modern-core-client-interop-' + name)).exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+
+    def test_refuses_file_or_parent_symlink_traversal_to_unrelated_content(self):
+        for link_parent in (False, True):
+            with self.subTest(link_parent=link_parent), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                private = root / 'private'
+                private.mkdir()
+                outside = root / 'unrelated'
+                outside.mkdir()
+                (outside / 'web-diagnostics.json').write_bytes(self.diagnostic)
+                source = private / 'modern-core-client-interop'
+                if link_parent:
+                    link = source
+                    target = outside
+                else:
+                    source.mkdir()
+                    link = source / 'web-diagnostics.json'
+                    target = outside / 'web-diagnostics.json'
+                try:
+                    link.symlink_to(target, target_is_directory=link_parent)
+                except OSError:
+                    # Windows may deny creating links. Exercise the same lstat refusal
+                    # with regular fixture bytes, rather than skipping that contract.
+                    if link_parent:
+                        source.mkdir(exist_ok=True)
+                    else:
+                        link.write_bytes(self.diagnostic)
+                    original = Path.lstat
+                    def linked(path, *args, **kwargs):
+                        result = original(path, *args, **kwargs)
+                        if path == link:
+                            values = list(result)
+                            values[0] = 0o120777
+                            return os.stat_result(values)
+                        return result
+                    with patch.object(Path, 'lstat', linked):
+                        destination = self.persist(private, root / 'reports')
+                else:
+                    destination = self.persist(private, root / 'reports')
+                self.assertFalse((destination / 'modern-core-client-interop-web-diagnostics.json').exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+                self.assertEqual((outside / 'web-diagnostics.json').read_bytes(), self.diagnostic)
+
+    def test_refuses_windows_reparse_attributes_on_both_parents_and_the_file(self):
+        for component in ('root', 'parent', 'file'):
+            with self.subTest(component=component), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                private = root / 'private'
+                source = private / 'modern-core-client-interop'
+                source.mkdir(parents=True)
+                path = source / 'web-diagnostics.json'
+                path.write_bytes(self.diagnostic)
+                linked = {'root': private, 'parent': source, 'file': path}[component]
+                original = Path.lstat
+                def reparse(path, *args, **kwargs):
+                    info = original(path, *args, **kwargs)
+                    if path == linked:
+                        return SimpleNamespace(**{
+                            **{key: getattr(info, key) for key in dir(info) if key.startswith('st_')},
+                            'st_file_attributes': 0x400,
+                        })
+                    return info
+                with patch.object(Path, 'lstat', reparse):
+                    destination = self.persist(private, root / 'reports')
+                self.assertFalse((destination / 'modern-core-client-interop-web-diagnostics.json').exists())
+                self.assertIn('rejected', [item['status'] for item in self.receipt(destination)['artifacts']])
+                self.assertEqual(path.read_bytes(), self.diagnostic)
+
+    def test_rejected_artifacts_preserve_the_original_failure_and_cleanup_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(b'malformed')
+            failure = release.ReleaseCheckError('original Web canvas failure')
+            destination = self.persist(root / 'private', root / 'reports', failure=failure,
+                cleanup_errors=['original owned cleanup evidence'])
+            summary = json.loads((destination / 'summary.json').read_text())
+            self.assertFalse(summary['successful'])
+            self.assertEqual(summary['error'], 'ReleaseCheckError: original Web canvas failure')
+            self.assertEqual(summary['cleanup_errors'], ['original owned cleanup evidence'])
+            self.assertTrue((destination / 'modern-core-client-interop-artifacts.json').exists())
+
+    def test_modern_failure_is_reraised_after_diagnostics_survive_private_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            reports = Path(folder)
+            failure = release.ReleaseCheckError('original Web canvas failure')
+            def failed_profile(directory, environment, **kwargs):
+                source = directory / 'modern-core-client-interop'
+                source.mkdir()
+                (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+                raise failure
+            with patch.object(release, 'run_modern_checks', side_effect=failed_profile), redirect_stdout(io.StringIO()):
+                with self.assertRaises(release.ReleaseCheckError) as caught:
+                    release.release_checks(modern=True, research_python=sys.executable, report_dir=reports)
+            self.assertIs(caught.exception, failure)
+            destination = next(reports.glob('run-*'))
+            self.assertTrue((destination / 'modern-core-client-interop-web-diagnostics.json').is_file(), 'Synthetic Web diagnostics must survive private scope cleanup')
+            self.assertEqual((destination / 'modern-core-client-interop-web-diagnostics.json').read_bytes(), self.diagnostic)
+
+    def test_legacy_profile_does_not_collect_nested_modern_artifacts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+            destination = self.persist(root / 'private', root / 'reports', modern=False)
+            self.assertEqual({path.name for path in destination.iterdir()}, {'summary.json'})
+
+
 class ReleaseGateTests(unittest.TestCase):
     def test_child_environment_replaces_smoke_optins_without_mutating_parent(self):
         source = {"ORI_OTHER_SMOKE_BASE_URL": "https://do-not-contact.invalid",
