@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tests import run_release_checks as release
+from tests.swift_version_fixtures import SUPPORTED_SWIFT_OUTPUTS, UNSUPPORTED_SWIFT_OUTPUTS
 from tools.modernization import checks, client_interop
 
 
@@ -422,6 +423,43 @@ class ScientificClientProofTests(unittest.TestCase):
 
 
 class ClientHarnessPreparationTests(unittest.TestCase):
+    def test_swift_builder_accepts_supported_compiler_output_formats(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            actual = root / "swift-build" / "out" / "Products" / "Debug-special-target"
+            actual.mkdir(parents=True)
+            binary = actual / (
+                "ORIClientInterop.exe" if os.name == "nt" else "ORIClientInterop"
+            )
+            binary.write_bytes(b"owned test artifact")
+            for name, output in SUPPORTED_SWIFT_OUTPUTS:
+                with (
+                    self.subTest(format=name),
+                    patch.object(
+                        client_interop,
+                        "run_logged",
+                        side_effect=[output, "", str(actual) + "\n"],
+                    ),
+                ):
+                    try:
+                        result = client_interop.build_swift_client(Path(sys.executable), root, {})
+                    except ValueError as error:
+                        self.fail(f"Supported compiler output was rejected: {error}")
+                    self.assertEqual(
+                        result,
+                        binary.resolve(),
+                    )
+
+    def test_swift_builder_rejects_wrong_ambiguous_and_unrelated_versions_before_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, output in UNSUPPORTED_SWIFT_OUTPUTS:
+                with self.subTest(format=name):
+                    with patch.object(client_interop, "run_logged", return_value=output) as run:
+                        with self.assertRaisesRegex(ValueError, "pinned 6.4.2 builder"):
+                            client_interop.build_swift_client(Path(sys.executable), root, {})
+                        self.assertEqual(run.call_count, 1, "invalid compiler output must prevent compilation")
+
     def test_failed_owned_child_forwards_a_bounded_tail_into_the_retained_stage_log(
         self,
     ):

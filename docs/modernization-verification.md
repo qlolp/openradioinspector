@@ -35,6 +35,14 @@ Rust 1.99.1 with rustfmt/clippy, Node 26.13.0, the packages pinned in both npm l
 files, and optionally Swift 6.4.2. Keep the existing core environment separate
 from the research worker's Python 3.15.1 venv.
 
+The Swift version gate and SDK helper share the same compiler-output validator.
+It accepts standalone `Swift version 6.4.2`, standalone `Apple Swift version
+6.4.2`, and Apple's `swift-driver version: … Apple Swift version 6.4.2 …`
+banner. The driver's own version and parenthesized build metadata cannot satisfy
+the compiler pin. A different compiler patch, development suffix, unrelated
+version text, or multiple compiler declarations fails before Swift tests/builds.
+This parser check does not establish native Swift package or client acceptance.
+
 ```sh
 python -m pip install --require-hashes -r requirements/core.lock
 cargo fetch --locked
@@ -134,6 +142,19 @@ are released. Raw stderr, credentials, environment values and private paths are
 excluded. A real assertion-unwind regression checks the same owned cleanup.
 These synthetic checks preserve the existing backend, admin and join deadlines;
 native macOS acceptance remains a hosted CI result.
+
+The two supervisor negative-start tests retain separate bounded evidence for
+their rejected attempt and subsequent healthy start on the same port. Each
+rejected attempt is observed with nonrepairing backend-status and writer/listener
+probes; no shutdown or stop intervenes before the healthy start. Final cleanup
+follows the observed healthy result, so a leaked backend still makes that start
+fail Busy. A released attempt's snapshot is retained before removing its private
+trace, so an exit before Python executes the fixture cannot inherit its phases.
+Unconfirmed cleanup makes evidence unavailable. Only fixed error classes, phase
+names, PIDs, elapsed times and read/truncation flags are reported. The original
+200 ms negative and 2 s healthy/shutdown bounds remain. This adds failure evidence;
+the cause of the earlier Linux full-workspace readiness timeouts remains
+unproven, and a passing focused control does not replace a full gate.
 
 Every command uses the existing `run_command` supervisor, deadline, process group
 or Windows Job Object and descendant-cleanup checks. The same runner scope owns

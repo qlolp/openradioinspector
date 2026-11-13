@@ -53,6 +53,9 @@ omitted. `--swift-builder` requires Swift 6.4.2, builds with one job in private
 scratch before starting Core, and queries `swift build --show-bin-path` to locate
 the owned product on either platform. The existing `--swift-client` option still
 accepts a prebuilt helper; the two options are mutually exclusive.
+The builder and modern Swift version gate share a strict compiler-banner check,
+including Apple's driver-prefixed output; the driver version cannot replace the
+required compiler version. See [the verification policy](modernization-verification.md).
 The default source count is 1,205; `--count` accepts 1–1,205 for focused diagnosis.
 The artifacts directory must not already exist. It retains vectors, original
 request bodies, browser diagnostics/screenshots and SDK results on failure.

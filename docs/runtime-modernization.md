@@ -155,6 +155,20 @@ Windows lifecycle integration with an externally verified containment/ACL layer.
 `Stop-ScheduledTask`, task timeouts and logout are not graceful cutover mechanisms;
 no Windows hard-limit/service acceptance is claimed.
 
+The Core `init-lan` CLI regression verifies this platform boundary with the real
+operator command. Unix must create and reload its private identity and matching
+public CA once; a repeated command must refuse rotation and preserve both files.
+Windows must return exit code 1, empty stdout and the exact documented owner-only
+DACL refusal, without creating the security directory, identity/private key or
+public CA. Repeated attempts must also preserve preexisting foreign identity and
+CA sentinels and all security-directory entries. Captures are read from owned
+anonymous files after the original child wait, reject more than 4096 bytes and
+read errors, and report only status, byte counts, hashes or equality checks.
+Pure counterexamples cover wrong platform/attempt outcomes, exit codes and extra
+output. Updated native Windows execution remains a separate CI gate; the prior
+generic success assertion discarded stderr, so its precise failure is inferred
+from the source policy.
+
 ## Research child and real resource capabilities
 
 Use one shared `ResearchPool` across the service. `try_reserve()` admits one heavy

@@ -7,6 +7,8 @@ import re
 import shutil
 import sys
 
+from tools.modernization.swift_version import is_pinned_swift_output
+
 
 @dataclass(frozen=True)
 class Check:
@@ -77,7 +79,7 @@ def commands(root, directory, environment, *, research_python, swift):
                Check('modern-web-build',npm+['--prefix',str(root/'clients/web'),'run','build','--','--outDir',str(directory/'modern-web-build'),'--emptyOutDir'])]
     if swift:
         executable=tool('swift',environment)
-        result += [Check('modern-swift-version',[executable,'--version'],'version',version=r'^(?:Apple )?Swift version 6\.4\.2(?:\s|$)'),
+        result += [Check('modern-swift-version',[executable,'--version'],'swift-version'),
                    Check('modern-swift-contracts',[executable,'test','--package-path',str(root/'contracts/tests/swift-goldens'),
                          '--scratch-path',str(directory/'modern-swift-build'),'-j','2'],'swift'),
                    Check('modern-swift-protobuf',[executable,'test','--package-path',str(root/'contracts/protobuf/swift-stream'),
@@ -94,6 +96,10 @@ def commands(root, directory, environment, *, research_python, swift):
 
 
 def count_tests(kind, output, report=None):
+    if kind == 'swift-version':
+        if not is_pinned_swift_output(output):
+            raise ValueError('Swift compiler output does not match the pinned 6.4.2 toolchain')
+        return None
     if kind in ('client-interop-web','client-interop-swift'):
         if report is None:raise ValueError('Missing real-Core client interoperability report')
         from tools.modernization.client_interop import verify_summary

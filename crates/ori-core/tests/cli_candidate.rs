@@ -1,5 +1,6 @@
+use sha2::Digest;
 use std::{
-    io::Write,
+    io::{Read, Seek, Write},
     path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -116,24 +117,270 @@ fn cli_cannot_overwrite_or_delete_an_existing_readiness_file() {
     assert_eq!(std::fs::read(ready).unwrap(), b"existing-owner\n");
 }
 
+struct LanInitOutcome {
+    code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn lan_init_outcome_matches_platform(
+    windows: bool,
+    repeated: bool,
+    outcome: &LanInitOutcome,
+) -> bool {
+    if !windows && !repeated {
+        return outcome.code == Some(0) && outcome.stderr.is_empty();
+    }
+    let expected: &[u8] = if windows {
+        b"ori-core: runtime ownership failed: invalid or unsafe state: private LAN state requires a verified owner-only Windows DACL; this build supports explicit loopback mode only\n"
+    } else {
+        b"ori-core: runtime ownership failed: invalid or unsafe state: identity already exists; explicit re-enrollment is required for rotation\n"
+    };
+    outcome.code == Some(1) && outcome.stdout.is_empty() && outcome.stderr == expected
+}
+
+fn bounded_lan_capture(file: &mut std::fs::File) -> std::io::Result<Vec<u8>> {
+    file.rewind()?;
+    let mut bytes = Vec::new();
+    file.take(4097).read_to_end(&mut bytes)?;
+    if bytes.len() > 4096 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "init-lan output exceeded the capture bound",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn run_lan_init(data: &Path) -> LanInitOutcome {
+    let mut stdout = tempfile::tempfile().unwrap();
+    let mut stderr = tempfile::tempfile().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_ori-core"))
+        .args(["init-lan", "--data-dir"])
+        .arg(data)
+        .args(["--name", "127.0.0.1"])
+        .stdout(Stdio::from(stdout.try_clone().unwrap()))
+        .stderr(Stdio::from(stderr.try_clone().unwrap()))
+        .status()
+        .unwrap();
+    // Capture only after the original child wait; pipes cannot hold up its exit.
+    LanInitOutcome {
+        code: status.code(),
+        stdout: bounded_lan_capture(&mut stdout).unwrap(),
+        stderr: bounded_lan_capture(&mut stderr).unwrap(),
+    }
+}
+
+fn assert_lan_init_outcome(repeated: bool, outcome: &LanInitOutcome) {
+    let stderr_sha256: String = sha2::Sha256::digest(&outcome.stderr)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    assert!(
+        lan_init_outcome_matches_platform(cfg!(windows), repeated, outcome),
+        "Unexpected init-lan outcome: windows={}, repeated={repeated}, exit={:?}, stdout_bytes={}, stderr_bytes={}, stderr_sha256={stderr_sha256}",
+        cfg!(windows),
+        outcome.code,
+        outcome.stdout.len(),
+        outcome.stderr.len(),
+    );
+}
+
+#[test]
+fn lan_init_capture_rejects_truncation_and_read_errors() {
+    let mut file = tempfile::tempfile().unwrap();
+    file.write_all(&[b'x'; 4096]).unwrap();
+    assert!(bounded_lan_capture(&mut file).unwrap() == [b'x'; 4096]);
+    file.set_len(0).unwrap();
+    file.rewind().unwrap();
+    file.write_all(&[b'x'; 4097]).unwrap();
+    assert!(
+        matches!(bounded_lan_capture(&mut file), Err(error) if error.kind() == std::io::ErrorKind::InvalidData),
+        "oversized init-lan output was accepted"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("write-only");
+    std::fs::write(&path, b"synthetic capture").unwrap();
+    let mut write_only = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    assert!(
+        bounded_lan_capture(&mut write_only).is_err(),
+        "init-lan capture read error was ignored"
+    );
+}
+
+#[test]
+fn lan_init_oracle_rejects_unexpected_platform_status_and_output() {
+    let windows_denial = b"ori-core: runtime ownership failed: invalid or unsafe state: private LAN state requires a verified owner-only Windows DACL; this build supports explicit loopback mode only\n";
+    let existing_denial = b"ori-core: runtime ownership failed: invalid or unsafe state: identity already exists; explicit re-enrollment is required for rotation\n";
+    let outcome = |code, stdout: &[u8], stderr: &[u8]| LanInitOutcome {
+        code,
+        stdout: stdout.to_vec(),
+        stderr: stderr.to_vec(),
+    };
+    let mut extra_windows_stderr = windows_denial.to_vec();
+    extra_windows_stderr.extend_from_slice(b"unexpected suffix\n");
+    let mut extra_existing_stderr = existing_denial.to_vec();
+    extra_existing_stderr.extend_from_slice(b"unexpected suffix\n");
+    for (name, result, expected) in [
+        (
+            "created",
+            outcome(Some(0), b"installation report\n", b""),
+            [true, false, false, false],
+        ),
+        (
+            "Windows DACL refusal",
+            outcome(Some(1), b"", windows_denial),
+            [false, false, true, true],
+        ),
+        (
+            "existing Unix identity",
+            outcome(Some(1), b"", existing_denial),
+            [false, true, false, false],
+        ),
+        (
+            "Windows wrong exit",
+            outcome(Some(2), b"", windows_denial),
+            [false; 4],
+        ),
+        (
+            "Windows missing exit",
+            outcome(None, b"", windows_denial),
+            [false; 4],
+        ),
+        (
+            "arbitrary failure",
+            outcome(Some(1), b"", b"ori-core: candidate I/O failed: synthetic\n"),
+            [false; 4],
+        ),
+        (
+            "Windows extra stdout",
+            outcome(Some(1), b"unexpected output\n", windows_denial),
+            [false; 4],
+        ),
+        (
+            "Windows extra stderr",
+            outcome(Some(1), b"", &extra_windows_stderr),
+            [false; 4],
+        ),
+        (
+            "missing failure message",
+            outcome(Some(1), b"", b""),
+            [false; 4],
+        ),
+        (
+            "success with stderr",
+            outcome(Some(0), b"installation report\n", b"unexpected stderr\n"),
+            [false; 4],
+        ),
+        (
+            "repeat wrong exit",
+            outcome(Some(2), b"", existing_denial),
+            [false; 4],
+        ),
+        (
+            "repeat missing exit",
+            outcome(None, b"", existing_denial),
+            [false; 4],
+        ),
+        (
+            "repeat extra stdout",
+            outcome(Some(1), b"unexpected output\n", existing_denial),
+            [false; 4],
+        ),
+        (
+            "repeat extra stderr",
+            outcome(Some(1), b"", &extra_existing_stderr),
+            [false; 4],
+        ),
+    ] {
+        for ((windows, repeated), expected) in
+            [(false, false), (false, true), (true, false), (true, true)]
+                .into_iter()
+                .zip(expected)
+        {
+            assert_eq!(
+                lan_init_outcome_matches_platform(windows, repeated, &result),
+                expected,
+                "{name}: windows={windows}, repeated={repeated}, exit={:?}",
+                result.code
+            );
+        }
+    }
+}
+
 #[test]
 fn explicit_lan_initialization_creates_private_identity_once_and_never_rotates_silently() {
     let directory = tempfile::tempdir().unwrap();
-    let run = || {
-        Command::new(env!("CARGO_BIN_EXE_ori-core"))
-            .args(["init-lan", "--data-dir"])
-            .arg(directory.path())
-            .args(["--name", "127.0.0.1"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .unwrap()
-    };
-    assert!(run().success());
-    let identity = directory.path().join(".ori-runtime/security/identity.json");
-    let before = std::fs::read(&identity).unwrap();
-    assert!(!run().success());
-    assert_eq!(std::fs::read(identity).unwrap(), before);
+    let security = directory.path().join(".ori-runtime/security");
+    let identity = security.join("identity.json");
+    let ca = security.join("public-ca.pem");
+    let first = run_lan_init(directory.path());
+    assert_lan_init_outcome(false, &first);
+    if cfg!(windows) {
+        let assert_absent = || {
+            for path in [&security, &identity, &ca] {
+                assert!(
+                    !path.try_exists().unwrap(),
+                    "Windows init-lan created security material before verified DACL support"
+                );
+            }
+        };
+        assert_absent();
+        let repeated = run_lan_init(directory.path());
+        assert_lan_init_outcome(true, &repeated);
+        assert_absent();
+
+        std::fs::create_dir(&security).unwrap();
+        let foreign_identity = b"foreign-identity-sentinel";
+        let foreign_ca = b"foreign-public-ca-sentinel";
+        std::fs::write(&identity, foreign_identity).unwrap();
+        std::fs::write(&ca, foreign_ca).unwrap();
+        let entries = || {
+            std::fs::read_dir(&security)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let before_entries = entries();
+        let foreign = run_lan_init(directory.path());
+        assert_lan_init_outcome(true, &foreign);
+        assert!(
+            std::fs::read(&identity).unwrap() == foreign_identity,
+            "Windows init-lan modified a foreign identity"
+        );
+        assert!(
+            std::fs::read(&ca).unwrap() == foreign_ca,
+            "Windows init-lan modified a foreign public CA"
+        );
+        assert_eq!(entries(), before_entries);
+    } else {
+        let before_identity = std::fs::read(&identity).unwrap();
+        let before_ca = std::fs::read(&ca).unwrap();
+        let loaded = ori_runtime::security::TlsIdentity::load(&security).unwrap();
+        let fingerprint = loaded.fingerprint_sha256();
+        assert_eq!(fingerprint.len(), 64);
+        assert!(
+            before_ca == loaded.trust_anchor_pem().as_bytes(),
+            "init-lan public CA does not match the private identity"
+        );
+        let repeated = run_lan_init(directory.path());
+        assert_lan_init_outcome(true, &repeated);
+        assert!(
+            std::fs::read(&identity).unwrap() == before_identity,
+            "Repeated init-lan modified the private identity"
+        );
+        assert!(
+            std::fs::read(&ca).unwrap() == before_ca,
+            "Repeated init-lan modified the public CA"
+        );
+        assert!(
+            ori_runtime::security::TlsIdentity::load(&security)
+                .unwrap()
+                .fingerprint_sha256()
+                == fingerprint,
+            "Repeated init-lan changed the reloaded identity"
+        );
+    }
 }
 
 #[cfg(unix)]

@@ -15,6 +15,7 @@ from pathlib import Path
 from radioinspector.contracts import Sweep, to_primitive
 from tests.run_release_checks import child_environment, run_command
 from tools.modernization.api_parity import NodeSpec, OwnedNode, file_sha256
+from tools.modernization.swift_version import is_pinned_swift_output
 
 ROOT = Path(__file__).resolve().parents[2]
 FUNCTIONAL_DEADLINE_SECONDS = 30
@@ -316,8 +317,7 @@ def build_swift_client(builder, directory, environment):
         timeout=30,
     )
     require(
-        re.search(r"^(?:Apple )?Swift version 6\.4\.2(?:\s|$)", version, re.MULTILINE)
-        is not None,
+        is_pinned_swift_output(version),
         "Swift helper requires the pinned 6.4.2 builder",
     )
     scratch = directory / "swift-build"
