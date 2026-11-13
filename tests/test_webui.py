@@ -43,7 +43,7 @@ class WebUiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.server = create_server(host="127.0.0.1", port=0)
-        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         cls.thread.start()
         cls.host, cls.port = cls.server.server_address
 

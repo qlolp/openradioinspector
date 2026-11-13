@@ -21,7 +21,7 @@ class TestWebRelease(unittest.TestCase):
         self.state = ApplicationState(database=str(self.path))
         handler = type('ReleaseHandler', (Handler,), {'state': self.state})
         self.server = ThreadingHTTPServer(('127.0.0.1',0),handler)
-        self.thread = threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True)
         self.thread.start()
 
     def tearDown(self):

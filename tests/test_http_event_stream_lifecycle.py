@@ -35,7 +35,7 @@ class HttpEventStreamLifecycleTests(unittest.TestCase):
         arguments = {'sessions': sessions} if sessions is not None else {
             'session_database': str(self.directory / f'owned-{len(self.servers)}' / 'archive.sqlite')}
         server = create_server(host='127.0.0.1', port=0, **arguments)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.servers.append((server, thread))
         thread.start()
         return server

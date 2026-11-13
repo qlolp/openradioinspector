@@ -123,7 +123,7 @@ class OccupancyHTTPTests(unittest.TestCase):
         session = create_session(self.server.session_service)
         self.server.session_service.ingest_sweep(measurement(session.id, session.streams[0].id, 1))
         self.path = f"/api/v1/sessions/{session.id}/sweep-occupancy"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop)
 

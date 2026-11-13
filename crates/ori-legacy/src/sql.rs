@@ -210,6 +210,10 @@ impl PanOwner {
                                 "attempt to write a readonly database".into(),
                             ))
                         };
+                        // A reply can wake the workspace on another thread.
+                        // Release this command's ownership first, so its budget
+                        // cannot outlive the caller's confirmed cleanup.
+                        drop(io_budget);
                         let _ = reply.send(result);
                     }
                     Command::Close(reply) => {
@@ -351,6 +355,10 @@ mod tests;
 #[cfg(test)]
 #[path = "source_lease_tests.rs"]
 mod source_lease_tests;
+
+#[cfg(test)]
+#[path = "budget_reply_tests.rs"]
+mod budget_reply_tests;
 
 // Above the validated 128 MiB source cap and after SQLite's entire
 // PENDING/RESERVED/SHARED region (0x40000000..0x400001ff).

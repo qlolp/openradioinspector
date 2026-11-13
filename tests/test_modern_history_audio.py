@@ -26,7 +26,7 @@ class ModernHistoryAudioTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.server = create_server(host='127.0.0.1', port=0,
                                     session_database=str(Path(self.temporary.name).resolve()/'archive.sqlite'))
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.thread.join)
         self.addCleanup(self.server.server_close)

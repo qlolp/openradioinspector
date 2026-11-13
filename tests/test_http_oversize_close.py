@@ -261,7 +261,7 @@ class OversizeCloseHTTPTests(unittest.TestCase):
             self.closed.put(connection.fileno() == -1)
 
         self.http.shutdown_request = shutdown_request
-        self.listener = threading.Thread(target=self.http.serve_forever, daemon=True)
+        self.listener = threading.Thread(target=self.http.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.listener.start()
         self.addCleanup(self.stop)
 

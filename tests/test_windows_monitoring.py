@@ -987,7 +987,7 @@ class MonitoringClientQueryTests(unittest.TestCase):
         from radioinspector.windows.monitoring import _download
         from tests.test_device_workers import simulated_session_payload
         server = create_server(host='127.0.0.1', port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); thread.start()
         try:
             session = server.session_service.create_session(simulated_session_payload())
             project = server.monitoring.create(dict(name='Audio', site='Fixture', session_id=session.id))

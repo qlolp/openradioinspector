@@ -399,7 +399,7 @@ class WindowsReleaseFlowTests(unittest.TestCase):
             service = SessionService(store=SQLiteSessionStore(str(Path(temporary) / "archive.sqlite")))
             scheduler = TaskScheduler(TaskBook(Path(temporary) / "tasks.json"), interval_seconds=60)
             server = create_server(host="127.0.0.1", port=0, sessions=service, task_scheduler=scheduler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
             thread.start()
             try:
                 host, port = server.server_address

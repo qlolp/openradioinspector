@@ -43,6 +43,32 @@ the compiler pin. A different compiler patch, development suffix, unrelated
 version text, or multiple compiler declarations fails before Swift tests/builds.
 This parser check does not establish native Swift package or client acceptance.
 
+Supervision fixtures allocate each backend address once per test process and
+exclude the host's configured automatic TCP client port range (read-only kernel
+query). The allocation regression forces a released address to be offered again
+and retains a real foreign listener. Parallel tests remain enabled; production
+occupied-port refusals and startup/shutdown deadlines are unchanged. This removes
+fixture address reuse and client-port overlap as interference mechanisms; it
+does not identify the historical owner of the occupied port in the macOS job.
+
+The legacy scientific bridge strips only the Windows local-disk `\\?\` namespace
+before making a read-only SQLite URI. It preserves escaped filename characters
+and `mode=ro`; it does not rewrite UNC authorities or open the source for writing.
+Portable path examples and the actual Windows scientific/file-budget tests cover
+the conversion. A local Linux pass alone does not accept the Windows path.
+
+Owned Python HTTP fixtures explicitly use a 10 ms `serve_forever` selector poll
+instead of the standard library's 500 ms idle poll. This reduces idle shutdown
+waiting; request/body/SSE timeouts, input sizes, assertions and the 600-second
+legacy-suite budget are unchanged. The change applies only to test threads,
+not the production server. It is not a throughput or hardware acceptance result.
+
+The legacy SQL writer releases its threshold command's I/O-budget reference
+before sending the result. SQL commit/rollback has finished at that point;
+remaining snapshot ownership still controls private-file cleanup. A real-worker
+regression blocks the budget destructor and proves that neither a successful
+commit nor a refused write can reply before that ownership is released.
+
 ```sh
 python -m pip install --require-hashes -r requirements/core.lock
 cargo fetch --locked

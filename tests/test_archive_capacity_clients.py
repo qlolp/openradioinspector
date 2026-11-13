@@ -163,7 +163,7 @@ class WindowsCapacityTests(unittest.TestCase):
 
     def test_real_http_capacity_is_global_and_snapshot_does_not_need_session(self):
         server = create_server(host="127.0.0.1", port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
         try:
             host, port = server.server_address

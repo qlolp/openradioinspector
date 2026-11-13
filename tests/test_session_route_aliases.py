@@ -14,7 +14,7 @@ from tests.test_platform import session_payload
 class SessionReadAliasTests(unittest.TestCase):
     def setUp(self):
         self.server = create_server(host="127.0.0.1", port=0)
-        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01})
         self.thread.start()
         self.addCleanup(self.thread.join)
         self.addCleanup(self.server.server_close)
