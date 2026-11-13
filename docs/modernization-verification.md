@@ -289,3 +289,13 @@ two-RAF marker protocol are unchanged; coalescing is visible and affects no
 archived source, source bits or Worker/applied ACK. See
 [web-renderer-display.md](web-renderer-display.md). The 1,205-event native
 browser deadline and full offered-to-render checks remain unchanged.
+
+The Windows research suite exposed a separate RSS admission failure: untyped
+ctypes calls truncated the current-process pseudo-handle, and a failed memory
+query was reported as zero bytes. An independent LLP64 transport fixture checks
+the pointer-width handle, DWORD layout, actual peak field and failure results.
+The worker now refuses an unavailable measurement, propagates watcher failures,
+and can still serialize an error without inventing a zero RSS. The original
+positive-RSS and one-byte-budget tests remain unchanged. This fixes cooperative
+self-process accounting; it does not enable the Windows Core's unavailable
+strict scientific-worker containment or satisfy physical/load acceptance.

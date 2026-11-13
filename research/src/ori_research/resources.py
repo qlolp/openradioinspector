@@ -10,29 +10,46 @@ import time
 from .protocol import WorkerError
 
 
+def _windows_resident_bytes():
+    import ctypes
+
+    class Counters(ctypes.Structure):
+        _fields_ = [('cb', ctypes.c_uint32), ('PageFaultCount', ctypes.c_uint32)] + [
+            (name, ctypes.c_size_t) for name in ('PeakWorkingSetSize', 'WorkingSetSize',
+            'QuotaPeakPagedPoolUsage', 'QuotaPagedPoolUsage', 'QuotaPeakNonPagedPoolUsage',
+            'QuotaNonPagedPoolUsage', 'PagefileUsage', 'PeakPagefileUsage')]
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    psapi = ctypes.WinDLL('psapi', use_last_error=True)
+    current_process = kernel32.GetCurrentProcess
+    current_process.argtypes = []
+    current_process.restype = ctypes.c_void_p
+    memory_info = psapi.GetProcessMemoryInfo
+    memory_info.argtypes = [ctypes.c_void_p, ctypes.POINTER(Counters), ctypes.c_uint32]
+    memory_info.restype = ctypes.c_int
+    data = Counters()
+    data.cb = ctypes.sizeof(data)
+    if memory_info(current_process(), ctypes.byref(data), data.cb):
+        return data.PeakWorkingSetSize
+    return 0
+
+
 def resident_bytes():
     try:
-        if Path('/proc/self/statm').exists():
-            return int(Path('/proc/self/statm').read_text().split()[1]) * os.sysconf('SC_PAGE_SIZE')
-        import resource
-        import sys
-        value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        return int(value if sys.platform == 'darwin' else value * 1024)
-    except (OSError, ValueError, ImportError, AttributeError):
         if os.name == 'nt':
-            import ctypes
-            from ctypes import wintypes
-            class Counters(ctypes.Structure):
-                _fields_ = [('cb', wintypes.DWORD), ('PageFaultCount', wintypes.DWORD)] + [
-                    (name, ctypes.c_size_t) for name in ('PeakWorkingSetSize','WorkingSetSize',
-                    'QuotaPeakPagedPoolUsage','QuotaPagedPoolUsage','QuotaPeakNonPagedPoolUsage',
-                    'QuotaNonPagedPoolUsage','PagefileUsage','PeakPagefileUsage')]
-            data = Counters()
-            data.cb = ctypes.sizeof(data)
-            if ctypes.windll.psapi.GetProcessMemoryInfo(ctypes.windll.kernel32.GetCurrentProcess(),
-                                                       ctypes.byref(data), data.cb):
-                return data.PeakWorkingSetSize
-        return 0
+            value = _windows_resident_bytes()
+        elif Path('/proc/self/statm').exists():
+            value = int(Path('/proc/self/statm').read_text().split()[1]) * os.sysconf('SC_PAGE_SIZE')
+        else:
+            import resource
+            import sys
+            value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            value = int(value if sys.platform == 'darwin' else value * 1024)
+        if value > 0:
+            return value
+    except (OSError, ValueError, ImportError, AttributeError):
+        pass
+    raise WorkerError('rss_measurement_unavailable', 'Worker memory usage is unavailable') from None
 
 
 class Budget:
@@ -81,9 +98,19 @@ class Budget:
             raise WorkerError('cache_quota_exceeded', 'Derived cache byte quota exceeded', retryable=True)
         self.cache_used += size
 
-    def final_metrics(self):
-        self.metrics['peak_rss_bytes'] = max(self.metrics['peak_rss_bytes'], resident_bytes())
-        return self.metrics | {'elapsed_ms': round((time.monotonic()-self.started)*1000),
+    def final_metrics(self, *, require_measurement=False):
+        metrics = self.metrics.copy()
+        try:
+            self.metrics['peak_rss_bytes'] = max(self.metrics['peak_rss_bytes'], resident_bytes())
+            metrics['peak_rss_bytes'] = self.metrics['peak_rss_bytes']
+        except WorkerError as error:
+            if require_measurement:
+                raise
+            # Error reporting must work even when the RSS probe itself failed.
+            metrics['rss_measurement_error'] = error.code
+            if not metrics['peak_rss_bytes']:
+                metrics['peak_rss_bytes'] = None
+        return metrics | {'elapsed_ms': round((time.monotonic()-self.started)*1000),
             'cache_bytes': self.cache_used,
             'cross_process_logical_io': self.shared_io is not None,
             'hard_limits_require_parent': ['process_tree_memory', 'physical_io_rate', 'filesystem_quotas'],
