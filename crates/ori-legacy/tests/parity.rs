@@ -491,6 +491,7 @@ async fn concurrent_threshold_load_and_read_observe_complete_serial_versions() {
     let first = source(&directory.path().join("one"));
     let second = source(&directory.path().join("two"));
     let before = raw_rows(&first);
+    let second_before = raw_rows(&second);
     let gate = Arc::new(tokio::sync::Semaphore::new(1));
     let science = Arc::new(Python {
         gate: Some(gate.clone()),
@@ -507,7 +508,9 @@ async fn concurrent_threshold_load_and_read_observe_complete_serial_versions() {
     }
     assert_eq!(workspace.version(), 1);
     let copy = workspace.clone();
-    let expected = second.clone();
+    // The public workspace stores the canonical source path; on Windows its
+    // Win32 namespace prefix differs from tempfile's original path spelling.
+    let expected = second.canonicalize().unwrap();
     let loading = tokio::spawn(async move { copy.load_database(&second).await });
     tokio::task::yield_now().await;
     let copy = workspace.clone();
@@ -521,6 +524,7 @@ async fn concurrent_threshold_load_and_read_observe_complete_serial_versions() {
     assert_eq!(snapshot["threshold"], oracle()["loaded"]["threshold"]);
     assert_eq!(raw_rows(&first), before);
     workspace.close().await.unwrap();
+    assert_eq!(raw_rows(&expected), second_before);
 }
 
 #[tokio::test]
