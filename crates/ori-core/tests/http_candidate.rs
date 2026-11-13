@@ -7,6 +7,8 @@ use tokio::{
     net::TcpListener,
     task::JoinHandle,
 };
+#[path = "support/bounded_http.rs"]
+mod bounded_http;
 struct Server {
     core: Arc<Core>,
     url: String,
@@ -604,12 +606,16 @@ async fn body_upload_uses_one_actual_ten_second_deadline_despite_continuing_prog
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     });
-    let mut response = Vec::new();
-    tokio::time::timeout(Duration::from_secs(16), reader.read_to_end(&mut response))
-        .await
-        .unwrap()
-        .unwrap();
+    let response = tokio::time::timeout(
+        Duration::from_secs(16),
+        bounded_http::read_closed_response(&mut reader),
+    )
+    .await;
     drip.abort();
+    let _ = drip.await;
+    let response = response
+        .expect("response deadline")
+        .expect("complete HTTP timeout response and closure");
     assert!(
         response.starts_with(b"HTTP/1.1 408"),
         "{}",
@@ -617,6 +623,13 @@ async fn body_upload_uses_one_actual_ten_second_deadline_despite_continuing_prog
     );
     assert!(began.elapsed() >= Duration::from_millis(9500));
     assert!(began.elapsed() < Duration::from_secs(16));
+    let body = response
+        .windows(4)
+        .position(|bytes| bytes == b"\r\n\r\n")
+        .unwrap()
+        + 4;
+    let error = parse_json_value(&response[body..], 65_536).unwrap();
+    assert_eq!(error["error"]["code"], "request_timeout");
     let (_, events) = server
         .request("GET", "/api/v1/events/history?after=0&limit=10", None)
         .await;
