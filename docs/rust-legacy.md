@@ -81,7 +81,26 @@ inode without writing that byte. Hardlink aliases and separate processes remain
 excluded, unrelated SQLite closes do not release the lease, and the existing
 `Arc<File>` ownership still lasts through SQL/actor joins. Ordinary SQLite
 locking, external-change detection and canonical threshold transactions remain
-enabled. Other platforms keep their existing lease primitive.
+enabled. Linux keeps its existing advisory whole-file lease.
+
+Windows uses one exclusive, fail-immediately `LockFileEx` byte at `0x40000200`.
+That byte is above the existing validated 128 MiB source cap and immediately
+after SQLite's `0x40000000..0x400001ff` lock region. A mandatory whole-file lock
+would deny reads through SQLite's independent handle; byte zero would also cover
+its header. The private byte leaves ordinary SQLite reads and locks unchanged,
+while old whole-file leases, new leases and hardlink aliases still overlap.
+It does not write a byte, extend the file, add a lockfile or change the VFS.
+The same original `File`/`Arc<File>` and SQL/actor JOIN guards retain ownership;
+the last handle close releases the byte lock. External writers still use the
+existing data-version and transaction checks described above.
+
+[Microsoft's LockFileEx contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex)
+permits locking beyond EOF and documents denial through a second handle and
+automatic release on close. The new native Windows control records its actual
+OS and SQLite error numbers before public error mapping; those numbers were
+not available from the earlier generic `disk I/O error` report. Updated Windows
+execution remains required. All original I/O-budget, cancellation, deadline,
+canonical-write and source-preservation tests remain unchanged.
 
 If macOS refuses a read/write open with `EACCES`, `EPERM` or `EROFS`, the source
 retains an exclusive whole-inode lease on a read-only descriptor. Default SQLite

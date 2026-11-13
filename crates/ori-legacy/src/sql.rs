@@ -348,10 +348,61 @@ impl PanOwner {
 #[path = "sql_tests.rs"]
 mod tests;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(test)]
+#[path = "source_lease_tests.rs"]
+mod source_lease_tests;
+
+// Above the validated 128 MiB source cap and after SQLite's entire
+// PENDING/RESERVED/SHARED region (0x40000000..0x400001ff).
+#[cfg(any(windows, test))]
+const WINDOWS_SOURCE_LOCK_BYTE: u64 = 0x40000200;
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn source_lease(path: &Path) -> Result<(File, bool)> {
     let file = File::open(path)?;
     file.try_lock().map_err(|_| LegacyError::Busy)?;
+    Ok((file, false))
+}
+
+#[cfg(windows)]
+fn source_lease(path: &Path) -> Result<(File, bool)> {
+    use std::{ffi::c_void, os::windows::io::AsRawHandle};
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        event: *mut c_void,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        #[link_name = "LockFileEx"]
+        fn lock(
+            handle: *mut c_void,
+            flags: u32,
+            reserved: u32,
+            bytes_low: u32,
+            bytes_high: u32,
+            overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+    let file = File::open(path)?;
+    let mut overlapped = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: WINDOWS_SOURCE_LOCK_BYTE as u32,
+        offset_high: (WINDOWS_SOURCE_LOCK_BYTE >> 32) as u32,
+        event: std::ptr::null_mut(),
+    };
+    // File::open creates a synchronous handle. EXCLUSIVE | FAIL_IMMEDIATELY
+    // cannot leave a pending request referring to this stack OVERLAPPED.
+    // Unlike a whole-file mandatory lock, this byte cannot cover an owner's
+    // SQLite read or native lock. Locks beyond EOF do not write/extend it.
+    // The same File/Arc closes only after the existing SQL/actor JOIN guards.
+    if unsafe { lock(file.as_raw_handle(), 3, 0, 1, 0, &mut overlapped) } == 0 {
+        return Err(LegacyError::Busy);
+    }
     Ok((file, false))
 }
 
