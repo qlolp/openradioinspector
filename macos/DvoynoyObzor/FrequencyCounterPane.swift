@@ -3,6 +3,106 @@ import SwiftUI
 import SpektrKomandy
 
 @MainActor
+final class FieldStrengthModel: ObservableObject {
+    typealias Scope = FrequencyCounterModel.Scope
+    @Published var sweepID = "" { didSet { if oldValue != sweepID { clear() } } }
+    @Published var frequencyText = "" { didSet { if oldValue != frequencyText { clear() } } }
+    @Published var calibrationText = "" { didSet { if oldValue != calibrationText { clear() } } }
+    @Published private(set) var sweeps: [PlatformSweep] = []
+    @Published private(set) var result: PlatformFieldStrengthResult?
+    @Published private(set) var pending = false
+    @Published private(set) var errorText: String?
+    private var scope: Scope?
+    private var client: PlatformClient?
+    private var request: Task<Void, Never>?
+    private var timeout: Task<Void, Never>?
+    private var revision = 0
+    private let timeoutNanoseconds: UInt64
+    private let measure: (PlatformClient, String, String, PlatformFieldStrengthRequest) async throws -> PlatformFieldStrengthResult
+    init(timeoutNanoseconds: UInt64 = 6_000_000_000,
+         measure: @escaping (PlatformClient, String, String, PlatformFieldStrengthRequest) async throws -> PlatformFieldStrengthResult = {
+        try await $0.fieldStrengthRMSV2(sessionID: $1, streamID: $2, request: $3)
+    }) { self.measure = measure; self.timeoutNanoseconds = timeoutNanoseconds }
+    func configure(client: PlatformClient?, scope: Scope?, sweeps: [PlatformSweep]) {
+        if self.scope != scope || self.client !== client { clear(); sweepID = "" }
+        self.scope = scope; self.client = client
+        self.sweeps = sweeps.filter {
+            PlatformFrequencyCounterResult.sameID($0.sessionId, scope?.session)
+                && PlatformFrequencyCounterResult.sameID($0.streamId, scope?.stream)
+        }
+        if !self.sweeps.contains(where: { PlatformFrequencyCounterResult.sameID($0.id, sweepID) }) {
+            sweepID = self.sweeps.last?.id ?? ""
+        }
+    }
+    func reset() { configure(client: nil, scope: nil, sweeps: []) }
+    func clear() {
+        revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
+        result = nil; pending = false; errorText = nil
+    }
+    func analyze() {
+        guard let client, let scope, !pending else { return }
+        clear()
+        do {
+            guard !sweepID.isEmpty, let frequency = Int64(frequencyText), frequency >= 0,
+                  frequency <= 9_007_199_254_740_991 else {
+                throw PlatformError.invalidCommand("Выберите исходный свип и частоту в целых Гц")
+            }
+            let sent = PlatformFieldStrengthRequest(sweepId: sweepID, frequencyHz: frequency,
+                calibration: try PlatformFieldStrengthRequest.calibration(from: calibrationText))
+            let current = revision; pending = true
+            request = Task { [weak self, measure] in
+                do {
+                    let value = try await measure(client, scope.session, scope.stream, sent)
+                    try value.validate(sessionID: scope.session, streamID: scope.stream, request: sent)
+                    guard let self, !Task.isCancelled, self.revision == current else { return }
+                    self.result = value; self.pending = false; self.request = nil
+                    self.timeout?.cancel(); self.timeout = nil
+                } catch {
+                    guard let self, !Task.isCancelled, self.revision == current else { return }
+                    self.errorText = error.localizedDescription; self.pending = false; self.request = nil
+                    self.timeout?.cancel(); self.timeout = nil
+                }
+            }
+            timeout = Task { [weak self, timeoutNanoseconds] in
+                do { try await Task.sleep(nanoseconds: timeoutNanoseconds) } catch { return }
+                guard let self, self.pending, self.revision == current else { return }
+                self.clear(); self.errorText = "Время ожидания оценки истекло"
+            }
+        } catch { errorText = error.localizedDescription }
+    }
+}
+
+struct RemoteFieldStrengthPane: View {
+    @ObservedObject var model: FieldStrengthModel
+    var body: some View {
+        GroupBox("Узкополосная RMS-эквивалентная оценка поля") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Нужен профиль калибровки тракта и совместимые исходные RMS/CW/RBW настройки. Без них расчёт недоступен. Старый field_strength — некалиброванная оценка уровня. Исходники и охрана не меняются.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("Архивный свип", selection: $model.sweepID) {
+                    Text("Выберите свип").tag("")
+                    ForEach(model.sweeps) { Text($0.id).tag($0.id) }
+                }
+                TextField("Частота исходного бина, целые Гц", text: $model.frequencyText)
+                Text("Профиль калибровки JSON · до 64 КиБ").font(.caption)
+                TextEditor(text: $model.calibrationText).font(.system(.body, design: .monospaced)).frame(minHeight: 120)
+                HStack {
+                    Button("Оценить поле") { model.analyze() }.disabled(model.pending || model.sweeps.isEmpty)
+                    Button("Очистить результат") { model.clear() }
+                    if model.pending { ProgressView().controlSize(.small) }
+                }
+                if let result = model.result {
+                    Text(result.summary).textSelection(.enabled)
+                    Text("Свип \(result.source.id) · калибровка \(result.calibration.sha256)")
+                        .font(.caption).textSelection(.enabled)
+                }
+                if let error = model.errorText { Text("Оценка недоступна: \(error)").foregroundStyle(.red) }
+            }
+        }
+    }
+}
+
+@MainActor
 final class FrequencyCounterModel: ObservableObject {
     struct Scope: Equatable {
         let server: String; let session: String; let stream: String

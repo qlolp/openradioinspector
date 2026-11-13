@@ -130,11 +130,11 @@ def uv_to_dbuv(value: float) -> float:
 
 
 def dbmv_to_v(value: float) -> float:
-    return 10.0 ** (value / 20.0)
+    return 1e-3 * 10.0 ** (value / 20.0)
 
 
 def v_to_dbmv(value: float) -> float:
-    return 20.0 * math.log10(value)
+    return 20.0 * math.log10(value / 1e-3)
 
 
 # --------------------------------------------------------------------------
@@ -176,88 +176,62 @@ def convert(
     impedance: float = DEFAULT_IMPEDANCE,
     antenna_factor_db: float = 0.0,
 ) -> float:
-    """Переводит физическую величину из одной единицы в другую.
+    """Convert RMS terminal voltage, power and electric field units.
 
-    Параметры
-    ----------
-    value:
-        Исходное значение.
-    from_unit, to_unit:
-        Обозначения единиц (регистр и кириллица в обозначениях допускаются).
-    impedance:
-        Сопротивление нормирующего тракта, Ом. Используется только для
-        переходов напряжение <-> мощность.
-    antenna_factor_db:
-        Коэффициент усиления антенны, дБ. Используется при переходе между
-        напряжённостью поля и мощностью на входе приёмника.
-
-    Замечание
-    ---------
-    Переход «напряжённость поля → мощность на входе приёмника» выполняется как
-    ``P_dBm = E_dBuV/m + A_dB - 107`` для 50-омного тракта, что эквивалентно
-    учёту коэффициента калибровки измерительного тракта на частоте измерений.
+    ``impedance`` is the real reference impedance in ohms. The antenna
+    factor is E/U, expressed in dB/m: E[dBuV/m] = U[dBuV] + AF[dB/m].
+    Its default zero is a numerical assumption, not an antenna calibration.
+    Use field_strength_rms_v2 for a traceable physical field estimate.
     """
     src = normalize_unit(from_unit)
     dst = normalize_unit(to_unit)
-    if src == dst:
-        return value
+    src_kind, dst_kind = _kind(src), _kind(dst)
+    if not all(math.isfinite(v) for v in (value, impedance, antenna_factor_db)):
+        raise UnitError("Значение и параметры преобразования должны быть конечными")
     if impedance <= 0:
         raise UnitError("Сопротивление тракта должно быть положительным")
-
-    src_kind = _kind(src)
-    dst_kind = _kind(dst)
-
-    # 1. Переводы внутри одной группы выполняются напрямую — так не теряется
-    #    точность и не требуется знать сопротивление тракта.
-    if src_kind == dst_kind:
-        if src_kind == "power":
-            if dst in POWER_ABS:
-                return _watts_to_power_unit(_power_to_watts(value, src), dst)
-            return _watts_to_target(_watts_to_dbm(value, src), dst, impedance)
-        if src_kind == "voltage":
-            if dst in VOLTAGE_ABS:
-                return _volts_to_voltage_unit(_voltage_to_volts(value, src), dst)
-            return _watts_to_target(_watts_to_dbm(value, src), dst, impedance)
-        if dst in FIELD_ABS:
-            return _v_per_m_to_field_unit(_field_to_v_per_m(value, src), dst)
-        return _watts_to_target(_watts_to_dbm(value, src), dst, impedance)
-
-    # 2. Приводим исходную величину к канонической форме своей группы.
-    if src_kind == "power":
-        watts = _power_to_watts(value, src)
-    elif src_kind == "voltage":
-        volts = _voltage_to_volts(value, src)
-        watts = volts * volts / impedance
-    else:  # field
-        v_per_m = _field_to_v_per_m(value, src)
-        watts = v_per_m * v_per_m / impedance
-
-    # 3. Учитываем коэффициент усиления антенны при переходе из поля.
-    if src_kind == "field" and dst_kind == "power":
-        dbm = mw_to_dbm(watts * 1000.0) + antenna_factor_db
-        return _watts_to_target(dbm, dst, impedance)
-
-    # 4. В поле мощности через калибровочный коэффициент.
-    if dst_kind == "field":
-        dbm = mw_to_dbm(watts * 1000.0) + antenna_factor_db
-        # Обратный переход: E_dBuV/m = P_dBm - A_dB + 107
-        return _watts_to_target(dbm - antenna_factor_db, dst, impedance)
-
-    dbm = mw_to_dbm(watts * 1000.0)
-    return _watts_to_target(dbm, dst, impedance)
-
-
-def _watts_to_dbm(value: float, unit: str) -> float:
-    """Приведение величины мощности к дБм."""
-    if unit == "dBm":
+    if src in POWER_ABS + VOLTAGE_ABS + FIELD_ABS and value < 0:
+        raise UnitError("Мощность, RMS-напряжение и модуль поля не могут быть отрицательными")
+    if src == dst:
         return value
-    if unit == "dBW":
-        return value + 30.0
-    return mw_to_dbm(_power_to_watts(value, unit) * 1000.0)
+    try:
+        if src_kind == dst_kind:
+            if src_kind == "power":
+                result = _watts_to_power_unit(_power_to_watts(value, src), dst)
+            elif src_kind == "voltage":
+                result = _volts_to_voltage_unit(_voltage_to_volts(value, src), dst)
+            else:
+                result = _v_per_m_to_field_unit(_field_to_v_per_m(value, src), dst)
+            if not math.isfinite(result):
+                raise UnitError("Результат преобразования вне конечного диапазона")
+            return result
+
+        # Normalize at the receiver input reference plane, using RMS volts.
+        if src_kind == "power":
+            volts = math.sqrt(_power_to_watts(value, src) * impedance)
+        elif src_kind == "voltage":
+            volts = _voltage_to_volts(value, src)
+        else:
+            volts = _field_to_v_per_m(value, src) / 10.0 ** (antenna_factor_db / 20.0)
+        if dst_kind == "power":
+            result = _watts_to_power_unit(volts * volts / impedance, dst)
+        elif dst_kind == "voltage":
+            result = _volts_to_voltage_unit(volts, dst)
+        else:
+            result = _v_per_m_to_field_unit(volts * 10.0 ** (antenna_factor_db / 20.0), dst)
+        if not math.isfinite(result):
+            raise UnitError("Результат преобразования вне конечного диапазона")
+        return result
+    except (OverflowError, ZeroDivisionError, ValueError) as exc:
+        raise UnitError("Значение вне области преобразования единиц") from exc
 
 
 def _watts_to_power_unit(watts: float, unit: str) -> float:
     """Представление мощности в абсолютной единице группы."""
+    if unit == "dBW":
+        return w_to_dbw(watts)
+    if unit == "dBm":
+        return w_to_dbm(watts)
     if unit == "W":
         return watts
     if unit == "mW":
@@ -269,6 +243,10 @@ def _watts_to_power_unit(watts: float, unit: str) -> float:
 
 def _volts_to_voltage_unit(volts: float, unit: str) -> float:
     """Представление напряжения в абсолютной единице группы."""
+    if unit == "dBmV":
+        return v_to_dbmv(volts)
+    if unit == "dBuV":
+        return uv_to_dbuv(volts * 1e6)
     if unit == "V":
         return volts
     if unit == "mV":
@@ -280,6 +258,10 @@ def _volts_to_voltage_unit(volts: float, unit: str) -> float:
 
 def _v_per_m_to_field_unit(v_per_m: float, unit: str) -> float:
     """Представление напряжённости поля в абсолютной единице группы."""
+    if unit == "dBuV/m":
+        return v_per_m_to_dbuv_per_m(v_per_m)
+    if unit == "dBV/m":
+        return v_per_m_to_dbv_per_m(v_per_m)
     if unit == "V/m":
         return v_per_m
     if unit == "mV/m":
@@ -287,36 +269,6 @@ def _v_per_m_to_field_unit(v_per_m: float, unit: str) -> float:
     if unit == "uV/m":
         return v_per_m * 1e6
     raise UnitError(f"Неизвестная единица напряжённости поля: {unit}")
-
-
-def _watts_to_target(dbm: float, dst: str, impedance: float = DEFAULT_IMPEDANCE) -> float:
-    kind = _kind(dst)
-    if kind == "power":
-        watts = dbm_to_w(dbm)
-        return {
-            "dBW": w_to_dbw(watts),
-            "dBm": dbm,
-            "W": watts,
-            "mW": watts * 1e3,
-            "uW": watts * 1e6,
-        }[dst]
-    if kind == "voltage":
-        volts = math.sqrt(dbm_to_w(dbm) * impedance)
-        return {
-            "dBmV": v_to_dbmv(volts),
-            "dBuV": uv_to_dbuv(volts * 1e6),
-            "V": volts,
-            "mV": volts * 1e3,
-            "uV": volts * 1e6,
-        }[dst]
-    v_per_m = math.sqrt(dbm_to_w(dbm) * impedance)
-    return {
-        "dBuV/m": v_per_m_to_dbuv_per_m(v_per_m),
-        "dBV/m": v_per_m_to_dbv_per_m(v_per_m),
-        "V/m": v_per_m,
-        "mV/m": v_per_m * 1e3,
-        "uV/m": v_per_m * 1e6,
-    }[dst]
 
 
 def _kind(unit: str) -> str:

@@ -570,6 +570,7 @@
     window.OpenRadioFrequencyRounding?.update({
       sessionId: state.sessionId, candidates: state.candidates,
     });
+    window.OpenRadioFieldStrength?.update({sessionId:state.sessionId,streamId:state.spectrumStreamId,sweeps:state.sweeps});
     window.OpenRadioFrequencyCounter?.update({
       sessionId: state.sessionId, streamId: state.spectrumStreamId, sweeps: state.sweeps,
     });
@@ -907,6 +908,7 @@
       window.OpenRadioFrequencyRaster?.setConnected(true);
       window.OpenRadioMeasurementResults?.setConnected(true);
       window.OpenRadioFrequencyCounter?.setConnected(true);
+      window.OpenRadioFieldStrength?.setConnected(true);
       window.OpenRadioDvbEvaluation?.setConnected(true);
       window.OpenRadioPhonogram?.setConnected(true);
       window.OpenRadioSignalList?.setConnected(true);
@@ -926,6 +928,7 @@
       window.OpenRadioFrequencyRaster?.setConnected(false);
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);
+      window.OpenRadioFieldStrength?.setConnected(false);
       window.OpenRadioDvbEvaluation?.setConnected(false);
       window.OpenRadioPhonogram?.setConnected(false);
       window.OpenRadioSignalList?.setConnected(false);
@@ -977,6 +980,7 @@
       window.OpenRadioFrequencyRaster?.setConnected(false);
       window.OpenRadioMeasurementResults?.setConnected(false);
       window.OpenRadioFrequencyCounter?.setConnected(false);
+      window.OpenRadioFieldStrength?.setConnected(false);
       window.OpenRadioDvbEvaluation?.setConnected(false);
       window.OpenRadioPhonogram?.setConnected(false);
       window.OpenRadioSignalList?.setConnected(false);

@@ -1,0 +1,141 @@
+{
+  "source": {
+    "session_id": "session",
+    "stream_id": "stream",
+    "interval": {
+      "started_at": "2026-11-04T20:00:00Z",
+      "ended_at": "2026-11-04T20:00:01Z"
+    },
+    "frequencies_hz": [
+      100,
+      200,
+      300
+    ],
+    "levels": [
+      -66.98970004336019,
+      -66.98970004336019,
+      -66.98970004336019
+    ],
+    "level_unit": "dBm",
+    "id": "sweep-0",
+    "settings": {
+      "instrument_profile": "fixture-rms-v1",
+      "rbw_hz": 1000,
+      "measurement_chain_id": "SYNTHETIC-receiver-antenna-cable-preamp-v1",
+      "impedance_ohm": 50.0,
+      "reference_plane": "receiver input connector",
+      "detector": "RMS",
+      "waveform": "CW"
+    }
+  },
+  "request": {
+    "sweep_id": "sweep-0",
+    "frequency_hz": 200,
+    "calibration": {
+      "id": "fixture-tract",
+      "version": 1,
+      "instrument_profile": "fixture-rms-v1",
+      "measurement_chain_id": "SYNTHETIC-receiver-antenna-cable-preamp-v1",
+      "reference_plane": "receiver input connector",
+      "impedance_ohm": 50.0,
+      "detector": "RMS",
+      "rbw_hz": 1000,
+      "waveform": "CW",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_until": "2030-01-01T00:00:00Z",
+      "uncertainty_basis": "fixture combined expanded uncertainty, k=2",
+      "points": [
+        {
+          "frequency_hz": 100,
+          "antenna_factor_db_per_m": 20.0,
+          "cable_loss_db": 2.0,
+          "preamp_gain_db": 10.0,
+          "level_correction_db": 0.0,
+          "uncertainty_db": 2.0
+        },
+        {
+          "frequency_hz": 300,
+          "antenna_factor_db_per_m": 24.0,
+          "cable_loss_db": 4.0,
+          "preamp_gain_db": 10.0,
+          "level_correction_db": 0.0,
+          "uncertainty_db": 4.0
+        }
+      ]
+    }
+  },
+  "result": {
+    "methodology": "field_strength_rms_v2",
+    "value": 0.000562341325190349,
+    "unit": "V/m",
+    "value_dbuv_per_m": 55.0,
+    "uncertainty_db": 3.0,
+    "warnings": [],
+    "source": {
+      "id": "sweep-0",
+      "session_id": "session",
+      "stream_id": "stream",
+      "interval": {
+        "started_at": "2026-11-04T20:00:00Z",
+        "ended_at": "2026-11-04T20:00:01Z"
+      },
+      "frequency_hz": 200,
+      "bin_index": 1,
+      "level": -66.98970004336019,
+      "level_unit": "dBm",
+      "settings": {
+        "instrument_profile": "fixture-rms-v1",
+        "rbw_hz": 1000,
+        "measurement_chain_id": "SYNTHETIC-receiver-antenna-cable-preamp-v1",
+        "impedance_ohm": 50.0,
+        "reference_plane": "receiver input connector",
+        "detector": "RMS",
+        "waveform": "CW"
+      }
+    },
+    "calibration": {
+      "profile": {
+        "id": "fixture-tract",
+        "version": 1,
+        "instrument_profile": "fixture-rms-v1",
+        "measurement_chain_id": "SYNTHETIC-receiver-antenna-cable-preamp-v1",
+        "reference_plane": "receiver input connector",
+        "impedance_ohm": 50.0,
+        "detector": "RMS",
+        "rbw_hz": 1000,
+        "waveform": "CW",
+        "valid_from": "2020-01-01T00:00:00Z",
+        "valid_until": "2030-01-01T00:00:00Z",
+        "uncertainty_basis": "fixture combined expanded uncertainty, k=2",
+        "points": [
+          {
+            "frequency_hz": 100,
+            "antenna_factor_db_per_m": 20.0,
+            "cable_loss_db": 2.0,
+            "preamp_gain_db": 10.0,
+            "level_correction_db": 0.0,
+            "uncertainty_db": 2.0
+          },
+          {
+            "frequency_hz": 300,
+            "antenna_factor_db_per_m": 24.0,
+            "cable_loss_db": 4.0,
+            "preamp_gain_db": 10.0,
+            "level_correction_db": 0.0,
+            "uncertainty_db": 4.0
+          }
+        ]
+      },
+      "sha256": "f049d2a41686fd59a002637a5cde735d3843395308073a74ef4689731eb5b5b6",
+      "coefficients": {
+        "frequency_hz": 200,
+        "uncertainty_db": 3.0,
+        "preamp_gain_db": 10.0,
+        "antenna_factor_db_per_m": 22.0,
+        "cable_loss_db": 3.0,
+        "level_correction_db": 0.0
+      }
+    },
+    "applicability": "narrowband CW RMS-equivalent; operator-supplied calibration"
+  }
+}

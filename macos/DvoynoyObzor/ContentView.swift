@@ -246,6 +246,7 @@ final class RemoteDualModel: ObservableObject {
     let frequencyRaster = FrequencyRasterModel()
     let measurementResults = MeasurementResultsModel()
     let frequencyCounter = FrequencyCounterModel()
+    let fieldStrength = FieldStrengthModel()
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()
@@ -916,6 +917,7 @@ final class RemoteDualModel: ObservableObject {
         frequencyRaster.reset()
         measurementResults.reset()
         frequencyCounter.reset()
+        fieldStrength.reset()
         dvbEvaluation.reset()
         phonogram.reset()
         signalList.reset()
@@ -1331,7 +1333,9 @@ final class RemoteDualModel: ObservableObject {
             frequencyCounter.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: snapshot.sweeps)
-        } else { measurementResults.reset(); frequencyCounter.reset() }
+            fieldStrength.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: snapshot.sweeps)
+        } else { measurementResults.reset(); frequencyCounter.reset(); fieldStrength.reset() }
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL),
            PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
             dvbEvaluation.configure(client: client,
@@ -1600,6 +1604,7 @@ struct RemoteUltraPane: View {
                 RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
+                RemoteFieldStrengthPane(model: model.fieldStrength)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
                 Picker("Поток фонограммы / обмена", selection: $model.auxiliaryStreamID) {
                     ForEach(model.session?.streams ?? [], id: \.id) { stream in
