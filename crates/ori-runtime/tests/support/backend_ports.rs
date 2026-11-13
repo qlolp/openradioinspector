@@ -2,11 +2,59 @@
 //! Never reissue a fixture address, and stay outside the OS TCP client range.
 use std::{
     collections::BTreeSet,
+    fs::{File, OpenOptions},
     io,
     net::{Ipv4Addr, SocketAddr, TcpListener},
     ops::RangeInclusive,
     sync::{LazyLock, Mutex},
 };
+
+// A process-local issued set cannot protect a cutover gap from a second test
+// executable. Retain an OS claim until this fixture process exits, including
+// while neither backend has a listening socket. This never reserves or changes
+// a real service port; actual bind/ownership checks remain mandatory.
+static CLAIMS: Mutex<Vec<File>> = Mutex::new(Vec::new());
+
+fn claim(port: u16) -> io::Result<Option<File>> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+    let root = std::fs::canonicalize(std::env::temp_dir())?
+        .join(format!("ori-fixture-ports-{}", unsafe { libc::geteuid() }));
+    match std::fs::DirBuilder::new().mode(0o700).create(&root) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    let metadata = std::fs::symlink_metadata(&root)?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o077 != 0
+    {
+        return Err(io::Error::other("unsafe private fixture port directory"));
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root.join(format!("{port}.lock")))?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o077 != 0
+        || metadata.nlink() != 1
+        || metadata.len() != 0
+    {
+        return Err(io::Error::other("unsafe fixture port claim"));
+    }
+    match fs2::FileExt::try_lock_exclusive(&file) {
+        Ok(()) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => Err(error),
+    }
+}
 
 pub fn select_from(
     issued: &mut BTreeSet<u16>,
@@ -18,8 +66,15 @@ pub fn select_from(
             continue;
         }
         let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+        let Some(claim) = claim(port)? else {
+            continue;
+        };
         match TcpListener::bind(address) {
             Ok(listener) => {
+                CLAIMS
+                    .lock()
+                    .map_err(|_| io::Error::other("fixture port claims poisoned"))?
+                    .push(claim);
                 issued.insert(port);
                 drop(listener);
                 return Ok(address);

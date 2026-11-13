@@ -55,6 +55,27 @@ fn fixture_ports_do_not_reissue_released_addresses_or_use_client_ports() {
     assert!(fresh.is_empty());
     assert!(TcpListener::bind(a).is_ok());
 }
+
+#[test]
+fn independent_fixture_allocators_cannot_claim_the_same_temporarily_unbound_port() {
+    let first = TcpListener::bind("127.0.0.1:0").unwrap();
+    let second = TcpListener::bind("127.0.0.1:0").unwrap();
+    let a = first.local_addr().unwrap();
+    let b = second.local_addr().unwrap();
+    drop((first, second));
+    // Separate test executables each have their own issued set. During a real
+    // cutover neither backend binds its address; the fixture claim must survive.
+    let mut one = std::collections::BTreeSet::new();
+    let mut two = std::collections::BTreeSet::new();
+    assert_eq!(
+        backend_ports::select_from(&mut one, 1..=1023, [a.port()]).unwrap(),
+        a
+    );
+    assert_eq!(
+        backend_ports::select_from(&mut two, 1..=1023, [a.port(), b.port()]).unwrap(),
+        b
+    );
+}
 fn options() -> CutoverOptions {
     CutoverOptions {
         automatic: false,
