@@ -7,7 +7,7 @@ use rusqlite::{
 };
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -79,57 +79,106 @@ impl PanOwner {
         self.inner.lease.clone()
     }
     fn unchanged_file(&self) -> Result<()> {
-        let current = File::open(&self.path).map_err(|_| LegacyError::Stale)?;
-        if file_identity(&current)? != file_identity(&self.inner.lease)? {
-            return Err(LegacyError::Stale);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // An unrelated close of this inode can clear SQLite's process
+            // POSIX locks. lstat checks identity without opening the source
+            // (and cannot block if the pathname was replaced with a FIFO).
+            let current = fs::symlink_metadata(&self.path).map_err(|_| LegacyError::Stale)?;
+            let retained = self.inner.lease.metadata()?;
+            if !current.is_file()
+                || current.dev() != retained.dev()
+                || current.ino() != retained.ino()
+            {
+                return Err(LegacyError::Stale);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let current = File::open(&self.path).map_err(|_| LegacyError::Stale)?;
+            if file_identity(&current)? != file_identity(&self.inner.lease)? {
+                return Err(LegacyError::Stale);
+            }
         }
         Ok(())
     }
     pub async fn open(path: PathBuf, maximum_bytes: u64) -> Result<Self> {
-        let lease = Arc::new(OpenOptions::new().read(true).open(&path)?);
+        let (file, read_only) = source_lease(&path)?;
+        let lease = Arc::new(file);
         if lease.metadata()?.len() > maximum_bytes {
             return Err(LegacyError::ResourceLimit(
                 "Legacy source file budget exceeded".into(),
             ));
         }
-        lease.try_lock().map_err(|_| LegacyError::Busy)?;
+        Self::open_owned(path, lease, read_only).await
+    }
+    async fn open_owned(path: PathBuf, lease: Arc<File>, read_only: bool) -> Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(4);
         let (ready_tx, ready) = oneshot::channel();
         let source = path.clone();
+        let canonical = lease.clone();
         let join = thread::spawn(move || {
-            let opened = Connection::open_with_flags(
-                &source,
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            )
-            .or_else(|_| {
+            let opened = if read_only {
+                Ok(None)
+            } else {
                 Connection::open_with_flags(
                     &source,
-                    OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                    OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
                 )
-            });
-            let mut db = match opened.and_then(|db| {
-                db.busy_timeout(Duration::from_secs(2))?;
-                Ok(db)
-            }) {
+                .or_else(|_| {
+                    Connection::open_with_flags(
+                        &source,
+                        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                    )
+                })
+                .and_then(|db| {
+                    db.busy_timeout(Duration::from_secs(2))?;
+                    Ok(Some(db))
+                })
+            };
+            let mut db = match opened {
                 Ok(value) => value,
                 Err(error) => {
                     let _ = ready_tx.send(Err(error.into()));
                     return;
                 }
             };
-            if let Err(error) = validate_schema(&db) {
+            if let Some(db) = db.as_ref()
+                && let Err(error) = validate_schema(db)
+            {
                 let _ = ready_tx.send(Err(error));
                 return;
             }
+            // The read-only Darwin source is frozen by its whole-inode lease.
+            // Its ordinary SQLite readers live only in the private snapshot
+            // stage, so no source fcntl lock can conflict with that lease.
+            let mut readonly_revision = None;
+            let mut private_cleanup_failed = false;
             let _ = ready_tx.send(Ok(()));
             while let Ok(command) = receiver.recv() {
                 match command {
                     Command::Snapshot { parameters, reply } => {
-                        let result = snapshot(&mut db, &source, parameters);
+                        let result = if let Some(db) = db.as_mut() {
+                            snapshot(db, &source, parameters)
+                        } else {
+                            snapshot_readonly(canonical.clone(), &source, parameters)
+                        };
+                        if read_only && matches!(&result, Err(LegacyError::CleanupPending)) {
+                            private_cleanup_failed = true;
+                        }
+                        if let Ok(snapshot) = &result {
+                            readonly_revision = Some(snapshot.data_version);
+                        }
                         let _ = reply.send(result);
                     }
                     Command::Check(expected, reply) => {
-                        let _ = reply.send(data_version(&db).and_then(|actual| {
+                        let actual = if let Some(db) = db.as_ref() {
+                            data_version(db)
+                        } else {
+                            readonly_revision.ok_or(LegacyError::Stale)
+                        };
+                        let _ = reply.send(actual.and_then(|actual| {
                             if actual == expected {
                                 Ok(())
                             } else {
@@ -146,30 +195,49 @@ impl PanOwner {
                         timeout,
                         reply,
                     } => {
-                        let _ = reply.send(save_threshold(
-                            &mut db,
-                            expected,
-                            &frequencies,
-                            &levels,
-                            &cancel,
-                            io_budget.as_deref(),
-                            timeout,
-                        ));
+                        let result = if let Some(db) = db.as_mut() {
+                            save_threshold(
+                                db,
+                                expected,
+                                &frequencies,
+                                &levels,
+                                &cancel,
+                                io_budget.as_deref(),
+                                timeout,
+                            )
+                        } else {
+                            Err(LegacyError::Sqlite(
+                                "attempt to write a readonly database".into(),
+                            ))
+                        };
+                        let _ = reply.send(result);
                     }
-                    Command::Close(reply) => match db.close() {
-                        Ok(()) => {
-                            if let Some(reply) = reply {
-                                let _ = reply.send(Ok(()));
-                            }
-                            return;
-                        }
-                        Err((connection, _)) => {
-                            db = connection;
+                    Command::Close(reply) => {
+                        if private_cleanup_failed {
                             if let Some(reply) = reply {
                                 let _ = reply.send(Err(LegacyError::CleanupPending));
+                                continue;
+                            }
+                            // Abandoning the owner may stop the idle thread,
+                            // but its failed stage retains a leaked original
+                            // lease and I/O reservation until process exit.
+                            return;
+                        }
+                        match db.take().map(Connection::close).transpose().map(|_| ()) {
+                            Ok(()) => {
+                                if let Some(reply) = reply {
+                                    let _ = reply.send(Ok(()));
+                                }
+                                return;
+                            }
+                            Err((connection, _)) => {
+                                db = Some(connection);
+                                if let Some(reply) = reply {
+                                    let _ = reply.send(Err(LegacyError::CleanupPending));
+                                }
                             }
                         }
-                    },
+                    }
                 }
             }
         });
@@ -274,6 +342,86 @@ impl PanOwner {
         }
         Ok(())
     }
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+#[path = "sql_tests.rs"]
+mod tests;
+
+#[cfg(not(target_os = "macos"))]
+fn source_lease(path: &Path) -> Result<(File, bool)> {
+    let file = File::open(path)?;
+    file.try_lock().map_err(|_| LegacyError::Busy)?;
+    Ok((file, false))
+}
+
+#[cfg(target_os = "macos")]
+fn source_lease(path: &Path) -> Result<(File, bool)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let (file, read_only) = match options.open(path) {
+        Ok(file) => (file, false),
+        Err(error) if readonly_open_denied(&error) => (
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+                .open(path)?,
+            true,
+        ),
+        Err(error) => return Err(error.into()),
+    };
+    if !file.metadata()?.is_file() {
+        return Err(LegacyError::Request(
+            "Legacy source is not a regular file".into(),
+        ));
+    }
+    if read_only {
+        file.try_lock().map_err(|_| LegacyError::Busy)?;
+    } else {
+        lock_source_byte(&file)?;
+    }
+    Ok((file, read_only))
+}
+
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+fn readonly_open_denied(error: &std::io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::EACCES | libc::EPERM | libc::EROFS)
+    )
+}
+
+#[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+fn lock_source_byte(file: &File) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    // Byte zero is outside SQLite's PENDING/RESERVED/SHARED locking region
+    // (0x40000000..0x400001ff). OFD ownership survives unrelated SQLite closes
+    // and retains the same inode across hardlink aliases and Arc<File> clones.
+    #[cfg(target_os = "macos")]
+    let kind = libc::F_WRLCK;
+    #[cfg(all(test, target_os = "linux"))]
+    let kind = libc::F_WRLCK as _;
+    let lock = libc::flock {
+        l_start: 0,
+        l_len: 1,
+        l_pid: 0,
+        l_type: kind,
+        l_whence: libc::SEEK_SET as _,
+    };
+    // libc supplies the actual target's flock ABI and fcntl constants. This
+    // changes only an advisory lock; it never writes the source's byte zero.
+    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_OFD_SETLK, &lock) } == -1 {
+        let error = std::io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::EACCES | libc::EAGAIN)) {
+            return Err(LegacyError::Busy);
+        }
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -440,18 +588,284 @@ fn snapshot(
     source: &Path,
     parameters: SnapshotParameters,
 ) -> Result<Snapshot> {
+    let deadline = Instant::now() + parameters.timeout;
+    cancelled(&parameters.cancel, deadline)?;
+    let directory = snapshot_directory(&parameters.scratch)?;
+    let (nonce, data_version) = snapshot_files(db, source, &parameters, &directory, deadline)?;
+    Ok(Snapshot {
+        directory,
+        nonce,
+        data_version,
+        _io_budget: parameters.io_budget,
+    })
+}
+
+fn snapshot_directory(scratch: &Path) -> Result<tempfile::TempDir> {
+    fs::create_dir_all(scratch)?;
+    let scratch = scratch.canonicalize()?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ori-legacy-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    Ok(builder.tempdir_in(scratch)?)
+}
+
+fn snapshot_readonly(
+    lease: Arc<File>,
+    source: &Path,
+    parameters: SnapshotParameters,
+) -> Result<Snapshot> {
+    let deadline = Instant::now() + parameters.timeout;
+    cancelled(&parameters.cancel, deadline)?;
+    let directory = snapshot_directory(&parameters.scratch)?;
+    let raw = match snapshot_directory(directory.path()) {
+        Ok(raw) => raw,
+        Err(error) => {
+            if remove_owned_stage(directory.path()).is_err() {
+                return Err(retain_readonly_cleanup(
+                    lease,
+                    directory,
+                    None,
+                    parameters.io_budget,
+                ));
+            }
+            return Err(error);
+        }
+    };
+    let input = raw.path().join("source.pan");
+    let mut db = None;
+    // All exits after staging begins pass through confirmed SQL/file cleanup.
+    // In particular, a denied charge must not release its original reservation
+    // merely because TempDir::drop ignored a removal failure.
+    let result = (|| {
+        let mut files = vec![(source.to_owned(), lease.try_clone()?, input.clone())];
+        // WAL commits may be absent from the main database. Copy its durable
+        // WAL, never the transient SHM index. Ordinary read-only SQLite rebuilds
+        // that index in this private writable stage. A hot rollback journal
+        // remains a real read-only recovery error.
+        for suffix in ["-wal", "-journal"] {
+            let sidecar = append_filename(source, suffix);
+            if let Some(file) = regular_source_file(&sidecar)? {
+                files.push((sidecar, file, append_filename(&input, suffix)));
+            }
+        }
+        let mut total = 0_u64;
+        let mut captured = Vec::with_capacity(files.len());
+        for (path, file, target) in files {
+            let info = file.metadata()?;
+            let bytes = info.len();
+            total = total.checked_add(bytes).ok_or_else(raw_source_limit)?;
+            if !info.is_file()
+                || bytes > parameters.limits.max_database_bytes
+                || total > parameters.limits.max_database_bytes.saturating_mul(2)
+            {
+                return Err(raw_source_limit());
+            }
+            captured.push((path, file, target, info));
+        }
+        for (path, file, target, info) in captured {
+            copy_raw_source(file, &path, &target, &info, &parameters, deadline)?;
+        }
+        db = Some(
+            Connection::open_with_flags(
+                &input,
+                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )
+            .map_err(|error| LegacyError::Storage(error.to_string()))?,
+        );
+        let db = db.as_mut().ok_or(LegacyError::CleanupPending)?;
+        db.busy_timeout(Duration::from_secs(2))?;
+        snapshot_files(db, source, &parameters, &directory, deadline)
+    })();
+    if let Some(db) = db
+        && let Err((connection, _)) = db.close()
+    {
+        std::mem::forget(connection);
+        return Err(retain_readonly_cleanup(
+            lease,
+            directory,
+            Some(raw),
+            parameters.io_budget,
+        ));
+    }
+    if remove_owned_stage(raw.path()).is_err() {
+        return Err(retain_readonly_cleanup(
+            lease,
+            directory,
+            Some(raw),
+            parameters.io_budget,
+        ));
+    }
+    drop(raw);
+    match result {
+        Ok((nonce, data_version)) => Ok(Snapshot {
+            directory,
+            nonce,
+            data_version,
+            _io_budget: parameters.io_budget,
+        }),
+        Err(error) => {
+            if remove_owned_stage(directory.path()).is_err() {
+                return Err(retain_readonly_cleanup(
+                    lease,
+                    directory,
+                    None,
+                    parameters.io_budget,
+                ));
+            }
+            drop(directory);
+            Err(error)
+        }
+    }
+}
+
+fn remove_owned_stage(path: &Path) -> std::io::Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+fn retain_readonly_cleanup(
+    lease: Arc<File>,
+    directory: tempfile::TempDir,
+    raw: Option<tempfile::TempDir>,
+    budget: Option<Arc<dyn LegacyIoBudget>>,
+) -> LegacyError {
+    // Match the existing failed-JOIN policy: unknown cleanup fails closed.
+    // Keep the original inode and reservation with the private files until
+    // process exit; no ordinary close may acknowledge these as released.
+    std::mem::forget(raw);
+    std::mem::forget(directory);
+    std::mem::forget(budget);
+    std::mem::forget(lease);
+    LegacyError::CleanupPending
+}
+
+fn raw_source_limit() -> LegacyError {
+    LegacyError::ResourceLimit("Legacy read-only source and journal budget exceeded".into())
+}
+
+fn append_filename(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    name.into()
+}
+
+fn regular_source_file(path: &Path) -> Result<Option<File>> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(LegacyError::Request("Unsafe legacy source journal".into()));
+    }
+    Ok(Some(open_regular_source(path, &metadata)?))
+}
+
+fn open_regular_source(path: &Path, expected: &fs::Metadata) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(any(target_os = "macos", all(test, target_os = "linux")))]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    let actual = file.metadata()?;
+    if !actual.is_file() {
+        return Err(LegacyError::Request("Unsafe legacy source journal".into()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if expected.dev() != actual.dev() || expected.ino() != actual.ino() {
+            return Err(LegacyError::Stale);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = expected;
+    Ok(file)
+}
+
+fn copy_raw_source(
+    mut reader: File,
+    source: &Path,
+    target: &Path,
+    captured: &fs::Metadata,
+    parameters: &SnapshotParameters,
+    deadline: Instant,
+) -> Result<()> {
+    let before = reader.metadata()?;
+    if before.len() != captured.len() || before.modified()? != captured.modified()? {
+        return Err(LegacyError::Stale);
+    }
+    let identity = file_identity(&reader)?;
+    let bytes = captured.len();
+    let mut remaining = bytes;
+    reader.seek(SeekFrom::Start(0))?;
+    let mut writer = private_file(target)?;
+    let start = Instant::now();
+    let mut chunk = [0_u8; 65536];
+    while remaining != 0 {
+        let count = remaining.min(chunk.len() as u64) as usize;
+        account_io(
+            parameters.io_budget.as_deref(),
+            count as u64,
+            &parameters.cancel,
+            deadline,
+        )?;
+        reader.read_exact(&mut chunk[..count])?;
+        account_io(
+            parameters.io_budget.as_deref(),
+            count as u64,
+            &parameters.cancel,
+            deadline,
+        )?;
+        writer.write_all(&chunk[..count])?;
+        remaining -= count as u64;
+        let due = Duration::from_secs_f64((bytes - remaining) as f64 * 2. / parameters.rate as f64);
+        while start.elapsed() < due {
+            cancelled(&parameters.cancel, deadline)?;
+            thread::sleep(
+                due.saturating_sub(start.elapsed())
+                    .min(Duration::from_millis(20)),
+            );
+        }
+        cancelled(&parameters.cancel, deadline)?;
+    }
+    let after = reader.metadata()?;
+    let current = regular_source_file(source)?.ok_or(LegacyError::Stale)?;
+    if before.len() != after.len()
+        || before.modified()? != after.modified()?
+        || file_identity(&current)? != identity
+    {
+        return Err(LegacyError::Stale);
+    }
+    cancelled(&parameters.cancel, deadline)
+}
+
+fn snapshot_files(
+    db: &mut Connection,
+    source: &Path,
+    parameters: &SnapshotParameters,
+    directory: &tempfile::TempDir,
+    deadline: Instant,
+) -> Result<(String, i64)> {
     let SnapshotParameters {
-        scratch,
         limits,
-        timeout,
         rate,
         expected,
         sidecar,
         cancel,
         io_budget,
+        ..
     } = parameters;
-    let deadline = Instant::now() + timeout;
-    cancelled(&cancel, deadline)?;
+    cancelled(cancel, deadline)?;
     let flag = cancel.clone();
     db.progress_handler(
         10_000,
@@ -486,16 +900,6 @@ fn snapshot(
                 "Legacy source budget exceeded".into(),
             ));
         }
-        fs::create_dir_all(&scratch)?;
-        let scratch = scratch.canonicalize()?;
-        let mut builder = tempfile::Builder::new();
-        builder.prefix(".ori-legacy-");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            builder.permissions(fs::Permissions::from_mode(0o700));
-        }
-        let directory = builder.tempdir_in(scratch)?;
         let destination = directory.path().join("workspace.pan");
         drop(private_file(&destination)?);
         let mut writer = Connection::open_with_flags(
@@ -516,8 +920,8 @@ fn snapshot(
             let mut copied_pages = 0_u64;
             loop {
                 let chunk = pages.saturating_sub(copied_pages).min(step_pages as u64) * page_size;
-                account_io(io_budget.as_deref(), chunk, &cancel, deadline)?;
-                account_io(io_budget.as_deref(), chunk, &cancel, deadline)?;
+                account_io(io_budget.as_deref(), chunk, cancel, deadline)?;
+                account_io(io_budget.as_deref(), chunk, cancel, deadline)?;
                 let step = backup.step(step_pages)?;
                 let progress = backup.progress();
                 if progress.pagecount.max(0) as u64 * page_size > limits.max_database_bytes {
@@ -527,9 +931,9 @@ fn snapshot(
                 }
                 let copied = (progress.pagecount - progress.remaining).max(0) as u64 * page_size;
                 copied_pages = (progress.pagecount - progress.remaining).max(0) as u64;
-                let due = Duration::from_secs_f64((copied.saturating_mul(2)) as f64 / rate as f64);
+                let due = Duration::from_secs_f64((copied.saturating_mul(2)) as f64 / *rate as f64);
                 while start.elapsed() < due {
-                    cancelled(&cancel, deadline)?;
+                    cancelled(cancel, deadline)?;
                     thread::sleep(
                         due.saturating_sub(start.elapsed())
                             .min(Duration::from_millis(20)),
@@ -552,7 +956,7 @@ fn snapshot(
         }
         let signal_source = source.with_file_name("signals.json");
         let mut has_signals = false;
-        if sidecar && signal_source.exists() {
+        if *sidecar && signal_source.exists() {
             let file = File::open(signal_source)?;
             let file_bytes = file.metadata()?.len();
             if file_bytes > limits.max_sidecar_bytes {
@@ -568,7 +972,7 @@ fn snapshot(
             let mut remaining = file_bytes;
             while remaining != 0 {
                 let count = remaining.min(chunk.len() as u64) as usize;
-                account_io(io_budget.as_deref(), count as u64, &cancel, deadline)?;
+                account_io(io_budget.as_deref(), count as u64, cancel, deadline)?;
                 reader.read_exact(&mut chunk[..count])?;
                 copied += count as u64;
                 if copied > limits.max_sidecar_bytes {
@@ -576,13 +980,13 @@ fn snapshot(
                         "Legacy signals sidecar budget exceeded".into(),
                     ));
                 }
-                account_io(io_budget.as_deref(), count as u64, &cancel, deadline)?;
+                account_io(io_budget.as_deref(), count as u64, cancel, deadline)?;
                 target.write_all(&chunk[..count])?;
-                cancelled(&cancel, deadline)?;
+                cancelled(cancel, deadline)?;
                 remaining -= count as u64;
-                let due = Duration::from_secs_f64(copied as f64 * 2. / rate as f64);
+                let due = Duration::from_secs_f64(copied as f64 * 2. / *rate as f64);
                 while copied_start.elapsed() < due {
-                    cancelled(&cancel, deadline)?;
+                    cancelled(cancel, deadline)?;
                     thread::sleep(
                         due.saturating_sub(copied_start.elapsed())
                             .min(Duration::from_millis(20)),
@@ -601,17 +1005,12 @@ fn snapshot(
         account_io(
             io_budget.as_deref(),
             descriptor.len() as u64,
-            &cancel,
+            cancel,
             deadline,
         )?;
         private_file(&directory.path().join("snapshot.json"))?.write_all(&descriptor)?;
-        cancelled(&cancel, deadline)?;
-        Ok(Snapshot {
-            directory,
-            nonce,
-            data_version: revision,
-            _io_budget: io_budget.clone(),
-        })
+        cancelled(cancel, deadline)?;
+        Ok((nonce, revision))
     })();
     db.progress_handler(0, None::<fn() -> bool>)?;
     result

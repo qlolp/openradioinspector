@@ -1749,6 +1749,7 @@ dependencies = [
 name = "ori-legacy"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "ori-contracts",
  "rusqlite",
  "serde_json",

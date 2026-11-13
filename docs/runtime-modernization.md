@@ -23,6 +23,13 @@ The supervisor checks this actual OS lock as well as the readiness response.
 Locks are cooperative advisory locks; retaining an open lock file matters, not
 its existence. Never delete lock files to bypass ownership.
 
+Rust leases explicitly release their OS lock before closing the descriptor.
+On Unix, `CLOEXEC` alone does not stop an unrelated concurrent child from
+retaining a fork-inherited probe lock until it reaches `exec`. A deterministic
+Linux test holds a real owned child before `exec`, drops the writer probe, then
+starts the synthetic HTTP backend while that child still waits. Live leases
+continue to exclude other owners; startup still checks the writer and listeners.
+
 A supervisor launches an **absolute executable and argument vector** with no
 shell. It creates fresh 256-bit opaque `ORI_RUNTIME_CONTROL_TOKEN` and
 `ORI_RUNTIME_INSTANCE_ID` values and sets `ORI_RUNTIME_DATA_DIR`. The token is

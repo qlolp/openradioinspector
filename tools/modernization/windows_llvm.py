@@ -6,6 +6,7 @@ The portable tests model that boundary; they are not native Windows evidence.
 from dataclasses import dataclass, field
 from collections.abc import Mapping
 import hashlib
+import io
 import json
 import ntpath
 import os
@@ -16,6 +17,8 @@ import stat
 import struct
 import sys
 from types import MappingProxyType
+from xml.etree import ElementTree
+import zipfile
 
 BUILD_CHECKS = frozenset(('modern-rust-clippy', 'modern-rust-tests'))
 NEGATIVE_NAME = 'modern-windows-llvm-negative'
@@ -23,6 +26,10 @@ NEGATIVE_MARKER = 'ORI_WINDOWS_LLVM_EXPECTED_PREPROCESSOR_ERROR'
 _NEGATIVE_PROBE = object()
 TARGET = 'x86_64-pc-windows-msvc'
 LLVM_VERSION = '20.1.8'
+NINJA_SHIM_SHA256 = '6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad'
+NINJA_NUPKG_SHA512 = ('e9b198480ff29be979dadf0b09be0e3be261f681d03bcdcbb8a4f8fe0a5607e6'
+                     'e480b48931ed7e9bc7c06eda658b878e8377eb3ff9a0458d04d21ff8b9c65a1e')
+NINJA_ZIP_SHA256 = '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'
 AWS_LC_CRATE_SHA256 = '8bfbe32ac36b3c428696ce315464181bc4029d689fd58e3f2a4e58c252242f52'
 # All win_x86_64.rs .asm objects, read from the archive with the Cargo.lock
 # checksum above. NasmBuilder copies these bytes unchanged when NASM is absent.
@@ -63,6 +70,10 @@ PROVENANCE = {
     'llvm_lib_alias': LLVM_AR_SOURCE + 'CMakeLists.txt',
     'llvm_lib_dispatch': LLVM_AR_SOURCE + 'llvm-ar.cpp',
     'rust_toolchain': 'rust-toolchain.toml: 1.99.1',
+    'chocolatey_shim': 'https://github.com/chocolatey/choco/blob/194ac6262ac75571c44aa0a431c3ab6f36fa73be/src/chocolatey/infrastructure.app/services/ShimGenerationService.cs',
+    'ninja_package': "https://community.chocolatey.org/api/v2/Packages(Id='ninja',Version='1.13.2')",
+    'ninja_package_layout': 'https://github.com/joachimschmidt557/chocolatey-packages-manual-automatic/blob/968afc9a63f1a9d9b2f30c85ef7248b705ebca6c/automatic/ninja/tools/chocolateyInstall.ps1',
+    'ninja_upstream': 'https://github.com/ninja-build/ninja/releases/tag/v1.13.2',
 }
 ARTIFACTS = ('positive.c', 'positive.obj', 'positive.lib', 'negative.c',
              'positive.asm', 'nasm-positive.obj',
@@ -150,7 +161,10 @@ def environment_for(parent, *, platform, modern, opt_in, check_name, tools):
         _set_windows_key(child, key, value)
     # A Windows PATH delimiter is intentional, including in portable scope tests.
     inherited_path = next((value for key, value in parent.items() if key.casefold() == 'path'), '')
-    _set_windows_key(child, 'PATH', ntpath.dirname(tools['clang_cl']) + (';' + inherited_path if inherited_path else ''))
+    prefixes = [ntpath.dirname(tools['clang_cl'])]
+    if tools.get('ninja') and not _same_path(ntpath.dirname(tools['ninja']), prefixes[0]):
+        prefixes.append(ntpath.dirname(tools['ninja']))
+    _set_windows_key(child, 'PATH', ';'.join(prefixes) + (';' + inherited_path if inherited_path else ''))
     return child
 
 
@@ -214,6 +228,99 @@ def executable_receipt(path, *, name, provenance):
                         rejected_receipt=diagnostic) from error
 
 
+def _checked_chocolatey_file(path, root, limit):
+    if (not root.is_absolute() or '..' in root.parts or len(str(path)) > 1024 or
+            not _same_path(str(root), str(root.resolve(strict=True)))):
+        raise LLVMError('Chocolatey Ninja package root is not canonical and bounded')
+    current = root
+    for part in ('', *path.relative_to(root).parts):
+        current = current / part if part else current
+        if (current.is_symlink() or getattr(current, 'is_junction', lambda: False)() or
+                not _same_path(str(current), str(current.resolve(strict=True)))):
+            raise LLVMError('Chocolatey Ninja package path contains a link or alias')
+    return _bounded(path, limit)
+
+
+def _ninja_zip_member(data, name, limit):
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        entries = archive.infolist()
+        if not 0 < len(entries) <= 32:
+            raise LLVMError('Chocolatey Ninja ZIP entry count exceeded its bound')
+        names, total = set(), 0
+        for entry in entries:
+            parts = entry.filename.rstrip('/').split('/')
+            mode = stat.S_IFMT(entry.external_attr >> 16)
+            if (entry.filename.casefold() in names or '\\' in entry.filename or ':' in entry.filename or
+                    any(part in ('', '.', '..') for part in parts) or mode not in (0, stat.S_IFREG, stat.S_IFDIR) or
+                    entry.flag_bits & 1 or entry.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)):
+                raise LLVMError('Chocolatey Ninja ZIP has duplicate, unsafe, linked or unsupported entries')
+            names.add(entry.filename.casefold())
+            total += entry.file_size
+            if entry.file_size > ARTIFACT_LIMIT or total > ARTIFACT_LIMIT * 2:
+                raise LLVMError('Chocolatey Ninja ZIP expanded size exceeded its bound')
+        member = archive.getinfo(name)
+        if member.is_dir() or member.file_size > limit:
+            raise LLVMError('Chocolatey Ninja ZIP member exceeded its bound')
+        with archive.open(member) as source:
+            payload = source.read(limit + 1)
+        if len(payload) != member.file_size or len(payload) > limit:
+            raise LLVMError('Chocolatey Ninja ZIP member is truncated or oversized')
+        return payload
+
+
+def _resolve_chocolatey_ninja(shim, environment, evidence):
+    """Read one pinned installed package; never execute the shim or installer."""
+    try:
+        root_value = next((value for key, value in environment.items() if key.casefold() == 'chocolateyinstall'),
+                          'C:/ProgramData/chocolatey')
+        root = Path(root_value)
+        shim = Path(shim)
+        if not _same_path(str(shim), str(root / 'bin/ninja.exe')):
+            raise LLVMError('observed Ninja shim does not match the Chocolatey bin layout')
+        shim_bytes = _checked_chocolatey_file(shim, root, 392704)
+        if len(shim_bytes) != 392704 or hashlib.sha256(shim_bytes).hexdigest() != NINJA_SHIM_SHA256:
+            raise LLVMError('Chocolatey Ninja shim no longer matches the observed identity')
+        package = root / 'lib/ninja/ninja.nupkg'
+        evidence['package_path'] = str(package)
+        data = _checked_chocolatey_file(package, root, 1024 * 1024)
+        package_hash = hashlib.sha512(data).hexdigest()
+        if package_hash != NINJA_NUPKG_SHA512:
+            raise LLVMError('installed Chocolatey Ninja package SHA512 differs from the published 1.13.2 package')
+        evidence['package_sha512'] = package_hash
+        spec = _ninja_zip_member(data, 'ninja.nuspec', TEXT_LIMIT).decode('utf-8-sig')
+        if '<!DOCTYPE' in spec.upper() or '<!ENTITY' in spec.upper():
+            raise LLVMError('Chocolatey Ninja package metadata contains unsupported declarations')
+        document = ElementTree.fromstring(spec)
+        metadata = [node for node in document if node.tag.rsplit('}', 1)[-1] == 'metadata']
+        if document.tag.rsplit('}', 1)[-1] != 'package' or len(metadata) != 1:
+            raise LLVMError('Chocolatey Ninja package metadata is missing or ambiguous')
+        for key, expected in (('id', 'ninja'), ('version', '1.13.2')):
+            values = [(node.text or '').strip() for node in metadata[0] if node.tag.rsplit('}', 1)[-1] == key]
+            if values != [expected]:
+                raise LLVMError('Chocolatey Ninja package identity/version does not match the pinned package')
+        upstream_zip = _ninja_zip_member(data, 'tools/ninja-win.zip', 1024 * 1024)
+        if hashlib.sha256(upstream_zip).hexdigest() != NINJA_ZIP_SHA256:
+            raise LLVMError('Chocolatey Ninja archive differs from the official upstream 1.13.2 release')
+        evidence['upstream_zip_sha256'] = NINJA_ZIP_SHA256
+        expected = _ninja_zip_member(upstream_zip, 'ninja.exe', ARTIFACT_LIMIT)
+        target = root / 'lib/ninja/tools/ninja.exe'
+        installed = _checked_chocolatey_file(target, root, ARTIFACT_LIMIT)
+        if hashlib.sha256(installed).digest() != hashlib.sha256(expected).digest():
+            raise LLVMError('installed canonical Ninja executable differs from the verified upstream payload')
+        receipt = executable_receipt(target, name='ninja.exe', provenance='exact pinned Chocolatey/upstream 1.13.2 payload')
+        if not _same_path(receipt['path'], str(target)):
+            raise LLVMError('canonical Ninja receipt escaped the checked installed package path')
+        if receipt['sha256'] != hashlib.sha256(expected).hexdigest():
+            raise LLVMError('canonical Ninja changed between the payload check and final executable receipt')
+        evidence.update(status='verified_package_payload', executable_path=receipt['path'],
+                        payload_sha256=receipt['sha256'])
+        return receipt
+    except LLVMError:
+        raise
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile, ElementTree.ParseError) as error:
+        raise LLVMError(f'Chocolatey Ninja installed package validation failed ({type(error).__name__})') from error
+
+
 def verify_tools(tools, *, environment=None):
     if type(tools) is not VerifiedTools:
         raise LLVMError('Cargo LLVM selection has no frozen preflight receipts')
@@ -221,6 +328,10 @@ def verify_tools(tools, *, environment=None):
         actual = executable_receipt(path, name=Path(path).name, provenance='immutable preflight tool check')
         if key not in tools.receipts or actual['sha256'] != tools.receipts[key]['sha256']:
             raise LLVMError(f'{key}: executable changed after its verified version/hash receipt')
+    if environment is not None and 'ninja' in tools:
+        actual = shutil.which('ninja.exe', path=environment.get('PATH'))
+        if actual is None or not _same_path(str(Path(actual).resolve()), tools['ninja']):
+            raise LLVMError('actual Cargo child PATH does not select the verified canonical Ninja')
     if environment is not None and 'nasm' in tools:
         actual = shutil.which('nasm.exe', path=environment.get('PATH'))
         if actual is None or not _same_path(str(Path(actual).resolve()), tools['nasm']):
@@ -524,7 +635,21 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
             except LLVMError as error:
                 if error.rejected_receipt is not None:
                     report.setdefault('rejected_tools', {})[key] = error.rejected_receipt
-                raise
+                rejected = error.rejected_receipt or {}
+                if (key != 'ninja' or rejected.get('sha256') != NINJA_SHIM_SHA256 or
+                        rejected.get('bytes') != 392704 or rejected.get('dos_signature_hex') != '4d5a' or
+                        rejected.get('pe_offset') != 128 or rejected.get('pe_signature_hex') != '50450000' or
+                        rejected.get('machine_code') != 0x014c or rejected.get('path_truncated')):
+                    raise
+                resolution = {'status': 'checking_pinned_package'}
+                report['ninja_resolution'] = resolution
+                try:
+                    receipt = _resolve_chocolatey_ninja(path, environment, resolution)
+                except LLVMError as failure:
+                    resolution.update(status='failed', error=str(failure)[:1024])
+                    if failure.rejected_receipt is not None:
+                        resolution['rejected_target'] = failure.rejected_receipt
+                    raise
             tools[key] = receipt['path']
             report['tools'][key] = receipt
         for key, name in (('clang_cl', 'clang-cl.exe'), ('cmake', 'cmake.exe'),

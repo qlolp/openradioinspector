@@ -165,6 +165,13 @@ impl Lease {
         Ok(Self { _file: file })
     }
 }
+impl Drop for Lease {
+    fn drop(&mut self) {
+        // A concurrent fork can retain this open-file description until exec,
+        // even with CLOEXEC. Release ownership before closing our descriptor.
+        let _ = FileExt::unlock(&self._file);
+    }
+}
 
 pub fn state_directory(data: &Path) -> Result<PathBuf> {
     validate_path(data)?;

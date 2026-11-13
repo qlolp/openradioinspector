@@ -5,12 +5,17 @@ import ctypes
 import hashlib
 import io
 import json
+import ntpath
 import os
 from pathlib import Path
+import shutil
+import stat
 import struct
 import subprocess
 import tempfile
 import unittest
+import warnings
+import zipfile
 from unittest.mock import Mock, patch
 
 from tests import run_release_checks as release
@@ -79,6 +84,22 @@ class WindowsLLVMTests(unittest.TestCase):
                 actual = self.env(**change, **({'tools': None} if change else {}))
                 self.assertEqual(actual, self.parent)
                 self.assertIsNot(actual, self.parent)
+
+    def test_verified_ninja_directory_is_child_only_and_follows_llvm_before_parent_path(self):
+        tools = dict(self.tools, ninja='/verified/chocolatey/lib/ninja/tools/ninja.exe')
+        before = self.parent.copy()
+        for name in ('modern-rust-clippy', 'modern-rust-tests'):
+            child = self.env(check_name=name, tools=tools)
+            self.assertEqual(child['PATH'], '/verified/LLVM/bin;/verified/chocolatey/lib/ninja/tools;original-tool-path')
+        for change in ({'opt_in': False}, {'platform': 'linux'}, {'platform': 'darwin'},
+                       {'modern': False}, {'check_name': 'modern-rust-format'},
+                       {'check_name': 'modern-cargo'}, {'check_name': 'modern-core-client-interop'},
+                       {'check_name': 'legacy-package'}):
+            with self.subTest(change=change):
+                child = self.env(tools=tools, **change)
+                self.assertEqual(child, before)
+                self.assertIsNot(child, self.parent)
+        self.assertEqual(self.parent, before)
 
     def test_inherited_higher_priority_compiler_and_cmake_selectors_fail_closed_only_in_selected_child(self):
         self.tools['cmake'] = '/verified/CMake/bin/cmake.exe'
@@ -460,6 +481,158 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.assertEqual((destination / log_name).stat().st_size, llvm.TEXT_LIMIT)
         self.assertNotIn('never-copy', repr(list(kept.iterdir())) + (kept / 'retention.json').read_text())
 
+    def chocolatey_fixture(self):
+        Path(self.tools['ninja']).unlink(missing_ok=True)
+        root = (self.directory / 'chocolatey').resolve()
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(self.directory / 'modern-windows-llvm', ignore_errors=True)
+        (root / 'bin').mkdir(parents=True)
+        (root / 'lib/ninja/tools').mkdir(parents=True)
+        shim = bytearray(392704)
+        shim[:2] = b'MZ'
+        struct.pack_into('<I', shim, 60, 128)
+        shim[128:132] = b'PE\0\0'
+        struct.pack_into('<H', shim, 132, 0x014c)
+        self.choco_root = root
+        self.choco_shim = root / 'bin/ninja.exe'
+        self.choco_target = root / 'lib/ninja/tools/ninja.exe'
+        self.choco_package = root / 'lib/ninja/ninja.nupkg'
+        self.choco_shim.write_bytes(shim)
+        self.choco_target.write_bytes(pe_x64())
+        self.tools['ninja'] = str(self.choco_shim)
+        self.choco_zip = self.zip_fixture([('ninja.exe', pe_x64())])
+        self.choco_spec = b'<package><metadata><id>ninja</id><version>1.13.2</version></metadata></package>'
+        self.write_choco_package()
+        return self.choco_pins()
+
+    def zip_fixture(self, entries):
+        buffer = io.BytesIO()
+        with warnings.catch_warnings(), zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            warnings.simplefilter('ignore', UserWarning)  # Deliberate duplicate-entry fixture.
+            for name, payload in entries:
+                archive.writestr(name, payload)
+        return buffer.getvalue()
+
+    def write_choco_package(self, *, extras=()):
+        self.choco_package.write_bytes(self.zip_fixture([
+            ('ninja.nuspec', self.choco_spec), ('tools/ninja-win.zip', self.choco_zip), *extras]))
+
+    def choco_pins(self):
+        # Pure fixtures stand in for the pinned external distributions, not live
+        # compiler/tool binaries. Production pins come from published receipts.
+        return {'NINJA_SHIM_SHA256': hashlib.sha256(self.choco_shim.read_bytes()).hexdigest(),
+                'NINJA_NUPKG_SHA512': hashlib.sha512(self.choco_package.read_bytes()).hexdigest(),
+                'NINJA_ZIP_SHA256': hashlib.sha256(self.choco_zip).hexdigest()}
+
+    def test_observed_chocolatey_shim_selects_only_verified_package_payload(self):
+        pins = self.chocolatey_fixture()
+        driver = self.prepare_driver()
+        selected, error = None, None
+        with patch.multiple(llvm, create=True, **pins):
+            try:
+                selected = self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+            except llvm.LLVMError as caught:
+                error = str(caught)
+        self.assertIsNone(error, 'known shim must resolve the exact installed upstream x64 payload: ' + str(error))
+        self.assertEqual(selected['ninja'], str(self.choco_target))
+        report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+        self.assertEqual(report['rejected_tools']['ninja']['machine_code'], 0x014c)
+        self.assertEqual(report['ninja_resolution']['status'], 'verified_package_payload')
+        self.assertEqual(report['ninja_resolution']['package_sha512'], pins['NINJA_NUPKG_SHA512'])
+        self.assertEqual(report['tools']['ninja']['sha256'], hashlib.sha256(pe_x64()).hexdigest())
+        ninja_calls = [row for row in self.calls if row[0].endswith('-ninja-version')]
+        self.assertEqual([row[1] for row in ninja_calls], [[str(self.choco_target), '--version']])
+        self.assertFalse(any(row[1][0] == str(self.choco_shim) for row in self.calls))
+        child = llvm.environment_for({'PATH': 'inherited'}, platform='win32', modern=True,
+            opt_in=True, check_name='modern-rust-clippy', tools=selected)
+        self.assertEqual(child['PATH'].split(';')[:2], [str(Path(self.tools['clang_cl']).parent), str(self.choco_target.parent)])
+        with patch.object(llvm.shutil, 'which', side_effect=self.which):
+            llvm.verify_tools(selected, environment=child)
+            with self.assertRaises(llvm.LLVMError):
+                llvm.verify_tools(selected, environment={'PATH': 'inherited'})
+        llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_target)), selected)
+        with self.assertRaises(llvm.LLVMError):
+            llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_shim)), selected)
+
+    def test_chocolatey_package_mismatch_and_unsafe_layout_fail_before_any_command(self):
+        cases = ('shim_identity', 'missing_package', 'package_sha', 'zip_sha', 'wrong_id', 'wrong_version',
+                 'target_sha', 'target_missing', 'duplicate', 'case_duplicate', 'traversal', 'absolute',
+                 'zip_symlink', 'size_bomb', 'wrong_root', 'root_traversal', 'target_symlink')
+        original_symlink = Path.is_symlink
+        for case in cases:
+            with self.subTest(case=case):
+                pins = self.chocolatey_fixture()
+                environment = {'CHOCOLATEYINSTALL': str(self.choco_root)}
+                if case == 'shim_identity': self.choco_shim.write_bytes(self.choco_shim.read_bytes()[:-1] + b'x')
+                if case == 'missing_package': self.choco_package.unlink()
+                if case == 'package_sha': self.choco_package.write_bytes(self.choco_package.read_bytes() + b'tampered')
+                if case == 'zip_sha':
+                    self.choco_zip += b'tampered'
+                    self.write_choco_package()
+                if case in ('wrong_id', 'wrong_version'):
+                    self.choco_spec = self.choco_spec.replace(b'ninja', b'other') if case == 'wrong_id' else self.choco_spec.replace(b'1.13.2', b'1.13.1')
+                    self.write_choco_package()
+                if case == 'target_sha': self.choco_target.write_bytes(pe_x64() + b'different executable')
+                if case == 'target_missing': self.choco_target.unlink()
+                extras = []
+                if case == 'duplicate': extras = [('tools/ninja-win.zip', self.choco_zip)]
+                if case == 'case_duplicate': extras = [('TOOLS/NINJA-WIN.ZIP', self.choco_zip)]
+                if case == 'traversal': extras = [('../outside', b'not allowed')]
+                if case == 'absolute': extras = [('C:/outside', b'not allowed')]
+                if case == 'zip_symlink':
+                    link = zipfile.ZipInfo('link')
+                    link.create_system = 3
+                    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    extras = [(link, b'../outside')]
+                if case == 'size_bomb': extras = [('huge', b'x' * (4 * 1024 * 1024 + 1))]
+                if extras: self.write_choco_package(extras=extras)
+                if case in ('zip_sha', 'wrong_id', 'wrong_version', 'duplicate', 'case_duplicate', 'traversal',
+                            'absolute', 'zip_symlink', 'size_bomb'):
+                    pins['NINJA_NUPKG_SHA512'] = hashlib.sha512(self.choco_package.read_bytes()).hexdigest()
+                if case == 'wrong_root': environment['CHOCOLATEYINSTALL'] = str(self.choco_root / 'different')
+                if case == 'root_traversal': environment['CHOCOLATEYINSTALL'] = str(self.choco_root / '..' / 'chocolatey')
+                driver = self.prepare_driver()
+                def is_symlink(path):
+                    return case == 'target_symlink' and path == self.choco_target or original_symlink(path)
+                with patch.multiple(llvm, create=True, **pins), patch.object(Path, 'is_symlink', new=is_symlink):
+                    with self.assertRaises(llvm.LLVMError): self.preflight(driver, environment=environment)
+                self.assertEqual(self.calls, [], 'no tool, installer or shim may start after invalid package evidence')
+                report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+                self.assertFalse(report['successful'])
+                self.assertNotIn('ninja', report['tools'])
+
+    def test_chocolatey_target_replaced_between_payload_read_and_receipt_is_rejected(self):
+        pins = self.chocolatey_fixture()
+        driver = self.prepare_driver()
+        checked = llvm._checked_chocolatey_file
+        def replace_after_read(path, root, limit):
+            data = checked(path, root, limit)
+            if path == self.choco_target:
+                path.write_bytes(pe_x64() + b'replaced after matching payload read')
+            return data
+        with patch.multiple(llvm, create=True, **pins), \
+                patch.object(llvm, '_checked_chocolatey_file', side_effect=replace_after_read):
+            with self.assertRaises(llvm.LLVMError):
+                self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+        self.assertEqual(self.calls, [])
+
+    def test_chocolatey_final_same_bytes_receipt_must_stay_in_the_checked_package_path(self):
+        pins = self.chocolatey_fixture()
+        driver = self.prepare_driver()
+        original = llvm._receipt
+        outside = self.directory / 'outside/ninja.exe'
+        outside.parent.mkdir()
+        outside.write_bytes(pe_x64())
+        def alias_receipt(path, **kwargs):
+            result = original(path, **kwargs)
+            if path == self.choco_target:
+                result['path'] = str(outside.resolve())
+            return result
+        with patch.multiple(llvm, create=True, **pins), patch.object(llvm, '_receipt', side_effect=alias_receipt):
+            with self.assertRaises(llvm.LLVMError):
+                self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+        self.assertEqual(self.calls, [])
+
     def prepare_driver(self, *, fail_label=None, clang_version='20.1.8'):
         root = self.directory / 'rust-1.99.1'
         rustc = root / 'bin/rustc.exe'
@@ -506,7 +679,8 @@ class LLVMToolAndCacheTests(unittest.TestCase):
                 return ''
             if name.endswith('-cmake-configure'):
                 build = Path(command[command.index('-B') + 1])
-                source = self.cache()
+                make_program = next(value.split('=', 1)[1] for value in command if value.startswith('-DCMAKE_MAKE_PROGRAM='))
+                source = self.cache(CMAKE_MAKE_PROGRAM=make_program)
                 import shutil
                 shutil.copytree(source, build, dirs_exist_ok=True)
                 return ''
@@ -516,17 +690,27 @@ class LLVMToolAndCacheTests(unittest.TestCase):
                 (build / 'ori_llvm_probe.lib').write_bytes(archive_member(coff_x64()))
                 return ''
             self.fail('unexpected native preflight command: ' + repr(command))
-        self.which = {Path(value).name: value for value in self.tools.values()}
+        self.which_paths = {Path(value).name: value for value in self.tools.values()}
         return driver
 
-    def preflight(self, driver):
+    def which(self, name, path=None):
+        if name == 'ninja.exe':
+            for entry in (path or '').split(';'):
+                candidate = Path(entry) / name
+                if candidate.is_file():
+                    return str(candidate.resolve())
+        return self.which_paths.get(name)
+
+    def preflight(self, driver, *, environment=None):
         def owned(command, **kwargs):
             output = driver(command, **kwargs)
             code = 1 if kwargs['name'] == llvm.NEGATIVE_NAME else 0
             return output + f'[release-child-exit] decimal={code} hex=0x{code:08X}\n'
-        with patch.object(llvm.shutil, 'which', side_effect=lambda name, path=None: self.which.get(name)), \
+        child = {'PATH': 'same-parent-path', 'OTHER_SECRET': 'never-report'}
+        child.update(environment or {})
+        with patch.object(llvm.shutil, 'which', side_effect=self.which), \
                 patch.object(llvm.sys, 'platform', 'win32'):
-            return llvm.preflight(self.directory, {'PATH': 'same-parent-path', 'OTHER_SECRET': 'never-report'},
+            return llvm.preflight(self.directory, child,
                                   run_command=owned, timeout=17, shutdown_timeout=15)
 
     def test_preflight_uses_owned_commands_separate_probes_and_retains_literal_evidence(self):
@@ -555,7 +739,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         for condition in ('missing', 'version', 'archive'):
             with self.subTest(condition=condition):
                 driver = self.prepare_driver(clang_version='19.1.8' if condition == 'version' else '20.1.8')
-                if condition == 'missing': self.which.pop('ninja.exe')
+                if condition == 'missing': self.which_paths.pop('ninja.exe')
                 if condition == 'archive': Path(self.tools['llvm_lib']).write_bytes(pe_x64() + b'other')
                 with self.assertRaises(llvm.LLVMError): self.preflight(driver)
                 self.assertFalse(any(entry[0].endswith('-positive') for entry in self.calls))
@@ -583,7 +767,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
 
     def test_absent_nasm_preserves_locked_prebuilt_path_and_requires_actual_cargo_copies(self):
         driver = self.prepare_driver()
-        self.which.pop('nasm.exe')
+        self.which_paths.pop('nasm.exe')
         selected = self.preflight(driver)
         self.assertNotIn('nasm', selected)
         report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
@@ -664,6 +848,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.tools['rust_lld'] = str(rust_lld)
         selected = llvm.VerifiedTools(self.tools, {key: llvm.executable_receipt(value,
             name=Path(value).name, provenance='pure fixture') for key, value in self.tools.items()})
+        self.which_paths = {Path(value).name: value for value in self.tools.values()}
         parent = {'PATH': 'same', 'INCLUDE': 'same-sdk', 'LIB': 'same-library',
                   'CARGO_TARGET_DIR': str(self.directory / 'target')}
         Path(parent['CARGO_TARGET_DIR']).mkdir()
@@ -678,6 +863,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         with patch.object(release.sys, 'platform', 'win32'), \
                 patch.object(release, 'modern_commands', return_value=checks), \
                 patch.object(llvm, 'preflight', return_value=selected), \
+                patch.object(llvm.shutil, 'which', side_effect=self.which), \
                 patch.object(release, 'run_command', side_effect=run):
             release.run_modern_checks(self.directory, parent, research_python='prepared', swift=False,
                 command_timeout=17, shutdown_timeout=15, windows_llvm=True)

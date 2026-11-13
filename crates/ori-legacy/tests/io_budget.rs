@@ -247,6 +247,45 @@ async fn database_and_sidecar_read_write_chunks_preserve_the_actual_python_oracl
     workspace.close().await.unwrap();
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn readonly_database_keeps_original_python_state_and_refuses_canonical_threshold() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let path = source(directory.path());
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+    let before = hashes(&path);
+    let controls = Arc::new(Controls::default());
+    let workspace = workspace(directory.path(), &controls).await;
+    workspace.load_database(&path).await.unwrap();
+    let loaded = workspace.snapshot(true).await.unwrap();
+    let mut actual = loaded.clone();
+    actual["database"] = json!("__SOURCE_PAN__");
+    let oracle = parse_json_value(
+        include_bytes!("../../../contracts/fixtures/legacy-workspace-v1.json"),
+        16 * 1024 * 1024,
+    )
+    .unwrap();
+    assert_eq!(actual, oracle["sidecar"]["loaded"]);
+    assert_eq!(
+        loaded["database"],
+        path.canonicalize().unwrap().to_str().unwrap()
+    );
+    let error = workspace
+        .threshold(json!({"offset_db":3.5}))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, LegacyError::Sqlite(message) if message.contains("readonly")));
+    assert_eq!(workspace.version(), 1);
+    assert_eq!(workspace.snapshot(true).await.unwrap(), loaded);
+    assert_eq!(hashes(&path), before);
+    assert_eq!(controls.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(controls.registrations.load(Ordering::SeqCst), 0);
+    assert!(!controls.released_with_stage.load(Ordering::SeqCst));
+    assert!(no_stages(directory.path()));
+    workspace.close().await.unwrap();
+}
+
 async fn refused_commit(mode: usize) {
     let directory = tempfile::tempdir().unwrap();
     let path = source(directory.path());

@@ -60,13 +60,50 @@ must be finite and measurement stop must exceed start.
 ## Ownership, publication and preservation
 
 One bounded actor serializes each workspace. One dedicated SQLite thread owns
-the selected file. An exclusive advisory file lock is acquired before SQLite
-opens an existing file; another cooperating workspace receives `Busy`. Core must
-also retain its global writer lease. Uncooperative external SQLite writers are
-detected through `PRAGMA data_version`, with compare-and-set checked again under
-`BEGIN IMMEDIATE` before a threshold commit. Changed files require explicit reload;
-cached reads do not silently combine old working state with new raw records.
-File identity is checked through Unix device/inode or Windows volume/file-index.
+the selected file. An exclusive advisory inode lease is acquired before SQLite
+reads it; another cooperating workspace receives `Busy`. Core must also retain
+its global writer lease. External SQLite writers that do not take the workspace
+lease are detected through `PRAGMA data_version`, with compare-and-set checked
+again under `BEGIN IMMEDIATE` before a threshold commit. Changed files require
+explicit reload; cached reads do not silently combine old working state with
+new raw records. Unix identity checks compare `symlink_metadata` device/inode
+and regular-file type with the retained descriptor's metadata. They do not open
+and close the inode: an unrelated close can clear SQLite's process-owned POSIX
+locks, and a replacement FIFO must not block an identity check. Windows retains
+its volume/file-index handle check.
+
+On macOS, Rust's whole-file `flock` shares a locking namespace with SQLite's
+POSIX byte locks. Holding that exclusive lock while opening SQLite on another
+descriptor would refuse even the owner's initial schema read. Writable macOS
+sources therefore use an exclusive open-file-description lock on byte zero,
+outside SQLite's locking region at `0x40000000..0x400001ff`. It locks the original
+inode without writing that byte. Hardlink aliases and separate processes remain
+excluded, unrelated SQLite closes do not release the lease, and the existing
+`Arc<File>` ownership still lasts through SQL/actor joins. Ordinary SQLite
+locking, external-change detection and canonical threshold transactions remain
+enabled. Other platforms keep their existing lease primitive.
+
+If macOS refuses a read/write open with `EACCES`, `EPERM` or `EROFS`, the source
+retains an exclusive whole-inode lease on a read-only descriptor. Default SQLite
+readers and WAL writers require a main-database shared lock and cannot run under
+that lease. The SQL owner prepares a private frozen input inside the existing
+snapshot stage instead of opening SQLite on the original. It copies the main
+database and any regular WAL/rollback journal, never SHM. Each input is bounded
+by `max_database_bytes`, their combined bytes by twice that cap. Captured sizes
+and modification times remain bound through the copy; growth or replacement is
+refused. Journal opens use no-follow, nonblocking flags and opened-file identity
+checks. Original path bytes never enter an added URI parser.
+
+These additional read-only copies charge the original I/O reservation before
+each read and write, in at most 64 KiB pieces, under the existing absolute SQL
+deadline and pacing. Ordinary read-only SQLite rebuilds SHM only in that private
+writable input directory, and the normal validated SQLite backup includes the
+latest committed WAL rows. A hot rollback journal retains its real read-only
+recovery error. The input reader closes and its raw files are removed before the
+final snapshot reaches science. Public database identity and state still name
+the original source. The read-only owner's internal revision is stable while
+its whole-inode lease freezes SQLite writers; canonical threshold writes retain
+the read-only error. `immutable`, `nolock` and alternate VFS modes are not used.
 
 The source is opened without `CREATE`, schema initialization, migration or journal
 mode changes. The existing four-table `.pan` schema is required. The canonical
@@ -94,6 +131,17 @@ and joins SQLite and the actor. A timeout or failed JOIN returns
 `CleanupPending`, retaining file ownership. Retrying close may finish pending
 cleanup. A failed actor JOIN deliberately retains its lease until process exit;
 dropping public handles does not claim cleanup succeeded.
+An unconfirmed read-only private-reader close or raw-input stage removal returns
+`CleanupPending`: its original inode, private paths and I/O reservation are
+retained until process exit, and SQL close cannot acknowledge their release.
+
+Portable regression checks use actual temporary files and bundled SQLite
+3.54.1. Linux full-range OFD locks exercise the same conflict boundary without
+claiming to execute Darwin's ABI; tests cover WAL-only commits, read-only and hot
+journal errors, alias/process exclusion, last-owner retention, charge denial,
+cancellation/deadline return, source replacement and failed private cleanup.
+Native macOS execution remains required to validate the platform-specific lease
+path. These are synthetic software checks, without instrument hardware.
 
 ## Scientific reservation and one-shot RPC
 

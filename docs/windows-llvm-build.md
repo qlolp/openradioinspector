@@ -19,7 +19,7 @@ environment with these selections:
 | `AR_x86_64_pc_windows_msvc` | sibling `llvm-lib.exe` |
 | `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` | Rust 1.99.1's bundled `rust-lld.exe` |
 | `CMAKE_GENERATOR` | Ninja |
-| `PATH` | prepend the verified LLVM bin directory, retaining the original path |
+| `PATH` | prepend the verified LLVM bin and native Ninja directories, retaining the original path |
 
 The caller's environment, other modern commands, running Core/app processes,
 packaging and other operating systems receive no LLVM selection. SDK headers and
@@ -41,6 +41,35 @@ compiler directly. The bundled Rust linker path and its actual version are
 recorded. Version/hash receipts are frozen after tool discovery. Tool hashes are
 checked before and after the build probes, before each Cargo child, and during
 its post-command audit. Replacing an executable at the same path fails.
+
+The hosted Chocolatey Ninja can put an I386 shim on `PATH` even though its
+upstream Ninja payload is x64. The resolver recognizes only the exact observed
+392,704-byte shim with SHA256
+`6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad`
+and its valid DOS/PE/I386 headers in the Chocolatey `bin` layout. It reads the
+existing `lib/ninja/ninja.nupkg`, requires the published 1.13.2 package SHA512 and
+Nuspec identity/version, then verifies the embedded `tools/ninja-win.zip` against
+upstream SHA256 `07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65`.
+Only an existing `lib/ninja/tools/ninja.exe` matching that payload byte hash and
+the original strict x64 PE check can be selected. Package/source provenance is
+recorded in `ninja_resolution`; missing or different evidence fails.
+
+This uses Chocolatey's [pinned shim layout](https://github.com/chocolatey/choco/blob/194ac6262ac75571c44aa0a431c3ab6f36fa73be/src/chocolatey/infrastructure.app/services/ShimGenerationService.cs),
+the versioned [package receipt](https://community.chocolatey.org/api/v2/Packages(Id='ninja',Version='1.13.2')),
+and its [published installer](https://github.com/joachimschmidt557/chocolatey-packages-manual-automatic/blob/968afc9a63f1a9d9b2f30c85ef7248b705ebca6c/automatic/ninja/tools/chocolateyInstall.ps1).
+It never executes the shim or installer, extracts files to disk, installs or
+downloads a tool, searches alternative locations, or accepts a 32-bit compiler
+or build executable. Reads are bounded to a 1 MiB package/archive, 2 MiB payload,
+32 entries and 4 MiB declared expanded ZIP contents. Duplicate/case-conflicting entries,
+traversal, links, aliases and unsupported compression/encryption fail.
+
+Both Cargo children receive `LLVM bin;verified Ninja directory;original PATH`,
+with a shared directory included once. Their actual path lookup must select the
+canonical native Ninja. Preflight uses its absolute path, and every produced
+CMake cache must select that same `CMAKE_MAKE_PROGRAM`; setting an unsupported
+`CMAKE_MAKE_PROGRAM` environment variable is not used. Application, package,
+default and non-Cargo environments remain unchanged. Installed package layout
+and native tool compatibility still require the Windows preflight to pass.
 
 LLVM 20.1.8's [`CMakeLists.txt`](https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/llvm/tools/llvm-ar/CMakeLists.txt)
 defines `llvm-lib` as an alias of `llvm-ar`, and its

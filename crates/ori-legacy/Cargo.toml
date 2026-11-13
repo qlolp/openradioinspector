@@ -14,5 +14,11 @@ thiserror = "=2.0.21"
 tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 uuid = { version = "=1.29.2", features = ["v4"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "=0.2.191"
+
 [dev-dependencies]
 sha2 = "=0.11.1"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "=0.2.191"
