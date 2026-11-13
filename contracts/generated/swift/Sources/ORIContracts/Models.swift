@@ -644,7 +644,7 @@ public struct FieldStrengthSource: ContractModel, Equatable, Sendable {
         guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
         session_id = try session_idValue.requireString()
         guard let settingsValue = object.removeValue(forKey: "settings") else { throw ContractError.invalid("Missing settings") }
-        settings = try JSONObject(json: settingsValue)
+        settings = try settingsValue.requireObject()
         guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
         stream_id = try stream_idValue.requireString()
         extra = object
@@ -658,7 +658,7 @@ public struct FieldStrengthSource: ContractModel, Equatable, Sendable {
         object["level"] = .number(level)
         object["level_unit"] = .string(level_unit)
         object["session_id"] = .string(session_id)
-        object["settings"] = settings.json
+        object["settings"] = .object(settings)
         object["stream_id"] = .string(stream_id)
         return .object(object)
     }

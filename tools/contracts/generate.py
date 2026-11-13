@@ -218,6 +218,7 @@ def swift_type(schema, model="", field=""):
 
 def swift_read(prop, expr, model="", field=""):
     prop = non_null(prop)
+    if "$ref" in prop and ref_name(prop) == "JSONObject": return f"try {expr}.requireObject()"
     if "$ref" in prop: return f"try {ref_name(prop)}(json: {expr})"
     if "enum" in prop: return f"try {enum_name(model, field)}(json: {expr})"
     if kind(prop) == "array": return f"try {expr}.requireArray().map {{ {swift_read(prop['items'], '$0')} }}"
@@ -227,6 +228,7 @@ def swift_read(prop, expr, model="", field=""):
 
 def swift_write(prop, expr, model="", field=""):
     prop = non_null(prop)
+    if "$ref" in prop and ref_name(prop) == "JSONObject": return f".object({expr})"
     if "$ref" in prop or "enum" in prop or swift_type(prop, model, field) == "UtcTimestamp": return f"{expr}.json"
     if kind(prop) == "array": return f".array({expr}.map {{ {swift_write(prop['items'], '$0')} }})"
     return {"string": f".string({expr})", "integer": f".integer(String({expr}))", "number": f".number({expr})", "boolean": f".bool({expr})", "object": f".object({expr})"}.get(kind(prop), expr)

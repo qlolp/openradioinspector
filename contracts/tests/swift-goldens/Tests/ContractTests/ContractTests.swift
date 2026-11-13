@@ -3,6 +3,19 @@ import Foundation
 import ORIContracts
 
 final class ContractTests: XCTestCase {
+    func testNamedJSONObjectReferencePreservesExactSourceMetadata() throws {
+        let raw = Data(#"{"id":"source-1","session_id":"session","stream_id":"analyzer","interval":{"started_at":"2026-11-11T12:00:00.123456Z","ended_at":"2026-11-11T12:00:00.223456Z"},"frequency_hz":200,"bin_index":1,"level":-50.0,"level_unit":"dBm","settings":{"é":184467440737095516160000,"e\u0301":-0.0,"nested":[null,true,{"integer":9007199254740993}]}}"#.utf8)
+        let json = try StrictJSON.parse(raw)
+        let source = try FieldStrengthSource(json: json)
+        XCTAssertEqual(source.settings.count, 3)
+        XCTAssertEqual(source.settings["é"], .integer("184467440737095516160000"))
+        XCTAssertEqual(source.settings["e\u{301}"]?.double?.bitPattern, (-0.0).bitPattern)
+        XCTAssertEqual(try StrictJSON.parse(StrictJSON.encode(source)), json)
+        var invalid = try json.requireObject()
+        invalid["settings"] = .array([])
+        XCTAssertThrowsError(try FieldStrengthSource(json: .object(invalid)))
+    }
+
     func testCalibratedFieldSharedFixtureAndRequiredUnknownUncertainty() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
