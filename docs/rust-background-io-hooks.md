@@ -61,3 +61,19 @@ oracle. These are synthetic software checks.
 LegacyRPC's additional child-owned snapshot copy and its shared-budget parser
 wiring are outside this slice. Aggregate enforcement remains unadvertised until
 Core and the trusted child paths are wired and verified together.
+
+The Core reservation-composition regression executes the owned synthetic Python
+worker on Unix and requires its real PID marker. On Windows, Runtime's documented
+process-tree policy rejects the request before constructing `Command`; the test
+requires `LegacyError::Science` with status `503`, code
+`legacy_worker_unavailable`, message `Legacy scientific worker is unavailable`,
+and an absent PID marker. The platform oracle also rejects Windows child success,
+changed error fields or variants, Unix errors, and missing Unix launch evidence.
+Native Windows execution of this updated oracle remains a separate CI gate.
+
+Both outcomes retain the original 1024-byte shared QoS charge and one registered
+owner after the worker attempt. Repeated hooks must return the same budget Arc;
+after execution its sole remaining owner must still block heavy admission.
+Dropping that final Arc must release the original reservation and registration.
+All outcome assertions follow actual Core cleanup. These checks use owned
+temporary state and synthetic software fixtures.

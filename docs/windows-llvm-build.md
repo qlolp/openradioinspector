@@ -46,6 +46,15 @@ It retains the existing compiler flags, CRT selection, SDK environment and Cargo
 Its path and byte hash are frozen with the executable receipts, checked before
 each Cargo child and during the audit after it. A replaced or missing file fails.
 
+Absolute-file checks use the host filesystem's `Path.is_absolute()` rules,
+matching executable and toolchain receipt validation. Portable preflight tests
+therefore use real host paths even when they simulate a Windows child. The
+environment-only Windows fixtures use drive-qualified paths and explicit Windows
+path semantics; root-relative and drive-relative paths remain rejected. This
+avoids relying on `ntpath.isabs()` behavior that differs between Python 3.12 and
+3.15 for a single leading slash. Portable checks remain synthetic and establish
+no native Windows compiler or SDK result.
+
 CMake 4.4.5 documents required options as
 [compiler-list items](https://github.com/Kitware/CMake/blob/v4.4.5/Help/variable/CMAKE_LANG_COMPILER.rst).
 Its [compiler parser](https://github.com/Kitware/CMake/blob/v4.4.5/Modules/CMakeDetermineCompiler.cmake)

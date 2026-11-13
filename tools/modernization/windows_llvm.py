@@ -164,7 +164,7 @@ def environment_for(parent, *, platform, modern, opt_in, check_name, tools):
     child = parent.copy()
     if platform != 'win32' or not modern or not opt_in or check_name not in BUILD_CHECKS:
         return child
-    if not tools.get('cmake_toolchain') or not ntpath.isabs(tools['cmake_toolchain']):
+    if not tools.get('cmake_toolchain') or not Path(tools['cmake_toolchain']).is_absolute():
         raise LLVMError('selected Cargo child requires the absolute owned CMake toolchain')
     _selector_conflicts(parent, tools)
     for key, value in {'CC_x86_64_pc_windows_msvc': tools['clang_cl'],
@@ -221,7 +221,7 @@ def _prepare_toolchain(root, tools):
     # itself and forwards it to direct compiler-identification invocations.
     def literal(key):
         value = tools[key].replace('\\', '/')
-        if not ntpath.isabs(value) or any(token in value for token in (';', ']=]', '\r', '\n', '\0')):
+        if not Path(value).is_absolute() or any(token in value for token in (';', ']=]', '\r', '\n', '\0')):
             raise LLVMError('verified tool path cannot be represented as a CMake compiler-list item')
         return '[=[' + value + ']=]'
     compiler = literal('clang_cl')

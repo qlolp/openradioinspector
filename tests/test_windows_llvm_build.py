@@ -7,7 +7,7 @@ import io
 import json
 import ntpath
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import stat
@@ -57,28 +57,31 @@ class WindowsLLVMTests(unittest.TestCase):
     def setUp(self):
         self.parent = {'PATH': 'original-tool-path', 'INCLUDE': 'same-sdk', 'LIB': 'same-libs',
                        'OTHER_SECRET': 'do-not-report'}
-        self.tools = {'clang_cl': '/verified/LLVM/bin/clang-cl.exe',
-                      'llvm_lib': '/verified/LLVM/bin/llvm-lib.exe',
-                      'rust_lld': '/verified/Rust1.99.1/bin/rust-lld.exe',
-                      'cmake_toolchain': '/owned/modern-windows-llvm/llvm-toolchain.cmake'}
+        self.tools = {'clang_cl': 'C:/verified/LLVM/bin/clang-cl.exe',
+                      'llvm_lib': 'C:/verified/LLVM/bin/llvm-lib.exe',
+                      'rust_lld': 'C:/verified/Rust1.99.1/bin/rust-lld.exe',
+                      'cmake_toolchain': 'C:/owned/modern-windows-llvm/llvm-toolchain.cmake'}
 
     def env(self, **overrides):
         args = dict(platform='win32', modern=True, opt_in=True,
                     check_name='modern-rust-clippy', tools=self.tools)
         args.update(overrides)
-        return llvm.environment_for(self.parent, **args)
+        # This class models Windows environment strings without opening files.
+        # Real temporary-file/preflight tests below retain the host Path class.
+        with patch.object(llvm, 'Path', PureWindowsPath):
+            return llvm.environment_for(self.parent, **args)
 
     def test_explicit_windows_modern_cargo_selects_verified_tools_in_a_copy(self):
         before = copy.deepcopy(self.parent)
         actual = self.env()
-        self.assertEqual(actual.get('CC_x86_64_pc_windows_msvc'), '/verified/LLVM/bin/clang-cl.exe')
-        self.assertEqual(actual.get('CXX_x86_64_pc_windows_msvc'), '/verified/LLVM/bin/clang-cl.exe')
-        self.assertEqual(actual.get('AR_x86_64_pc_windows_msvc'), '/verified/LLVM/bin/llvm-lib.exe')
-        self.assertEqual(actual.get('CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER'), '/verified/Rust1.99.1/bin/rust-lld.exe')
+        self.assertEqual(actual.get('CC_x86_64_pc_windows_msvc'), 'C:/verified/LLVM/bin/clang-cl.exe')
+        self.assertEqual(actual.get('CXX_x86_64_pc_windows_msvc'), 'C:/verified/LLVM/bin/clang-cl.exe')
+        self.assertEqual(actual.get('AR_x86_64_pc_windows_msvc'), 'C:/verified/LLVM/bin/llvm-lib.exe')
+        self.assertEqual(actual.get('CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER'), 'C:/verified/Rust1.99.1/bin/rust-lld.exe')
         self.assertEqual(actual.get('CMAKE_GENERATOR'), 'Ninja')
         self.assertEqual(actual.get('CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'),
-                         '/owned/modern-windows-llvm/llvm-toolchain.cmake')
-        self.assertEqual(actual['PATH'], '/verified/LLVM/bin;original-tool-path')
+                         'C:/owned/modern-windows-llvm/llvm-toolchain.cmake')
+        self.assertEqual(actual['PATH'], 'C:/verified/LLVM/bin;original-tool-path')
         self.assertEqual(set(actual) - set(self.parent), {
             'CC_x86_64_pc_windows_msvc', 'CXX_x86_64_pc_windows_msvc',
             'AR_x86_64_pc_windows_msvc', 'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER',
@@ -99,11 +102,11 @@ class WindowsLLVMTests(unittest.TestCase):
                 self.assertIsNot(actual, self.parent)
 
     def test_verified_ninja_directory_is_child_only_and_follows_llvm_before_parent_path(self):
-        tools = dict(self.tools, ninja='/verified/chocolatey/lib/ninja/tools/ninja.exe')
+        tools = dict(self.tools, ninja='C:/verified/chocolatey/lib/ninja/tools/ninja.exe')
         before = self.parent.copy()
         for name in ('modern-rust-clippy', 'modern-rust-tests'):
             child = self.env(check_name=name, tools=tools)
-            self.assertEqual(child['PATH'], '/verified/LLVM/bin;/verified/chocolatey/lib/ninja/tools;original-tool-path')
+            self.assertEqual(child['PATH'], 'C:/verified/LLVM/bin;C:/verified/chocolatey/lib/ninja/tools;original-tool-path')
         for change in ({'opt_in': False}, {'platform': 'linux'}, {'platform': 'darwin'},
                        {'modern': False}, {'check_name': 'modern-rust-format'},
                        {'check_name': 'modern-cargo'}, {'check_name': 'modern-core-client-interop'},
@@ -115,7 +118,7 @@ class WindowsLLVMTests(unittest.TestCase):
         self.assertEqual(self.parent, before)
 
     def test_inherited_higher_priority_compiler_and_cmake_selectors_fail_closed_only_in_selected_child(self):
-        self.tools['cmake'] = '/verified/CMake/bin/cmake.exe'
+        self.tools['cmake'] = 'C:/verified/CMake/bin/cmake.exe'
         conflicts = {'CC_x86_64-pc-windows-msvc': 'C:/VS/cl.exe',
                      'CC_X86_64-PC-WINDOWS-MSVC': 'C:/VS/cl.exe',
                      'CXX_x86_64-pc-windows-msvc': 'C:/VS/cl.exe',
@@ -184,6 +187,18 @@ class WindowsLLVMTests(unittest.TestCase):
     def test_selected_cargo_child_requires_an_owned_toolchain_path(self):
         self.tools.pop('cmake_toolchain')
         with self.assertRaises(llvm.LLVMError): self.env()
+
+    def test_windows_toolchain_environment_rejects_root_and_drive_relative_paths(self):
+        for value in ('/owned/toolchain.cmake', r'\owned\toolchain.cmake',
+                      'C:relative/toolchain.cmake', 'relative/toolchain.cmake'):
+            with self.subTest(path=value):
+                self.tools['cmake_toolchain'] = value
+                with self.assertRaises(llvm.LLVMError): self.env()
+        for value in ('C:/owned/toolchain.cmake', r'C:\owned\toolchain.cmake',
+                      r'\\server\share\toolchain.cmake'):
+            with self.subTest(path=value):
+                self.tools['cmake_toolchain'] = value
+                self.assertEqual(self.env()['CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'], value)
 
     def test_public_opt_in_rejects_non_windows_and_non_modern_before_running(self):
         for platform, args in (('linux', ['--modern', '--windows-llvm']),
@@ -278,6 +293,30 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         toolchain = self.directory / 'llvm-toolchain.cmake'
         toolchain.write_bytes(b'# literal owned toolchain fixture\n')
         self.tools['cmake_toolchain'] = str(toolchain)
+
+    def test_real_host_tool_paths_can_generate_the_owned_toolchain(self):
+        root = self.directory / 'owned-toolchain'
+        root.mkdir()
+        tools = dict(self.tools)
+        result, error = None, None
+        try:
+            result = llvm._prepare_toolchain(root, tools)
+        except llvm.LLVMError as caught:
+            error = str(caught)
+        self.assertIsNone(error, 'verified real host paths must use host filesystem absolute semantics')
+        self.assertEqual(result['path'], str((root / 'llvm-toolchain.cmake').resolve()))
+        self.assertEqual(result['sha256'], hashlib.sha256((root / 'llvm-toolchain.cmake').read_bytes()).hexdigest())
+
+    def test_real_host_toolchain_file_can_select_a_simulated_windows_cargo_child(self):
+        tools = dict(self.tools, rust_lld=self.tools['lld_link'])
+        child, error = None, None
+        try:
+            child = llvm.environment_for({}, platform='win32', modern=True, opt_in=True,
+                                         check_name='modern-rust-clippy', tools=tools)
+        except llvm.LLVMError as caught:
+            error = str(caught)
+        self.assertIsNone(error, 'portable preflight fixtures must preserve actual host path semantics')
+        self.assertEqual(child['CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'], str(self.directory / 'llvm-toolchain.cmake'))
 
     def test_executable_receipt_reads_real_x64_file_and_records_only_provenance(self):
         path = Path(self.tools['clang_cl'])

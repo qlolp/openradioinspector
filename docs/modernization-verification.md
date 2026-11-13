@@ -124,6 +124,17 @@ creation and its first write. A controlled paused-writer regression covers both
 fixtures; the real HTTP cancellation test still requires the worker to exit and
 the original archive writer lease to become available. Its deadlines are unchanged.
 
+Unix Runtime service CLI fixtures use the runner's `ORI_TEST_PYTHON` selection,
+matching the supervisor and fork fixtures. A fresh-process wrapper regression
+runs the original real startup/status/shutdown test and proves that the selected
+interpreter executed. Failed admin readiness retains its primary assertion and
+reports bounded error classes and backend milestones only after the original
+supervisor Child is waited and the selected backend's writer lease and ports
+are released. Raw stderr, credentials, environment values and private paths are
+excluded. A real assertion-unwind regression checks the same owned cleanup.
+These synthetic checks preserve the existing backend, admin and join deadlines;
+native macOS acceptance remains a hosted CI result.
+
 Every command uses the existing `run_command` supervisor, deadline, process group
 or Windows Job Object and descendant-cleanup checks. The same runner scope owns
 private temporary directories and fixture cleanup. Rust builds/tests and Go/Rayon build workers are capped at two threads; BLAS
