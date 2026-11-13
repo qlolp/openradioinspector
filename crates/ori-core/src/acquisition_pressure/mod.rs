@@ -210,7 +210,10 @@ async fn observe(
                 return Err("acquisition health snapshot unavailable");
             }
         };
-        let decision = policy.observe(&rows, Instant::now());
+        let now = Instant::now();
+        let decision = policy.observe(&rows, now);
+        #[cfg(test)]
+        probe.record_decision(&rows, &policy, &decision, now);
         {
             let mut state = status.lock().map_err(|_| "acquisition status poisoned")?;
             state.acquisition_pressure = decision.pressure;
@@ -287,6 +290,8 @@ impl Policy {
 }
 
 struct Tracker {
+    #[cfg(test)]
+    last_decision: Option<serde_json::Value>,
     epoch: u64,
     configured_at: Instant,
     anchor: Instant,
@@ -306,6 +311,8 @@ impl Tracker {
         let can_learn =
             !ignore_existing && row.last_cycle_finished_at.is_some_and(|at| at >= anchor);
         Self {
+            #[cfg(test)]
+            last_decision: None,
             epoch: row.configuration_epoch,
             configured_at: row.configuration_changed_at,
             anchor,
@@ -400,6 +407,22 @@ impl Tracker {
             {
                 self.pressured = false;
             }
+        }
+        #[cfg(test)]
+        {
+            self.last_decision = Some(serde_json::json!({
+                "previous_budget_us": previous_budget.as_micros(),
+                "budget_us": budget.as_micros(), "baseline_us": self.baseline.as_micros(),
+                "anchor_age_us": elapsed(now, self.anchor).as_micros(),
+                "configured_interval_us": row.configured_interval.as_micros(),
+                "poll_age_us": row.poll_started_at.map(|at| elapsed(now, at).as_micros()),
+                "commit_age_us": row.commit_started_at.map(|at| elapsed(now, at).as_micros()),
+                "finish_age_us": valid_finish.map(|at| elapsed(now, at).as_micros()),
+                "service_us": service.map(|value| value.as_micros()),
+                "fresh": fresh, "stalled": stalled, "no_first_commit": no_first_commit,
+                "last_service_bad": self.last_service_bad, "bad_samples": self.bad_samples,
+                "samples": self.samples, "pressured": self.pressured
+            }));
         }
         bad
     }

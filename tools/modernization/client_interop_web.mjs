@@ -6,6 +6,7 @@ import {
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { hardwareIdentityForRealGLTests } from "../../clients/web/e2e/graphics-fixture.mjs";
+import { installRenderDiagnostics } from "./client_render_diagnostics.mjs";
 
 const [vectors, directory] = process.argv.slice(2);
 const fixture = JSON.parse(await readFile(vectors, "utf8"));
@@ -28,6 +29,7 @@ let profiler;
 const requests = [];
 try {
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.addInitScript(installRenderDiagnostics);
   if (rendererProfile === "webgl2")
     await page.addInitScript(hardwareIdentityForRealGLTests);
   page.on("response", (response) => {
@@ -193,6 +195,7 @@ try {
     fixture.sweeps.at(-1).id,
   );
   const proof = await page.evaluate(() => window.__interop);
+  proof.render_timing = await page.evaluate(() => window.__oriRenderDiagnostics);
   proof.renderers = {
     spectrum: await page
       .getByTestId("spectrum-renderer-state")
@@ -248,6 +251,7 @@ try {
           requests,
           body: (await page.locator("body").innerText()).slice(0, 32768),
           state: await page.evaluate(() => window.__interop),
+          render_timing: await page.evaluate(() => window.__oriRenderDiagnostics),
         },
         null,
         2,

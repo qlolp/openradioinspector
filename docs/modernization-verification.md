@@ -220,3 +220,23 @@ load or million-sweep history benchmark by default. The existing small baseline
 and root-API replay checks can provide bounded per-PR observations; full
 performance, installation/rollback and physical instrument gates remain explicit
 release acceptance work.
+
+## RT parity: causal evidence before the remaining native failures
+
+The Windows cadence fixture now retains a test-only, bounded ring of the last
+8 pressure decisions (at most 8 worker rows each) **before** awaiting original
+QoS grant release. It includes the actual reason booleans, previous/current
+budget, baseline, epochs, cycles, service and phase ages, plus the synthetic
+peer's RBW command-received and prompt-written times on the same monotonic
+origin. The existing completed-iteration receipt remains separate: a blocked
+drain must not be reported as a completed observation. The owned regression
+holds an original work grant and proves this distinction after actual cleanup.
+No pressure policy, calibration threshold, epoch rule, wait or deadline changed.
+
+The real-Core Web harness also retains bounded native RAF wait/callback timing
+and canvas marker transitions in its existing diagnostic artifacts. It schedules
+no additional frames and retains native IDs, timestamps and cancellation. It
+reads canvas pixel dimensions without forcing layout. Its final source marker,
+5-second assertion, producer workload, Worker/applied ACK and reconnect checks
+remain unchanged. A diagnostic pass is not a performance or hardware pass, and
+these additions alone do not establish either historical native failure's cause.

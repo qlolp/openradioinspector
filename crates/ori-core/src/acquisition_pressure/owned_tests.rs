@@ -12,6 +12,7 @@ use ori_runtime::{
     worker::{Cancellation, ResearchPool},
 };
 use serde_json::{Value, json};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -29,8 +30,72 @@ struct ObservedEpoch {
 pub(super) struct ObserverProbe {
     hold: Latch,
     epochs: Mutex<BTreeMap<String, ObservedEpoch>>,
+    origin: OnceLock<Instant>,
+    decisions: Mutex<VecDeque<Value>>,
 }
 impl ObserverProbe {
+    fn relative_us(&self, at: Instant) -> i64 {
+        let origin = *self.origin.get_or_init(Instant::now);
+        if at >= origin {
+            elapsed(at, origin).as_micros().min(i64::MAX as u128) as i64
+        } else {
+            -(elapsed(origin, at).as_micros().min(i64::MAX as u128) as i64)
+        }
+    }
+    pub(super) fn record_decision(
+        &self,
+        rows: &[AcquisitionHealth],
+        policy: &Policy,
+        decision: &Decision,
+        now: Instant,
+    ) {
+        self.origin.get_or_init(|| now);
+        let rows_total = rows.len();
+        let rows = rows
+            .iter()
+            .take(8)
+            .filter_map(|row| {
+                policy.trackers.get(&row.worker_instance).map(|tracker| {
+                    let mut record = if row.active && !row.intentionally_paused {
+                        tracker.last_decision.clone().unwrap_or_else(|| json!({}))
+                    } else {
+                        json!({"inactive": true})
+                    };
+                    let object = record.as_object_mut().unwrap();
+                    object.extend(
+                        json!({"worker": row.worker_instance, "epoch": tracker.epoch,
+                            "cycles": row.completed_cycles, "active": row.active,
+                            "paused": row.intentionally_paused,
+                            "configuration_us": self.relative_us(row.configuration_changed_at)
+                        })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    );
+                    record
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut entries = self.decisions.lock().unwrap();
+        entries.push_back(
+            json!({"at_us": self.relative_us(now), "pressure": decision.pressure,
+            "active": decision.active, "calibrating": decision.calibrating,
+            "delayed": decision.delayed, "rows_total": rows_total, "rows": rows}),
+        );
+        while entries.len() > 8 {
+            entries.pop_front();
+        }
+    }
+    fn command_evidence(&self, times: &CommandTimes) -> Value {
+        json!(
+            times
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(at, phase)| { json!({"at_us": self.relative_us(*at), "phase": phase}) })
+                .collect::<Vec<_>>()
+        )
+    }
     pub(super) async fn pause(&self) {
         self.hold.pause().await;
     }
@@ -96,6 +161,15 @@ struct Factory {
     receiver: Arc<Latch>,
     peers: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     rbw_delay_ms: Arc<AtomicU64>,
+    rbw_times: CommandTimes,
+}
+type CommandTimes = Arc<Mutex<VecDeque<(Instant, &'static str)>>>;
+fn command_time(times: &CommandTimes, phase: &'static str) {
+    let mut events = times.lock().unwrap();
+    events.push_back((Instant::now(), phase));
+    while events.len() > 8 {
+        events.pop_front();
+    }
 }
 impl TransportFactory for Factory {
     fn identity(&self, stream: &DeviceStream) -> DeviceResult<String> {
@@ -111,6 +185,7 @@ impl TransportFactory for Factory {
             }
             .clone();
             let rbw_delay = self.rbw_delay_ms.clone();
+            let rbw_times = self.rbw_times.clone();
             let (host, mut peer) = tokio::io::duplex(4096);
             let task = tokio::spawn(async move {
                 let mut command = Vec::new();
@@ -121,6 +196,7 @@ impl TransportFactory for Factory {
                     }
                     let command = String::from_utf8(std::mem::take(&mut command)).unwrap();
                     if analyzer && command == "rbw 30" {
+                        command_time(&rbw_times, "rbw_command_received");
                         // The synthetic instrument's natural scan duration
                         // changes with this actual acknowledged RBW command.
                         latch
@@ -158,6 +234,9 @@ impl TransportFactory for Factory {
                     };
                     if peer.write_all(reply.as_bytes()).await.is_err() {
                         break;
+                    }
+                    if analyzer && command == "rbw 30" {
+                        command_time(&rbw_times, "rbw_prompt_written");
                     }
                 }
             });
@@ -290,7 +369,9 @@ fn pressure_evidence(
         .collect::<Vec<_>>();
     let state = observer.status();
     let budget = qos.status();
-    json!({"rows":rows,"observed":seen,"observer_active":state.active_analyzers,
+    let decisions = observer.probe.decisions.lock().unwrap().clone();
+    json!({"rows":rows,"observed":seen,"decisions_before_drain":decisions,
+        "observer_active":state.active_analyzers,
         "calibrating":state.calibrating_analyzers,"delayed":state.delayed_analyzers,
         "observer_pressure":state.acquisition_pressure,"qos_pressure":budget.acquisition_pressure,
         "registered_work":budget.registered_work,"cancelled":cancellation.is_cancelled()})
@@ -618,6 +699,50 @@ async fn dropping_close_waiter_keeps_actual_observer_join_owned_through_pressure
 }
 
 #[tokio::test]
+async fn pending_pressure_decision_is_retained_before_original_grant_drain() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, manager, factory) = manager(root.path()).await;
+    let qos = BackgroundQos::default();
+    let observer =
+        AcquisitionPressure::start(manager.clone(), qos.clone(), fast_options()).unwrap();
+    start(&manager, "a").await;
+    calibrated(&manager, &observer).await;
+    let cancellation = Cancellation::default();
+    let grant = qos.register(cancellation.clone()).unwrap();
+    factory.analyzer.held.store(true, Ordering::Release);
+    let cancelled = until(|| cancellation.is_cancelled()).await;
+    let decisions = observer.probe.decisions.lock().unwrap().clone();
+    let completed = observer
+        .probe
+        .epochs
+        .lock()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    let draining = observer.status().observer_running && qos.status().registered_work == 1;
+    drop(grant);
+    factory.analyzer.resume();
+    observer.close().await.unwrap();
+    manager.close().await.unwrap();
+    factory.join().await;
+    archive.close().await.unwrap();
+    assert!(cancelled && draining);
+    assert!(decisions.len() <= 8);
+    let last = decisions.back().expect("pre-drain decision missing");
+    assert!(last["pressure"].as_bool().unwrap());
+    assert_eq!(last["rows"][0]["bad_samples"], 2);
+    assert!(
+        last["rows"][0]["poll_age_us"].as_u64().unwrap()
+            > last["rows"][0]["budget_us"].as_u64().unwrap()
+    );
+    assert!(
+        completed.iter().all(|row| !row.pressured),
+        "completed receipts must not falsely claim the blocked decision completed"
+    );
+}
+
+#[tokio::test]
 async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learning_overload() {
     let root = tempfile::tempdir().unwrap();
     let factory = Arc::new(Factory::default());
@@ -659,7 +784,8 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     .await;
     let status = observer.status();
     let kept_original_grant = !cancellation.is_cancelled() && !qos.status().acquisition_pressure;
-    let evidence = pressure_evidence(manager, observer, qos, &cancellation);
+    let mut evidence = pressure_evidence(manager, observer, qos, &cancellation);
+    evidence["rbw_times"] = observer.probe.command_evidence(&factory.rbw_times);
     drop(grant);
     core.close().await.unwrap();
     factory.join().await;
