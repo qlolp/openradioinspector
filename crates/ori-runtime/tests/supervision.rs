@@ -1,4 +1,7 @@
 #![cfg(unix)]
+#[path = "support/backend_python.rs"]
+mod backend_python;
+
 use ori_runtime::supervisor::*;
 use std::{
     collections::BTreeMap,
@@ -8,7 +11,7 @@ use std::{
 fn spec(data: &Path, mode: &str, address: SocketAddr) -> BackendSpec {
     BackendSpec {
         name: mode.into(),
-        program: "/usr/bin/python3".into(),
+        program: backend_python::program(),
         args: vec![
             format!("{}/tests/fake_backend.py", env!("CARGO_MANIFEST_DIR")),
             data.display().to_string(),

@@ -8,6 +8,7 @@ import json
 import ntpath
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import struct
@@ -482,6 +483,11 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.assertNotIn('never-copy', repr(list(kept.iterdir())) + (kept / 'retention.json').read_text())
 
     def chocolatey_fixture(self):
+        inventory = json.loads((Path(__file__).parent / 'fixtures/ninja-1.13.2-package-inventory.json').read_text())
+        self.assertEqual(inventory['package_sha512'], llvm.NINJA_NUPKG_SHA512)
+        self.assertEqual(inventory['archive_sha256'], llvm.NINJA_ZIP_SHA256)
+        self.assertIn(inventory['archive_member'], [entry['name'] for entry in inventory['outer_members']])
+        self.choco_zip_member = inventory['archive_member']
         Path(self.tools['ninja']).unlink(missing_ok=True)
         root = (self.directory / 'chocolatey').resolve()
         shutil.rmtree(root, ignore_errors=True)
@@ -500,7 +506,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.choco_shim.write_bytes(shim)
         self.choco_target.write_bytes(pe_x64())
         self.tools['ninja'] = str(self.choco_shim)
-        self.choco_zip = self.zip_fixture([('ninja.exe', pe_x64())])
+        self.choco_zip = self.zip_fixture([(inventory['payload_member'], pe_x64())])
         self.choco_spec = b'<package><metadata><id>ninja</id><version>1.13.2</version></metadata></package>'
         self.write_choco_package()
         return self.choco_pins()
@@ -515,7 +521,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
 
     def write_choco_package(self, *, extras=()):
         self.choco_package.write_bytes(self.zip_fixture([
-            ('ninja.nuspec', self.choco_spec), ('tools/ninja-win.zip', self.choco_zip), *extras]))
+            ('ninja.nuspec', self.choco_spec), (self.choco_zip_member, self.choco_zip), *extras]))
 
     def choco_pins(self):
         # Pure fixtures stand in for the pinned external distributions, not live
@@ -575,8 +581,8 @@ class LLVMToolAndCacheTests(unittest.TestCase):
                 if case == 'target_sha': self.choco_target.write_bytes(pe_x64() + b'different executable')
                 if case == 'target_missing': self.choco_target.unlink()
                 extras = []
-                if case == 'duplicate': extras = [('tools/ninja-win.zip', self.choco_zip)]
-                if case == 'case_duplicate': extras = [('TOOLS/NINJA-WIN.ZIP', self.choco_zip)]
+                if case == 'duplicate': extras = [(self.choco_zip_member, self.choco_zip)]
+                if case == 'case_duplicate': extras = [(self.choco_zip_member.upper(), self.choco_zip)]
                 if case == 'traversal': extras = [('../outside', b'not allowed')]
                 if case == 'absolute': extras = [('C:/outside', b'not allowed')]
                 if case == 'zip_symlink':
@@ -615,6 +621,31 @@ class LLVMToolAndCacheTests(unittest.TestCase):
             with self.assertRaises(llvm.LLVMError):
                 self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
         self.assertEqual(self.calls, [])
+
+    def test_missing_required_pinned_members_report_only_the_exact_required_name(self):
+        for stage, required in (('spec', 'ninja.nuspec'), ('archive', 'tools/ninja-win_x32.zip'), ('payload', 'ninja.exe')):
+            with self.subTest(stage=stage):
+                pins = self.chocolatey_fixture()
+                if stage == 'spec':
+                    package = self.zip_fixture([(self.choco_zip_member, self.choco_zip)])
+                elif stage == 'archive':
+                    package = self.zip_fixture([('ninja.nuspec', self.choco_spec), ('tools/ninja-win.zip', self.choco_zip)])
+                else:
+                    self.choco_zip = self.zip_fixture([('unexpected.exe', pe_x64())])
+                    self.write_choco_package()
+                    package = self.choco_package.read_bytes()
+                    pins['NINJA_ZIP_SHA256'] = hashlib.sha256(self.choco_zip).hexdigest()
+                self.choco_package.write_bytes(package)
+                pins['NINJA_NUPKG_SHA512'] = hashlib.sha512(package).hexdigest()
+                driver = self.prepare_driver()
+                with patch.multiple(llvm, create=True, **pins), self.assertRaisesRegex(llvm.LLVMError, re.escape(required)):
+                    self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+                self.assertEqual(self.calls, [])
+                report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+                message = report['ninja_resolution']['error']
+                self.assertLess(len(message), 128)
+                self.assertNotIn('unexpected.exe', message)
+                self.assertFalse(report['successful'])
 
     def test_chocolatey_final_same_bytes_receipt_must_stay_in_the_checked_package_path(self):
         pins = self.chocolatey_fixture()

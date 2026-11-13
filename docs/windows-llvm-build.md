@@ -48,7 +48,7 @@ upstream Ninja payload is x64. The resolver recognizes only the exact observed
 `6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad`
 and its valid DOS/PE/I386 headers in the Chocolatey `bin` layout. It reads the
 existing `lib/ninja/ninja.nupkg`, requires the published 1.13.2 package SHA512 and
-Nuspec identity/version, then verifies the embedded `tools/ninja-win.zip` against
+Nuspec identity/version, then verifies the embedded `tools/ninja-win_x32.zip` against
 upstream SHA256 `07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65`.
 Only an existing `lib/ninja/tools/ninja.exe` matching that payload byte hash and
 the original strict x64 PE check can be selected. Package/source provenance is
@@ -57,6 +57,11 @@ recorded in `ninja_resolution`; missing or different evidence fails.
 This uses Chocolatey's [pinned shim layout](https://github.com/chocolatey/choco/blob/194ac6262ac75571c44aa0a431c3ab6f36fa73be/src/chocolatey/infrastructure.app/services/ShimGenerationService.cs),
 the versioned [package receipt](https://community.chocolatey.org/api/v2/Packages(Id='ninja',Version='1.13.2')),
 and its [published installer](https://github.com/joachimschmidt557/chocolatey-packages-manual-automatic/blob/968afc9a63f1a9d9b2f30c85ef7248b705ebca6c/automatic/ninja/tools/chocolateyInstall.ps1).
+The exact archive member name comes from the [recorded package inventory](../tests/fixtures/ninja-1.13.2-package-inventory.json).
+Its `_x32` label does not establish executable architecture: the SHA-verified
+official payload has PE machine `0x8664` (AMD64), and runtime still requires the
+original x64 PE check. Missing members report only their required fixed name.
+The text inventory contains no binaries; it records read-only package inspection.
 It never executes the shim or installer, extracts files to disk, installs or
 downloads a tool, searches alternative locations, or accepts a 32-bit compiler
 or build executable. Reads are bounded to a 1 MiB package/archive, 2 MiB payload,

@@ -1,0 +1,27 @@
+{
+  "source_url": "https://community.chocolatey.org/api/v2/package/ninja/1.13.2",
+  "package_bytes": 299513,
+  "package_sha512": "e9b198480ff29be979dadf0b09be0e3be261f681d03bcdcbb8a4f8fe0a5607e6e480b48931ed7e9bc7c06eda658b878e8377eb3ff9a0458d04d21ff8b9c65a1e",
+  "outer_members": [
+    {"name": "_rels/.rels", "bytes": 499},
+    {"name": "ninja.nuspec", "bytes": 2202},
+    {"name": "tools/chocolateyInstall.ps1", "bytes": 613},
+    {"name": "tools/ninja-win_x32.zip", "bytes": 291570},
+    {"name": "legal/VERIFICATION.txt", "bytes": 733},
+    {"name": "legal/LICENSE.txt", "bytes": 11358},
+    {"name": "[Content_Types].xml", "bytes": 591},
+    {"name": "package/services/metadata/core-properties/a99920d1d7474a71a307708647b38b30.psmdcp", "bytes": 1749}
+  ],
+  "archive_member": "tools/ninja-win_x32.zip",
+  "archive_sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+  "payload_member": "ninja.exe",
+  "payload_bytes": 603648,
+  "payload_sha256": "e52a7ad9538d9618c67a0bd777964e2eec8a30f68b810a2f6adce1f2daf847b8",
+  "payload_pe": {
+    "dos_signature_hex": "4d5a",
+    "pe_offset": 264,
+    "pe_signature_hex": "50450000",
+    "machine_code": 34404
+  },
+  "inspection": "Exact SHA512-verified official package; metadata and bounded payload header read in memory, no filesystem extraction or execution."
+}

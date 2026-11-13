@@ -29,6 +29,13 @@ retaining a fork-inherited probe lock until it reaches `exec`. A deterministic
 Linux test holds a real owned child before `exec`, drops the writer probe, then
 starts the synthetic HTTP backend while that child still waits. Live leases
 continue to exclude other owners; startup still checks the writer and listeners.
+Both synthetic backend fixtures use the runner's absolute `ORI_TEST_PYTHON`
+when configured, preserving the absolute local system fallback. The fork test
+also enables startup milestones capped at 12 records, 1 KiB per record and 4 KiB
+per launch. Failure reports read a bounded trace only after confirmed child
+cleanup. Missing evidence is reported explicitly and does not identify a cause.
+This test instrumentation does not establish the cause of a native readiness
+timeout or change the full startup checks and two-second fixture deadlines.
 
 A supervisor launches an **absolute executable and argument vector** with no
 shell. It creates fresh 256-bit opaque `ORI_RUNTIME_CONTROL_TOKEN` and

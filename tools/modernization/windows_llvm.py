@@ -258,7 +258,11 @@ def _ninja_zip_member(data, name, limit):
             total += entry.file_size
             if entry.file_size > ARTIFACT_LIMIT or total > ARTIFACT_LIMIT * 2:
                 raise LLVMError('Chocolatey Ninja ZIP expanded size exceeded its bound')
-        member = archive.getinfo(name)
+        try:
+            member = archive.getinfo(name)
+        except KeyError as error:
+            required = name if name in ('ninja.nuspec', 'tools/ninja-win_x32.zip', 'ninja.exe') else '<required member>'
+            raise LLVMError(f'required pinned Ninja ZIP member {required!r} is missing') from error
         if member.is_dir() or member.file_size > limit:
             raise LLVMError('Chocolatey Ninja ZIP member exceeded its bound')
         with archive.open(member) as source:
@@ -298,7 +302,7 @@ def _resolve_chocolatey_ninja(shim, environment, evidence):
             values = [(node.text or '').strip() for node in metadata[0] if node.tag.rsplit('}', 1)[-1] == key]
             if values != [expected]:
                 raise LLVMError('Chocolatey Ninja package identity/version does not match the pinned package')
-        upstream_zip = _ninja_zip_member(data, 'tools/ninja-win.zip', 1024 * 1024)
+        upstream_zip = _ninja_zip_member(data, 'tools/ninja-win_x32.zip', 1024 * 1024)
         if hashlib.sha256(upstream_zip).hexdigest() != NINJA_ZIP_SHA256:
             raise LLVMError('Chocolatey Ninja archive differs from the official upstream 1.13.2 release')
         evidence['upstream_zip_sha256'] = NINJA_ZIP_SHA256
