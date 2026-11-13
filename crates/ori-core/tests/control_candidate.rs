@@ -783,6 +783,50 @@ impl Server {
             .map(|item| item["id"].as_str().unwrap().to_owned())
             .collect()
     }
+    async fn canonical_monitor_pause(&self) -> Value {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let (status, events) = self
+                    .request(
+                        "GET",
+                        "/api/v1/events/history?after=0&limit=1000",
+                        None,
+                        None,
+                    )
+                    .await;
+                assert_eq!(status, 200, "{events}");
+                let pauses = events["data"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|event| {
+                        event["event_type"] == "device.acquisition.paused"
+                            && event["session_id"] == "control-fixture"
+                            && event["payload"]["stream_id"] == "source"
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(event) = pauses.first() {
+                    assert_eq!(
+                        pauses.len(),
+                        1,
+                        "the fixture permits exactly one ordinary source pause"
+                    );
+                    assert_eq!(event["payload"]["state"], "degraded");
+                    assert_eq!(event["payload"]["source_coverage"], "paused");
+                    let source = event["payload"]["artifact"].clone();
+                    assert_eq!(source["kind"], "processed_trace");
+                    assert_eq!(
+                        source["metadata"]["source"],
+                        "automatic_monitoring_noncanonical"
+                    );
+                    return source;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("ordinary monitoring source did not commit after receive resume")
+    }
     async fn stop(self) {
         self.core.request_shutdown();
         tokio::time::timeout(Duration::from_secs(8), self.task)
@@ -995,6 +1039,85 @@ fn normalize(value: &mut Value) {
         _ => {}
     }
 }
+
+#[tokio::test]
+async fn monitor_resume_can_commit_an_independent_source_after_its_command_ack() {
+    let server = Server::configured(true).await;
+    server.setup().await;
+    let (status, _) = server
+        .request(
+            "POST",
+            "/api/v1/sessions/control-fixture/streams/source/start",
+            Some(json!({})),
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    let queued = server
+        .submit(json!({"operation":"lease.acquire","parameters":{"acknowledge_rf":true}}))
+        .await;
+    let lease = server
+        .done(queued["operation_id"].as_str().unwrap(), Some(CLIENT))
+        .await;
+    let secret = lease["result"]["lease_id"].as_str().unwrap();
+    let queued = server
+        .submit(json!({"operation":"trace","parameters":{"action":"copy"},"lease_id":secret}))
+        .await;
+    let copied = server
+        .done(queued["operation_id"].as_str().unwrap(), Some(CLIENT))
+        .await;
+    assert_eq!(copied["state"], "succeeded", "{copied}");
+    *server.factory.block_command.lock().unwrap() = Some("scan 100M 101M 3 3".into());
+    let queued = server
+        .submit(json!({"operation":"monitor.resume","lease_id":secret}))
+        .await;
+    let resumed = server
+        .done(queued["operation_id"].as_str().unwrap(), Some(CLIENT))
+        .await;
+    assert_eq!(resumed["state"], "succeeded", "{resumed}");
+    tokio::time::timeout(Duration::from_secs(5), server.factory.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let before = server.artifact_ids().await;
+    let (pending, source) = {
+        let wait = server.canonical_monitor_pause();
+        tokio::pin!(wait);
+        let first = tokio::time::timeout(Duration::from_millis(20), wait.as_mut()).await;
+        let pending = first.is_err();
+        server.factory.release.add_permits(1);
+        let source = match first {
+            Ok(source) => source,
+            Err(_) => wait.await,
+        };
+        (pending, source)
+    };
+    let after = server.artifact_ids().await;
+    let wire = server.factory.commands.lock().unwrap().clone();
+    server.stop().await;
+    assert!(
+        pending,
+        "a command ACK is not the subsequent canonical source commit"
+    );
+    assert_eq!(
+        after
+            .difference(&before)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>(),
+        [source["id"].as_str().unwrap().to_owned()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        source["metadata"]["source"],
+        "automatic_monitoring_noncanonical"
+    );
+    assert!(
+        !wire.iter().any(|command| command.starts_with("scanraw")),
+        "no measurement was requested"
+    );
+}
 #[tokio::test]
 async fn all_29_public_operations_keep_real_evidence_or_exact_windows_research_refusals() {
     if cfg!(windows) {
@@ -1102,6 +1225,14 @@ async fn all_29_public_operations_keep_real_evidence_or_exact_windows_research_r
             normalize(&mut actual);
             normalize(&mut expected);
             assert_eq!(actual, expected, "original public result {operation}");
+            if operation == "monitor.resume" {
+                // This command ACK resumes the independent acquisition loop.
+                // Its expected processed-trace source can commit later; finish
+                // that fixture phase before attributing any artifact to a
+                // subsequently refused research operation. The complete final
+                // artifact/evidence set and all refusal assertions stay exact.
+                server.canonical_monitor_pause().await;
+            }
         }
     }
     assert_eq!(kinds.len(), 29);

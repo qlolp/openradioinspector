@@ -147,19 +147,60 @@ function component() {
   };
 }
 
-it('admits A/B/C in order when the component first mounts on a coalesced live snapshot', async () => {
+it.each([
+  { name: 'tied', peaks: [-20, -20, -20] },
+  { name: 'rising', peaks: [-30, -20, -10] },
+])(
+  'admits A/B/C in order when a small coalesced snapshot fits ($name peaks)',
+  async ({ peaks }) => {
+    const fixture = component();
+    const rows = [source('A', peaks[0]), source('B', peaks[1]), source('C', peaks[2])];
+    const liveSources = feed({}, 3n, rows);
+    try {
+      await act(() =>
+        fixture.root.render(createElement(Spectrum, { sweep: rows[2], liveSources })),
+      );
+      const observed: string[] = [];
+      for (let index = 0; index < 14; index++) {
+        await act(tick);
+        const id = fixture.canvas().dataset.sweepId;
+        if (id && id !== observed.at(-1)) observed.push(id);
+      }
+      expect(observed).toEqual(['A', 'B', 'C']);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+it('shows the latest burst source and explicitly reports display coalescing, retaining the first maximum', async () => {
   const fixture = component();
-  const rows = [source('A'), source('B'), source('C')];
-  const liveSources = feed({}, 3n, rows);
+  const rows = Array.from({ length: 70 }, (_, i) =>
+    source('burst-' + i, i === 22 || i === 23 ? -1 : -50),
+  );
+  const original = rows.map((row) => [...row.levels]);
   try {
-    await act(() => fixture.root.render(createElement(Spectrum, { sweep: rows[2], liveSources })));
+    await act(() =>
+      fixture.root.render(
+        createElement(Spectrum, {
+          sweep: rows.at(-1),
+          liveSources: feed({}, 70n, rows),
+        }),
+      ),
+    );
     const observed: string[] = [];
-    for (let index = 0; index < 14; index++) {
+    for (let index = 0; index < 11; index++) {
       await act(tick);
       const id = fixture.canvas().dataset.sweepId;
       if (id && id !== observed.at(-1)) observed.push(id);
     }
-    expect(observed).toEqual(['A', 'B', 'C']);
+    expect(observed).toEqual(['burst-0', 'burst-22', 'burst-69']);
+    expect(
+      fixture.element.querySelector('[data-testid="spectrum-coalesced"]')?.textContent,
+    ).toContain(
+      t('Combined {count} display updates. Original sweeps remain archived.', { count: 67 }),
+    );
+    expect(rows.map((row) => [...row.levels])).toEqual(original);
   } finally {
     await fixture.close();
   }

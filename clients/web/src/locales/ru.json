@@ -473,5 +473,6 @@
   "Frequency (Hz)": "Частота (Гц)",
   "Calibration profile (JSON)": "Калибровочный профиль (JSON)",
   "Estimate field": "Рассчитать поле",
-  "Uncertainty unknown": "Погрешность неизвестна"
+  "Uncertainty unknown": "Погрешность неизвестна",
+  "Combined {count} display updates. Original sweeps remain archived.": "Объединено обновлений графика: {count}. Исходные свипы сохранены в архиве."
 }

@@ -242,3 +242,18 @@ reads canvas pixel dimensions without forcing layout. Its final source marker,
 5-second assertion, producer workload, Worker/applied ACK and reconnect checks
 remain unchanged. A diagnostic pass is not a performance or hardware pass, and
 these additions alone do not establish either historical native failure's cause.
+
+The subsequent Windows control fixture waits for its expected canonical
+processed-trace pause after `monitor.resume`, before taking the no-artifact
+baseline for refused research. A controlled peer holds the ordinary scan after
+the command ACK and proves that this independent source commits without any
+measurement request. Exact wire order, all refusal assertions and the final
+complete artifact/evidence set remain required. No production control behavior
+or deadline changes.
+
+The spectrum's undrawn display queue now retains the first maximum and newest
+source instead of a stale 64-source FIFO prefix. The current canvas owner and
+two-RAF marker protocol are unchanged; coalescing is visible and affects no
+archived source, source bits or Worker/applied ACK. See
+[web-renderer-display.md](web-renderer-display.md). The 1,205-event native
+browser deadline and full offered-to-render checks remain unchanged.

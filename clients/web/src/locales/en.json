@@ -473,5 +473,6 @@
   "Frequency (Hz)": "Frequency (Hz)",
   "Calibration profile (JSON)": "Calibration profile (JSON)",
   "Estimate field": "Estimate field",
-  "Uncertainty unknown": "Uncertainty unknown"
+  "Uncertainty unknown": "Uncertainty unknown",
+  "Combined {count} display updates. Original sweeps remain archived.": "Combined {count} display updates. Original sweeps remain archived."
 }
