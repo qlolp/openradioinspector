@@ -1175,21 +1175,41 @@ class SessionService:
             return copy.deepcopy(candidate)
 
     def list_candidates(
-        self, session_id: str, *, state: CandidateState | str | None = None
+        self, session_id: str, *, state: CandidateState | str | None = None,
+        limit: int | None = None, offset: int = 0,
     ) -> list[Candidate]:
+        """Кандидаты сеанса.
+
+        ``limit`` и ``offset`` ограничивают выдачу. Без ``limit`` поведение
+        прежнее: возвращаются все кандидаты сеанса. Постраничное чтение не
+        меняет порядок — он остаётся по времени появления и идентификатору.
+        """
         selected_state = CandidateState(state) if state is not None else None
+        if limit is not None and limit < 1:
+            raise ValueError("limit должен быть положительным целым числом")
+        if offset < 0:
+            raise ValueError("offset не может быть отрицательным")
         with self._lock:
             self._get_locked(session_id)
-            items = [
-                item for item in (
-                    self._store.load_candidates(
-                        session_id=session_id, state=selected_state.value if selected_state else None,
-                    ) if self._store is not None else self._candidates.values()
+            if self._store is not None:
+                # Ограничение выборки выполняется в SQL: полная таблица
+                # кандидатов не материализуется в память.
+                items = self._store.load_candidates(
+                    session_id=session_id,
+                    state=selected_state.value if selected_state else None,
+                    limit=limit, offset=offset,
                 )
-                if item.session_id == session_id
-                and (selected_state is None or item.state is selected_state)
-            ]
-            items.sort(key=lambda item: (item.interval.started_at, item.id))
+            else:
+                items = [
+                    item for item in self._candidates.values()
+                    if item.session_id == session_id
+                    and (selected_state is None or item.state is selected_state)
+                ]
+                items.sort(key=lambda item: (item.interval.started_at, item.id))
+                if offset:
+                    items = items[offset:]
+                if limit is not None:
+                    items = items[:limit]
             return copy.deepcopy(items)
 
     def get_candidate(self, session_id: str, candidate_id: str) -> Candidate:

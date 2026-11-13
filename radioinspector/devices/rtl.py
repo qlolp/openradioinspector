@@ -88,7 +88,8 @@ class RtlTcpInstrument(Instrument):
         return Trace(freqs, levels, "dBFS")
 
     def _measure_at(self, frequency_hz: float) -> float:
-        assert self._socket is not None
+        if self._socket is None:
+            raise InstrumentError("Приёмник rtl_tcp не подключён")
         # rtl_tcp commands are one byte plus a big-endian 32-bit argument.
         # Gain is signed and expressed in tenths of a dB; no start command exists.
         commands = ((0x01, int(frequency_hz)), (0x02, int(self.sample_rate)),
@@ -105,7 +106,8 @@ class RtlTcpInstrument(Instrument):
         return 10.0 * math.log10(max(power, 1e-30))
 
     def _recv_exact(self, length: int) -> bytes:
-        assert self._socket is not None
+        if self._socket is None:
+            raise InstrumentError("Приёмник rtl_tcp не подключён")
         buffer = bytearray()
         while len(buffer) < length:
             try:

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
@@ -93,6 +94,36 @@ class BandwidthResult:
 # Вспомогательные функции
 # --------------------------------------------------------------------------
 
+def _require_finite_levels(traces: Sequence[Trace] | Trace) -> None:
+    """Отклоняет трассу с нечисловыми уровнями до расчёта.
+
+    Нечисловые значения (``NaN``, ``Infinity``) в исходном измерении означают,
+    что часть точек не получена. Если пропустить их дальше, результат измерения
+    молча окажется ``NaN`` и попадёт в отчёт как «нет данных», что неверно:
+    точка не получена и сигнал не измерен — это разные случаи.
+    """
+    items = [traces] if isinstance(traces, Trace) else list(traces)
+    for item in items:
+        if not isinstance(item, Trace):
+            raise TypeError("Ожидается спектральная трасса")
+        if item.size and not bool(np.all(np.isfinite(item.levels))):
+            raise ValueError(
+                "Уровни измерения должны быть конечными числами: в трассе есть "
+                "неполученные точки (NaN или бесконечность)"
+            )
+
+
+def _finite_trace(function):
+    """Проверяет конечность уровней до расчёта, сохраняя контракт функции."""
+
+    @functools.wraps(function)
+    def wrapper(traces, *args, **kwargs):
+        _require_finite_levels(traces)
+        return function(traces, *args, **kwargs)
+
+    return wrapper
+
+
 def _db_to_mw(levels_db: np.ndarray) -> np.ndarray:
     """Перевод уровней из дБ в линейные мощности, мВт."""
     return np.power(10.0, levels_db / 10.0)
@@ -129,6 +160,7 @@ def _estimate_snr_db(trace: Trace) -> float:
 # 1. Ширина полосы занимаемых частот методом β/2
 # --------------------------------------------------------------------------
 
+@_finite_trace
 def occupied_bandwidth_beta2(
     trace: Trace,
     beta: float = DEFAULT_BETA,
@@ -245,6 +277,7 @@ def occupied_bandwidth_beta2(
 # 2. Ширина полосы частот по уровню −N дБ
 # --------------------------------------------------------------------------
 
+@_finite_trace
 def bandwidth_at_level(
     trace: Trace,
     n_db: float = 30.0,
@@ -404,6 +437,7 @@ class ControlBandwidthResult:
         }
 
 
+@_finite_trace
 def control_bandwidth(
     trace: Trace,
     norm_hz: float | None = None,
@@ -494,6 +528,7 @@ class ComplexFrequencyResult:
         }
 
 
+@_finite_trace
 def complex_center_frequency(
     trace: Trace,
     n_db: float = CONTROL_BANDWIDTH_LEVEL_DB,
@@ -532,6 +567,7 @@ def complex_center_frequency(
 # --------------------------------------------------------------------------
 # 3. Напряжённость электрического поля
 # --------------------------------------------------------------------------
+@_finite_trace
 def field_strength(
     traces: Sequence[Trace] | Trace,
     method: str = "median",
@@ -622,6 +658,7 @@ def _autocorrelation(levels: np.ndarray) -> np.ndarray:
     return result / result[0]
 
 
+@_finite_trace
 def center_frequency_centroid(
     trace: Trace,
     frequency_uncertainty_hz: float = 0.0,
@@ -765,6 +802,7 @@ def center_frequency_centroid(
 # Сводный расчёт параметров сигнала
 # --------------------------------------------------------------------------
 
+@_finite_trace
 def measure_signal(
     trace: Trace,
     beta: float = DEFAULT_BETA,
