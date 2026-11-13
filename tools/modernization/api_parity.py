@@ -812,6 +812,35 @@ def public_cases():
     root=Path(__file__).resolve().parents[2]
     inventory=load_json((root/"contracts/fixtures/api-parity-inventory-v1.json").read_bytes())
     cases=source_cases()
+    # This is a spectrum fixture with explicit synthetic RMS/CW calibration,
+    # not acquired IQ or evidence of hardware/metrological acceptance.
+    fixture=load_json((root/'tests/fixtures/field-strength-rms-v2.json').read_bytes())
+    sid='session-é';stream='spectrum/e\u0301';sweep_id='rms-calibrated-é'
+    base='/api/v1/sessions/'+quote(sid,safe='')
+    sweep=copy.deepcopy(fixture['source']);sweep.pop('session_id');sweep.update(id=sweep_id,stream_id=stream)
+    cases.append({'id':'field-rms-source','method':'POST','path':base+'/sweeps','payload':sweep,
+                  'status':201,'volatile_paths':[],'unchanged':False,'operation':'POST /api/v1/sessions/{id}/sweeps',
+                  'original_fields':{'/data/'+key:value for key,value in sweep.items()}})
+    request=copy.deepcopy(fixture['request']);request['sweep_id']=sweep_id
+    route=base+'/field-strength-rms-v2'
+    original={'/data/methodology':'field_strength_rms_v2','/data/unit':'V/m','/data/value_dbuv_per_m':55.0,
+              '/data/uncertainty_db':3.0,'/data/calibration/sha256':fixture['result']['calibration']['sha256'],
+              '/data/calibration/profile':request['calibration'],'/data/source/id':sweep_id,
+              '/data/source/session_id':sid,'/data/source/stream_id':stream,
+              '/data/source/level':sweep['levels'][1],'/data/source/level_unit':sweep['level_unit']}
+    cases.append({'id':'field-rms-calibrated','method':'POST','path':route,'payload':request,
+                  'status':200,'volatile_paths':[],'unchanged':True,'original_fields':original,
+                  'operation':'POST /api/v1/sessions/{id}/field-strength-rms-v2'})
+    unknown=copy.deepcopy(request)
+    for point in unknown['calibration']['points']:point['uncertainty_db']=None
+    cases.append({'id':'field-rms-unknown-uncertainty','method':'POST','path':route,'payload':unknown,
+                  'status':200,'volatile_paths':[],'unchanged':True,
+                  'original_fields':{'/data/value_dbuv_per_m':55.0,'/data/uncertainty_db':None},
+                  'operation':'POST /api/v1/sessions/{id}/field-strength-rms-v2'})
+    wrong=copy.deepcopy(request);wrong['calibration']['measurement_chain_id']='different-synthetic-chain'
+    cases.append({'id':'field-rms-wrong-chain','method':'POST','path':route,'payload':wrong,
+                  'status':409,'volatile_paths':[],'unchanged':True,
+                  'operation':'POST /api/v1/sessions/{id}/field-strength-rms-v2'})
     for suffix in ("export","export.ndjson"):
         cases.append({"id":"archive-source-"+suffix,"method":"GET","path":"/api/v1/sessions/session-%C3%A9/archive/"+suffix,
                       "payload":None,"status":200,"volatile_paths":[],"unchanged":False,"operation":"GET /api/v1/sessions/{id}/archive/"+suffix,

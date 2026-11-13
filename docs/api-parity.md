@@ -167,23 +167,29 @@ for the Python startup/SSE shutdown correction and bounded consumption before
 forbidden analysis-query refusals. The latter consumes only correctly framed
 bodies within the existing route limit and absolute deadline; query validation
 still precedes JSON parsing, and Origin/Content-Type checks remain before reads.
-Its 135 v1 operations, ten legacy operations and CLI inventory are unchanged.
+The RMS extension adds one operation to the original 135; the ten legacy
+operations and CLI inventory are unchanged. A fourth complete reviewed snapshot
+pins the integrated RMS authority at `fb0c0e3471c976e57d3687d5520c1027ecbd7fb4`.
 All seven hashes must match one snapshot together; mixing individually approved
 files, an unknown edit or a missing file fails before any node starts. The report
 records the matched revision and these actual source hashes. This pins the route
 inventory and reviewed transport code, rather than every file in the repository.
-It permits both the
-frozen reference producer and the corrected Python checkout to run the same
-cases without changing response or measurement comparisons.
+Historical source snapshots remain recorded, but a producer without the new RMS
+method cannot pass the extended public profile. The original source-only profile
+remains available; unavailable routes never satisfy a required successful case.
 
-The committed inventory records **117 Python v1 paths /135 operations**, ten
+The committed inventory records **118 Python v1 paths /136 operations**, ten
 legacy `/api/*` operations, 17 `radioinspector` subcommands and ten console entry
 points, with authority-source hashes. A changed authority fails before launch
-until its inventory is explicitly regenerated and reviewed. The public profile executes171 cases:
+until its inventory is explicitly regenerated and reviewed. The public profile executes176 cases:
 source/domain flows, 20,000-point commit/history, receiver/candidate integer Hz
 above JavaScript's safe range, valid JSON/NDJSON exports, bounded SSE, published
 route rejection cases and typed202/poll/idempotency/conflict/terminal-cancel
-protocol over a synthetic wire. No-state-change checks accompany rejected
+protocol over a synthetic wire. The added synthetic RMS/CW source exercises a
+successful calibrated result, nullable uncertainty and incompatible-chain refusal;
+all three analysis requests must leave the archive/session state unchanged.
+The positive case checks the physical example's 55 dBuV/m, calibration digest,
+profile and original source identity/level. No-state-change checks accompany rejected
 mutation cases. Successful coverage of a rejection path does not establish a
 physical success path or every domain branch.
 

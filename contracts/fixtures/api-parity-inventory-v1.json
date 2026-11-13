@@ -542,6 +542,10 @@
     {
       "method": "GET",
       "path": "/api/v1/monitoring-projects/{project_id}/history/{sweep_id}/comparison"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/field-strength-rms-v2"
     }
   ],
   "legacy_operations": [
@@ -660,6 +664,18 @@
         "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c",
         "radioinspector/web/openapi.py": "1ac4a3613c9e875faae524f64db4185f1825100b183e6bbcc3b51e7ca762ed6e",
         "radioinspector/web/server.py": "771f02fef845a17d1c859d73148897d63365504a030f9b6f5c31992efc1adcf6"
+      }
+    },
+    {
+      "revision": "fb0c0e3471c976e57d3687d5520c1027ecbd7fb4",
+      "source_sha256": {
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c",
+        "radioinspector/web/openapi.py": "4c61eed875411abc0454b3abdd165c62b1cc94a5fdd2184b0e34e0f11e5d46ab",
+        "radioinspector/web/server.py": "59af84f23774de1d32e125d65837bdcc565ec2e258fe7fbf7322e523c48b4eaa"
       }
     }
   ],

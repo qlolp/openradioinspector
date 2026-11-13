@@ -15,6 +15,26 @@ from tools.modernization.api_parity import (
 
 
 class ExactWireTests(unittest.TestCase):
+    def test_public_inventory_covers_openapi_and_calibrated_field_success(self):
+        from radioinspector.web.openapi import document
+        from tools.modernization.api_parity import public_cases
+        cases, inventory = public_cases()
+        operations = {(item['method'], item['path']) for item in inventory['operations']}
+        expected = {(method.upper(), path) for path, item in document()['paths'].items()
+                    for method in item if method in ('get', 'post', 'put', 'patch', 'delete', 'head', 'options')}
+        self.assertEqual(operations, expected)
+        by_id = {case['id']: case for case in cases}
+        success = by_id['field-rms-calibrated']
+        self.assertEqual(success['status'], 200)
+        self.assertTrue(success['unchanged'])
+        self.assertEqual(success['original_fields']['/data/value_dbuv_per_m'], 55.0)
+        unknown = by_id['field-rms-unknown-uncertainty']
+        self.assertEqual(unknown['status'], 200)
+        self.assertIsNone(unknown['original_fields']['/data/uncertainty_db'])
+        refused = by_id['field-rms-wrong-chain']
+        self.assertEqual(refused['status'], 409)
+        self.assertTrue(refused['unchanged'])
+
     def test_approved_source_snapshot_requires_one_whole_reviewed_revision(self):
         import hashlib
         with tempfile.TemporaryDirectory(prefix='ori-reviewed-inventory-') as directory:
@@ -606,7 +626,7 @@ class OwnedProducerTests(unittest.TestCase):
             self.assertTrue(result["producer_sanity"]["successful"],result)
             self.assertGreaterEqual(result["producer_sanity"]["compared_cases"],140)
             self.assertTrue(result["producer_sanity"]["async_protocol_verified"])
-            self.assertEqual(result["inventory"]["published_v1_operations"],135)
+            self.assertEqual(result["inventory"]["published_v1_operations"],136)
             self.assertTrue(all(node["joined"] for node in result["nodes"]))
         except BaseException:
             print("Retained failed public API parity fixture:",directory)
