@@ -8,6 +8,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+from contextlib import closing
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT))
 from tests.test_legacy_rpc import create_pan,direct_get,direct_threshold,source_rows
@@ -43,12 +44,12 @@ def create(directory,sidecar=False):
             status,body=direct_threshold(state,payload)
             result['thresholds'].append({'payload':payload,'status':status,'body':freeze(body),'state':freeze(state.snapshot())})
         assert source_rows(source)==raw_before
-        with sqlite3.connect(source) as db:
+        with closing(sqlite3.connect(source)) as db:
             result['raw_rows']=[{'id':row[0],'recorded_at':row[1],'levels_hex':row[2],'start_hz':row[3],'stop_hz':row[4],'step_hz':row[5],'unit':row[6]} for row in db.execute('SELECT id,recorded_at,hex(levels),start_hz,stop_hz,step_hz,unit FROM panorama ORDER BY id')]
             result['schema_sql']=list(db.execute("SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type,name"))
     finally:state.close()
     # Runtime tests must begin with the original unmodified source threshold.
-    with sqlite3.connect(source) as db:db.execute('DELETE FROM threshold_line WHERE line_index=0')
+    with closing(sqlite3.connect(source)) as db,db:db.execute('DELETE FROM threshold_line WHERE line_index=0')
     return source,result
 
 
