@@ -51,7 +51,8 @@ class FieldStrengthAPITests(unittest.TestCase):
         def request(payload, suffix=''):
             conn = http.client.HTTPConnection(*server.server_address, timeout=5)
             try:
-                conn.request('POST', path + suffix, json.dumps(payload), {'Content-Type': 'application/json'})
+                body = payload if isinstance(payload, str) else json.dumps(payload)
+                conn.request('POST', path + suffix, body, {'Content-Type': 'application/json'})
                 response = conn.getresponse()
                 return response.status, json.loads(response.read())
             finally: conn.close()
@@ -65,6 +66,9 @@ class FieldStrengthAPITests(unittest.TestCase):
                     self.assertEqual(request({**body, **changes})[0], expected)
             self.assertEqual(request(body, '?ignored=1')[0], 400)
             self.assertEqual(request(None)[0], 400)
+            raw = json.dumps(body)
+            self.assertEqual(request(raw.replace('"version": 1', '"version": 1, "version": 2'))[0], 400)
+            self.assertEqual(request(raw.replace('"uncertainty_db": 2.0', '"uncertainty_db": 1e999'))[0], 400)
             self.assertEqual(before, (service.health(), service.events(), service.list_sweeps(session.id)))
         finally:
             server.shutdown(); thread.join(3); server.server_close(); service.close()

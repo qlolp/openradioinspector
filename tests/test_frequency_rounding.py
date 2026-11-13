@@ -542,10 +542,9 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         service = self.server.session_service
         before = (service.health(), service.events(), service.archive_capacity())
         for suffix in ("?", "?x=1", "?x=", "?&", "?candidate_id=candidate-1"):
-            # Advertise a body but do not send it: query rejection must happen
-            # before body reads. Sending it after headers races the server's
-            # close and can reset the connection on Windows (WinError 10053).
-            status, response = self.raw_headers("Content-Length: 100\r\n", path=self.root + suffix)
+            # The bounded body is consumed before the query error closes the
+            # socket, including the client's separate header/body sends.
+            status, response = self.request(path=self.root + suffix)
             self.assertEqual((status, response["error"]["code"]), (400, "invalid_request"))
         self.assertEqual(self.request(method="GET", raw=b"")[0], 404)
         for identifier, expected, code in (("missing", 404, "candidate_not_found"),

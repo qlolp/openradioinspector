@@ -44,7 +44,9 @@
       if(!dom.frequency.value.trim() || !Number.isSafeInteger(frequency) || frequency<0)
         throw new Error('Частота: целые неотрицательные Гц');
       const sent={sweep_id:dom.sweep.value,frequency_hz:frequency,calibration:JSON.parse(dom.profile.value)};
-      const body=JSON.stringify(sent);
+      // Preserve the draft's tokens for the core's duplicate-key/nonfinite
+      // checks. JSON.stringify(parsedDraft) would silently erase those errors.
+      const body=`{"sweep_id":${JSON.stringify(sent.sweep_id)},"frequency_hz":${frequency},"calibration":${dom.profile.value}}`;
       if(new TextEncoder().encode(body).byteLength>65536)throw new Error('Запрос больше 64 КиБ');
       const controller=new AbortController();pending=controller;controls();dom.status.textContent='Вычисление…';
       const timer=window.setTimeout(()=>controller.abort(),6000);

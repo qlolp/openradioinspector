@@ -65,6 +65,14 @@ class FieldStrengthTests(unittest.TestCase):
         self.assertTrue(result['warnings'])
         self.assertEqual(to_primitive(sweep), before)
 
+    def test_response_context_is_bounded_even_for_large_unrelated_archive_metadata(self):
+        import json
+        sweep = source(); sweep.settings['unrelated_import_note'] = 'x' * 2_000_000
+        result = self.calculate(sweep)
+        self.assertLess(len(json.dumps(result).encode('utf-8')), 65536)
+        self.assertEqual(len(sweep.settings['unrelated_import_note']), 2_000_000)
+        self.assertEqual(result['source']['settings']['measurement_chain_id'], profile()['measurement_chain_id'])
+
     def test_no_extrapolation_or_signal_interpolation(self):
         for frequency in (0, 150, 400):
             with self.subTest(frequency=frequency), self.assertRaises(ValueError):

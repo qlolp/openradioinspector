@@ -99,8 +99,9 @@ def field_strength_rms_v2(sweep: Sweep, calibration: dict, *, frequency_hz: int)
     validity = TimeInterval.from_dict({'started_at': profile['valid_from'], 'ended_at': profile['valid_until']})
     if not (validity.started_at <= sweep.interval.started_at <= sweep.interval.ended_at <= validity.ended_at):
         raise FieldStrengthUnavailable('Калибровка не покрывает интервал исходного измерения')
-    for name in ('instrument_profile', 'measurement_chain_id', 'reference_plane', 'impedance_ohm',
-                 'detector', 'rbw_hz', 'waveform'):
+    context_fields = ('instrument_profile', 'measurement_chain_id', 'reference_plane', 'impedance_ohm',
+                      'detector', 'rbw_hz', 'waveform')
+    for name in context_fields:
         if type(sweep.settings.get(name)) is bool or sweep.settings.get(name) != profile[name]:
             raise FieldStrengthUnavailable(f'Нет подтверждённых совместимых настроек: {name}')
     indices = [i for i, f in enumerate(sweep.frequencies_hz) if f == frequency_hz]
@@ -143,7 +144,7 @@ def field_strength_rms_v2(sweep: Sweep, calibration: dict, *, frequency_hz: int)
         'source': {'id': sweep.id, 'session_id': sweep.session_id, 'stream_id': sweep.stream_id,
                    'interval': to_primitive(sweep.interval), 'frequency_hz': frequency_hz,
                    'bin_index': index, 'level': level, 'level_unit': sweep.level_unit,
-                   'settings': deepcopy(sweep.settings)},
+                   'settings': {name: deepcopy(sweep.settings[name]) for name in context_fields}},
         'calibration': {'profile': profile, 'sha256': hashlib.sha256(canonical.encode('utf-8')).hexdigest(),
                         'coefficients': coefficients},
         'applicability': 'narrowband CW RMS-equivalent; operator-supplied calibration',

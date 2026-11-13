@@ -52,6 +52,18 @@ async function run() {
   assert.match(nodes['field-result'].textContent,/V\/m/);
   panel.update({...scope,sweeps:[{...fixture.source,id:'replacement'}]});
   assert.equal(nodes['field-result'].textContent,'','source replacement clears frozen result');
+  // Preserve original draft bytes for the core's strict JSON validation.
+  panel.update(scope);draft();
+  const ambiguous=nodes['field-profile'].value.replace('"version":1', '"version":1,"version":2');
+  nodes['field-profile'].value=ambiguous;
+  const duplicate=nodes['field-run'].listeners.click();
+  assert.ok(calls.at(-1).options.body.includes('"version":1,"version":2'),
+    'duplicate calibration keys must reach the strict core decoder unchanged');
+  resolve(response(null,false));await duplicate;
+  draft();nodes['field-profile'].value=nodes['field-profile'].value.replace('"uncertainty_db":2','"uncertainty_db":1e999');
+  const nonfinite=nodes['field-run'].listeners.click();
+  assert.ok(calls.at(-1).options.body.includes('1e999'),'nonfinite numbers must not be converted into null');
+  resolve(response(null,false));await nonfinite;
   panel.setConnected(false);assert.equal(nodes['field-run'].disabled,true);
   console.log('field-strength WebUI behavior passed');
 }
