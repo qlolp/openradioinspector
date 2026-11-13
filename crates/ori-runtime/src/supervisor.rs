@@ -107,6 +107,16 @@ impl Supervisor {
         self.journal.sync_all()?;
         Ok(())
     }
+    pub(crate) fn record_sleep_gap(&mut self) -> Result<()> {
+        let name = self
+            .active
+            .as_ref()
+            .ok_or_else(|| Error::Protocol("no owned backend".into()))?
+            .spec
+            .name
+            .clone();
+        self.record("system_sleep_coverage_gap", &name)
+    }
     fn validate(spec: &BackendSpec) -> Result<()> {
         if !spec.program.is_absolute()
             || !spec.control_addr.ip().is_loopback()

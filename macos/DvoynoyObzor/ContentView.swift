@@ -4,15 +4,18 @@ struct ContentView: View {
     @StateObject private var model: RemoteDualModel
     @StateObject private var workspace: MonitoringWorkspaceModel
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
+    @StateObject private var localService = NativeLocalService()
     @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
 
     init() {
         let workspace = MonitoringWorkspaceModel()
         _workspace = StateObject(wrappedValue: workspace)
-        _model = StateObject(wrappedValue: RemoteDualModel(onArchiveContextReset: { [weak workspace] watermark in
+        let remote = RemoteDualModel(onArchiveContextReset: { [weak workspace] watermark in
             workspace?.resetArchiveContext(watermark: watermark)
-        }))
+        })
+        if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
+        _model = StateObject(wrappedValue: remote)
     }
 
     var body: some View {
@@ -26,7 +29,14 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 175, ideal: 205, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                NativeConnectionPane(model: model, connection: nodeConnection)
+                if NativeLocalService.isPersonalRC {
+                    NativeLocalServicePane(service: localService, connect: {
+                        connectLocalService()
+                    }, disconnect: { nodeConnection.cancel(); model.disconnect() })
+                }
+                NativeConnectionPane(model: model, connection: nodeConnection,
+                    localServiceRequired: NativeLocalService.isPersonalRC,
+                    localServiceReady: localService.status != nil)
                 NativeContinuityBar(model: model, workspace: workspace)
                 RemoteArchiveCapacityPane(model: model).padding(.horizontal, 16)
                 VSplitView {
@@ -57,5 +67,21 @@ struct ContentView: View {
                 client: model.client, access: nodeConnection.authorizedNode?.access)
         }
         .background(WindowCloseObserver { nodeConnection.cancel(); model.disconnect() })
+        .onChange(of: localService.status?.instanceID) { _, owner in
+            guard NativeLocalService.isPersonalRC else { return }
+            if owner == nil { nodeConnection.cancel(); model.disconnect() }
+            else if !model.connected { connectLocalService() }
+        }
+    }
+
+    private func connectLocalService() {
+        guard let owner = localService.status?.instanceID else { return }
+        model.serverURL = NativeLocalService.endpoint
+        Task {
+            if let node = await nodeConnection.preflight(server: model.serverURL),
+               localService.status?.instanceID == owner, nodeConnection.accepts(node) {
+                model.connect(using: node.client)
+            }
+        }
     }
 }

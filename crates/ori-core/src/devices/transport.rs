@@ -83,7 +83,12 @@ impl TransportFactory for NativeSerialFactory {
             };
             // Pinned native open is nonblocking and excludes peers before any
             // termios/DTR change. No detached blocking task can open it later.
-            Ok(Box::new(ori_instruments::serial::open(&options)?) as BoxTransport)
+            let fence = ori_runtime::power::ContinuityFence::system()?;
+            let stream = ori_instruments::serial::open(&options)?;
+            Ok(
+                Box::new(ori_runtime::power::ContinuityTransport::new(stream, fence))
+                    as BoxTransport,
+            )
         })
     }
 }

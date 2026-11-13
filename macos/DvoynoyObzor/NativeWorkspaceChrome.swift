@@ -11,6 +11,8 @@ enum NativeWorkspace: String, CaseIterable, Identifiable {
 struct NativeConnectionPane: View {
     @ObservedObject var model: RemoteDualModel
     @ObservedObject var connection: NativeNodeConnectionModel
+    var localServiceRequired = false
+    var localServiceReady = true
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -20,7 +22,7 @@ struct NativeConnectionPane: View {
                     .foregroundStyle(model.connected ? Color.green : Color.secondary)
             }
             HStack {
-                TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(model.connected || connection.isBusy)
+                TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(localServiceRequired || model.connected || connection.isBusy)
                 if model.connected {
                     Button("Отключить UI") { connection.cancel(); model.disconnect() }
                     Button("Обновить") { Task { await model.reloadSessions() } }
@@ -28,7 +30,7 @@ struct NativeConnectionPane: View {
                     Button("Подключить") {
                         let endpoint = model.serverURL
                         Task { accept(await connection.preflight(server: endpoint)) }
-                    }.disabled(connection.isBusy)
+                    }.disabled(connection.isBusy || !localServiceReady)
                 }
                 Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession).exactID) {
                     Text("Не выбран").tag(PlatformExactID(""))

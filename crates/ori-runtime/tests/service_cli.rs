@@ -169,7 +169,8 @@ fn startup_evidence(data: &Path, child: &mut Child) -> serde_json::Value {
 }
 
 fn command(data: &Path, request: serde_json::Value) -> serde_json::Value {
-    let mut socket = UnixStream::connect(data.join(".ori-runtime/supervisor.sock")).unwrap();
+    let mut socket =
+        UnixStream::connect(ori_runtime::service::admin_socket_path(data).unwrap()).unwrap();
     socket
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
@@ -224,10 +225,16 @@ fn launch(data: &Path) -> ChildGuard {
             .unwrap(),
     );
     let deadline = Instant::now() + Duration::from_secs(3);
-    while !data.join(".ori-runtime/supervisor.sock").exists() && Instant::now() < deadline {
+    while !ori_runtime::service::admin_socket_path(data)
+        .unwrap()
+        .exists()
+        && Instant::now() < deadline
+    {
         std::thread::sleep(Duration::from_millis(10));
     }
-    let exposed = data.join(".ori-runtime/supervisor.sock").exists();
+    let exposed = ori_runtime::service::admin_socket_path(data)
+        .unwrap()
+        .exists();
     if !exposed {
         let cleanup = process.cleanup();
         let released = cleanup.is_ok() && backend_released(data);
@@ -270,7 +277,11 @@ fn local_service_cli_status_and_shutdown_use_owned_runtime_and_preserve_intent()
         true
     );
     wait(&mut process);
-    assert!(!temp.path().join(".ori-runtime/supervisor.sock").exists());
+    assert!(
+        !ori_runtime::service::admin_socket_path(temp.path())
+            .unwrap()
+            .exists()
+    );
     let intent: serde_json::Value =
         serde_json::from_slice(&std::fs::read(temp.path().join("shutdown-intent.json")).unwrap())
             .unwrap();

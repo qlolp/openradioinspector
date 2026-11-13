@@ -16,6 +16,7 @@ async fn execute() -> Result<()> {
         Error::Unsafe("usage: ori-supervisor run CONFIG.json | status DATA_DIR | shutdown DATA_DIR | cutover DATA_DIR CANDIDATE.json [--acknowledge-coverage-gap]".into())
     };
     match args.as_slice() {
+        [operation] if operation == "macos-agent" => ori_runtime::macos_agent::run().await,
         [operation, configuration] if operation == "run" => {
             let bytes = std::fs::read(configuration)?;
             if bytes.len() > 1024 * 1024 {

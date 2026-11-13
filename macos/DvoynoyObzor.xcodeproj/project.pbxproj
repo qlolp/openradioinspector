@@ -121,6 +121,9 @@
 				<string>D26047F0CC171E7664B20C4C</string>
 				<string>2CAD5477F3553E0B19E81B1A</string>
 				<string>C7C9B75D6A4D5226CEB52BAE</string>
+				<string>AEF42B7AD37AC87AE3B65651</string>
+				<string>57DAEC6D4E67B42F513EFE1F</string>
+				<string>A7DBCA73C41924881647F3D3</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -209,6 +212,9 @@
 				<string>58D26228C4127B4A5310F91B</string>
 				<string>D52538672991B848A5192077</string>
 				<string>15DCCACA39B584D9B4B4AFAB</string>
+				<string>0F61FF714A20009CFB00AA5C</string>
+				<string>077585AF82E27615C14AB3EB</string>
+				<string>93936EB83269C88984983395</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -1233,6 +1239,60 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>C7C9B75D6A4D5226CEB52BAE</string>
+		</dict>
+		<key>AEF42B7AD37AC87AE3B65651</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeServiceSocket.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>0F61FF714A20009CFB00AA5C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>AEF42B7AD37AC87AE3B65651</string>
+		</dict>
+		<key>57DAEC6D4E67B42F513EFE1F</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeLocalService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>077585AF82E27615C14AB3EB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>57DAEC6D4E67B42F513EFE1F</string>
+		</dict>
+		<key>A7DBCA73C41924881647F3D3</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeLocalServicePane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>93936EB83269C88984983395</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A7DBCA73C41924881647F3D3</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

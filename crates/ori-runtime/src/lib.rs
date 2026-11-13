@@ -1,5 +1,7 @@
 //! Runtime ownership, controlled cutover, bounded children and LAN security.
 pub mod lease;
+pub mod macos_agent;
+pub mod power;
 pub mod qos;
 pub mod security;
 mod shared_io;

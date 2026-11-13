@@ -220,6 +220,7 @@ final class RemoteDualModel: ObservableObject {
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
     var thresholdDbm: Double? { parseUserNumber(threshold) }
     var usesBundledLegacyHelper: Bool {
+        guard !NativeLocalService.isPersonalRC else { return false }
         let environment = ProcessInfo.processInfo.environment
         guard environment["ORI_BUNDLED_LEGACY_CORE"] == "1",
               let owned = environment["ORI_LOCAL_CORE_URL"],
