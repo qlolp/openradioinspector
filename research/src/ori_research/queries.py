@@ -38,13 +38,16 @@ OCCUPANCY = ''' SELECT kind,session_id,stream_id,level_unit,frequency_hz,
 @contextmanager
 def memory_watch(connection, budget):
     stopped = threading.Event()
-    exceeded = threading.Event()
+    failures = []
     def watch():
         while not stopped.wait(0.02):
-            size = resident_bytes()
-            budget.metrics['peak_rss_bytes'] = max(budget.metrics['peak_rss_bytes'],size)
-            if size > budget.limits['worker_rss_bytes']:
-                exceeded.set()
+            try:
+                size = resident_bytes()
+                budget.metrics['peak_rss_bytes'] = max(budget.metrics['peak_rss_bytes'],size)
+                if size > budget.limits['worker_rss_bytes']:
+                    raise WorkerError('rss_limit_exceeded', 'Worker memory budget exceeded', retryable=True)
+            except WorkerError as error:
+                failures.append(error)
                 connection.interrupt()
                 return
     thread = threading.Thread(target=watch,name='analytics-memory-watch',daemon=True)
@@ -52,14 +55,14 @@ def memory_watch(connection, budget):
     try:
         yield
     except duckdb.Error:
-        if exceeded.is_set():
-            raise WorkerError('rss_limit_exceeded', 'Worker memory budget exceeded', retryable=True) from None
+        if failures:
+            raise failures[0] from None
         raise
     finally:
         stopped.set()
         thread.join()
-    if exceeded.is_set():
-        raise WorkerError('rss_limit_exceeded', 'Worker memory budget exceeded', retryable=True)
+    if failures:
+        raise failures[0]
 
 
 def query(request, directory, cache_key, root, budget):

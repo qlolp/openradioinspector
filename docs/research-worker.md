@@ -124,6 +124,16 @@ size. They are not credentials and cannot supply SQL.
 
 Successful exit status is 0:
 
+RSS admission uses `/proc` on Linux, `getrusage` on other supported POSIX hosts,
+and the peak working set from `GetProcessMemoryInfo` on Windows. Windows calls
+use explicit pointer-width handle and 32-bit DWORD declarations. An unavailable
+or zero RSS probe returns `rss_measurement_unavailable` and refuses the job;
+the query watcher interrupts a running query if measurement becomes unavailable.
+Failure metrics retain the last valid peak, or `null` if none was obtained,
+and include `rss_measurement_error`. These are cooperative self-process checks,
+not proof of an OS-enforced process-tree memory limit. Windows Core still refuses
+scientific HTTP jobs until its separate strict containment is available.
+
 ```json
 {"version":1,"request_id":"research-000001","operation":"summary","ok":true,
  "result":{"rows":[],"next_cursor":null,"cache_key":"sha256…",

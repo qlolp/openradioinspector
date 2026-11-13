@@ -36,7 +36,7 @@ def main():
         from .worker import run
         result = run(request,budget)
         response = {'version':1,'request_id':request_id,'operation':operation,
-                    'ok':True,'result':result,'metrics':budget.final_metrics()}
+                    'ok':True,'result':result,'metrics':budget.final_metrics(require_measurement=True)}
         encoded = encode(response)
         if len(encoded) > RESPONSE_BYTES:
             raise WorkerError('response_too_large', 'Result exceeds the bounded response budget')
