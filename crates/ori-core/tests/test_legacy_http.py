@@ -16,6 +16,8 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import closing
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -36,6 +38,42 @@ def normalized(value):
     if isinstance(value, list):
         return [normalized(item) for item in value]
     return value
+
+
+def archive_event_count(path):
+    with closing(sqlite3.connect(path)) as db:
+        return db.execute("SELECT count(*) FROM events").fetchone()[0]
+
+
+class SQLiteFixtureLifetime(unittest.TestCase):
+    def check_closed(self, operation):
+        connections=[]
+        original=sqlite3.connect
+        def connect(*args,**kwargs):
+            db=original(*args,**kwargs);connections.append(db);return db
+        try:
+            with patch.object(sqlite3,'connect',connect):
+                operation()
+            self.assertTrue(connections)
+            for db in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):db.execute('SELECT 1')
+        finally:
+            for db in connections:db.close()
+
+    def test_panorama_audit_closes_real_connections(self):
+        with tempfile.TemporaryDirectory(prefix='ori-audit-close-') as root:
+            path=Path(root)/'source.pan';create_pan(path)
+            self.check_closed(lambda:LegacyHttpParity.audit(path))
+
+    def test_archive_event_count_closes_on_success_and_sql_failure(self):
+        with tempfile.TemporaryDirectory(prefix='ori-event-close-') as root:
+            path=Path(root)/'sessions.sqlite3'
+            with closing(sqlite3.connect(path)) as db,db:db.execute('CREATE TABLE events(sequence INTEGER)')
+            self.check_closed(lambda:self.assertEqual(archive_event_count(path),0))
+            with closing(sqlite3.connect(path)) as db,db:db.execute('DROP TABLE events')
+            def failed_read():
+                with self.assertRaises(sqlite3.OperationalError):archive_event_count(path)
+            self.check_closed(failed_read)
 
 
 class LegacyHttpParity(unittest.TestCase):
@@ -89,7 +127,7 @@ class LegacyHttpParity(unittest.TestCase):
 
     @staticmethod
     def audit(path):
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db:
             lines = db.execute("SELECT * FROM threshold_line WHERE line_index<>0 ORDER BY line_index").fetchall()
             schema = db.execute("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").fetchall()
         return source_rows(path), lines, schema
@@ -134,8 +172,7 @@ class LegacyHttpParity(unittest.TestCase):
             self.assertEqual(status, 503, loaded)
             self.assertEqual(loaded["ok"], False)
             self.assertEqual(self.audit(self.source), self.original)
-            with sqlite3.connect(self.data / "sessions.sqlite3") as db:
-                self.assertEqual(db.execute("SELECT count(*) FROM events").fetchone()[0], 0)
+            self.assertEqual(archive_event_count(self.data / "sessions.sqlite3"), 0)
             return
         self.reference.load_database(str(self.reference_source))
         self.assertEqual(status, 200, loaded)

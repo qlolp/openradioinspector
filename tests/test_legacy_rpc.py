@@ -84,6 +84,24 @@ def sealed_snapshot(source:Path,directory:Path):
 
 
 class LegacyRpcTests(unittest.TestCase):
+    def test_generator_closes_all_real_sqlite_connections_before_returning(self):
+        import importlib.util
+        path=ROOT/'crates/ori-legacy/tests/generate_fixtures.py'
+        spec=importlib.util.spec_from_file_location('owned_fixture_generator',path)
+        generator=importlib.util.module_from_spec(spec);spec.loader.exec_module(generator)
+        original=sqlite3.connect;connections=[]
+        def connect(*args,**kwargs):
+            db=original(*args,**kwargs);connections.append(db);return db
+        try:
+            with patch.object(sqlite3,'connect',connect):
+                source,_=generator.create(self.root/'generator')
+            self.assertTrue(source.is_file())
+            self.assertTrue(connections)
+            for db in connections:
+                with self.assertRaises(sqlite3.ProgrammingError):db.execute('SELECT 1')
+        finally:
+            for db in connections:db.close()
+
     def test_readonly_sqlite_uri_normalizes_only_windows_disk_namespace(self):
         from pathlib import PureWindowsPath
         from radioinspector.legacy_rpc import _readonly_sqlite_uri

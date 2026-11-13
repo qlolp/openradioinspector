@@ -63,6 +63,14 @@ waiting; request/body/SSE timeouts, input sizes, assertions and the 600-second
 legacy-suite budget are unchanged. The change applies only to test threads,
 not the production server. It is not a throughput or hardware acceptance result.
 
+SQLite fixture readers close their connections explicitly before temporary-tree
+cleanup, including SQL-error paths. Regressions retain real connection objects
+so garbage collection cannot hide Windows handle leaks. The average HTTP fixture
+seeds the same nine measurements/events through two existing atomic batches;
+WAL/FULL and assertions are unchanged. A controlled logical-dump comparison
+verifies identical data while removing seven setup commits; this does not prove
+the complete cause of a hosted Windows suite timeout.
+
 The legacy SQL writer releases its threshold command's I/O-budget reference
 before sending the result. SQL commit/rollback has finished at that point;
 remaining snapshot ownership still controls private-file cleanup. A real-worker
