@@ -52,7 +52,7 @@ class RejectedAnalysisHTTPTests(unittest.TestCase):
         self.service.ingest_sweep(measurement(self.session.id, self.session.streams[0].id))
         self.root = f"/api/v1/sessions/{self.session.id}/"
         self.route = self.root + "sweep-mask-analysis"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop_server)
 

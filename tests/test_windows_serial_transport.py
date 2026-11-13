@@ -457,7 +457,7 @@ class WindowsSerialTransportTests(unittest.TestCase):
     def test_http_two_com_workers_archive_raw_data_and_isolate_unplug(self):
         service = SessionService()
         server = create_server(host='127.0.0.1', port=0, sessions=service)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
 
         def cleanup():

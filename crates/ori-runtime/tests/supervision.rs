@@ -1,4 +1,6 @@
 #![cfg(unix)]
+#[path = "support/backend_ports.rs"]
+mod backend_ports;
 #[path = "support/backend_python.rs"]
 mod backend_python;
 
@@ -27,10 +29,31 @@ fn spec(data: &Path, mode: &str, address: SocketAddr) -> BackendSpec {
     }
 }
 fn address() -> SocketAddr {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
+    backend_ports::address()
+}
+
+#[test]
+fn fixture_ports_do_not_reissue_released_addresses_or_use_client_ports() {
+    let released = TcpListener::bind("127.0.0.1:0").unwrap();
+    let a = released.local_addr().unwrap();
+    let held = TcpListener::bind("127.0.0.1:0").unwrap();
+    let b = held.local_addr().unwrap();
+    let spare = TcpListener::bind("127.0.0.1:0").unwrap();
+    let c = spare.local_addr().unwrap();
+    drop((released, spare));
+    let mut issued = std::collections::BTreeSet::new();
+    let select = |issued: &mut std::collections::BTreeSet<u16>, candidates: Vec<u16>| {
+        backend_ports::select_from(issued, 1..=1023, candidates).unwrap()
+    };
+    assert_eq!(select(&mut issued, vec![a.port()]), a);
+    // Force the same still-free port to be offered again, and a genuinely held
+    // listener. Neither may be assigned to another fixture during cutover.
+    assert_eq!(select(&mut issued, vec![a.port(), b.port(), c.port()]), c);
+    assert_eq!(held.local_addr().unwrap(), b);
+    let mut fresh = std::collections::BTreeSet::new();
+    assert!(backend_ports::select_from(&mut fresh, a.port()..=a.port(), [a.port()]).is_err());
+    assert!(fresh.is_empty());
+    assert!(TcpListener::bind(a).is_ok());
 }
 fn options() -> CutoverOptions {
     CutoverOptions {

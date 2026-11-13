@@ -11,7 +11,7 @@ for _key in ("OMP_NUM_THREADS","OPENBLAS_NUM_THREADS","MKL_NUM_THREADS","NUMEXPR
 
 import json
 from contextlib import closing
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shutil
 import sqlite3
 import stat
@@ -120,6 +120,16 @@ def _snapshot_root(request):
     return root
 
 
+def _readonly_sqlite_uri(source):
+    # Rust canonical paths on Windows use the local Win32 disk namespace.
+    # pathlib otherwise encodes '?' as a URI authority, which SQLite rejects.
+    if isinstance(source, PureWindowsPath):
+        drive = source.drive
+        if len(drive) == 6 and drive.startswith('\\\\?\\') and drive[4].isalpha() and drive[5] == ':':
+            source = PureWindowsPath(str(source)[4:])
+    return source.as_uri() + '?mode=ro'
+
+
 def _copy_snapshot(request,limits,destination,shared_io=None):
     root=_snapshot_root(request)
     manifest_path=_regular(root/'snapshot.json',4096)
@@ -129,7 +139,7 @@ def _copy_snapshot(request,limits,destination,shared_io=None):
     source=_regular(root/'workspace.pan',limits['max_database_bytes'])
     # Source is read-only; even PanoramaStore's schema/WAL initialization and
     # threshold writes run only on this second, worker-owned disposable copy.
-    with closing(sqlite3.connect(source.as_uri()+'?mode=ro',uri=True)) as reader:
+    with closing(sqlite3.connect(_readonly_sqlite_uri(source),uri=True)) as reader:
         reader.execute('PRAGMA query_only=ON')
         rows,total,largest=reader.execute('SELECT COUNT(*),COALESCE(SUM(length(levels)),0),COALESCE(MAX(length(levels)),0) FROM panorama').fetchone()
         if rows>limits['max_rows'] or total>limits['max_total_points']*8 or largest>limits['max_record_bytes']:

@@ -59,7 +59,7 @@ class WindowsSchedulerTests(unittest.TestCase):
 
     def test_real_http_status_enable_disable_and_boolean_validation(self) -> None:
         server = create_server(host="127.0.0.1", port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
         host, port = server.server_address
         try:
@@ -89,7 +89,7 @@ class WindowsSchedulerTests(unittest.TestCase):
 
     def test_snapshot_isolates_scheduler_error_and_action_captures_boolean(self) -> None:
         server = create_server(host="127.0.0.1", port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
         host, port = server.server_address
         try:

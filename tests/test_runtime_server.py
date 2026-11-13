@@ -26,7 +26,7 @@ class RuntimeServerTests(unittest.TestCase):
                         ORI_RUNTIME_DATA_DIR=str(self.directory))
         with patch.dict(os.environ,self.env):
             self.server=create_server(host='127.0.0.1',port=0,session_database=str(self.directory/'archive.sqlite'))
-        self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread=threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True)
         self.thread.start()
         self.addCleanup(self.thread.join)
         self.addCleanup(self.server.server_close)

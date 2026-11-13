@@ -28,7 +28,7 @@ class DurableSseTests(unittest.TestCase):
 
     def start(self):
         self.server = create_server(host='127.0.0.1',port=0,sessions=self.sessions)
-        self.thread = threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True)
         self.thread.start()
 
     def stop(self):

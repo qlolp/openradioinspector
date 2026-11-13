@@ -503,7 +503,7 @@ class HTTPTests(unittest.TestCase):
                 self.send_response(200); self.send_header('Content-Length', str(len(body)))
                 self.end_headers(); self.wfile.write(body)
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        thread = Thread(target=server.serve_forever, daemon=True); thread.start()
+        thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); thread.start()
         try:
             client = PlatformClient(f'http://127.0.0.1:{server.server_port}')
             for _ in range(2): validate_result(client.candidate_frequency_rounding('session','candidate',profile_template()), 'session', source(), profile_template())

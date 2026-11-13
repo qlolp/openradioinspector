@@ -84,6 +84,17 @@ def sealed_snapshot(source:Path,directory:Path):
 
 
 class LegacyRpcTests(unittest.TestCase):
+    def test_readonly_sqlite_uri_normalizes_only_windows_disk_namespace(self):
+        from pathlib import PureWindowsPath
+        from radioinspector.legacy_rpc import _readonly_sqlite_uri
+
+        expected = 'file:///C:/private/%D1%82%D0%B5%D1%81%D1%82%20%23%3F.pan?mode=ro'
+        for source in (r'C:\private\тест #?.pan', r'\\?\C:\private\тест #?.pan'):
+            with self.subTest(source=source):
+                self.assertEqual(_readonly_sqlite_uri(PureWindowsPath(source)), expected)
+        source = self.root / 'private #?.pan'
+        self.assertEqual(_readonly_sqlite_uri(source), source.as_uri() + '?mode=ro')
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name).resolve();self.path=self.root/'source-é-é-😀.pan';create_pan(self.path)

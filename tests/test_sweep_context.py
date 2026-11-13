@@ -478,7 +478,7 @@ class ContextHTTPTests(unittest.TestCase):
         size = service.archive_capacity()["database_bytes"]
         service.close()
         self.server = create_server(host="127.0.0.1", port=0, session_database=path, archive_max_bytes=size)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop_server)
         self.root = f"/api/v1/sessions/{self.session.id}/sweep-context"

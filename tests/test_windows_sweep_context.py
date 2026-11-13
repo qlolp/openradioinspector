@@ -216,7 +216,7 @@ class HTTPTests(unittest.TestCase):
             def do_POST(self):
                 seen.append((self.path,json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
                 raw=json.dumps(api_payload(response())).encode();self.send_response(200);self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)
-        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=Thread(target=server.serve_forever,daemon=True);thread.start()
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True);thread.start()
         try:
             client=PlatformClient(f'http://127.0.0.1:{server.server_port}')
             for _ in range(2):validate_context(client.sweep_context('session','sweep-3'),('session','s'),source(),2,2)

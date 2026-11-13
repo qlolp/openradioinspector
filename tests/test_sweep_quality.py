@@ -225,7 +225,7 @@ class QualityHTTPTests(unittest.TestCase):
                                          frequencies_hz=[100, 100, 300, 400]))
         service.close()
         self.server = create_server(host='127.0.0.1', port=0, session_database=path)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); self.thread.start()
         self.addCleanup(self.stop)
         self.root = f'/api/v1/sessions/{self.session.id}/sweep-quality'
 

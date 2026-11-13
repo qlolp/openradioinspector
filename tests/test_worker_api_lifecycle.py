@@ -18,7 +18,7 @@ class WorkerStopAdmissionHttpTests(unittest.TestCase):
         self.session = self.service.create_session(simulated_session_payload())
         self.service.start_session(self.session.id)
         self.server = create_server(host='127.0.0.1', port=0, sessions=self.service)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.manager = self.server.worker_manager
         self.prefix = f'/api/v1/sessions/{self.session.id}'

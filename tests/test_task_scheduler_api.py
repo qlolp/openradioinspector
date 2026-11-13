@@ -34,7 +34,7 @@ class TaskSchedulerApiTests(unittest.TestCase):
         self.server = create_server(
             host="127.0.0.1", port=0, sessions=self.sessions, task_scheduler=self.scheduler
         )
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.host, self.port = self.server.server_address
 
