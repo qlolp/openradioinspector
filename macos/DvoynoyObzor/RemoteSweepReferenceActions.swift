@@ -204,6 +204,7 @@ extension RemoteDualModel {
         frequencyRaster.reset()
         measurementResults.reset()
         frequencyCounter.reset()
+        fieldStrength.reset()
         dvbEvaluation.reset()
         phonogram.reset()
         signalList.reset()

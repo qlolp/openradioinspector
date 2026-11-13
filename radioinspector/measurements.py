@@ -7,7 +7,9 @@
   β/2 (п. 3.4.1 справочника МСЭ, рекомендация ITU-R SM.328-10);
 * :func:`bandwidth_at_level` — ширина полосы частот по уровню −N дБ
   (ГОСТ 30318-95, нормы 19-02-21);
-* :func:`field_strength` — напряжённость электрического поля;
+* :func:`field_strength` — устаревшая некалиброванная оценка уровня;
+* :func:`field_strength_rms_v2` — RMS-эквивалентное узкополосное поле при
+  подтверждённых условиях тракта и явной калибровке;
 * :func:`center_frequency_centroid` — оценка центральной частоты методом
   центра тяжести.
 
@@ -24,6 +26,7 @@ from typing import Optional, Sequence
 import numpy as np
 
 from .trace import Trace
+from .field_strength import field_strength_rms_v2
 
 #: Значение β/2 по умолчанию. Согласно ITU-R SM.328-10 и справочнику МСЭ,
 #: если иное не оговорено для конкретного класса излучения, β/2 = 0,5 %.
@@ -538,7 +541,10 @@ def field_strength(
     calibration_db: float = 0.0,
     level_uncertainty_db: float = 0.0,
 ) -> MeasurementResult:
-    """Напряжённость электрического поля по массиву панорам.
+    """Устаревшая некалиброванная скалярная оценка максимумов панорам.
+
+    Сохранена для совместимости; это не физическая напряжённость поля.
+    Для RMS-эквивалентной оценки используйте field_strength_rms_v2.
 
     Алгоритм (§11.3):
 
@@ -566,7 +572,7 @@ def field_strength(
     if method not in ("median", "mean", "max"):
         raise ValueError("Метод измерения должен быть median, mean или max")
 
-    warnings: list[str] = []
+    warnings = ["Устаревшая некалиброванная оценка уровня; не физическая напряжённость поля"]
     samples: list[float] = []
     for tr in traces:
         if tr.size == 0:
@@ -598,6 +604,8 @@ def field_strength(
         uncertainty=level_uncertainty_db,
         warnings=warnings,
         details={
+            "deprecated": True,
+            "physical_field": False,
             "method": method,
             "samples": samples,
             "sample_count": len(samples),

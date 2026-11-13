@@ -49,6 +49,7 @@ from .sweep_quality import calculate_sweep_quality, validate_quality_request
 from .frequency_counter import (
     calculate_frequency_counter, validate_counter_request,
 )
+from .field_strength import field_strength_rms_v2, validate_field_request
 from .dvb_parameters import evaluate_dvb_parameters
 from .phonogram import PhonogramError, PhonogramRecorder
 from .signal_list import (
@@ -231,6 +232,7 @@ class SessionService:
                 "measurement_results": True,
                 "measurement_methodology_catalog": True,
                 "frequency_counter": True,
+                "field_strength_rms_v2": True,
                 "sweep_quality": True,
                 "dvb_t_evaluation": True,
                 "phonogram_pre_history": True,
@@ -733,6 +735,15 @@ class SessionService:
                 session_id, sweep, edge_margin_db=request["edge_margin_db"],
                 high_level_dbm=request["high_level_dbm"],
             )
+
+    def field_strength_rms_v2(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read-only, calibrated narrowband CW estimate of one archived bin."""
+        request = validate_field_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, request['sweep_id'])
+            return field_strength_rms_v2(sweep, request['calibration'],
+                                         frequency_hz=request['frequency_hz'])
 
     def frequency_counter(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Measure the peak frequency of one archived sweep, without writes."""

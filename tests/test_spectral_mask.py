@@ -470,7 +470,7 @@ class MaskHTTPTests(unittest.TestCase):
         for suffix in ("?", "?x=1", "?x=", "?&", "?sweep_id=sweep-0"):
             status, response = self.request(path=self.root + suffix)
             self.assertEqual((status, response["error"]["code"]), (400, "invalid_request"))
-        self.assertEqual(self.request(method="GET")[0], 404)
+        self.assertEqual(self.request(method="GET", raw=b"")[0], 404)
         self.assertEqual(before, (service.health(), service.events(), service.archive_capacity(), service.list_sweep_references(self.session.id)))
 
     def test_incompatible_missing_and_foreign_no_disclosure(self):

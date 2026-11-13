@@ -394,7 +394,9 @@ extension RemoteDualModel {
             frequencyCounter.configure(client: client,
                 scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
                 sweeps: snapshot.sweeps)
-        } else { measurementResults.reset(); frequencyCounter.reset() }
+            fieldStrength.configure(client: client,
+                scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: snapshot.sweeps)
+        } else { measurementResults.reset(); frequencyCounter.reset(); fieldStrength.reset() }
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL),
            PlatformThreeSweepThresholds.sameID(snapshot.session.id, selectedSessionID) {
             dvbEvaluation.configure(client: client,

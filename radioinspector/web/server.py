@@ -84,6 +84,7 @@ from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
 from ..measurements import measure_signal
+from ..field_strength import FieldStrengthUnavailable, MAX_FIELD_REQUEST_BYTES
 from ..occupancy import efficiency_from_store, occupancy_from_store
 from ..panorama import PanoramaLibrary, PanoramaStore
 from ..signals import SignalList
@@ -765,7 +766,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection", "sweep-context", "sweep-occupancy",
                     "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
-                    "dvb-evaluation", "measurement-map", "sweep-quality",
+                    "dvb-evaluation", "measurement-map", "sweep-quality", "field-strength-rms-v2",
                 )):
             maximum = {
                 "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
@@ -777,6 +778,7 @@ class Handler(BaseHTTPRequestHandler):
                 "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
                 "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
                 "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
+                "field-strength-rms-v2": MAX_FIELD_REQUEST_BYTES,
                 "sweep-quality": MAX_QUALITY_REQUEST_BYTES,
                 "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                 "measurement-map": MAX_MAP_REQUEST_BYTES,
@@ -1338,6 +1340,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.frequency_rounding(parts[3], payload)))
                 return
             if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4] == "field-strength-rms-v2"):
+                self._send_json(api_payload(self.sessions.field_strength_rms_v2(parts[3], payload)))
+                return
+            if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                     and parts[4] == "sweep-quality"):
                 self._send_json(api_payload(self.sessions.sweep_quality(parts[3], payload)))
                 return
@@ -1594,6 +1600,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "quality_incompatible", str(exc))
         except CounterIncompatibleError as exc:
             self._send_api_error(409, "counter_incompatible", str(exc))
+        except FieldStrengthUnavailable as exc:
+            self._send_api_error(409, "field_strength_unavailable", str(exc))
         except DvbEvaluationError as exc:
             self._send_api_error(409, "dvb_evaluation_error", str(exc))
         except PhonogramError as exc:

@@ -38,6 +38,7 @@ ANALYSIS_BUDGETS = (
     ("dvb-evaluation", 8_192),
     ("measurement-map", 262_144),
     ("sweep-quality", 8_192),
+    ("field-strength-rms-v2", 65_536),
 )
 
 

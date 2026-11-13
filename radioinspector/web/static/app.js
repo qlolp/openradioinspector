@@ -438,7 +438,7 @@ function renderMeasurements(data) {
       warn: (data.bandwidth_at_level.warnings || []).join("; "),
     },
     {
-      label: "Напряжённость поля",
+      label: "Некалиброванная оценка уровня (устаревшая)",
       value:
         typeof data.field_strength.value === "number" &&
         isFinite(data.field_strength.value)

@@ -141,6 +141,7 @@ struct RemoteUltraPane: View {
                 RemoteFrequencyRasterPane(model: model.frequencyRaster)
                 RemoteMeasurementResultsPane(model: model.measurementResults)
                 RemoteFrequencyCounterPane(model: model.frequencyCounter)
+                RemoteFieldStrengthPane(model: model.fieldStrength)
                 RemoteDvbEvaluationPane(model: model.dvbEvaluation)
                 Picker("Поток фонограммы / обмена", selection: $model.auxiliaryStreamID.exactID) {
                     ForEach(model.session?.streams ?? [], id: \.exactID) { stream in

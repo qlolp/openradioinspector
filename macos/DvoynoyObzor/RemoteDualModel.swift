@@ -147,6 +147,7 @@ final class RemoteDualModel: ObservableObject {
     let frequencyRaster = FrequencyRasterModel()
     let measurementResults = MeasurementResultsModel()
     let frequencyCounter = FrequencyCounterModel()
+    let fieldStrength = FieldStrengthModel()
     let dvbEvaluation = DvbEvaluationModel()
     let phonogram = PhonogramModel()
     let signalList = SignalListModel()

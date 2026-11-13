@@ -151,6 +151,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     """Сканирование диапазона частот с сохранением в базу данных панорам."""
     connection = args.sim and "sim://" or args.connection
     instrument = open_instrument(connection)
+    if hasattr(instrument, 'diagnostic_directory'):
+        instrument.diagnostic_directory = Path(args.output) / 'scpi-diagnostics'
 
     settings = ScanSettings(
         device=getattr(instrument, "device_name", "Unknown"),
@@ -276,7 +278,7 @@ def cmd_measure(args: argparse.Namespace) -> int:
         cf = result["center_frequency_centroid"]
         print(f"Полоса β/2 ({ob['method']}): {ob['bandwidth_hz'] / 1e3:.3f} кГц")
         print(f"Полоса по уровню {bl['method']}: {bl['bandwidth_hz'] / 1e3:.3f} кГц")
-        print(f"Напряжённость поля: {fs['value']:.1f} дБ")
+        print(f"Некалиброванная оценка уровня (устаревшая): {fs['value']:.1f} дБ")
         if math.isfinite(cf["value"]):
             print(f"Центральная частота: {cf['value'] / 1e6:.6f} МГц")
         for block in (ob, bl, fs, cf):

@@ -471,6 +471,14 @@ class PlatformClient:
             path += "?" + urlencode({"methodology": methodology})
         return self._request('GET', path, expected_statuses=(200,))
 
+    def field_strength_rms_v2(self, session_id: str, payload: dict) -> dict[str, Any]:
+        from ..field_strength import MAX_FIELD_REQUEST_BYTES, validate_field_request
+        payload = validate_field_request(payload)
+        if len(json.dumps(payload, ensure_ascii=False).encode('utf-8')) > MAX_FIELD_REQUEST_BYTES:
+            raise ValueError('Запрос оценки поля больше 64 КиБ')
+        return self._request('POST', f"/sessions/{_segment(session_id, 'session_id')}/field-strength-rms-v2",
+                             payload, expected_statuses=(200,), strict_json=True, exact_envelope=True)
+
     def frequency_counter(self, session_id: str, sweep_id: str, resolution_hz: int,
                           start_hz: int, stop_hz: int) -> dict[str, Any]:
         from .frequency_counter import validate_request
