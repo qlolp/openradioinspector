@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import closing
 import hashlib
 import http.client
 import json
@@ -63,7 +64,7 @@ class RejectedAnalysisHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def snapshot(self):
-        with sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True) as connection:
+        with closing(sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True)) as connection:
             digest = hashlib.sha256("\n".join(connection.iterdump()).encode()).hexdigest()
         return copy.deepcopy((self.service.health(), self.service.events(),
                               self.service.archive_capacity(), self.service.list_sweeps(self.session.id),
@@ -87,6 +88,32 @@ class RejectedAnalysisHTTPTests(unittest.TestCase):
     def post(self, path, body):
         return self.raw(f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n",
                         path=path, body=body)
+
+    def test_snapshot_closes_real_read_handle_on_success_and_hash_error(self):
+        connect = sqlite3.connect
+        for hash_error in (False, True):
+            opened = []
+
+            def tracked_connect(*args, **kwargs):
+                connection = connect(*args, **kwargs)
+                opened.append(connection)
+                return connection
+
+            with self.subTest(hash_error=hash_error):
+                try:
+                    with patch.object(sqlite3, "connect", tracked_connect):
+                        if hash_error:
+                            with patch.object(hashlib, "sha256", side_effect=ValueError("controlled hash failure")):
+                                with self.assertRaises(ValueError):
+                                    self.snapshot()
+                        else:
+                            self.snapshot()
+                    self.assertEqual(len(opened), 1)
+                    with self.assertRaises(sqlite3.ProgrammingError):
+                        opened[0].execute("SELECT 1")
+                finally:
+                    for connection in opened:
+                        connection.close()
 
     def test_segmented_query_body_finishes_before_error_and_orderly_close(self):
         before = self.snapshot()
