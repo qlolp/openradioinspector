@@ -36,6 +36,14 @@ per launch. Failure reports read a bounded trace only after confirmed child
 cleanup. Missing evidence is reported explicitly and does not identify a cause.
 This test instrumentation does not establish the cause of a native readiness
 timeout or change the full startup checks and two-second fixture deadlines.
+The synthetic server binds numeric loopback through the inherited TCP server
+implementation and assigns its numeric server name directly, avoiding the
+standard HTTP server's hostname lookup before listening. An actual child test
+poisons hostname lookup and still requires full authenticated startup, held
+fork-barrier ownership and cleanup. Socket creation, bind and listen milestones
+fit the same trace caps; a successful reply records authentication without its
+credentials. The historical native post-commit readiness timeout remains
+unclassified within server construction/activation.
 
 A supervisor launches an **absolute executable and argument vector** with no
 shell. It creates fresh 256-bit opaque `ORI_RUNTIME_CONTROL_TOKEN` and

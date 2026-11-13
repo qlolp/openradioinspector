@@ -111,6 +111,11 @@ async fn dropped_writer_probe_cannot_block_start_through_an_unrelated_fork() {
     for phase in [
         "python_entered",
         "writer_acquired",
+        "socket_create_started",
+        "socket_created",
+        "socket_bound",
+        "listen_started",
+        "listener_bound",
         "status_replied",
         "closed",
     ] {
@@ -119,6 +124,11 @@ async fn dropped_writer_probe_cannot_block_start_through_an_unrelated_fork() {
             "missing real backend milestone {phase}: {diagnostics:?}"
         );
     }
+    assert!(events.iter().any(|event| {
+        event["phase"] == "status_replied"
+            && event["authenticated"] == true
+            && event["http_status"] == 200
+    }));
 }
 
 #[test]
@@ -158,4 +168,49 @@ fn configured_python_runs_the_owned_fork_fixture() {
         Some("selected\n"),
         "full startup ignored the explicitly configured interpreter"
     );
+}
+
+#[test]
+fn numeric_loopback_fixture_needs_no_hostname_lookup() {
+    let temp = tempfile::tempdir().unwrap();
+    let wrapper = temp.path().join("no-hostname-python");
+    let script = temp.path().join("no-hostname.py");
+    let installed = temp.path().join("hostname-poison-installed");
+    let called = temp.path().join("hostname-lookup-called");
+    fs::write(
+        &wrapper,
+        b"#!/bin/sh\nexec \"$ORI_FORK_TEST_REAL_PYTHON\" \"$ORI_FORK_TEST_HOSTNAME_SCRIPT\" \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(
+        &script,
+        b"import os, pathlib, runpy, socket, sys\ndef poison(name):\n    pathlib.Path(os.environ['ORI_FORK_TEST_HOSTNAME_CALLED']).write_text(str(name))\n    raise RuntimeError('numeric_loopback_fixture_requested_hostname_lookup')\nsocket.getfqdn = poison\npathlib.Path(os.environ['ORI_FORK_TEST_HOSTNAME_INSTALLED']).write_text('installed')\nsys.argv = sys.argv[1:]\nrunpy.run_path(sys.argv[0], run_name='__main__')\n",
+    )
+    .unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "dropped_writer_probe_cannot_block_start_through_an_unrelated_fork",
+            "--nocapture",
+        ])
+        .env("ORI_TEST_PYTHON", &wrapper)
+        .env("ORI_FORK_TEST_REAL_PYTHON", backend_python::program())
+        .env("ORI_FORK_TEST_HOSTNAME_SCRIPT", &script)
+        .env("ORI_FORK_TEST_HOSTNAME_INSTALLED", &installed)
+        .env("ORI_FORK_TEST_HOSTNAME_CALLED", &called)
+        .output()
+        .unwrap();
+    // The fresh process ran the full original startup/barrier/cleanup oracle.
+    // Confirm the poison really ran so ignoring the wrapper cannot pass.
+    let installed = fs::read_to_string(installed);
+    let lookup = fs::read_to_string(called);
+    assert_eq!(installed.ok().as_deref(), Some("installed"));
+    assert!(
+        output.status.success(),
+        "numeric loopback depended on hostname resolution; lookup={lookup:?}; child output prefixes capped at 4096 bytes each: {}{}",
+        String::from_utf8_lossy(&output.stdout[..output.stdout.len().min(4096)]),
+        String::from_utf8_lossy(&output.stderr[..output.stderr.len().min(4096)])
+    );
+    assert!(matches!(lookup, Err(error) if error.kind() == io::ErrorKind::NotFound));
 }

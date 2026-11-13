@@ -49,6 +49,7 @@ import http.server
 import json
 import pathlib
 import signal
+import socketserver
 import threading
 
 milestone('imports_complete', python_executable=sys.executable[:128],
@@ -82,15 +83,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
     def do_GET(self):
-        milestone('status_received')
         if not self.authorized():
             self.send_json(401, {})
             return
-        milestone('status_authorized')
         self.send_json(200, dict(version=1, instance_id=os.environ['ORI_RUNTIME_INSTANCE_ID'],
             pid=os.getpid(), ready=mode != 'not-ready', preflight_complete=mode != 'not-ready',
             guard_armed=armed, writer_owned=True))
-        milestone('status_replied')
+        milestone('status_replied', authenticated=True, http_status=200)
     def do_POST(self):
         if not self.authorized():
             self.send_json(401, {})
@@ -105,7 +104,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         milestone('shutdown_accepted')
         threading.Thread(target=server.shutdown).start()
 
-server = http.server.HTTPServer(('127.0.0.1', port), Handler)
+class NumericLoopbackHTTPServer(http.server.HTTPServer):
+    def server_bind(self):
+        milestone('socket_created')
+        # Keep the inherited socket options, bind and getsockname behavior.
+        # This fixed numeric fixture does not need HTTPServer's getfqdn lookup.
+        socketserver.TCPServer.server_bind(self)
+        milestone('socket_bound')
+        self.server_name, self.server_port = self.server_address[:2]
+
+    def server_activate(self):
+        milestone('listen_started')
+        super().server_activate()
+
+
+milestone('socket_create_started')
+server = NumericLoopbackHTTPServer(('127.0.0.1', port), Handler)
 milestone('listener_bound')
 try:
     server.serve_forever(poll_interval=0.01)

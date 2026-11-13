@@ -19,6 +19,7 @@ environment with these selections:
 | `AR_x86_64_pc_windows_msvc` | sibling `llvm-lib.exe` |
 | `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` | Rust 1.99.1's bundled `rust-lld.exe` |
 | `CMAKE_GENERATOR` | Ninja |
+| `CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc` | one generated absolute, hash-frozen toolchain in the owned release scope |
 | `PATH` | prepend the verified LLVM bin and native Ninja directories, retaining the original path |
 
 The caller's environment, other modern commands, running Core/app processes,
@@ -31,6 +32,43 @@ Conflicting inherited raw-target, host or AWS-LC compiler/CMake selectors fail
 before compilation, as do a different explicit `RUSTC` or Cargo build target.
 Windows key comparisons ignore case; the copied child map contains one value
 per selected logical key. The caller's original keys and values are retained.
+Conflicting inherited global, raw-target, underscore-target, host and AWS-LC
+toolchain-file selectors also fail before compilation.
+
+The CMake preflight and both Cargo children use the same toolchain file, which
+stays present through their builds and nested `try_compile` projects. It sets
+the documented C and C++ compiler lists to the verified absolute `clang-cl.exe`
+path plus `-fuse-ld=lld`. CMake derives its compiler argument variable from that
+list; the runner never sets the internal `CMAKE_<LANG>_COMPILER_ARG1` variable.
+The toolchain also caches `CMAKE_LINKER_TYPE=LLD` and the verified absolute
+`CMAKE_LINKER`, `CMAKE_LINKER_LLD`, `CMAKE_AR` and `CMAKE_MAKE_PROGRAM` paths.
+It retains the existing compiler flags, CRT selection, SDK environment and Cargo profile.
+Its path and byte hash are frozen with the executable receipts, checked before
+each Cargo child and during the audit after it. A replaced or missing file fails.
+
+CMake 4.4.5 documents required options as
+[compiler-list items](https://github.com/Kitware/CMake/blob/v4.4.5/Help/variable/CMAKE_LANG_COMPILER.rst).
+Its [compiler parser](https://github.com/Kitware/CMake/blob/v4.4.5/Modules/CMakeDetermineCompiler.cmake)
+derives the arguments, and its
+[identification code](https://github.com/Kitware/CMake/blob/v4.4.5/Modules/CMakeDetermineCompilerId.cmake)
+forwards them to the direct compiler invocation. LLVM 20.1.8's
+[driver options](https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/clang/include/clang/Driver/Options.td)
+accept `-fuse-ld=lld` for clang-cl, and its
+[MSVC toolchain](https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/clang/lib/Driver/ToolChains/MSVC.cpp)
+maps `lld` to `lld-link`; an absent selector can choose the Microsoft linker.
+[`CMAKE_LINKER_TYPE`](https://github.com/Kitware/CMake/blob/v4.4.5/Help/variable/CMAKE_LINKER_TYPE.rst)
+covers targets and `try_compile`, while the compiler-list item also reaches
+compiler identification. The locked `cmake 0.1.58` builder reads the target-specific
+toolchain environment key before selecting compilers, preserves its existing
+cc-derived flags and SDK environment, and passes the file to CMake without
+replacing its compiler list.
+
+The exact earlier Windows run configured CMake successfully but failed the
+original owned-Job closure gate with a surviving `vctip.exe`. Its historical
+spawning command was not captured. This selection fix follows the tagged
+CMake/LLVM sources; it does not establish which historical invocation spawned
+that helper. Native compatibility and absence of surviving descendants still
+require a new Windows CI result.
 
 Before the first Cargo build, every executable invocation in the preflight uses
 the original `run_command` supervisor and owned Windows Job. It resolves existing
@@ -102,7 +140,13 @@ with the MSVC ABI/frontend, the verified LLVM archiver, the actual LLD compiler
 linker, and Ninja. After each Cargo build the same audit reads every produced
 CMake cache and compiler identity file, including the actual `CMAKE_COMMAND`
 path and 4.4.5 cache version, rejecting Microsoft compiler, archiver
-or linker fallback. Other CMake compiler/assembler paths are recorded. Existing
+or linker fallback. The audit requires the owned toolchain, explicit LLD linker
+type and the verified `CMAKE_LINKER_LLD` cache entry. Actual C/C++ compiler paths
+and exactly one derived `-fuse-ld=lld` argument come from CMake's generated
+compiler identity files alongside the actual LLD linker identity. A normal
+toolchain compiler variable need not appear in `CMakeCache.txt`; any present
+compiler cache entry must agree with the generated identity.
+Other CMake compiler/assembler paths are recorded. Existing
 Windows SDK `rc.exe`/`mt.exe` are permitted explicitly; their versions and hashes
 are recorded. Conditionally selected sibling `llvm-rc.exe`/`llvm-mt.exe` must
 have the selected LLVM version in their PE version resources; their selected
@@ -150,6 +194,17 @@ is bounded to 512 KiB; cache input files are bounded to 64 KiB, with at most 64
 caches and 20,000 visited build directories. Reports exclude environment dumps,
 private homes, caches and complete build trees. Report errors cannot replace an
 original owned-command failure.
+After a preflight CMake failure, a filtered observation collector reads only the
+owned cache, generated C/C++ compiler identity files and selected compiler
+observations in `CMakeConfigureLog.yaml`. It retains selected tool paths,
+compiler/linker IDs, versions and recognized linker-selector tokens. It never
+exports whole cache/log contents, environment entries, commands or general
+flags. It reads at most 18 regular files, 64 directory entries, 64 KiB per file
+and 512 KiB total; output has at most 64 observations and remains below 64 KiB.
+Truncation and reached limits are recorded, links are excluded, and collector
+errors retain only their type. Collection runs after the original owned command
+has failed and cannot replace that error or its cleanup result. The generated
+toolchain is also a fixed retained artifact.
 Prebuilt assembly evidence reads at most eight AWS-LC build outputs of 512 KiB
 each and checks only the fixed 26-object manifest; it retains markers and hashes,
 not the build output contents or copied vendor objects.

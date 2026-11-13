@@ -44,13 +44,23 @@ def archive_member(payload):
     return b'!<arch>\n' + header + payload + (b'\n' if len(payload) % 2 else b'')
 
 
+def frozen_tools(paths):
+    receipts = {}
+    for key, value in paths.items():
+        receipts[key] = (llvm._receipt(value, provenance='pure owned toolchain fixture')
+                         if key == 'cmake_toolchain' else llvm.executable_receipt(
+                             value, name=Path(value).name, provenance='pure selected-tool fixture'))
+    return llvm.VerifiedTools(paths, receipts)
+
+
 class WindowsLLVMTests(unittest.TestCase):
     def setUp(self):
         self.parent = {'PATH': 'original-tool-path', 'INCLUDE': 'same-sdk', 'LIB': 'same-libs',
                        'OTHER_SECRET': 'do-not-report'}
         self.tools = {'clang_cl': '/verified/LLVM/bin/clang-cl.exe',
                       'llvm_lib': '/verified/LLVM/bin/llvm-lib.exe',
-                      'rust_lld': '/verified/Rust1.99.1/bin/rust-lld.exe'}
+                      'rust_lld': '/verified/Rust1.99.1/bin/rust-lld.exe',
+                      'cmake_toolchain': '/owned/modern-windows-llvm/llvm-toolchain.cmake'}
 
     def env(self, **overrides):
         args = dict(platform='win32', modern=True, opt_in=True,
@@ -66,11 +76,13 @@ class WindowsLLVMTests(unittest.TestCase):
         self.assertEqual(actual.get('AR_x86_64_pc_windows_msvc'), '/verified/LLVM/bin/llvm-lib.exe')
         self.assertEqual(actual.get('CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER'), '/verified/Rust1.99.1/bin/rust-lld.exe')
         self.assertEqual(actual.get('CMAKE_GENERATOR'), 'Ninja')
+        self.assertEqual(actual.get('CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'),
+                         '/owned/modern-windows-llvm/llvm-toolchain.cmake')
         self.assertEqual(actual['PATH'], '/verified/LLVM/bin;original-tool-path')
         self.assertEqual(set(actual) - set(self.parent), {
             'CC_x86_64_pc_windows_msvc', 'CXX_x86_64_pc_windows_msvc',
             'AR_x86_64_pc_windows_msvc', 'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER',
-            'CMAKE_GENERATOR'})
+            'CMAKE_GENERATOR', 'CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'})
         self.assertEqual(actual['INCLUDE'], 'same-sdk')
         self.assertEqual(actual['LIB'], 'same-libs')
         self.assertEqual(self.parent, before)
@@ -145,6 +157,33 @@ class WindowsLLVMTests(unittest.TestCase):
                            ('ar_x86_64_pc_windows_msvc', self.tools['llvm_lib'])):
             self.assertEqual([v for k, v in child.items() if k.casefold() == key], [value])
         self.assertEqual(self.parent, before)
+
+    def test_inherited_toolchain_selectors_cannot_bypass_the_owned_file(self):
+        for key in ('CMAKE_TOOLCHAIN_FILE', 'CMAKE_TOOLCHAIN_FILE_' + llvm.TARGET,
+                    'CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc', 'HOST_CMAKE_TOOLCHAIN_FILE',
+                    'TARGET_CMAKE_TOOLCHAIN_FILE', 'AWS_LC_SYS_CMAKE_TOOLCHAIN_FILE',
+                    'AWS_LC_SYS_CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc',
+                    'AWS_LC_SYS_HOST_CMAKE_TOOLCHAIN_FILE'):
+            for spelling in (key, key.lower()):
+                with self.subTest(key=spelling):
+                    self.parent[spelling] = 'C:/inherited/private.cmake'
+                    original = self.parent.copy()
+                    try:
+                        with self.assertRaises(llvm.LLVMError): self.env()
+                        self.assertEqual(self.parent, original)
+                        self.assertEqual(self.env(opt_in=False, tools=None), original)
+                        self.assertEqual(self.env(check_name='modern-core-client-interop', tools=None), original)
+                    finally:
+                        self.parent.pop(spelling)
+        self.parent['cmake_toolchain_file_x86_64_pc_windows_msvc'] = self.tools['cmake_toolchain']
+        child = self.env()
+        self.assertEqual([value for key, value in child.items()
+                          if key.casefold() == 'cmake_toolchain_file_x86_64_pc_windows_msvc'],
+                         [self.tools['cmake_toolchain']])
+
+    def test_selected_cargo_child_requires_an_owned_toolchain_path(self):
+        self.tools.pop('cmake_toolchain')
+        with self.assertRaises(llvm.LLVMError): self.env()
 
     def test_public_opt_in_rejects_non_windows_and_non_modern_before_running(self):
         for platform, args in (('linux', ['--modern', '--windows-llvm']),
@@ -236,6 +275,9 @@ class LLVMToolAndCacheTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(pe_x64())
             self.tools[key] = str(path)
+        toolchain = self.directory / 'llvm-toolchain.cmake'
+        toolchain.write_bytes(b'# literal owned toolchain fixture\n')
+        self.tools['cmake_toolchain'] = str(toolchain)
 
     def test_executable_receipt_reads_real_x64_file_and_records_only_provenance(self):
         path = Path(self.tools['clang_cl'])
@@ -310,13 +352,17 @@ class LLVMToolAndCacheTests(unittest.TestCase):
                   'CMAKE_CXX_COMPILER': self.tools['clang_cl'], 'CMAKE_AR': self.tools['llvm_lib'],
                   'CMAKE_LINKER': self.tools['lld_link'], 'CMAKE_MAKE_PROGRAM': self.tools['ninja'],
                   'CMAKE_COMMAND': self.tools['cmake'], 'CMAKE_CACHE_MAJOR_VERSION': '4',
-                  'CMAKE_CACHE_MINOR_VERSION': '4', 'CMAKE_CACHE_PATCH_VERSION': '5'}
+                  'CMAKE_CACHE_MINOR_VERSION': '4', 'CMAKE_CACHE_PATCH_VERSION': '5',
+                  'CMAKE_TOOLCHAIN_FILE': self.tools['cmake_toolchain'],
+                  'CMAKE_LINKER_TYPE': 'LLD', 'CMAKE_LINKER_LLD': self.tools['lld_link']}
         values.update(overrides)
         (build / 'CMakeCache.txt').write_text(''.join(key + ':FILEPATH=' + val + '\n' for key, val in values.items()))
         state = build / 'CMakeFiles' / '4.4.5'
         state.mkdir(parents=True, exist_ok=True)
         for language in ('C', 'CXX'):
             (state / ('CMake' + language + 'Compiler.cmake')).write_text(
+                'set(CMAKE_' + language + '_COMPILER "' + self.tools['clang_cl'] + '")\n'
+                'set(CMAKE_' + language + '_COMPILER_ARG1 "-fuse-ld=lld")\n'
                 'set(CMAKE_' + language + '_COMPILER_ID "Clang")\n'
                 'set(CMAKE_' + language + '_SIMULATE_ID "MSVC")\n'
                 'set(CMAKE_' + language + '_COMPILER_FRONTEND_VARIANT "MSVC")\n'
@@ -330,6 +376,47 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.assertEqual(result['languages']['C']['id'], 'Clang')
         self.assertEqual(result['languages']['CXX']['simulate_id'], 'MSVC')
         self.assertEqual(result['tools']['CMAKE_AR']['sha256'], hashlib.sha256(pe_x64()).hexdigest())
+
+    def test_normal_toolchain_compilers_are_audited_from_cmake_generated_identity_files(self):
+        build = self.cache()
+        cache = build / 'CMakeCache.txt'
+        cache.write_text(''.join(line + '\n' for line in cache.read_text().splitlines()
+                                 if not line.startswith(('CMAKE_C_COMPILER:', 'CMAKE_CXX_COMPILER:'))))
+        error = None
+        try:
+            result = llvm.validate_cmake(build, self.tools)
+        except llvm.LLVMError as caught:
+            error = str(caught)
+        self.assertIsNone(error, 'normal toolchain variables need not be compiler cache entries')
+        self.assertEqual(set(result['languages']), {'C', 'CXX'})
+        self.assertEqual(result['languages']['C']['compiler_arg1'], '-fuse-ld=lld')
+        self.assertEqual(result['toolchain']['sha256'], hashlib.sha256(b'# literal owned toolchain fixture\n').hexdigest())
+
+    def test_cache_requires_the_owned_toolchain_and_explicit_verified_lld_selection(self):
+        for key, value in (('CMAKE_TOOLCHAIN_FILE', 'C:/inherited/private.cmake'),
+                           ('CMAKE_TOOLCHAIN_FILE', ''), ('CMAKE_LINKER_TYPE', 'DEFAULT'),
+                           ('CMAKE_LINKER_TYPE', ''), ('CMAKE_LINKER_LLD', 'C:/VS/link.exe'),
+                           ('CMAKE_LINKER_LLD', '')):
+            with self.subTest(key=key, value=value), self.assertRaises(llvm.LLVMError):
+                llvm.validate_cmake(self.cache(**{key: value}), self.tools)
+
+    def test_actual_c_and_cxx_driver_argument_must_keep_one_lld_selector(self):
+        for language in ('C', 'CXX'):
+            for selector in ('', '-fuse-ld=link', '-fuse-ld=lld -fuse-ld=link',
+                             '-fuse-ld=lld -fuse-ld=lld'):
+                build = self.cache()
+                identity = build / ('CMakeFiles/4.4.5/CMake' + language + 'Compiler.cmake')
+                identity.write_text(identity.read_text().replace('"-fuse-ld=lld"', '"' + selector + '"'))
+                with self.subTest(language=language, selector=selector), self.assertRaises(llvm.LLVMError):
+                    llvm.validate_cmake(build, self.tools)
+
+    def test_identity_compiler_path_cannot_disagree_with_the_verified_cache(self):
+        build = self.cache()
+        identity = build / 'CMakeFiles/4.4.5/CMakeCCompiler.cmake'
+        identity.write_text(identity.read_text().replace(
+            'set(CMAKE_C_COMPILER "' + self.tools['clang_cl'] + '")',
+            'set(CMAKE_C_COMPILER "C:/VS/cl.exe")'))
+        with self.assertRaises(llvm.LLVMError): llvm.validate_cmake(build, self.tools)
 
     def test_cmake_rejects_microsoft_compiler_archiver_linker_and_generator_fallback(self):
         for key, value in (('CMAKE_C_COMPILER', 'C:/VS/cl.exe'),
@@ -417,8 +504,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         resource = Path(self.tools['clang_cl']).parent / 'llvm-rc.exe'
         resource.write_bytes(pe_x64())
         tools = dict(self.tools, llvm_rc=str(resource))
-        selected = llvm.VerifiedTools(tools, {key: llvm.executable_receipt(value,
-            name=Path(value).name, provenance='pure selected-tool fixture') for key, value in tools.items()})
+        selected = frozen_tools(tools)
         with patch.object(llvm, '_windows_file_version', return_value='20.1.8.0'):
             result = llvm.validate_cmake(self.cache(CMAKE_RC_COMPILER=str(resource)), selected)
             self.assertEqual(result['tools']['CMAKE_RC_COMPILER']['version'], '20.1.8.0')
@@ -431,8 +517,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
     def test_cache_audit_failure_is_retained_and_walk_errors_are_never_zero_caches(self):
         target = self.directory / 'target'
         target.mkdir()
-        selected = llvm.VerifiedTools(self.tools, {key: llvm.executable_receipt(value,
-            name=Path(value).name, provenance='pure fixture') for key, value in self.tools.items()})
+        selected = frozen_tools(self.tools)
         with patch.object(llvm.os, 'walk', side_effect=PermissionError('unreadable build subtree')):
             with self.assertRaises(PermissionError):
                 llvm.audit_cargo(self.directory, target, selected, check_name='modern-rust-clippy')
@@ -441,8 +526,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.assertEqual(report['error_type'], 'PermissionError')
 
     def test_replacement_during_audit_never_leaves_successful_provenance_report(self):
-        selected = llvm.VerifiedTools(self.tools, {key: llvm.executable_receipt(value,
-            name=Path(value).name, provenance='pure fixture') for key, value in self.tools.items()})
+        selected = frozen_tools(self.tools)
         target = self.directory / 'target'
         target.mkdir()
         def walk(*args, **kwargs):
@@ -556,9 +640,11 @@ class LLVMToolAndCacheTests(unittest.TestCase):
             llvm.verify_tools(selected, environment=child)
             with self.assertRaises(llvm.LLVMError):
                 llvm.verify_tools(selected, environment={'PATH': 'inherited'})
-        llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_target)), selected)
+        llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_target),
+                                       CMAKE_TOOLCHAIN_FILE=selected['cmake_toolchain']), selected)
         with self.assertRaises(llvm.LLVMError):
-            llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_shim)), selected)
+            llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_shim),
+                                           CMAKE_TOOLCHAIN_FILE=selected['cmake_toolchain']), selected)
 
     def test_chocolatey_package_mismatch_and_unsafe_layout_fail_before_any_command(self):
         cases = ('shim_identity', 'missing_package', 'package_sha', 'zip_sha', 'wrong_id', 'wrong_version',
@@ -710,8 +796,16 @@ class LLVMToolAndCacheTests(unittest.TestCase):
                 return ''
             if name.endswith('-cmake-configure'):
                 build = Path(command[command.index('-B') + 1])
-                make_program = next(value.split('=', 1)[1] for value in command if value.startswith('-DCMAKE_MAKE_PROGRAM='))
-                source = self.cache(CMAKE_MAKE_PROGRAM=make_program)
+                toolchain = next((value.split('=', 1)[1] for value in command
+                                  if value.startswith('-DCMAKE_TOOLCHAIN_FILE=')), None)
+                if toolchain is None:
+                    make_program = next(value.split('=', 1)[1] for value in command
+                                        if value.startswith('-DCMAKE_MAKE_PROGRAM='))
+                else:
+                    selection = Path(toolchain).read_text()
+                    make_program = re.findall(r'set\(CMAKE_MAKE_PROGRAM \[=\[(.*?)\]=\]', selection)[0]
+                source = self.cache(CMAKE_MAKE_PROGRAM=make_program,
+                                    CMAKE_TOOLCHAIN_FILE=toolchain or self.tools['cmake_toolchain'])
                 import shutil
                 shutil.copytree(source, build, dirs_exist_ok=True)
                 return ''
@@ -765,6 +859,162 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         source = self.directory / 'modern-windows-llvm'
         self.assertIn('#include <windows.h>', (source / 'cmake/positive.c').read_text())
         self.assertEqual((source / 'negative.c').read_text(), '#error ' + llvm.NEGATIVE_MARKER + '\n')
+
+    def test_one_frozen_absolute_toolchain_selects_lld_during_identification_and_targets(self):
+        selected = self.preflight(self.prepare_driver())
+        path = selected.get('cmake_toolchain')
+        self.assertIsNotNone(path, 'successful preflight must return its owned compiler-list toolchain')
+        toolchain = Path(path)
+        self.assertTrue(toolchain.is_absolute())
+        self.assertEqual(toolchain.parent, self.directory / 'modern-windows-llvm')
+        text = toolchain.read_text()
+        for language in ('C', 'CXX'):
+            self.assertIn('set(CMAKE_' + language + '_COMPILER [=[' +
+                          self.tools['clang_cl'].replace('\\', '/') + ']=] -fuse-ld=lld)\n', text)
+        self.assertNotIn('_COMPILER_ARG1', text, 'CMake must derive its own private argument variable')
+        for key, tool in (('CMAKE_LINKER', 'lld_link'), ('CMAKE_LINKER_LLD', 'lld_link'),
+                          ('CMAKE_AR', 'llvm_lib'), ('CMAKE_MAKE_PROGRAM', 'ninja')):
+            self.assertIn('set(' + key + ' [=[' + self.tools[tool].replace('\\', '/') +
+                          ']=] CACHE FILEPATH "" FORCE)\n', text)
+        self.assertIn('set(CMAKE_LINKER_TYPE LLD CACHE STRING "" FORCE)\n', text)
+        self.assertEqual(selected.receipts['cmake_toolchain']['sha256'], hashlib.sha256(toolchain.read_bytes()).hexdigest())
+        configure = next(entry for entry in self.calls if entry[0].endswith('-cmake-configure'))
+        self.assertIn('-DCMAKE_TOOLCHAIN_FILE=' + path.replace('\\', '/'), configure[1])
+        self.assertFalse(any(argument.startswith('-DCMAKE_C_COMPILER=') for argument in configure[1]))
+        self.assertEqual(configure[2]['CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'], path)
+        report = json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+        self.assertNotIn('cmake_failure', report, 'filtered failure collection must not run on success')
+        for name in ('modern-rust-clippy', 'modern-rust-tests'):
+            child = llvm.environment_for({}, platform='win32', modern=True, opt_in=True,
+                                         check_name=name, tools=selected)
+            self.assertEqual(child['CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc'], path)
+            self.assertTrue(toolchain.is_file(), 'the shared toolchain must live through both Cargo children')
+
+    def test_generated_toolchain_rejects_cmake_list_injection_in_an_existing_tool_path(self):
+        driver = self.prepare_driver()
+        source = self.directory / 'LLVM'
+        destination = self.directory / 'LLVM;private'
+        source.rename(destination)
+        self.tools.update({key: value.replace(str(source), str(destination)) for key, value in self.tools.items()})
+        self.which_paths = {Path(value).name: value for value in self.tools.values()}
+        with self.assertRaises(llvm.LLVMError): self.preflight(driver)
+        self.assertFalse(any(entry[0].endswith('-positive') for entry in self.calls))
+
+    def test_toolchain_tampering_fails_before_cargo_and_in_its_actual_cache_audit(self):
+        selected = self.preflight(self.prepare_driver())
+        path = selected.get('cmake_toolchain')
+        self.assertIsNotNone(path, 'owned toolchain must have a frozen receipt before Cargo')
+        llvm.verify_tools(selected)
+        Path(path).write_bytes(Path(path).read_bytes() + b'# changed after configure\n')
+        target = self.directory / 'target'
+        target.mkdir()
+        for action in (lambda: llvm.verify_tools(selected),
+                       lambda: llvm.validate_cmake(self.directory / 'modern-windows-llvm/cmake-build', selected),
+                       lambda: llvm.audit_cargo(self.directory, target, selected, check_name='modern-rust-tests')):
+            with self.subTest(action=action), self.assertRaises(llvm.LLVMError): action()
+
+    def failed_cmake_preflight(self, modify):
+        base = self.prepare_driver()
+        def driver(command, **kwargs):
+            output = base(command, **kwargs)
+            if kwargs['name'].endswith('-cmake-configure'):
+                modify(Path(command[command.index('-B') + 1]))
+                raise release.ReleaseCheckError('original owned configure gate failure')
+            return output
+        with self.assertRaisesRegex(release.ReleaseCheckError, 'original owned configure gate failure'):
+            self.preflight(driver)
+        return json.loads((self.directory / 'modern-windows-llvm.json').read_text())
+
+    def test_owned_configure_failure_collects_only_selected_cmake_observations(self):
+        def modify(build):
+            with (build / 'CMakeCache.txt').open('a') as cache:
+                cache.write('OTHER_SECRET:STRING=never-retain-environment\n'
+                            'CMAKE_C_FLAGS:STRING=/DPRIVATE=never-retain-flags\n')
+            log = build / 'CMakeFiles/CMakeConfigureLog.yaml'
+            log.write_text('events:\n  -\n    message: |\n'
+                           '      Compiling the C compiler identification source file "CMakeCCompilerId.c".\n'
+                           '      Compiler: ' + self.tools['clang_cl'] + ' -fuse-ld=link\n'
+                           '      Build flags: /DPRIVATE=never-retain-log-flags\n'
+                           '      arbitrary secret-output-never-retain\n')
+        report = self.failed_cmake_preflight(modify)
+        failure = report.get('cmake_failure')
+        self.assertIsNotNone(failure, 'owned configure failure must retain bounded selected observations')
+        self.assertEqual(failure['status'], 'collected')
+        observations = failure['observations']
+        self.assertTrue(any(row.get('key') == 'CMAKE_LINKER_TYPE' and row.get('value') == 'LLD' for row in observations))
+        self.assertTrue(any(row.get('key') == 'CMAKE_C_COMPILER_ARG1' and
+                            row.get('linker_selectors') == ['-fuse-ld=lld'] for row in observations))
+        self.assertTrue(any(row.get('source') == 'CMakeFiles/CMakeConfigureLog.yaml' and
+                            row.get('linker_selectors') == ['-fuse-ld=link'] for row in observations))
+        retained = json.dumps(report)
+        for private in ('OTHER_SECRET', 'never-retain-environment', 'never-retain-flags',
+                        'never-retain-log-flags', 'secret-output-never-retain', 'Build flags:'):
+            self.assertNotIn(private, retained)
+
+    def test_failure_collector_bounds_files_directories_records_bytes_and_skips_links(self):
+        def modify(build):
+            files = build / 'CMakeFiles'
+            template = (files / '4.4.5/CMakeCCompiler.cmake').read_bytes()
+            for index in range(80):
+                state = files / ('version-' + str(index))
+                state.mkdir()
+                for language in ('C', 'CXX'):
+                    (state / ('CMake' + language + 'Compiler.cmake')).write_bytes(template)
+            log = files / 'CMakeConfigureLog.yaml'
+            log.write_bytes((('      Compiler: ' + self.tools['clang_cl'] + ' -fuse-ld=lld\n') * 3000).encode())
+            linked = files / 'version-link'
+            linked.mkdir()
+            (linked / 'CMakeCCompiler.cmake').write_text(
+                'set(CMAKE_C_COMPILER "C:/symlink-secret-never-retain/clang-cl.exe")\n')
+        is_symlink = Path.is_symlink
+        # Model only the filesystem link bit; Windows fixtures need no link
+        # creation privilege and all collector reads/bounds remain real.
+        with patch.object(Path, 'is_symlink', lambda path: path.name == 'version-link' or is_symlink(path)):
+            report = self.failed_cmake_preflight(modify)
+        failure = report.get('cmake_failure')
+        self.assertIsNotNone(failure, 'a bounded collector must survive overlarge build diagnostics')
+        self.assertLessEqual(len(failure['files']), 18)
+        self.assertLessEqual(len(failure['observations']), 64)
+        self.assertLessEqual(failure['input_bytes'], 512 * 1024)
+        self.assertLessEqual(len(json.dumps(failure).encode()), 64 * 1024)
+        self.assertTrue(failure['directory_limit_reached'])
+        self.assertTrue(any(row['truncated'] for row in failure['files']))
+        self.assertNotIn('symlink-secret-never-retain', json.dumps(report))
+
+    def test_failure_collector_errors_preserve_the_original_owned_command_error(self):
+        def modify(build):
+            (build / 'CMakeCache.txt').unlink()
+            (build / 'CMakeCache.txt').mkdir()
+        report = self.failed_cmake_preflight(modify)
+        failure = report.get('cmake_failure')
+        self.assertIsNotNone(failure, 'unreadable diagnostics must be recorded without replacing ownership failure')
+        self.assertEqual(failure['status'], 'collection_failed')
+        self.assertEqual(failure['error_type'], 'LLVMError')
+
+    def test_failure_collector_does_not_enumerate_a_sixty_fifth_directory_entry(self):
+        def modify(build):
+            for index in range(80):
+                (build / 'CMakeFiles' / ('bounded-' + str(index))).mkdir()
+        original, visited = llvm.os.scandir, []
+        owned = self.directory / 'modern-windows-llvm/cmake-build/CMakeFiles'
+        class CountingScan:
+            def __init__(self, scan): self.scan = scan
+            def __enter__(self):
+                self.scan.__enter__()
+                return self
+            def __exit__(self, *args): return self.scan.__exit__(*args)
+            def __iter__(self): return self
+            def __next__(self):
+                value = next(self.scan)
+                visited.append(value.name)
+                return value
+        def scandir(path):
+            scan = original(path)
+            return CountingScan(scan) if Path(path) == owned else scan
+        with patch.object(llvm.os, 'scandir', side_effect=scandir):
+            report = self.failed_cmake_preflight(modify)
+        self.assertEqual(report['cmake_failure']['status'], 'collected')
+        self.assertLessEqual(len(visited), 64)
 
     def test_missing_tool_wrong_version_and_mismatched_archive_binary_fail_closed(self):
         for condition in ('missing', 'version', 'archive'):
@@ -855,7 +1105,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         self.assertNotEqual(hashlib.sha256(Path(self.tools['clang_cl']).read_bytes()).hexdigest(), baseline)
         target = self.directory / 'target'
         target.mkdir()
-        for action in (lambda: llvm.validate_cmake(self.cache(), selected),
+        for action in (lambda: llvm.validate_cmake(self.cache(CMAKE_TOOLCHAIN_FILE=selected['cmake_toolchain']), selected),
                        lambda: llvm.audit_cargo(self.directory, target, selected, check_name='modern-rust-clippy')):
             with self.subTest(action=action), self.assertRaises(llvm.LLVMError): action()
         commands_started = []
@@ -877,8 +1127,7 @@ class LLVMToolAndCacheTests(unittest.TestCase):
         rust_lld = self.directory / 'rust-lld.exe'
         rust_lld.write_bytes(pe_x64())
         self.tools['rust_lld'] = str(rust_lld)
-        selected = llvm.VerifiedTools(self.tools, {key: llvm.executable_receipt(value,
-            name=Path(value).name, provenance='pure fixture') for key, value in self.tools.items()})
+        selected = frozen_tools(self.tools)
         self.which_paths = {Path(value).name: value for value in self.tools.values()}
         parent = {'PATH': 'same', 'INCLUDE': 'same-sdk', 'LIB': 'same-library',
                   'CARGO_TARGET_DIR': str(self.directory / 'target')}

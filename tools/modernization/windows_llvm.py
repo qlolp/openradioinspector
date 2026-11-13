@@ -74,8 +74,14 @@ PROVENANCE = {
     'ninja_package': "https://community.chocolatey.org/api/v2/Packages(Id='ninja',Version='1.13.2')",
     'ninja_package_layout': 'https://github.com/joachimschmidt557/chocolatey-packages-manual-automatic/blob/968afc9a63f1a9d9b2f30c85ef7248b705ebca6c/automatic/ninja/tools/chocolateyInstall.ps1',
     'ninja_upstream': 'https://github.com/ninja-build/ninja/releases/tag/v1.13.2',
+    'cmake_compiler_list': 'https://github.com/Kitware/CMake/blob/v4.4.5/Help/variable/CMAKE_LANG_COMPILER.rst',
+    'cmake_identification_arguments': 'https://github.com/Kitware/CMake/blob/v4.4.5/Modules/CMakeDetermineCompilerId.cmake',
+    'cmake_linker_type': 'https://github.com/Kitware/CMake/blob/v4.4.5/Help/variable/CMAKE_LINKER_TYPE.rst',
+    'clang_cl_linker_selection': 'https://github.com/llvm/llvm-project/blob/llvmorg-20.1.8/clang/lib/Driver/ToolChains/MSVC.cpp',
+    'locked_cmake_toolchain': 'Cargo.lock: cmake 0.1.58; src/lib.rs: Config::build / getenv_target_os',
 }
 ARTIFACTS = ('positive.c', 'positive.obj', 'positive.lib', 'negative.c',
+             'llvm-toolchain.cmake',
              'positive.asm', 'nasm-positive.obj',
              'cmake/CMakeLists.txt', 'cmake/positive.c', 'cmake/main.cpp',
              'cmake-build/ori_llvm_probe.exe', 'cmake-build/ori_llvm_probe.lib')
@@ -130,6 +136,12 @@ def _selector_conflicts(parent, tools):
         if base == 'CMAKE':
             expected[base] = value
     expected.update(RUSTC=tools.get('rustc'), CARGO_BUILD_TARGET=TARGET)
+    for base in ('CMAKE_TOOLCHAIN_FILE', 'AWS_LC_SYS_CMAKE_TOOLCHAIN_FILE',
+                 'AWS_LC_SYS_HOST_CMAKE_TOOLCHAIN_FILE'):
+        for key in (base, base + '_' + TARGET, base + '_' + TARGET.replace('-', '_')):
+            expected[key] = tools.get('cmake_toolchain')
+    for key in ('HOST_CMAKE_TOOLCHAIN_FILE', 'TARGET_CMAKE_TOOLCHAIN_FILE'):
+        expected[key] = tools.get('cmake_toolchain')
     for key, wanted in expected.items():
         for actual_key, actual in parent.items():
             if actual_key.casefold() != key.casefold():
@@ -152,12 +164,15 @@ def environment_for(parent, *, platform, modern, opt_in, check_name, tools):
     child = parent.copy()
     if platform != 'win32' or not modern or not opt_in or check_name not in BUILD_CHECKS:
         return child
+    if not tools.get('cmake_toolchain') or not ntpath.isabs(tools['cmake_toolchain']):
+        raise LLVMError('selected Cargo child requires the absolute owned CMake toolchain')
     _selector_conflicts(parent, tools)
     for key, value in {'CC_x86_64_pc_windows_msvc': tools['clang_cl'],
                        'CXX_x86_64_pc_windows_msvc': tools['clang_cl'],
                        'AR_x86_64_pc_windows_msvc': tools['llvm_lib'],
                        'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER': tools['rust_lld'],
-                       'CMAKE_GENERATOR': 'Ninja'}.items():
+                       'CMAKE_GENERATOR': 'Ninja',
+                       'CMAKE_TOOLCHAIN_FILE_x86_64_pc_windows_msvc': tools['cmake_toolchain']}.items():
         _set_windows_key(child, key, value)
     # A Windows PATH delimiter is intentional, including in portable scope tests.
     inherited_path = next((value for key, value in parent.items() if key.casefold() == 'path'), '')
@@ -189,6 +204,38 @@ def _receipt(path, *, provenance):
             digest.update(chunk)
     return {'path': str(path), 'bytes': path.stat().st_size,
             'sha256': digest.hexdigest(), 'provenance': provenance}
+
+
+def _toolchain_receipt(path):
+    path = Path(path)
+    if not path.is_absolute() or path.is_symlink():
+        raise LLVMError('CMake toolchain must remain an owned absolute regular file')
+    data = _bounded(path)
+    return {'path': str(path.resolve(strict=True)), 'bytes': len(data),
+            'sha256': hashlib.sha256(data).hexdigest(),
+            'provenance': 'owned CMake documented compiler-list toolchain; identification and target linker selection'}
+
+
+def _prepare_toolchain(root, tools):
+    # Required compiler options are documented list items. CMake derives ARG1
+    # itself and forwards it to direct compiler-identification invocations.
+    def literal(key):
+        value = tools[key].replace('\\', '/')
+        if not ntpath.isabs(value) or any(token in value for token in (';', ']=]', '\r', '\n', '\0')):
+            raise LLVMError('verified tool path cannot be represented as a CMake compiler-list item')
+        return '[=[' + value + ']=]'
+    compiler = literal('clang_cl')
+    text = ''.join('set(CMAKE_' + language + '_COMPILER ' + compiler + ' -fuse-ld=lld)\n'
+                   for language in ('C', 'CXX'))
+    text += 'set(CMAKE_LINKER_TYPE LLD CACHE STRING "" FORCE)\n'
+    for key, tool in (('CMAKE_LINKER', 'lld_link'), ('CMAKE_LINKER_LLD', 'lld_link'),
+                      ('CMAKE_AR', 'llvm_lib'), ('CMAKE_MAKE_PROGRAM', 'ninja')):
+        text += 'set(' + key + ' ' + literal(tool) + ' CACHE FILEPATH "" FORCE)\n'
+    path = Path(root) / 'llvm-toolchain.cmake'
+    with path.open('xb') as output:
+        output.write(text.encode('utf-8'))
+    tools['cmake_toolchain'] = str(path.resolve(strict=True))
+    return _toolchain_receipt(tools['cmake_toolchain'])
 
 
 def executable_receipt(path, *, name, provenance):
@@ -328,10 +375,20 @@ def _resolve_chocolatey_ninja(shim, environment, evidence):
 def verify_tools(tools, *, environment=None):
     if type(tools) is not VerifiedTools:
         raise LLVMError('Cargo LLVM selection has no frozen preflight receipts')
+    if 'cmake_toolchain' not in tools:
+        raise LLVMError('Cargo LLVM selection has no frozen owned CMake toolchain')
     for key, path in tools.items():
-        actual = executable_receipt(path, name=Path(path).name, provenance='immutable preflight tool check')
-        if key not in tools.receipts or actual['sha256'] != tools.receipts[key]['sha256']:
-            raise LLVMError(f'{key}: executable changed after its verified version/hash receipt')
+        actual = (_toolchain_receipt(path) if key == 'cmake_toolchain' else
+                  executable_receipt(path, name=Path(path).name, provenance='immutable preflight tool check'))
+        if (key not in tools.receipts or actual['sha256'] != tools.receipts[key]['sha256'] or
+                not _same_path(actual['path'], tools.receipts[key]['path'])):
+            raise LLVMError(f'{key}: selection changed after its frozen preflight receipt')
+    if environment is not None:
+        _selector_conflicts(environment, tools)
+        actual = next((value for key, value in environment.items()
+                       if key.casefold() == 'cmake_toolchain_file_x86_64_pc_windows_msvc'), '')
+        if not _same_path(actual, tools['cmake_toolchain']):
+            raise LLVMError('actual Cargo child does not select the frozen owned CMake toolchain')
     if environment is not None and 'ninja' in tools:
         actual = shutil.which('ninja.exe', path=environment.get('PATH'))
         if actual is None or not _same_path(str(Path(actual).resolve()), tools['ninja']):
@@ -502,12 +559,34 @@ def validate_cmake(build, tools, *, preflight=False):
         raise LLVMError('CMake did not select Ninja')
     if [values.get('CMAKE_CACHE_' + component + '_VERSION') for component in ('MAJOR', 'MINOR', 'PATCH')] != ['4', '4', '5']:
         raise LLVMError('actual CMake cache version is not the verified 4.4.5')
-    if values.get('CMAKE_LINKER_TYPE', 'DEFAULT') not in ('', 'DEFAULT', 'LLD'):
-        raise LLVMError('CMake linker type can select a Microsoft fallback')
-    expected = {'CMAKE_C_COMPILER': 'clang_cl', 'CMAKE_AR': 'llvm_lib',
-                'CMAKE_LINKER': 'lld_link', 'CMAKE_MAKE_PROGRAM': 'ninja', 'CMAKE_COMMAND': 'cmake'}
-    if values.get('CMAKE_CXX_COMPILER'):
-        expected['CMAKE_CXX_COMPILER'] = 'clang_cl'
+    if values.get('CMAKE_LINKER_TYPE') != 'LLD':
+        raise LLVMError('CMake did not explicitly select linker type LLD')
+    if not tools.get('cmake_toolchain') or not _same_path(values.get('CMAKE_TOOLCHAIN_FILE', ''), tools['cmake_toolchain']):
+        raise LLVMError('CMake did not select the frozen owned toolchain')
+    toolchain = _toolchain_receipt(tools['cmake_toolchain'])
+    if type(tools) is VerifiedTools and toolchain['sha256'] != tools.receipts['cmake_toolchain']['sha256']:
+        raise LLVMError('CMake toolchain differs from its frozen preflight receipt')
+    expected = {'CMAKE_AR': 'llvm_lib', 'CMAKE_LINKER': 'lld_link', 'CMAKE_LINKER_LLD': 'lld_link',
+                'CMAKE_MAKE_PROGRAM': 'ninja', 'CMAKE_COMMAND': 'cmake'}
+    identities = {}
+    # A documented normal-variable compiler list need not create compiler cache
+    # entries. CMake's generated identity files hold the actual path and ARG1.
+    for language in ('C', 'CXX'):
+        key = 'CMAKE_' + language + '_COMPILER'
+        files = sorted((build / 'CMakeFiles').glob('*/CMake' + language + 'Compiler.cmake'))
+        if len(files) > 1 or (len(files) != 1 and (language == 'C' or values.get(key))):
+            raise LLVMError(f'CMake {language} compiler identity is absent or ambiguous')
+        if not files:
+            continue
+        identity = _bounded(files[0]).decode('utf-8', errors='strict')
+        paths = re.findall(r'set\(' + key + r' "([^"]*)"\)', identity)
+        if len(paths) != 1 or not _same_path(paths[0], tools['clang_cl']):
+            raise LLVMError(f'CMake {language} actual compiler is not the verified Clang')
+        if key in values and not _same_path(values[key], paths[0]):
+            raise LLVMError(f'CMake {language} cache and actual compiler identity disagree')
+        values[key] = paths[0]
+        expected[key] = 'clang_cl'
+        identities[language] = identity
     selected = {}
     for key, tool in expected.items():
         if not _same_path(values.get(key, ''), tools[tool]):
@@ -528,13 +607,10 @@ def validate_cmake(build, tools, *, preflight=False):
                 if selected[key]['sha256'] != tools.receipts[tool]['sha256']:
                     raise LLVMError(f'{key}: archiver differs from its frozen preflight receipt')
     languages = {}
-    for language in ('C', 'CXX'):
-        if 'CMAKE_' + language + '_COMPILER' not in expected:
-            continue
-        files = sorted((build / 'CMakeFiles').glob('*/CMake' + language + 'Compiler.cmake'))
-        if len(files) != 1:
-            raise LLVMError(f'CMake {language} compiler identity is absent or ambiguous')
-        identity = _bounded(files[0]).decode('utf-8', errors='strict')
+    for language, identity in identities.items():
+        argument = re.findall(r'set\(CMAKE_' + language + r'_COMPILER_ARG1 "([^"]*)"\)', identity)
+        if argument != ['-fuse-ld=lld']:
+            raise LLVMError(f'CMake {language} compiler identification lacks the required single LLD driver selector')
         wanted = {'COMPILER_ID': 'Clang', 'SIMULATE_ID': 'MSVC', 'COMPILER_FRONTEND_VARIANT': 'MSVC'}
         for suffix, value in wanted.items():
             if re.findall(r'set\(CMAKE_' + language + '_' + suffix + r' "([^"]*)"\)', identity) != [value]:
@@ -544,6 +620,7 @@ def validate_cmake(build, tools, *, preflight=False):
         if len(linker_paths) != 1 or not _same_path(linker_paths[0], tools['lld_link']) or linker_ids != ['LLD']:
             raise LLVMError(f'CMake {language} actual compiler linker is not the verified LLD')
         languages[language] = {'id': 'Clang', 'simulate_id': 'MSVC', 'frontend_variant': 'MSVC',
+                               'compiler': values['CMAKE_' + language + '_COMPILER'], 'compiler_arg1': argument[0],
                                'linker': linker_paths[0], 'linker_id': 'LLD'}
     # Record other compiler/assembler and SDK helper selections without copying
     # flags, cache contents, or environment values into diagnostics.
@@ -581,7 +658,7 @@ def validate_cmake(build, tools, *, preflight=False):
                 if type(tools) is VerifiedTools and selected[key]['sha256'] != tools.receipts[known]['sha256']:
                     raise LLVMError(f'{key}: assembler differs from its frozen preflight receipt')
     return {'cache': str((build / 'CMakeCache.txt').resolve()), 'generator': 'Ninja',
-            'languages': languages, 'tools': selected}
+            'toolchain': toolchain, 'linker_type': 'LLD', 'languages': languages, 'tools': selected}
 
 
 def _write_json(path, value):
@@ -619,12 +696,134 @@ def _primary_zero_output(output):
     return output[:-len(trailer)]
 
 
+def _collect_cmake_failure(build):
+    """Read fixed owned CMake diagnostics; export selections, never commands."""
+    build = Path(build)
+    report = {'status': 'collected', 'files': [], 'observations': [], 'input_bytes': 0,
+              'directory_limit_reached': False, 'file_limit_reached': False,
+              'record_limit_reached': False}
+    path_keys = {
+        'CMAKE_C_COMPILER': ('clang-cl.exe', 'cl.exe', 'clang.exe', 'gcc.exe'),
+        'CMAKE_CXX_COMPILER': ('clang-cl.exe', 'cl.exe', 'clang++.exe', 'g++.exe'),
+        'CMAKE_COMPILER': ('clang-cl.exe', 'cl.exe', 'clang.exe', 'clang++.exe'),
+        'CMAKE_AR': ('llvm-lib.exe', 'llvm-ar.exe', 'lib.exe'),
+        'CMAKE_LINKER': ('lld-link.exe', 'link.exe'),
+        'CMAKE_LINKER_LLD': ('lld-link.exe', 'link.exe'),
+        'CMAKE_MAKE_PROGRAM': ('ninja.exe', 'nmake.exe'),
+        'CMAKE_COMMAND': ('cmake.exe',),
+        'CMAKE_RC_COMPILER': ('rc.exe', 'llvm-rc.exe'),
+        'CMAKE_MT': ('mt.exe', 'llvm-mt.exe'),
+    }
+    for language in ('C', 'CXX'):
+        path_keys['CMAKE_' + language + '_COMPILER_LINKER'] = ('lld-link.exe', 'link.exe')
+        path_keys['CMAKE_' + language + '_COMPILER_AR'] = ('llvm-ar.exe', 'llvm-lib.exe', 'lib.exe')
+    seen, record_bytes = set(), 0
+
+    def observe(source, key, value):
+        nonlocal record_bytes
+        row = {'source': source, 'key': key}
+        if key in path_keys:
+            if (not ntpath.isabs(value) or ntpath.basename(value).lower() not in path_keys[key] or
+                    any(token in value for token in (';', '"', '\r', '\n', '\0'))):
+                return
+            row.update(value=value[:1024], value_truncated=len(value) > 1024)
+        elif re.fullmatch(r'CMAKE_(?:(?:C|CXX)_)?COMPILER_ARG1', key):
+            arguments = value.split()
+            selectors = [token for token in arguments
+                         if token in ('-fuse-ld=lld', '-fuse-ld=lld-link', '-fuse-ld=link',
+                                      '-fuse-ld=bfd', '-fuse-ld=gold', '-fuse-ld=mold')]
+            row.update(linker_selectors=selectors[:16], other_argument_count=len(arguments) - len(selectors))
+        elif (key in ('CMAKE_GENERATOR', 'CMAKE_LINKER_TYPE') or
+              re.fullmatch(r'CMAKE_(?:C|CXX)_(?:COMPILER_ID|SIMULATE_ID|COMPILER_FRONTEND_VARIANT|COMPILER_LINKER_ID)', key)):
+            if not re.fullmatch(r'[A-Za-z0-9_ .+-]{1,64}', value):
+                return
+            row['value'] = value
+        elif re.fullmatch(r'CMAKE_(?:(?:C|CXX)_COMPILER|CACHE_(?:MAJOR|MINOR|PATCH))_VERSION', key):
+            if not re.fullmatch(r'[0-9]+(?:\.[0-9]+){0,3}', value) or len(value) > 32:
+                return
+            row['value'] = value
+        else:
+            return
+        encoded = json.dumps(row, sort_keys=True)
+        if encoded in seen:
+            return
+        if len(report['observations']) >= 64 or record_bytes + len(encoded.encode('utf-8')) > 48 * 1024:
+            report['record_limit_reached'] = True
+            return
+        seen.add(encoded)
+        record_bytes += len(encoded.encode('utf-8'))
+        report['observations'].append(row)
+
+    def read(path, *, configure_log=False):
+        if path.is_symlink():
+            return
+        try:
+            metadata = path.stat()
+        except FileNotFoundError:
+            return
+        if not stat.S_ISREG(metadata.st_mode):
+            raise LLVMError('CMake failure diagnostic is not a regular file')
+        if len(report['files']) >= 18 or report['input_bytes'] >= 512 * 1024:
+            report['file_limit_reached'] = True
+            return
+        limit = min(TEXT_LIMIT, 512 * 1024 - report['input_bytes'])
+        with path.open('rb') as stream:
+            data = stream.read(limit)
+        source = path.relative_to(build).as_posix()
+        truncated = metadata.st_size > len(data)
+        report['files'].append({'source': source, 'bytes_read': len(data), 'truncated': truncated})
+        report['input_bytes'] += len(data)
+        lines = data.decode('utf-8', errors='replace').splitlines()
+        if truncated and not data.endswith(b'\n'):
+            lines = lines[:-1]
+        language = None
+        for line in lines:
+            if configure_log:
+                identified = re.search(r'Compiling the (C|CXX) compiler identification source file ', line)
+                if identified:
+                    language = identified.group(1)
+                compiler = re.fullmatch(r'\s*Compiler: (.*?\.exe)(?: (.*))?', line)
+                if compiler:
+                    prefix = 'CMAKE_' + (language + '_' if language else '') + 'COMPILER'
+                    observe(source, prefix, compiler.group(1))
+                    observe(source, prefix + '_ARG1', compiler.group(2) or '')
+            else:
+                selection = re.fullmatch(r'(CMAKE_[A-Z0-9_]+):[^=]+=(.*)', line)
+                if selection is None:
+                    selection = re.fullmatch(r'set\((CMAKE_[A-Z0-9_]+) "([^"]*)"\)', line)
+                if selection:
+                    observe(source, *selection.groups())
+
+    read(build / 'CMakeCache.txt')
+    files = build / 'CMakeFiles'
+    if files.is_symlink() or not files.is_dir():
+        return report
+    read(files / 'CMakeConfigureLog.yaml', configure_log=True)
+    candidates = []
+    with os.scandir(files) as entries:
+        for index, entry in enumerate(entries):
+            path = Path(entry.path)
+            if (not path.is_symlink() and entry.is_dir(follow_symlinks=False) and
+                    re.fullmatch(r'[A-Za-z0-9_.+-]{1,80}', entry.name)):
+                candidates.append(path)
+            if index == 63:
+                report['directory_limit_reached'] = True
+                break
+    if len(candidates) > 8:
+        report['file_limit_reached'] = True
+    for path in sorted(candidates)[:8]:
+        for language in ('C', 'CXX'):
+            read(path / ('CMake' + language + 'Compiler.cmake'))
+    return report
+
+
 def preflight(directory, environment, *, run_command, timeout, shutdown_timeout):
     """Verify existing tools and actual SDK build products under original ownership."""
     directory = Path(directory)
     report = {'successful': False, 'native_validation': 'incomplete', 'tools': {}, 'probes': {},
               'provenance': PROVENANCE}
     tools = {}
+    cmake_started = False
     root = directory / 'modern-windows-llvm'
     try:
         if sys.platform != 'win32':
@@ -703,6 +902,7 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
         report['tools']['llvm_lib'].update(version=LLVM_VERSION,
             version_source='identical llvm-ar executable bytes',
             version_source_sha256=report['tools']['llvm_ar']['sha256'])
+        report['tools']['cmake_toolchain'] = _prepare_toolchain(root, tools)
         child = environment_for(environment, platform='win32', modern=True, opt_in=True,
                                 check_name='modern-rust-clippy', tools=tools)
         nasm = shutil.which('nasm.exe', path=child['PATH'])
@@ -754,10 +954,9 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
             '#include <windows.h>\nunsigned long ori_llvm_sdk(void) { return GetCurrentProcessId(); }\n', encoding='ascii')
         (project / 'main.cpp').write_text(
             'extern "C" unsigned long ori_llvm_sdk(void);\nint main() { return ori_llvm_sdk() == 0; }\n', encoding='ascii')
-        configure = [tools['cmake'], '-S', str(project), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Debug']
-        for variable, key in (('CMAKE_C_COMPILER', 'clang_cl'), ('CMAKE_CXX_COMPILER', 'clang_cl'),
-                              ('CMAKE_AR', 'llvm_lib'), ('CMAKE_LINKER', 'lld_link'), ('CMAKE_MAKE_PROGRAM', 'ninja')):
-            configure.append('-D' + variable + '=' + tools[key].replace('\\', '/'))
+        configure = [tools['cmake'], '-S', str(project), '-B', str(build), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Debug',
+                     '-DCMAKE_TOOLCHAIN_FILE=' + tools['cmake_toolchain'].replace('\\', '/')]
+        cmake_started = True
         run('cmake-configure', configure, child=child)
         report['probes']['cmake'] = validate_cmake(build, selected_tools, preflight=True)
         for key, tool in (('CMAKE_RC_COMPILER', 'llvm_rc'), ('CMAKE_MT', 'llvm_mt')):
@@ -782,6 +981,11 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
         report['error_type'] = type(error).__name__
         if isinstance(error, LLVMError):
             report['error'] = str(error)
+        if cmake_started:
+            try:
+                report['cmake_failure'] = _collect_cmake_failure(root / 'cmake-build')
+            except BaseException as collection_error:
+                report['cmake_failure'] = {'status': 'collection_failed', 'error_type': type(collection_error).__name__}
         raise
     finally:
         _save_evidence(directory / 'modern-windows-llvm.json', report)
