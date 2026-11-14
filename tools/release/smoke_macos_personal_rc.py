@@ -5,10 +5,9 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
-import shutil
 import sqlite3
+import struct
 import subprocess
-import tempfile
 import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -53,6 +52,9 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, required=True)
     args = parser.parse_args()
+    args.app = args.app.resolve(strict=True)
+    args.manifest = args.manifest.resolve(strict=True)
+    args.report_dir = args.report_dir.resolve()
     args.report_dir.mkdir(parents=True, exist_ok=False)
     outcome = {'release_version': RELEASE_VERSION, 'successful': False,
         'scope': 'relocated packaged-code/inventory, cold archive restore; no SM registration, native rendering or physical acceptance',
@@ -99,6 +101,8 @@ def main():
                 if len(rows) != 1: raise RuntimeError('restored source count mismatch')
                 expected = fixture[key]
                 fields = ['id', 'session_id', 'stream_id', 'interval', 'frequencies_hz', 'levels', 'level_unit'] if key == 'sweep' else ['id', 'frequency_hz', 'level', 'level_unit', 'interval']
+                if key == 'sweep' and [struct.pack('>d', x) for x in rows[0]['levels']] != [struct.pack('>d', x) for x in expected['levels']]:
+                    raise RuntimeError('restored float bits differ')
                 for field in fields:
                     if rows[0].get(field) != expected.get(field): raise RuntimeError('restored original field differs: ' + field)
         outcome['successful'] = True
