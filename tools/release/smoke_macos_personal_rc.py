@@ -14,9 +14,9 @@ import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 if __package__:
-    from .macos_rc_package import RELEASE_VERSION, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+    from .macos_rc_package import PROFILES, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
 else:
-    from macos_rc_package import RELEASE_VERSION, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+    from macos_rc_package import PROFILES, release_profile, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
 
 
 def request(url, method, path, body=None):
@@ -26,11 +26,13 @@ def request(url, method, path, body=None):
 
 
 @contextmanager
-def core(executable, data, env):
+def core(executable, data, env, *, native_audio=False):
     ready = data / 'ready.url'
     with (data / 'core.log').open('ab') as log:
-        child = subprocess.Popen([str(executable), '--mode', 'live', '--data-dir', str(data),
-            '--port', '0', '--ready-file', str(ready), '--stdin-lifeline'],
+        arguments = [str(executable), '--mode', 'live', '--data-dir', str(data),
+            '--port', '0', '--ready-file', str(ready), '--stdin-lifeline']
+        if native_audio: arguments.append('--allow-audio')
+        child = subprocess.Popen(arguments,
             stdin=subprocess.PIPE, stdout=log, stderr=log, env=env, cwd=data)
         try:
             deadline = time.monotonic() + 30
@@ -86,17 +88,21 @@ def main():
     parser.add_argument('--app', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, required=True)
+    parser.add_argument('--profile', choices=PROFILES, default='rc1')
     args = parser.parse_args()
+    selected = release_profile(args.profile)
     args.app = args.app.resolve(strict=True)
     args.manifest = args.manifest.resolve(strict=True)
     args.report_dir = args.report_dir.resolve()
     args.report_dir.mkdir(parents=True, exist_ok=False)
-    outcome = {'release_version': RELEASE_VERSION, 'successful': False,
+    outcome = {'release_version': selected['version'], 'package_profile': args.profile, 'successful': False,
         'scope': 'relocated packaged-code/inventory, cold archive restore; no SM registration, native rendering or physical acceptance',
-        'hardware_validation': 'not_run', 'target_macos_27_3': 'not_run'}
+        'hardware_validation': 'not_run', 'target_macos_27_3': 'not_run', 'audio_capture_validation': 'not_run'}
     try:
         validate_runtime_profile(args.app)
         manifest = read_json(args.manifest, 32 * 1024 * 1024)
+        if manifest['release_version'] != selected['version'] or manifest['build_info']['release_version'] != selected['version']:
+            raise RuntimeError('package differs from explicitly selected RC profile')
         verify_inventory(args.app, manifest['files'])
         # No checkout/module environment or package manager is available to the
         # child. Preserve the actual login HOME; data is explicitly temporary.
@@ -111,13 +117,17 @@ def main():
                 if actual[key] != expected[key]: raise RuntimeError('packaged component metadata mismatch: ' + name)
         outcome['native_self_check'] = json.loads(subprocess.check_output(
             [str(args.app/'Contents/MacOS'/UI_EXECUTABLE), '--self-check'], env=env, cwd=args.report_dir))
+        if outcome['native_self_check']['release_version'] != selected['version']:
+            raise RuntimeError('native UI reports a different RC profile')
+        if outcome['native_self_check'].get('native_audio_capture') != selected['audio']:
+            raise RuntimeError('native UI audio admission differs from package profile')
         fixture = read_json(Path(__file__).resolve().parents[2] / 'contracts/fixtures/measurement-v1.json')
         executable = args.app / 'Contents/Helpers/ori-core'
         data = args.report_dir / 'source'; data.mkdir()
         route = '/api/v1/sessions/' + quote(fixture['session']['id'], safe='')
-        with core(executable, data, env) as url:
+        with core(executable, data, env, native_audio=selected['audio']) as url:
             caps = request(url, 'GET', '/api/v1/capabilities')
-            if caps['candidate']['mode'] != 'live' or caps['features']['analog_audio_inputs']:
+            if caps['candidate']['mode'] != 'live' or caps['features']['analog_audio_inputs'] != selected['audio']:
                 raise RuntimeError('unexpected runtime profile')
             request(url, 'POST', '/api/v1/sessions', fixture['session'])
             request(url, 'POST', route + '/start', {})
@@ -130,7 +140,7 @@ def main():
         # is separately verified by the shared Rust release suite.
         with sqlite3.connect(data/'sessions.sqlite3') as source, sqlite3.connect(restored/'sessions.sqlite3') as target:
             source.backup(target)
-        with core(executable, restored, env) as url:
+        with core(executable, restored, env, native_audio=selected['audio']) as url:
             for resource, key in [('sweeps', 'sweep'), ('observations', 'observation')]:
                 rows = request(url, 'GET', route + '/' + resource + '?limit=100')
                 if len(rows) != 1: raise RuntimeError('restored source count mismatch')
