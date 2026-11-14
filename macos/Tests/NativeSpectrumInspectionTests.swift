@@ -60,3 +60,30 @@ import SpektrKomandy
         #expect(geometry.waterfall.minY > geometry.spectrum.maxY)
     }
 }
+
+@Suite struct NativeSpectrumNavigationTests {
+    @Test func zoomKeepsAnchorAndPanClampsToAcquiredRange() {
+        let full = 88_000_000.0...108_000_000.0
+        let zoom = NativeSpectrumNavigation.zoom(full, factor: 0.1, anchor: 93_000_000, within: full)
+        #expect(zoom == 92_500_000...94_500_000)
+        let pan = NativeSpectrumNavigation.fitted(center: 108_000_000, width: 2_000_000, within: full)
+        #expect(pan == 106_000_000...108_000_000)
+        #expect(NativeSpectrumNavigation.zoom(zoom, factor: 100, anchor: 93_000_000, within: full) == full)
+        #expect(NativeSpectrumNavigation.zoom(full, factor: .nan, anchor: 93_000_000, within: full) == full)
+    }
+    @Test func centerSpanAndEdgesRoundTripInIntegerHz() throws {
+        var draft = NativeAnalyzerDraft()
+        draft.center = "100,25"; draft.span = "0.5"
+        try draft.synchronize(.center)
+        #expect(try NativeAnalyzerDraft.hz(draft.start) == 100_000_000)
+        #expect(try NativeAnalyzerDraft.hz(draft.stop) == 100_500_000)
+        draft.start = "99.123456"
+        try draft.synchronize(.start)
+        #expect(try NativeAnalyzerDraft.hz(draft.span) == 1_376_544)
+        #expect(throws: (any Error).self) { try NativeAnalyzerDraft.hz("nan") }
+        draft.stop = "1"
+        #expect(throws: (any Error).self) { try draft.synchronize(.stop) }
+        draft.center = "799"; draft.span = "10"
+        #expect(throws: (any Error).self) { try draft.synchronize(.center) }
+    }
+}

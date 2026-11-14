@@ -119,6 +119,8 @@ struct RemoteUltraPane: View {
                 }
             }.controlSize(.small)
             NativeMeasurementStatus(model: model)
+            NativeAnalyzerControls(model: model)
+                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
             NativeSpectrumInspector(sweeps: model.spectrumPresentation.sweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])

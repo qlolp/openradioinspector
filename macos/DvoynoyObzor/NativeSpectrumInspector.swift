@@ -13,6 +13,11 @@ struct NativeSpectrumInspector: View {
     @State private var markers: [NativeSpectrumSample] = []
     @State private var zoom: ClosedRange<Double>?
     @State private var peakIndex = 0
+    @State private var threeDimensional = false
+    @State private var gestureRange: ClosedRange<Double>?
+    @State private var selectionStart: CGPoint?
+    @State private var selectionEnd: CGPoint?
+    @State private var selectBand = false
 
     private var displayed: [PlatformSweep] { frozen ?? sweeps }
     private var selected: PlatformSweep? { displayed.first { $0.id == selectedID } ?? displayed.last }
@@ -51,8 +56,27 @@ struct NativeSpectrumInspector: View {
                 Spacer()
                 Text("Белый: выбранный · голубой: min · оранжевый: max").foregroundStyle(.secondary)
             }.font(.caption).controlSize(.small)
+            HStack(spacing: 8) {
+                Picker("Водопад", selection: $threeDimensional) {
+                    Text("2D").tag(false); Text("3D").tag(true)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 85)
+                Toggle("Выделить полосу", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
+                Button("←") { pan(-0.25) }.help("Сдвинуть видимую полосу влево")
+                Button("→") { pan(0.25) }.help("Сдвинуть видимую полосу вправо")
+                Text(String(format: "Масштаб ×%.1f", (fullRange.upperBound - fullRange.lowerBound) / (range.upperBound - range.lowerBound)))
+                Spacer()
+                Text(threeDimensional ? "+/− — полоса · мышь — ракурс" : "Щипок — масштаб · перетаскивание — сдвиг / выделение")
+                    .foregroundStyle(.secondary)
+            }.font(.caption2).controlSize(.small)
             GeometryReader { geometry in
                 let layout = NativeSpectrumPlotLayout(size: geometry.size)
+                if threeDimensional {
+                    NativeWaterfall3D(sweeps: displayed, range: range, bounds: bounds)
+                        .simultaneousGesture(MagnifyGesture().onChanged { value in
+                            if gestureRange == nil { gestureRange = range }
+                            if let base = gestureRange { zoom = NativeSpectrumNavigation.zoom(base, factor: 1 / value.magnification, anchor: (base.lowerBound + base.upperBound) / 2, within: fullRange) }
+                        }.onEnded { _ in gestureRange = nil })
+                } else {
                 NativeSpectrumPlot(sweeps: displayed, selected: selected, bounds: bounds, range: range,
                                    threshold: threshold, cursor: cursor, markers: markers, layout: layout)
                     .contentShape(Rectangle())
@@ -63,8 +87,42 @@ struct NativeSpectrumInspector: View {
                         }
                     }
                     .onTapGesture { point in inspect(point, layout: layout, pin: true) }
+                    .simultaneousGesture(MagnifyGesture().onChanged { value in
+                        if gestureRange == nil { gestureRange = range }
+                        if let base = gestureRange {
+                            let anchor = base.lowerBound + value.startAnchor.x * (base.upperBound - base.lowerBound)
+                            zoom = NativeSpectrumNavigation.zoom(base, factor: 1 / value.magnification, anchor: anchor, within: fullRange)
+                        }
+                    }.onEnded { _ in gestureRange = nil })
+                    .simultaneousGesture(DragGesture(minimumDistance: 5).onChanged { value in
+                        guard layout.spectrum.contains(value.startLocation) || layout.waterfall.contains(value.startLocation) else { return }
+                        if gestureRange == nil { gestureRange = range }
+                        if selectBand { selectionStart = value.startLocation; selectionEnd = value.location }
+                        else if let base = gestureRange {
+                            let width = base.upperBound - base.lowerBound
+                            zoom = NativeSpectrumNavigation.fitted(center: (base.lowerBound + base.upperBound) / 2 - value.translation.width / layout.spectrum.width * width, width: width, within: fullRange)
+                        }
+                    }.onEnded { value in
+                        defer { gestureRange = nil; selectionStart = nil; selectionEnd = nil }
+                        if selectBand, let base = gestureRange {
+                            let a = min(1, max(0, (value.startLocation.x - layout.spectrum.minX) / layout.spectrum.width))
+                            let b = min(1, max(0, (value.location.x - layout.spectrum.minX) / layout.spectrum.width))
+                            if abs(a - b) > 0.005 {
+                                let width = base.upperBound - base.lowerBound
+                                zoom = NativeSpectrumNavigation.fitted(center: base.lowerBound + (a + b) / 2 * width, width: abs(a - b) * width, within: fullRange)
+                            }
+                        }
+                    })
+                    .overlay(alignment: .topLeading) {
+                        if let a = selectionStart, let b = selectionEnd {
+                            Rectangle().fill(.cyan.opacity(0.2)).overlay(Rectangle().stroke(.cyan))
+                                .frame(width: abs(a.x - b.x), height: layout.waterfall.maxY - layout.spectrum.minY)
+                                .offset(x: min(a.x, b.x), y: layout.spectrum.minY).allowsHitTesting(false)
+                        }
+                    }
                     .accessibilityLabel("Спектр и водопад. Частота по горизонтали, UTC по вертикали водопада.")
-            }.frame(minHeight: 210)
+                }
+            }.frame(minHeight: 120)
             NativeSpectrumCursorReadout(sample: cursor, inGap: inGap, markers: markers)
             HStack {
                 if let bounds {
@@ -121,11 +179,12 @@ struct NativeSpectrumInspector: View {
         pinSample(NativeSpectrumSample(sweep: selected, bin: peaks[peakIndex]))
     }
     private func magnify(_ factor: Double) {
-        let full = fullRange.upperBound - fullRange.lowerBound
-        let width = min(full, max(full / 32, (range.upperBound - range.lowerBound) * factor))
         let center = cursor.map { Double($0.frequency) } ?? (range.lowerBound + range.upperBound) / 2
-        let low = max(fullRange.lowerBound, min(fullRange.upperBound - width, center - width / 2))
-        zoom = low...(low + width)
+        zoom = NativeSpectrumNavigation.zoom(range, factor: factor, anchor: center, within: fullRange)
+    }
+    private func pan(_ fraction: Double) {
+        let width = range.upperBound - range.lowerBound
+        zoom = NativeSpectrumNavigation.fitted(center: (range.lowerBound + range.upperBound) / 2 + width * fraction, width: width, within: fullRange)
     }
 }
 
@@ -186,7 +245,7 @@ struct NativeSpectrumPlotLayout {
     let waterfall: CGRect
     init(size: CGSize) {
         let width = max(1, size.width - 94)
-        let available = max(100, size.height - 62)
+        let available = max(40, size.height - 62)
         spectrum = CGRect(x: 76, y: 20, width: width, height: available * 0.48)
         waterfall = CGRect(x: 76, y: spectrum.maxY + 35, width: width, height: available * 0.52)
     }
