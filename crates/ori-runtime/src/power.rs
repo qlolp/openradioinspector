@@ -153,11 +153,13 @@ fn system_sample() -> io::Result<ClockSample> {
 
 /// IOPM only prevents automatic idle sleep. It does not override lid closure
 /// or an operator's explicit sleep. The owner releases it on every exit path.
+#[cfg(any(unix, test))]
 #[derive(Default)]
 pub(crate) struct IdleSleepAssertion {
     #[cfg(target_os = "macos")]
     id: Option<u32>,
 }
+#[cfg(any(unix, test))]
 impl IdleSleepAssertion {
     pub fn set_armed(&mut self, armed: bool) -> io::Result<()> {
         #[cfg(target_os = "macos")]
@@ -192,6 +194,7 @@ mod unavailable_tests {
         assertion.set_armed(false).unwrap();
     }
 }
+#[cfg(any(unix, test))]
 impl Drop for IdleSleepAssertion {
     fn drop(&mut self) {
         let _ = self.set_armed(false);

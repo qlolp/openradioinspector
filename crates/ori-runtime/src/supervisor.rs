@@ -111,6 +111,7 @@ impl Supervisor {
         self.journal.sync_all()?;
         Ok(())
     }
+    #[cfg(unix)]
     pub(crate) fn record_sleep_gap(&mut self) -> Result<()> {
         let name = self
             .active
