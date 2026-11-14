@@ -2,10 +2,13 @@ use ori_runtime::power::{ClockSample, ContinuityFence};
 
 #[test]
 fn rc_configuration_uses_only_bundled_rust_and_an_explicit_isolated_archive() {
-    let bundle = std::path::Path::new("/Applications/OpenRadioInspector RC.app");
-    let data = std::path::Path::new(
-        "/Users/operator/Library/Application Support/OpenRadioInspector/macOS-RC",
-    );
+    let root = tempfile::tempdir().unwrap();
+    let bundle_path = root.path().join("Applications/OpenRadioInspector RC.app");
+    let data_path = root
+        .path()
+        .join("Library/Application Support/OpenRadioInspector/macOS-RC");
+    let bundle = bundle_path.as_path();
+    let data = data_path.as_path();
     let config =
         ori_runtime::macos_agent::configuration(bundle, data, 64 * 1024 * 1024 * 1024).unwrap();
     assert_eq!(
