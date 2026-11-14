@@ -45,6 +45,27 @@ class MacOSRCPackageTests(unittest.TestCase):
             (app / 'Contents/Helpers/Python.framework').mkdir()
             with self.assertRaises(ValueError): package.validate_runtime_profile(app)
 
+    def test_notices_are_created_when_xcode_app_has_no_resources_directory(self):
+        import importlib.util
+        root = Path(__file__).resolve().parents[1]
+        spec = importlib.util.spec_from_file_location('personal_rc_builder_fixture', root/'packaging/macos/build_personal_rc.py')
+        builder = importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            destination = folder/'RC.app/Contents/Resources/Notices'
+            crate = folder/'crate'; crate.mkdir()
+            (crate/'Cargo.toml').write_text('[package]\nname="ori-core"\nversion="0.1.0"\n')
+            (crate/'LICENSE').write_text('Controlled fixture license')
+            docs = folder/'sysroot/share/doc/rust'; docs.mkdir(parents=True)
+            for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']: (docs/name).write_text('Controlled Rust notice fixture')
+            metadata = {'packages': [dict(id='fixture-core', name='ori-core', version='0.1.0', license='MIT', source=None,
+                manifest_path=str(crate/'Cargo.toml'))], 'resolve': {'nodes': [dict(id='fixture-core', dependencies=[])]}}
+            builder.notices(destination, metadata, folder/'sysroot')
+            self.assertEqual((destination/'crates/ori-core-0.1.0/LICENSE').read_text(), 'Controlled fixture license')
+            inventory = json.loads((destination/'cargo-build-dependency-closure.json').read_text())
+            self.assertEqual(inventory[0]['name'], 'ori-core')
+            self.assertTrue((destination/'OpenRadioInspector-MIT.txt').is_file())
+
     def test_component_profile_rejects_mixed_source_architecture_and_audio(self):
         source = 'a' * 40
         core = dict(component='ori-core', source_revision=source, target_arch='aarch64', target_os='macos',
