@@ -332,31 +332,34 @@ final class NativeNodeConnectionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
     }
 
-    @MainActor func testContextInvalidationDuringStagingCannotOverwriteChosenAudioExport() async throws {
-        let writer = PausedAudioExportWriter()
-        let expected = Data([82,73,70,70,40,0,0,0,87,65,86,69,102,109,116,32,16,0,0,0,1,0,1,0,64,31,0,0,128,62,0,0,2,0,16,0,100,97,116,97,4,0,0,0,0,128,255,127])
-        let urlSession = session { stub in
-            let response = HTTPURLResponse(url: stub.request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type":"audio/wav"])!
-            stub.client?.urlProtocol(stub, didReceive: response, cacheStoragePolicy: .notAllowed)
-            stub.client?.urlProtocol(stub, didLoad: expected); stub.client?.urlProtocolDidFinishLoading(stub)
+    @MainActor func testAudioStagingPublishesOnlyForTheCurrentContext() async throws {
+        for invalidate in [false, true] {
+            let writer = PausedAudioExportWriter()
+            let expected = Data([82,73,70,70,40,0,0,0,87,65,86,69,102,109,116,32,16,0,0,0,1,0,1,0,64,31,0,0,128,62,0,0,2,0,16,0,100,97,116,97,4,0,0,0,0,128,255,127])
+            let urlSession = session { stub in
+                let response = HTTPURLResponse(url: stub.request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type":"audio/wav"])!
+                stub.client?.urlProtocol(stub, didReceive: response, cacheStoragePolicy: .notAllowed)
+                stub.client?.urlProtocol(stub, didLoad: expected); stub.client?.urlProtocolDidFinishLoading(stub)
+            }
+            let client = try PlatformClient(baseURL: server, session: urlSession)
+            let workspace = MonitoringWorkspaceModel(audioExportWriter: writer)
+            workspace.configure(server, client: client); workspace.selected = "project"; workspace.selectedEvent = "old"
+            workspace.audioEvidenceAvailable = true
+            workspace.audioEvidenceInfo = .object(["artifact_id": .string("source"), "sha256": .string(String(repeating: "a", count: 64)), "frame_count": .integer(2), "sample_rate_hz": .integer(8000)])
+            let range = try XCTUnwrap(workspace.audioRange(start: 0, end: 1))
+            let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+            let original = Data("operator's existing file".utf8); try original.write(to: output)
+            defer { try? FileManager.default.removeItem(at: output) }
+            let operation = Task { await workspace.exportAudioClip(range, to: output) }
+            for _ in 0..<1000 { if await writer.isPaused { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
+            let ready = await writer.isPaused
+            XCTAssertEqual(try Data(contentsOf: output), original, "Staging cannot publish early")
+            if invalidate { workspace.selectedEvent = "new" }
+            await writer.release(); await operation.value
+            XCTAssertTrue(ready, "Writer must reach its controlled staging barrier")
+            XCTAssertEqual(try Data(contentsOf: output), invalidate ? original : expected)
+            if let directory = await writer.directory { XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path)) }
         }
-        let client = try PlatformClient(baseURL: server, session: urlSession)
-        let workspace = MonitoringWorkspaceModel(audioExportWriter: writer)
-        workspace.configure(server, client: client); workspace.selected = "project"; workspace.selectedEvent = "old"
-        workspace.audioEvidenceAvailable = true
-        workspace.audioEvidenceInfo = .object(["artifact_id": .string("source"), "sha256": .string(String(repeating: "a", count: 64)), "frame_count": .integer(2), "sample_rate_hz": .integer(8000)])
-        let range = try XCTUnwrap(workspace.audioRange(start: 0, end: 1))
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
-        let original = Data("operator's existing file".utf8); try original.write(to: output)
-        defer { try? FileManager.default.removeItem(at: output) }
-        let operation = Task { await workspace.exportAudioClip(range, to: output) }
-        for _ in 0..<1000 { if await writer.isPaused { break }; try? await Task.sleep(nanoseconds: 5_000_000) }
-        let ready = await writer.isPaused
-        workspace.selectedEvent = "new"
-        await writer.release(); await operation.value
-        XCTAssertTrue(ready, "Writer must reach its controlled staging barrier")
-        XCTAssertEqual(try Data(contentsOf: output), original)
-        if let directory = await writer.directory { XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path)) }
     }
 
     @MainActor func testMonitoringReusesAuthenticatedClientAndReplacesItAtSameEndpoint() async throws {
