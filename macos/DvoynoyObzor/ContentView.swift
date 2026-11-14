@@ -37,7 +37,7 @@ struct ContentView: View {
         } detail: {
             VStack(spacing: 0) {
                 NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
-                DisclosureGroup("Ядро и настройка сеанса", isExpanded: $setupExpanded) {
+                if setupExpanded {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             if NativeLocalService.isPersonalRC {
@@ -60,18 +60,19 @@ struct ContentView: View {
                             }
                         }
                     }.frame(maxHeight: 240)
-                }.padding(.horizontal, 16).padding(.bottom, 8)
+                        .padding(.horizontal, 16).padding(.bottom, 8)
+                }
                 NativeContinuityBar(model: model, workspace: workspace)
                 DisclosureGroup("Хранилище и диагностика записи", isExpanded: $archiveExpanded) {
                     RemoteArchiveCapacityPane(model: model)
                 }.font(.caption).padding(.horizontal, 16).padding(.vertical, 6)
-                VSplitView {
+                VStack(spacing: 0) {
                     HSplitView {
                         RemoteUltraPane(model: model, research: mode == .research).frame(minWidth: 460)
                         if model.receiver != nil {
                             RemoteArPane(model: model).frame(minWidth: 300, idealWidth: 340, maxWidth: 480)
                         }
-                    }.frame(minHeight: 280, idealHeight: 560)
+                    }.frame(minHeight: 380, maxHeight: .infinity).layoutPriority(1)
                     VStack(spacing: 8) {
                         HStack {
                             Button {
@@ -107,7 +108,7 @@ struct ContentView: View {
             .background(Color.primary.opacity(0.025))
             .navigationTitle(mode.title)
         }
-        .frame(minWidth: 960, minHeight: 620)
+        .frame(minWidth: 960, minHeight: 740)
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: $model.showTinySAControl) {

@@ -7,7 +7,7 @@ struct NativeOperatorHeader: View {
     @Binding var setupExpanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("ДВОЙНОЙ ОБЗОР", systemImage: "waveform.path")
                     .font(.system(.caption, design: .monospaced, weight: .semibold)).tracking(2)
@@ -29,7 +29,7 @@ struct NativeOperatorHeader: View {
                 VStack(alignment: .leading, spacing: 8) { title; sessionPicker }
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, 18).padding(.vertical, 6)
         .background(.background)
     }
 
