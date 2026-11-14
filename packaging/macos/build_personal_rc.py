@@ -22,7 +22,7 @@ def run(*args, env=None, capture=False):
 
 
 def notices(destination, metadata, sysroot):
-    destination.mkdir()
+    destination.mkdir(parents=True)
     shutil.copyfile(ROOT / 'LICENSE', destination / 'OpenRadioInspector-MIT.txt')
     shutil.copyfile(ROOT / 'Cargo.lock', destination / 'Cargo.lock')
     # This is the complete Cargo dependency closure for both selected roots,
