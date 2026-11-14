@@ -17,6 +17,7 @@ def main(argv=None):
     parser.add_argument('--output-dir',type=Path,required=True)
     parser.add_argument('--run-id')
     parser.add_argument('--endpoint-label',default='explicit-http-endpoint')
+    parser.add_argument('--workload-profile',choices=('modernization','macos-rc1'),default='modernization')
     parser.add_argument('--scenario',choices=('stress','overload','fault','lifecycle'),default='stress')
     parser.add_argument('--duration-seconds',type=float)
     parser.add_argument('--sweep-rate',type=int)

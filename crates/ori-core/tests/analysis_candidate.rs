@@ -1,4 +1,6 @@
 #![cfg(unix)]
+#[path = "support/bounded_http.rs"]
+mod bounded_http;
 use ori_archive::{Archive, ArchiveConfig};
 use ori_contracts::{encode_path_segment, parse_json_value, to_json_vec};
 use ori_core::{Core, CoreConfig};
@@ -55,6 +57,21 @@ impl Server {
         let status = response.status().as_u16();
         let bytes = response.bytes().await.unwrap();
         (status, parse_json_value(&bytes, 16 * 1024 * 1024).unwrap())
+    }
+    async fn reject_declared_length(&self, path: &str, length: u64) -> (u16, Value) {
+        use tokio::io::AsyncWriteExt;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let authority = self.url.strip_prefix("http://").unwrap();
+            let mut stream = tokio::net::TcpStream::connect(authority).await.unwrap();
+            stream.write_all(format!("POST {path} HTTP/1.1\r\nHost: {authority}\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            // The server rejects the declared length before reading a body.
+            // Sending a huge body with reqwest can lose this valid response to
+            // BrokenPipe while Hyper is still uploading on Darwin.
+            let response = bounded_http::read_closed_response(&mut stream).await.unwrap();
+            let split = response.windows(4).position(|v| v == b"\r\n\r\n").unwrap();
+            let status = std::str::from_utf8(&response[..split]).unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
+            (status, parse_json_value(&response[split+4..],65536).unwrap())
+        }).await.expect("oversized header must be rejected before any body read")
     }
     async fn stop(&mut self) {
         self.core.request_shutdown();
@@ -181,7 +198,10 @@ async fn calibrated_field_route_selects_one_source_and_keeps_the_control_body_li
     let mut oversized = payload.clone();
     oversized["calibration"]["description"] = Value::String("x".repeat(65536));
     let (large_status, _) = server
-        .request("POST", &route("/field-strength-rms-v2"), Some(&oversized))
+        .reject_declared_length(
+            &route("/field-strength-rms-v2"),
+            to_json_vec(&oversized).unwrap().len() as u64,
+        )
         .await;
     let after = server
         .request("GET", "/api/v1/events/history?after=0&limit=100", None)
@@ -284,10 +304,23 @@ async fn analysis_body_limits_match_the_existing_per_method_contract_and_keep_ar
         .await;
     assert_eq!(status, 200, "{value}");
     assert_eq!(value["data"]["payload"]["mask_json"], artifact);
+    let before = server
+        .request("GET", "/api/v1/events/history?after=0&limit=100", None)
+        .await;
+    assert_eq!(
+        server
+            .reject_declared_length(&route("/sweep-mask-analysis"), u64::MAX)
+            .await
+            .0,
+        413
+    );
     let payload = json!({"sweep_id":"exact-source-000","mask_json":"x".repeat(524288)});
     assert_eq!(
         server
-            .request("POST", &route("/sweep-mask-analysis"), Some(&payload))
+            .reject_declared_length(
+                &route("/sweep-mask-analysis"),
+                to_json_vec(&payload).unwrap().len() as u64
+            )
             .await
             .0,
         413
@@ -295,7 +328,10 @@ async fn analysis_body_limits_match_the_existing_per_method_contract_and_keep_ar
     let payload = json!({"sweep_id":"exact-source-000","padding":"x".repeat(8192)});
     assert_eq!(
         server
-            .request("POST", &route("/sweep-quality"), Some(&payload))
+            .reject_declared_length(
+                &route("/sweep-quality"),
+                to_json_vec(&payload).unwrap().len() as u64
+            )
             .await
             .0,
         413
@@ -311,7 +347,14 @@ async fn analysis_body_limits_match_the_existing_per_method_contract_and_keep_ar
             .0,
         400
     );
+    let after = server
+        .request("GET", "/api/v1/events/history?after=0&limit=100", None)
+        .await;
     server.stop().await;
+    assert_eq!(
+        before, after,
+        "rejected headers must not publish archive/state changes"
+    );
 }
 
 #[tokio::test]

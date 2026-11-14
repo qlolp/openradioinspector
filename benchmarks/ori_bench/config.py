@@ -32,6 +32,7 @@ class Config:
     run_id:str=field(default_factory=lambda:'bench-'+uuid.uuid4().hex)
     mode:str='run'
     scenario:str='stress'
+    workload_profile:str='modernization'
     endpoint_label:str='explicit-http-endpoint'
     duration_seconds:float=1800.0
     sweep_rate:int=10
@@ -61,6 +62,8 @@ class Config:
     observer_grace_seconds:float=2.0
 
     def __post_init__(self):
+        if self.workload_profile not in ('modernization','macos-rc1'):
+            raise BenchmarkError('invalid_config','Unknown explicit workload profile')
         url=urlsplit(self.base_url)
         if url.scheme not in ('http','https') or not url.hostname or url.username or url.password \
                 or url.path not in ('','/') or url.query or url.fragment:
@@ -127,10 +130,10 @@ class Config:
         if self.mode=='history':return {'sweep':self.sweeps,'observation':0,'audio':0}
         if self.scenario=='lifecycle':
             count=(self.duration_us+microseconds(self.lifecycle_step_seconds)-1)//microseconds(self.lifecycle_step_seconds)
-            return dict(sweep=count,observation=count,audio=count)
+            return dict(sweep=count,observation=count,audio=0 if self.workload_profile=='macos-rc1' else count)
         return {'sweep':(self.duration_us*self.sweep_rate+999_999)//1_000_000,
                 'observation':(self.duration_us*self.observation_rate+999_999)//1_000_000,
-                'audio':(self.duration_us+self.segment_us-1)//self.segment_us}
+                'audio':0 if self.workload_profile=='macos-rc1' else (self.duration_us+self.segment_us-1)//self.segment_us}
 
     def audio_bounds(self,index):
         start_us=index*(microseconds(self.lifecycle_step_seconds) if self.scenario=='lifecycle' else self.segment_us)
@@ -139,7 +142,7 @@ class Config:
 
     @property
     def planned_audio_frames(self):
-        if self.mode=='history':return 0
+        if self.mode=='history' or self.workload_profile=='macos-rc1':return 0
         count=self.planned_counts()['audio']
         if self.scenario!='lifecycle':return self.duration_us*48_000//1_000_000
         return (count-1)*(self.segment_us*48000//1000000)+self.audio_bounds(count-1)[1]
@@ -148,4 +151,5 @@ class Config:
         value=asdict(self)
         value.pop('base_url');value.pop('output_dir');value.pop('render_events')
         return value|{'planned_counts':self.planned_counts(),'planned_audio_frames':self.planned_audio_frames,
-                      'synthetic':True,'audio_sample_rate':48000,'audio_channels':1,'audio_sample_bytes':2}
+                      'synthetic':True,'audio_sample_rate':48000,'audio_channels':1,'audio_sample_bytes':2,
+                      'audio_scope':'excluded_from_rc1' if self.workload_profile=='macos-rc1' else 'full_original_pcm_workload'}

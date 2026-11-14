@@ -31,6 +31,33 @@ def git(directory, *arguments, input=None):
     return result.stdout
 
 
+def git_blobs(directory, paths):
+    paths = sorted(paths)
+    if any("\n" in path or "\r" in path for path in paths):
+        raise ValueError("batch fixture paths must not contain line delimiters")
+    # Keep exact HEAD bytes, including NUL/CRLF, but start one Git child instead
+    # of one child for every fixture. A macOS 3.15 CI watchdog captured the old
+    # repeated-spawn setup inside _execute_child; no test coverage is removed.
+    raw = git(directory, "cat-file", "--batch", input=b"".join(("HEAD:" + p + "\n").encode("utf-8") for p in paths))
+    cursor = 0
+    result = {}
+    for path in paths:
+        end = raw.find(b"\n", cursor, cursor + 256)
+        if end < 0: raise ValueError("incomplete Git batch header")
+        header = raw[cursor:end].split(b" ")
+        if len(header) != 3 or header[1] != b"blob" or not header[2].isdigit():
+            raise ValueError("Git did not return the requested fixture blob")
+        size = int(header[2])
+        if size > 32 * 1024 * 1024: raise ValueError("fixture blob exceeds checkout-test bound")
+        cursor = end + 1
+        value = raw[cursor:cursor + size]
+        cursor += size
+        if len(value) != size or raw[cursor:cursor+1] != b"\n": raise ValueError("truncated Git fixture bytes")
+        cursor += 1; result[path] = value
+    if cursor != len(raw): raise ValueError("unexpected trailing Git batch output")
+    return result
+
+
 class RepositoryCheckoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -49,7 +76,7 @@ class RepositoryCheckoutTests(unittest.TestCase):
             if candidates:
                 selected.add(sorted(candidates)[0])
         cls.text_paths = sorted(selected)
-        cls.expected = {path: git(ROOT, "show", "HEAD:" + path) for path in sorted(selected | set(cls.raw_paths))}
+        cls.expected = git_blobs(ROOT, selected | set(cls.raw_paths))
         # Future fixture payloads may contain meaningful CRLF and lone CR bytes.
         cls.expected["tests/fixtures/opaque-checkout-probe.json"] = b'{"wire":"exact"}\r\nline\rnext\n'
         cls.expected["tests/fixtures/opaque-checkout-probe.sqlite"] = b'SQLite format 3\0\r\n\x00\xffraw\r\n'
@@ -97,3 +124,19 @@ class RepositoryCheckoutTests(unittest.TestCase):
                     self.assertEqual(attributes[path]["text"], "unset")
                 else:
                     self.assertEqual(attributes[path], {"text": "set", "eol": "lf"})
+
+
+class GitBatchFixtureTests(unittest.TestCase):
+    def test_one_git_child_reads_exact_unicode_and_binary_blobs(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git(root, '-c', 'init.defaultBranch=fixture', 'init', '--quiet')
+            expected = {'данные с пробелом.bin': b'\x00\xff\r\nraw\rnext\n', 'text.md': b'exact\n'}
+            for name, data in expected.items(): (root/name).write_bytes(data)
+            git(root, 'add', '--all')
+            git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture', '--quiet')
+            with patch('tests.test_repository_checkout.subprocess.run', wraps=subprocess.run) as started:
+                actual = git_blobs(root, expected)
+            self.assertEqual(actual, expected)
+            self.assertEqual(started.call_count, 1, 'Avoid one child startup per retained fixture')

@@ -54,7 +54,7 @@ def preflight(client,config):
     capabilities=client.json('/api/v1/capabilities')
     features=capabilities.get('features',{})
     required=['measurement_batch_ingest','session_archive_export_ndjson']
-    if config.mode!='history':required.append('audio_segment_ingest')
+    if config.planned_counts()['audio']:required.append('audio_segment_ingest')
     if config.observe_render:required.append('monitoring_projects')
     if capabilities.get('persistent_archive') is not True or any(features.get(key) is not True for key in required):
         raise BenchmarkError('unsupported','Core lacks required persistent ingest/export/audio capability')
@@ -158,6 +158,13 @@ def run_load(config,ledger,histograms):
             histograms['schedule_lag_ms'].add(max(0,(now-due)/1e6))
             try:pending.put_nowait((kind,index))
             except queue.Full:ledger.status(identifier(config,kind,index),'queue_full')
+        if config.workload_profile == 'macos-rc1':
+            # Without a WAV closing exactly at the horizon, the final two
+            # periodic measurements are offered one period before it. Observe
+            # the entire requested interval, retaining the original drain bound.
+            horizon = anchor + int(config.duration_us * 1000 / config.speed)
+            while (remaining := (horizon - time.monotonic_ns()) / 1e9) > 0:
+                time.sleep(min(remaining, .05))
     finally:
         finished.set()
         deadline=time.monotonic()+config.drain_seconds
@@ -239,7 +246,7 @@ def run(config):
                     report['observer_completed']=observer.close()
             report['history']=verify.history(client,config,capabilities,histogram,ledger)
             report['checks']['archive_integrity']=verify.archive(client,config,ledger)
-            if config.mode!='history':report['audio']=verify.audio(client,config,ledger,output)
+            if config.planned_counts()['audio']:report['audio']=verify.audio(client,config,ledger,output)
             else:report['audio']=ledger.audio_counts()
             missing=ledger.db.execute("SELECT COUNT(*) FROM offers WHERE status='accepted' AND verified=0").fetchone()[0]
             if missing:raise BenchmarkError('archive_invalid','Acknowledged source input is missing from the archive')

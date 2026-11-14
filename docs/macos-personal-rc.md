@@ -120,3 +120,5 @@ for the MacBook Air; advanced session controls remain in a disclosure panel.
 пакета не регистрирует SMAppService и не выдаётся за установочную приёмку
 macOS 27.3 или физический прогон. Артефакты и диагностика сохраняются также при
 ошибке. Публичный GitHub Release и tag автоматически не создаются.
+
+Полный отдельный протокол RC1 и команды нагрузки без аудио: [приёмка macOS RC1](release/macos-0.4.0-rc1-acceptance.md). Headless-успех не закрывает нативную и физическую приёмку.

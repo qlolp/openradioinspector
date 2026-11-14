@@ -188,6 +188,18 @@ jobs:
           ditto "build/macos/personal-rc/dmg-root/OpenRadioInspector RC.app" "$relocated/OpenRadioInspector RC.app"
           python tools/release/check_public_tree.py --directory "$relocated/OpenRadioInspector RC.app"
           python tools/release/smoke_macos_personal_rc.py --app "$relocated/OpenRadioInspector RC.app" --manifest build/macos/personal-rc/dmg-root/manifest.json --report-dir "$RUNNER_TEMP/ori-personal-rc-smoke"
+      - name: Exercise RC-only load, online backup and restored originals
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: '1.99.1'
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/build/macos/personal-rc/cargo"
+          export ORI_BUILD_SOURCE_SHA="$(git rev-parse HEAD)"
+          cargo build --locked --release --target aarch64-apple-darwin -p ori-core --no-default-features --features serial --example benchmark_background
+          mkdir build/macos/personal-rc/acceptance-tools
+          ditto "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/examples/benchmark_background" build/macos/personal-rc/acceptance-tools/ori-rc-benchmark
+          python -m benchmarks.ori_bench.macos_rc --candidate "$GITHUB_WORKSPACE/build/macos/personal-rc/acceptance-tools/ori-rc-benchmark" --output-dir "$RUNNER_TEMP/ori-rc-load-smoke" --smoke-seconds 5
       - name: Preserve RC artifacts and diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -196,6 +208,8 @@ jobs:
           path: |
             build/macos/personal-rc/packages/*
             build/macos/rc-diagnostics/*
+            build/macos/personal-rc/acceptance-tools/*
+            ${{ runner.temp }}/ori-rc-load-smoke/**
             ${{ runner.temp }}/ori-personal-rc-smoke/**
             ${{ runner.temp }}/native-*-version.txt
           retention-days: 90

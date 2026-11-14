@@ -35,13 +35,19 @@ def bounded_json(path, maximum=65536):
 
 
 class BackgroundCandidate(OwnedCandidate):
-    def __init__(self, binary, output, python, *, cgroup=None, best_effort=False):
-        if not python.is_absolute() or not python.is_file() or not os.access(python, os.X_OK) \
-                or best_effort == (cgroup is not None) or (cgroup is not None and not cgroup.is_absolute()):
+    def __init__(self, binary, output, python, *, cgroup=None, best_effort=False, workload_profile="modernization"):
+        if workload_profile not in ('modernization', 'macos-rc1'):
+            raise BenchmarkError('invalid_config', 'Unknown trusted fixture profile')
+        invalid_rc = workload_profile == 'macos-rc1' and (python is not None or cgroup is not None or best_effort)
+        invalid_full = workload_profile == 'modernization' and (python is None or not python.is_absolute()
+            or not python.is_file() or not os.access(python, os.X_OK)
+            or best_effort == (cgroup is not None) or (cgroup is not None and not cgroup.is_absolute()))
+        if invalid_rc or invalid_full:
             raise BenchmarkError('invalid_config', 'Choose an absolute Python and explicit cgroup or best-effort policy')
         super().__init__(binary, output)
         self.python, self.cgroup, self.best_effort = python, cgroup, best_effort
-        self.python_sha256 = digest(python)
+        self.python_sha256 = None if python is None else digest(python)
+        self.workload_profile = workload_profile
         self.bundle = output / 'backup'
         self.backup_requested = False
 
@@ -50,10 +56,11 @@ class BackgroundCandidate(OwnedCandidate):
         self.receipts.mkdir(mode=0o700)
         profile = self.ready.parent / 'fixture.json'
         value = dict(data=str(data), ready=str(self.ready), bundle=str(self.bundle),
-                     receipts=str(self.receipts), analysis_python=str(self.python),
+                     receipts=str(self.receipts), analysis_python=None if self.python is None else str(self.python),
                      research_cgroup=None if self.cgroup is None else str(self.cgroup),
                      research_best_effort=self.best_effort, max_snapshot_bytes=4 * 1024**3,
                      copy_timeout_ms=300000, total_timeout_ms=600000)
+        if self.workload_profile != "modernization": value["workload_profile"] = self.workload_profile
         descriptor = os.open(profile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'wb') as target:
             target.write(encode(value) + b'\n'); target.flush(); os.fsync(target.fileno())

@@ -29,12 +29,18 @@ mod fixture {
         ready: PathBuf,
         bundle: PathBuf,
         receipts: PathBuf,
-        analysis_python: PathBuf,
+        #[serde(default)]
+        analysis_python: Option<PathBuf>,
+        #[serde(default = "default_workload_profile")]
+        workload_profile: String,
         research_cgroup: Option<PathBuf>,
         research_best_effort: bool,
         max_snapshot_bytes: u64,
         copy_timeout_ms: u64,
         total_timeout_ms: u64,
+    }
+    fn default_workload_profile() -> String {
+        "modernization".into()
     }
     fn publish(path: &Path, bytes: &[u8]) -> Result<()> {
         if bytes.len() > 65536 {
@@ -124,7 +130,6 @@ mod fixture {
             &profile.ready,
             &profile.bundle,
             &profile.receipts,
-            &profile.analysis_python,
         ]
         .iter()
         .any(|path| !path.is_absolute())
@@ -132,7 +137,21 @@ mod fixture {
                 .research_cgroup
                 .as_ref()
                 .is_some_and(|path| !path.is_absolute())
-            || profile.research_best_effort == profile.research_cgroup.is_some()
+            || !matches!(
+                profile.workload_profile.as_str(),
+                "modernization" | "macos-rc1"
+            )
+            || if profile.workload_profile == "macos-rc1" {
+                profile.analysis_python.is_some()
+                    || profile.research_cgroup.is_some()
+                    || profile.research_best_effort
+            } else {
+                profile
+                    .analysis_python
+                    .as_ref()
+                    .is_none_or(|path| !path.is_absolute())
+                    || profile.research_best_effort == profile.research_cgroup.is_some()
+            }
             || profile.max_snapshot_bytes == 0
             || profile.max_snapshot_bytes > 16 * 1024_u64.pow(3)
             || profile.copy_timeout_ms == 0
@@ -150,12 +169,15 @@ mod fixture {
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let mut config = CoreConfig::replay(&profile.data);
         config.devices.transport = None;
+        if profile.workload_profile == "macos-rc1" {
+            config.max_archive_bytes = Some(64 * 1024 * 1024 * 1024);
+        }
         config.audio.native_enabled = false;
         config.max_archive_bytes = Some(profile.max_snapshot_bytes);
         // Exact trusted executable/argv policy from production main.rs. History
         // uses its existing production adaptation to `-I -B -m ori_research`.
-        config.analysis_worker = Some(WorkerSpec {
-            program: profile.analysis_python.clone(),
+        config.analysis_worker = profile.analysis_python.as_ref().map(|python| WorkerSpec {
+            program: python.clone(),
             args: vec![
                 "-I".into(),
                 "-B".into(),
