@@ -16,6 +16,10 @@ struct NativeSpectrumPlot: View {
     let cursor: NativeSpectrumSample?
     let markers: [NativeSpectrumSample]
     let layout: NativeSpectrumPlotLayout
+    var window: ClosedRange<Date>? = nil
+    var showMinimum = true
+    var showMaximum = true
+    var reference: PlatformSweep? = nil
     @State private var rasters: [NativeWaterfallRasterRow] = []
     private struct Request: Equatable {
         let sweeps: [PlatformSweep]
@@ -24,7 +28,7 @@ struct NativeSpectrumPlot: View {
     }
 
     var body: some View {
-        let timeline = NativeSpectrumTimeline(sweeps)
+        let timeline = NativeSpectrumTimeline(sweeps, window: window)
         Canvas { context, _ in
             let plot = layout.spectrum, water = layout.waterfall
             func x(_ hz: Double) -> Double { plot.minX + (hz - range.lowerBound) / (range.upperBound - range.lowerBound) * plot.width }
@@ -66,8 +70,17 @@ struct NativeSpectrumPlot: View {
                 // Envelopes cover exactly the displayed history, never an unrelated grid.
                 let sameGrid = sweeps.filter { $0.frequenciesHz == selected.frequenciesHz }
                 if !sameGrid.isEmpty {
-                    trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.min() ?? selected.levels[i] }, color: .cyan.opacity(0.6), width: 1)
-                    trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.max() ?? selected.levels[i] }, color: .orange.opacity(0.7), width: 1)
+                    if showMinimum { trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.min() ?? selected.levels[i] }, color: .cyan.opacity(0.6), width: 1) }
+                    if showMaximum { trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.max() ?? selected.levels[i] }, color: .orange.opacity(0.7), width: 1) }
+                }
+                if let reference, reference.frequenciesHz == selected.frequenciesHz, reference.levelUnit == selected.levelUnit {
+                    trace(reference.levels, color: .purple, width: 1.5)
+                }
+                if let threshold {
+                    for i in selected.levels.indices where selected.levels[i] > threshold && range.contains(Double(selected.frequenciesHz[i])) {
+                        let px = x(Double(selected.frequenciesHz[i]))
+                        clipped.fill(Path(ellipseIn: CGRect(x: px - 2, y: y(selected.levels[i]) - 2, width: 4, height: 4)), with: .color(.red))
+                    }
                 }
                 trace(selected.levels, color: .white, width: 1.5)
                 if let threshold, threshold >= bounds.lower, threshold <= bounds.upper {
@@ -84,8 +97,8 @@ struct NativeSpectrumPlot: View {
                 }
             }
             for row in timeline.rows {
-                let top = water.minY + timeline.fraction(row.end) * water.height
-                let bottom = water.minY + timeline.fraction(row.start) * water.height
+                let top = water.minY + max(0, timeline.fraction(row.end)) * water.height
+                let bottom = water.minY + min(1, timeline.fraction(row.start)) * water.height
                 let rect = CGRect(x: water.minX, y: top, width: water.width, height: max(1, bottom - top))
                 if let raster = rasters.first(where: { $0.id == row.sweep.id }) {
                     var imageContext = context; imageContext.clip(to: Path(water))

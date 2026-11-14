@@ -6,9 +6,7 @@ struct ContentView: View {
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
     @State private var showRCPreparation = false
-    @State private var setupExpanded = true
-    @State private var archiveExpanded = false
-    @State private var operationsExpanded = false
+    @State private var setupExpanded = false
     @State private var developmentCore = NativeDevelopmentCore()
     @State private var developmentConnectionTask: Task<Void, Never>?
     @State private var windowClosed = false
@@ -25,90 +23,57 @@ struct ContentView: View {
         _model = StateObject(wrappedValue: remote)
     }
 
+    @AppStorage("native.workbench.tab") private var tab = "range"
+    @State private var showReceiver = false
+
     var body: some View {
-        NavigationSplitView {
-            List(NativeWorkspace.allCases, selection: Binding<NativeWorkspace?>(
-                get: { mode }, set: { if let value = $0 { workspaceMode = value.rawValue } }
-            )) { value in
-                Label(value.title, systemImage: value.symbol).tag(value)
-            }
-            .navigationTitle("Рабочее пространство")
-            .navigationSplitViewColumnWidth(min: 175, ideal: 205, max: 260)
-        } detail: {
-            VStack(spacing: 0) {
-                NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
-                if setupExpanded {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if NativeLocalService.isPersonalRC {
-                                NativeLocalServicePane(service: localService, connect: {
-                                    connectLocalService()
-                                }, disconnect: { nodeConnection.cancel(); model.disconnect() })
-                            }
-                            if NativeLocalService.isPersonalRC {
-                                HStack {
-                                    Button("Подготовить приборы…") { showRCPreparation = true }
-                                        .disabled(!model.connected)
-                                    DisclosureGroup("Сеансы и дополнительные действия") {
-                                        NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
-                                    }
-                                }.padding(.horizontal, 12)
-                            } else {
-                                NativeDevelopmentCorePane(core: developmentCore, model: model, connection: nodeConnection,
-                                    connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
-                                NativeConnectionPane(model: model, connection: nodeConnection)
-                            }
-                        }
-                    }.frame(maxHeight: 240)
-                        .padding(.horizontal, 16).padding(.bottom, 8)
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Label("Двойной обзор", systemImage: "waveform.path").font(.headline)
+                Picker("Рабочая область", selection: $tab) {
+                    Text("Приборы").tag("devices")
+                    Text("Контроль диапазона").tag("range")
+                    Text("Сигналы").tag("signals")
+                    Text("Архив").tag("archive")
+                    Text("Охрана и исследование").tag("guard")
+                }.pickerStyle(.segmented).frame(maxWidth: 720)
+                Spacer(minLength: 0)
+                if tab == "range" {
+                    Toggle("AR-DV1", isOn: $showReceiver).toggleStyle(.button).disabled(model.receiver == nil)
                 }
-                NativeContinuityBar(model: model, workspace: workspace)
-                DisclosureGroup("Хранилище и диагностика записи", isExpanded: $archiveExpanded) {
-                    RemoteArchiveCapacityPane(model: model)
-                }.font(.caption).padding(.horizontal, 16).padding(.vertical, 6)
-                VStack(spacing: 0) {
-                    HSplitView {
-                        RemoteUltraPane(model: model, research: mode == .research).frame(minWidth: 460)
-                        if model.receiver != nil {
-                            RemoteArPane(model: model).frame(minWidth: 300, idealWidth: 340, maxWidth: 480)
-                        }
-                    }.frame(minHeight: 380, maxHeight: .infinity).layoutPriority(1)
-                    VStack(spacing: 8) {
-                        HStack {
-                            Button {
-                                operationsExpanded.toggle()
-                            } label: {
-                                Label("События и охрана", systemImage: operationsExpanded ? "chevron.down" : "chevron.right")
-                            }.buttonStyle(.plain).font(.headline)
-                            Text("\(workspace.events.count) в списке").font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Text("Проект · события · решения оператора").font(.caption).foregroundStyle(.secondary)
-                        }.padding(.horizontal, 16).padding(.top, 6)
-                        ScrollView {
-                            VStack(spacing: 8) {
-                                // Keep one workspace identity while its drawer is collapsed.
-                                MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, sessionID: model.selectedSessionID,
-                                    workspace: workspace, mode: mode, onProjectSession: { id in
-                                        model.selectSession(id)
-                                        Task { await model.reloadSessions() }
-                                    }, onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
-                                if mode == .research {
-                                    DisclosureGroup("Задания и автоматический анализ") {
-                                        RemoteWorkflowPane(model: model).frame(minHeight: 280, maxHeight: 400)
-                                    }.padding(.horizontal)
-                                }
-                            }
-                        }
-                        .frame(height: operationsExpanded ? 220 : 0)
-                        .clipped().disabled(!operationsExpanded).allowsHitTesting(operationsExpanded).accessibilityHidden(!operationsExpanded)
-                    }.frame(minHeight: operationsExpanded ? 200 : 32, idealHeight: operationsExpanded ? 260 : 32,
-                            maxHeight: operationsExpanded ? nil : 32)
-                }
-            }
-            .background(Color(nsColor: .windowBackgroundColor))
-            .navigationTitle(mode.title)
+            }.padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
+            Divider()
+            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
+            ZStack {
+                devicesPage.workbenchVisible(tab == "devices")
+                HSplitView {
+                    RemoteUltraPane(model: model, research: true).frame(minWidth: 640)
+                    if showReceiver, model.receiver != nil {
+                        RemoteArPane(model: model).frame(minWidth: 280, idealWidth: 300, maxWidth: 420)
+                    }
+                }.workbenchVisible(tab == "range")
+                NativeSignalsPage(model: model, openSpectrum: { tab = "range" })
+                    .workbenchVisible(tab == "signals")
+                NativeArchivePage(model: model, openSpectrum: { tab = "range" })
+                    .workbenchVisible(tab == "archive")
+                VStack {
+                    Picker("Режим", selection: $workspaceMode) {
+                        ForEach(NativeWorkspace.allCases) { Text($0.title).tag($0.rawValue) }
+                    }.pickerStyle(.segmented).frame(maxWidth: 400)
+                    MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil,
+                        sessionID: model.selectedSessionID, workspace: workspace, mode: mode,
+                        onProjectSession: { id in model.selectSession(id); Task { await model.reloadSessions() } },
+                        onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
+                    Spacer(minLength: 0)
+                }.padding(8).workbenchVisible(tab == "guard")
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            NativeContinuityBar(model: model, workspace: workspace)
         }
-        .frame(minWidth: 960, minHeight: 740)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 1000, minHeight: 700)
+        .onChange(of: setupExpanded) { _, expanded in if expanded { tab = "devices"; setupExpanded = false } }
+        .onChange(of: model.coreReachable) { _, reachable in if reachable, tab == "devices" { tab = "range" } }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: $model.showTinySAControl) {
@@ -131,7 +96,7 @@ struct ContentView: View {
             }
         })
         .onChange(of: workspaceMode) { _, value in
-            if value == NativeWorkspace.research.rawValue { operationsExpanded = true }
+            if value == NativeWorkspace.research.rawValue { tab = "guard" }
         }
         .onChange(of: model.coreReachable) { _, reachable in
             if reachable { setupExpanded = false }
@@ -144,6 +109,25 @@ struct ContentView: View {
             nodeConnection.cancel()
             model.observeVerifiedRuntimeOwner(owner)
             if owner != nil { connectLocalService() }
+        }
+    }
+
+    private var devicesPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if NativeLocalService.isPersonalRC {
+                    NativeLocalServicePane(service: localService, connect: connectLocalService,
+                        disconnect: { nodeConnection.cancel(); model.disconnect() })
+                    Button("Подготовить приборы…") { showRCPreparation = true }.disabled(!model.connected)
+                    NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true,
+                        localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
+                } else {
+                    NativeDevelopmentCorePane(core: developmentCore, model: model, connection: nodeConnection,
+                        connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
+                    NativeConnectionPane(model: model, connection: nodeConnection)
+                }
+                if model.receiver != nil { RemoteArPane(model: model).frame(minHeight: 320) }
+            }.padding(12)
         }
     }
 
@@ -162,5 +146,13 @@ struct ContentView: View {
                 model.connect(using: node.client)
             }
         }
+    }
+}
+
+extension View {
+    /// Keep presentation and project polling alive while changing workspace tabs.
+    func workbenchVisible(_ visible: Bool) -> some View {
+        self.opacity(visible ? 1 : 0).allowsHitTesting(visible).accessibilityHidden(!visible)
+            .frame(maxWidth: visible ? .infinity : 0, maxHeight: visible ? .infinity : 0).clipped()
     }
 }

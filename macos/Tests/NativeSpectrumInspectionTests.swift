@@ -87,3 +87,45 @@ import SpektrKomandy
         #expect(throws: (any Error).self) { try draft.synchronize(.center) }
     }
 }
+
+@Suite struct NativeWorkbenchTests {
+    @Test func timeWindowIsBoundedAndKeepsAcquisitionGaps() throws {
+        let end = try #require(NativeSpectrumTimeline.date("2026-11-14T12:02:00Z"))
+        let window = NativeTimeWindow.range(end: end, seconds: 30)
+        #expect(window.upperBound.timeIntervalSince(window.lowerBound) == 30)
+        let timeline = NativeSpectrumTimeline([], window: window)
+        #expect(timeline.duration == 30)
+        #expect(timeline.row(at: 0.5) == nil)
+        #expect(timeline.fraction(end.addingTimeInterval(-15)) == 0.5)
+        #expect(NativeTimeWindow.range(end: end, seconds: .nan).upperBound.timeIntervalSince(NativeTimeWindow.range(end: end, seconds: .nan).lowerBound) == 120)
+    }
+    @Test func dividerPreservesAlignedAxesAtBothExtremes() {
+        for fraction in [0.25, 0.5, 0.75] {
+            let layout = NativeSpectrumPlotLayout(size: CGSize(width: 1000, height: 500), spectrumFraction: fraction)
+            #expect(layout.spectrum.width == layout.waterfall.width)
+            #expect(layout.spectrum.height >= 100)
+            #expect(layout.waterfall.height >= 100)
+            #expect(layout.waterfall.maxY <= 500)
+        }
+    }
+    @Test func profileRoundTripPreservesIntegerHzAndDoesNotStoreHardwareIdentity() throws {
+        var draft = NativeAnalyzerDraft()
+        draft.start = "96.123456"; draft.stop = "100"; draft.rbw = "30000"
+        let profile = try NativeMeasurementProfile(name: "  Узкая полоса  ", draft: draft, edited: .start)
+        let data = try JSONEncoder().encode(profile)
+        let decoded = try NativeMeasurementProfile.decode(data)
+        #expect(decoded == profile)
+        #expect(decoded.name == "Узкая полоса")
+        #expect(try NativeAnalyzerDraft.hz(decoded.draft().start) == 96_123_456)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(object.keys) == Set(["version", "name", "startHz", "stopHz", "rbw"]))
+    }
+    @Test func malformedOrFutureProfilesCannotPopulateReceiveControls() throws {
+        for text in [
+            #"{"version":2,"name":"x","startHz":88000000,"stopHz":108000000,"rbw":"10000"}"#,
+            #"{"version":1,"name":"x","startHz":108000000,"stopHz":88000000,"rbw":"10000"}"#,
+            #"{"version":1,"name":"x","startHz":88000000,"stopHz":108000000,"rbw":"generator"}"#
+        ] { #expect(throws: (any Error).self) { try NativeMeasurementProfile.decode(Data(text.utf8)) } }
+        #expect(throws: (any Error).self) { try NativeMeasurementProfile.decode(Data(repeating: 32, count: 16_385)) }
+    }
+}

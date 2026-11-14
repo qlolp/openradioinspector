@@ -6,6 +6,7 @@ struct NativeWaterfall3D: View {
     let sweeps: [PlatformSweep]
     let range: ClosedRange<Double>
     let bounds: PlatformSpectrumScale?
+    var window: ClosedRange<Date>? = nil
     @State private var azimuth = 0.35
     @State private var elevation = 0.55
     @State private var dragStart: CGPoint?
@@ -22,7 +23,7 @@ struct NativeWaterfall3D: View {
                 Button("Сброс ракурса") { azimuth = 0.35; elevation = 0.55 }.controlSize(.mini)
             }
             Canvas { context, size in
-                let timeline = NativeSpectrumTimeline(sweeps)
+                let timeline = NativeSpectrumTimeline(sweeps, window: window)
                 guard let bounds, !timeline.rows.isEmpty else { return }
                 func project(_ x: Double, _ time: Double, _ level: Double) -> CGPoint {
                     let horizontal = (x - 0.5) * cos(viewAzimuth) + (time - 0.5) * sin(viewAzimuth) * 0.55

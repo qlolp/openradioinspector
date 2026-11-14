@@ -7,30 +7,14 @@ struct NativeOperatorHeader: View {
     @Binding var setupExpanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Label("ДВОЙНОЙ ОБЗОР", systemImage: "waveform.path")
-                    .font(.system(.caption, design: .monospaced, weight: .semibold)).tracking(2)
-                Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(Self.utc(context.date)).monospacedDigit().font(.caption)
-                        .foregroundStyle(.secondary).accessibilityLabel("Время UTC: \(Self.utc(context.date))")
-                }
-                Button { setupExpanded.toggle() } label: {
-                    Label("Подключение", systemImage: "slider.horizontal.3")
-                }.help("Ядро, доступ и настройка сеанса")
+        HStack(spacing: 12) {
+            sessionPicker.frame(maxWidth: 400)
+            Spacer()
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(Self.utc(context.date)).monospacedDigit().font(.caption).foregroundStyle(.secondary)
             }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    title
-                    Spacer(minLength: 8)
-                    sessionPicker.frame(width: 310)
-                }
-                VStack(alignment: .leading, spacing: 8) { title; sessionPicker }
-            }
-        }
-        .padding(.horizontal, 18).padding(.vertical, 6)
-        .background(.background)
+            Button("Подключение") { setupExpanded = true }
+        }.controlSize(.small).padding(.horizontal, 10).padding(.vertical, 3)
     }
 
     private var title: some View {

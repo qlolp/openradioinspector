@@ -25,6 +25,8 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
+    @Published var reviewedSweepRequest = UUID()
+    @Published var reviewedSweep: PlatformSweep?
     @Published var showTinySAControl = false
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { coreReachable = false; lastCoreContactAt = nil; resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
@@ -665,6 +667,8 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetMeasurementHealth() {
+        reviewedSweep = nil
+        reviewedSweepRequest = UUID()
         if staleSpectrum != nil { waterfallRevision += 1 }
         measurementsStale = true; lastMeasurementAt = nil
         staleSpectrum = nil; staleSpectrumScale = nil; lastRenderedFrame = nil

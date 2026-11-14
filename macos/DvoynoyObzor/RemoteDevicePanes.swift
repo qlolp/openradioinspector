@@ -103,7 +103,7 @@ struct RemoteUltraPane: View {
     @State private var detailsExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("tinySA ULTRA", systemImage: "waveform.path").font(.headline)
                 Text(NativeDeviceStatus.title(model.worker(for: model.analyzer?.id)?.state ?? "disconnected"))
@@ -122,7 +122,9 @@ struct RemoteUltraPane: View {
             NativeAnalyzerControls(model: model)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
             NativeSpectrumInspector(sweeps: model.spectrumPresentation.sweeps,
-                                    scale: model.displaySpectrumScale, threshold: model.thresholdDbm)
+                                    scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
+                                    client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
+                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
                 .frame(minHeight: 370).layoutPriority(1)
             HStack {
@@ -131,6 +133,10 @@ struct RemoteUltraPane: View {
                           systemImage: model.spectrumPresentation.paused ? "play.fill" : "pause.fill")
                 }
                 Button("Автомасштаб") { model.fitSpectrum() }
+                Text("Порог показа, дБм").font(.caption)
+                TextField("дБм", text: $model.threshold).frame(width: 65)
+                    .help("Линия на графике. Реакции охраны настраиваются отдельно во вкладке «Охрана и исследование».")
+
                 Spacer()
                 Button(detailsExpanded ? "Скрыть настройки" : "Настройки и анализ") { detailsExpanded.toggle() }
             }.controlSize(.small)
@@ -138,7 +144,7 @@ struct RemoteUltraPane: View {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(2).textSelection(.enabled)
             }
             ErrorLine(text: model.errorText)
-        }.padding(12)
+        }.padding(6)
         .sheet(isPresented: $detailsExpanded) {
             VStack(alignment: .trailing) {
                 Button("Готово") { detailsExpanded = false }.keyboardShortcut(.cancelAction)

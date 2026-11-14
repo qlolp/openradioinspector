@@ -20,13 +20,13 @@ struct NativeSpectrumTimeline {
     let end: Date
     var duration: Double { max(0.001, end.timeIntervalSince(start)) }
 
-    init(_ sweeps: [PlatformSweep]) {
+    init(_ sweeps: [PlatformSweep], window: ClosedRange<Date>? = nil) {
         rows = sweeps.compactMap { sweep in
             guard let start = Self.date(sweep.interval.startedAt), let end = Self.date(sweep.interval.endedAt), end >= start else { return nil }
             return Row(sweep: sweep, start: start, end: end)
         }.sorted { $0.end < $1.end }
-        start = rows.map(\.start).min() ?? .distantPast
-        end = rows.map(\.end).max() ?? .distantPast
+        start = window?.lowerBound ?? rows.map(\.start).min() ?? .distantPast
+        end = window?.upperBound ?? rows.map(\.end).max() ?? .distantPast
     }
 
     func fraction(_ date: Date) -> Double { end.timeIntervalSince(date) / duration }

@@ -6,79 +6,92 @@ struct NativeSpectrumInspector: View {
     let sweeps: [PlatformSweep]
     let scale: PlatformSpectrumScale?
     let threshold: Double?
+    var client: PlatformClient? = nil
+    var sessionID = ""
+    var streamID = ""
+    var reviewedSweep: PlatformSweep? = nil
+    var reviewRequest = UUID()
+    @AppStorage("native.plot.split") private var split = 0.50
+    @AppStorage("native.plot.seconds") private var seconds = 120.0
+    @AppStorage("native.plot.minimum") private var showMinimum = true
+    @AppStorage("native.plot.maximum") private var showMaximum = true
+    @State private var inspectionScale: PlatformSpectrumScale?
+    @State private var splitStart: Double?
+    @State private var reference: PlatformSweep?
+    @State private var referenceVisible = true
+    @State private var timeEnd: Date?
+    @State private var offset = 0.0
+    @State private var archive = NativeArchiveBrowser()
+    @State private var archiveTask: Task<Void, Never>?
+    @State private var historySweeps: [PlatformSweep] = []
+    @State private var archiveWindow: ClosedRange<Date>?
+
     @State private var frozen: [PlatformSweep]?
     @State private var selectedID: String?
     @State private var cursor: NativeSpectrumSample?
     @State private var inGap = false
     @State private var markers: [NativeSpectrumSample] = []
     @State private var zoom: ClosedRange<Double>?
-    @State private var peakIndex = 0
+    @State private var peakIndex = -1
     @State private var threeDimensional = false
     @State private var gestureRange: ClosedRange<Double>?
     @State private var selectionStart: CGPoint?
     @State private var selectionEnd: CGPoint?
     @State private var selectBand = false
 
-    private var displayed: [PlatformSweep] { frozen ?? sweeps }
+    private var source: [PlatformSweep] { frozen ?? sweeps }
+    private var window: ClosedRange<Date> {
+        NativeTimeWindow.range(end: timeEnd ?? (source.isEmpty ? Date() : NativeSpectrumTimeline(source).end), seconds: seconds)
+    }
+    private var displayed: [PlatformSweep] { NativeTimeWindow.rows(source, within: window) }
+    private var timeline: NativeSpectrumTimeline { NativeSpectrumTimeline(displayed, window: window) }
     private var selected: PlatformSweep? { displayed.first { $0.id == selectedID } ?? displayed.last }
     private var fullRange: ClosedRange<Double> {
-        let first = Double(displayed.last?.frequenciesHz.first ?? 0)
-        return first...max(first + 1, Double(displayed.last?.frequenciesHz.last ?? 1))
+        let first = Double(source.last?.frequenciesHz.first ?? 0)
+        return first...max(first + 1, Double(source.last?.frequenciesHz.last ?? 1))
     }
     private var range: ClosedRange<Double> { zoom ?? fullRange }
-    private var bounds: PlatformSpectrumScale? { scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
+    private var bounds: PlatformSpectrumScale? { inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             NativeSpectrumRangeHeader(sweep: selected, range: range)
-            HStack(spacing: 8) {
-                Text(frozen == nil ? "ТЕКУЩИЙ СПЕКТР" : "ИСТОРИЯ · показ зафиксирован").font(.caption.bold())
-                    .foregroundStyle(frozen == nil ? Color.secondary : .yellow)
-                Spacer()
-                Button("На максимум") { choosePeak(next: false) }
-                Button("Следующий пик") { choosePeak(next: true) }
-                Button("＋") { magnify(0.5) }.help("Приблизить обе частотные шкалы вокруг курсора")
-                Button("−") { magnify(2) }
-                Button("Весь диапазон") { zoom = nil }
-                Button("К текущим данным") { frozen = nil; selectedID = nil; cursor = nil; markers = []; inGap = false }
-                    .disabled(frozen == nil && markers.isEmpty)
-            }.controlSize(.small)
-            HStack {
-                Picker("Свип UTC", selection: Binding(get: { selectedID ?? "" }, set: { id in
-                    if id.isEmpty { frozen = nil; selectedID = nil; cursor = nil; markers = [] }
-                    else { if frozen == nil { frozen = displayed }; selectedID = id }
-                })) {
-                    Text("Последний / LIVE").tag("")
-                    ForEach(displayed.reversed()) { sweep in
-                        Text(NativeSpectrumInspection.interval(sweep)).tag(sweep.id)
-                    }
-                }.frame(maxWidth: 440)
-                Spacer()
-                Text("Белый: выбранный · голубой: min · оранжевый: max").foregroundStyle(.secondary)
-            }.font(.caption).controlSize(.small)
-            HStack(spacing: 8) {
-                Picker("Водопад", selection: $threeDimensional) {
+            HStack(spacing: 6) {
+                Picker("Вид", selection: $threeDimensional) {
                     Text("2D").tag(false); Text("3D").tag(true)
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 85)
-                Toggle("Выделить полосу", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
-                Button("←") { pan(-0.25) }.help("Сдвинуть видимую полосу влево")
-                Button("→") { pan(0.25) }.help("Сдвинуть видимую полосу вправо")
-                Text(String(format: "Масштаб ×%.1f", (fullRange.upperBound - fullRange.lowerBound) / (range.upperBound - range.lowerBound)))
-                Spacer()
-                Text(threeDimensional ? "+/− — полоса · мышь — ракурс" : "Щипок — масштаб · перетаскивание — сдвиг / выделение")
-                    .foregroundStyle(.secondary)
-            }.font(.caption2).controlSize(.small)
+                }.pickerStyle(.segmented).labelsHidden().frame(width: 70)
+                Button("＋") { magnify(0.5) }.help("Масштаб графика; прибор не перестраивается")
+                Button("−") { magnify(2) }
+                Button("←") { pan(-0.25) }
+                Button("→") { pan(0.25) }
+                Button("Весь диапазон") { zoom = nil }
+                Toggle("Полоса", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
+                Button("Пик") { choosePeak(next: true) }
+                Toggle("Min", isOn: $showMinimum).toggleStyle(.button)
+                Toggle("Max", isOn: $showMaximum).toggleStyle(.button)
+                Button("Шкала") { inspectionScale = PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
+                Menu("Эталон") {
+                    Button("Закрепить выбранный свип") { reference = selected; referenceVisible = true }
+                        .disabled(selected == nil)
+                    Toggle("Показывать", isOn: $referenceVisible)
+                    Button("Удалить с графика") { reference = nil }
+                }
+                Spacer(minLength: 0)
+                Text(frozen == nil ? "LIVE" : "ИСТОРИЯ").foregroundStyle(frozen == nil ? .green : .yellow)
+            }.controlSize(.small).font(.caption)
             GeometryReader { geometry in
-                let layout = NativeSpectrumPlotLayout(size: geometry.size)
+                let layout = NativeSpectrumPlotLayout(size: geometry.size, spectrumFraction: split)
                 if threeDimensional {
-                    NativeWaterfall3D(sweeps: displayed, range: range, bounds: bounds)
+                    NativeWaterfall3D(sweeps: displayed, range: range, bounds: bounds, window: window)
                         .simultaneousGesture(MagnifyGesture().onChanged { value in
                             if gestureRange == nil { gestureRange = range }
                             if let base = gestureRange { zoom = NativeSpectrumNavigation.zoom(base, factor: 1 / value.magnification, anchor: (base.lowerBound + base.upperBound) / 2, within: fullRange) }
                         }.onEnded { _ in gestureRange = nil })
                 } else {
                 NativeSpectrumPlot(sweeps: displayed, selected: selected, bounds: bounds, range: range,
-                                   threshold: threshold, cursor: cursor, markers: markers, layout: layout)
+                                   threshold: threshold, cursor: cursor, markers: markers, layout: layout,
+                                   window: window, showMinimum: showMinimum, showMaximum: showMaximum,
+                                   reference: referenceVisible ? reference : nil)
                     .contentShape(Rectangle())
                     .onContinuousHover { phase in
                         switch phase {
@@ -121,8 +134,47 @@ struct NativeSpectrumInspector: View {
                         }
                     }
                     .accessibilityLabel("Спектр и водопад. Частота по горизонтали, UTC по вертикали водопада.")
+                    .overlay(alignment: .top) {
+                        Capsule().fill(.secondary.opacity(0.7)).frame(width: 60, height: 5)
+                            .padding(.vertical, 6).contentShape(Rectangle())
+                            .offset(y: layout.spectrum.maxY + 18)
+                            .gesture(DragGesture().onChanged { value in
+                                if splitStart == nil { splitStart = split }
+                                split = min(0.75, max(0.25, (splitStart ?? split) + value.translation.height / max(40, geometry.size.height - 62)))
+                            }.onEnded { _ in splitStart = nil })
+                            .accessibilityLabel("Соотношение спектра и водопада")
+                            .accessibilityAdjustableAction { direction in
+                                split = min(0.75, max(0.25, split + (direction == .increment ? 0.05 : -0.05)))
+                            }
+                    }
                 }
             }.frame(minHeight: 120)
+            HStack(spacing: 6) {
+                Picker("Окно", selection: $seconds) {
+                    Text("30 с").tag(30.0); Text("2 мин").tag(120.0); Text("10 мин").tag(600.0)
+                }.frame(width: 130)
+                Button("Раньше") { moveTime(-seconds / 2) }
+                Button("Позже") { moveTime(seconds / 2) }
+                Slider(value: $offset, in: 0...3600, onEditingChanged: { editing in
+                    if !editing {
+                        timeEnd = NativeSpectrumTimeline(sweeps).end.addingTimeInterval(-offset)
+                        frozen = sweeps; loadHistory()
+                    }
+                }).help("Сдвиг до часа назад; отпускание загружает архивное окно")
+                Button("Загрузить окно") { if timeEnd == nil { timeEnd = window.upperBound }; frozen = source; loadHistory() }
+                    .disabled(client == nil || archive.busy)
+                Button("Ещё") { loadHistory(next: true) }.disabled(archive.nextCursor == nil || archive.busy || historySweeps.count >= 128)
+                Button("LIVE") { returnToLive() }
+                    .tint(.green)
+            }.font(.caption).controlSize(.small)
+            if !archive.message.isEmpty {
+                Text(archive.message + (archive.nextCursor == nil ? "" : (historySweeps.count >= 128 ? " · лимит 128 свипов; сузьте окно" : " · окно загружено частично")))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            if let reference, referenceVisible {
+                Text("Эталон: \(reference.id) · \(reference.frequenciesHz == selected?.frequenciesHz ? "совпадающая сетка; фиолетовая трасса" : "другая сетка — трасса скрыта")")
+                    .font(.caption2).foregroundStyle(.purple).lineLimit(1)
+            }
             NativeSpectrumCursorReadout(sample: cursor, inGap: inGap, markers: markers)
             HStack {
                 if let bounds {
@@ -132,28 +184,67 @@ struct NativeSpectrumInspector: View {
                     Text(String(format: "%.1f дБм", bounds.upper))
                 }
                 Spacer()
-                Text("Клик: M1 / M2 · выбор истории · пробелы = нет измерений")
+                Text("\(displayed.count) свипов · клик: M1 / M2 · полный интервал: «Загрузить окно»")
                 Button("Сброс маркеров") { markers = [] }.disabled(markers.isEmpty)
             }.font(.caption2).controlSize(.mini)
         }
         .padding(10)
         .background(Color(red: 0.055, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 10))
         .environment(\.colorScheme, .dark)
+        .onChange(of: reviewRequest) { _, _ in
+            guard let reviewedSweep else { returnToLive(); reference = nil; return }
+            guard PlatformExactID.same(reviewedSweep.sessionId, sessionID), PlatformExactID.same(reviewedSweep.streamId, streamID) else { return }
+            archiveTask?.cancel(); archive.reset(); historySweeps = []
+            frozen = [reviewedSweep]; selectedID = reviewedSweep.id
+            timeEnd = NativeSpectrumTimeline.date(reviewedSweep.interval.endedAt)
+            cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
+        }
+        .onChange(of: seconds) { _, _ in
+            archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
+        }
+        .onDisappear { archiveTask?.cancel() }
         .onChange(of: sweeps.isEmpty) { _, empty in
-            if empty { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inGap = false }
+            if empty { archiveTask?.cancel(); archive.reset(); timeEnd = nil; reference = nil; frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inGap = false }
         }
         .onChange(of: sweeps.last?.id) { _, _ in
             if frozen == nil, let cursor, !sweeps.contains(where: { $0.id == cursor.sweep.id }) { self.cursor = nil }
         }
         .onChange(of: sweeps.last?.frequenciesHz) { old, new in
-            if old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil }
+            if frozen == nil, old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil }
+        }
+    }
+
+    private func returnToLive() {
+        archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
+        inspectionScale = nil; frozen = nil; selectedID = nil; timeEnd = nil; offset = 0; cursor = nil; markers = []; inGap = false; zoom = nil
+    }
+    private func moveTime(_ delta: Double) {
+        timeEnd = window.upperBound.addingTimeInterval(delta)
+        frozen = source; cursor = nil; markers = []; selectedID = nil
+        loadHistory()
+    }
+    private func loadHistory(next: Bool = false) {
+        guard let client, !sessionID.isEmpty, !streamID.isEmpty else { return }
+        if !next { archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = window }
+        guard let query = archiveWindow else { return }
+        archiveTask = Task { @MainActor in
+            await archive.search(client: client, session: sessionID, stream: streamID,
+                start: NativeTimeWindow.iso(query.lowerBound), end: NativeTimeWindow.iso(query.upperBound.addingTimeInterval(0.001)),
+                next: next, loadSources: true)
+            guard !Task.isCancelled else { return }
+            let known = Set(historySweeps.map { PlatformExactID($0.id) })
+            historySweeps += archive.sources.filter { !known.contains(PlatformExactID($0.id)) }
+            if archive.didLoad {
+                frozen = historySweeps.sorted { $0.interval.startedAt < $1.interval.startedAt }
+                selectedID = nil
+            }
         }
     }
 
     private func inspect(_ point: CGPoint, layout: NativeSpectrumPlotLayout, pin: Bool) {
         let row: PlatformSweep?
         if layout.waterfall.contains(point) {
-            row = NativeSpectrumTimeline(displayed).row(at: (point.y - layout.waterfall.minY) / layout.waterfall.height)?.sweep
+            row = timeline.row(at: (point.y - layout.waterfall.minY) / layout.waterfall.height)?.sweep
             inGap = row == nil
         } else if layout.spectrum.contains(point) { row = selected; inGap = false }
         else { return }
@@ -165,7 +256,7 @@ struct NativeSpectrumInspector: View {
         if pin { pinSample(sample) }
     }
     private func pinSample(_ sample: NativeSpectrumSample) {
-        if frozen == nil { frozen = displayed }
+        if frozen == nil { timeEnd = window.upperBound; frozen = sweeps }
         selectedID = sample.sweep.id
         if markers.count == 2 { markers = [] }
         markers.append(sample)
@@ -194,20 +285,18 @@ struct NativeSpectrumRangeHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))")
-                .font(.system(.title3, design: .monospaced, weight: .semibold))
+                .font(.system(.callout, design: .monospaced, weight: .semibold))
             if let sweep {
                 let count = sweep.frequenciesHz.count
                 let steps = zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).map { $1 - $0 }
                 let uniform = Set(steps).count == 1
                 let step = uniform ? String(format: "%.3f кГц", Double(steps.first ?? 0) / 1000) : "неравномерный"
-                Text("Центр \(NativeSpectrumInspection.frequency((range.lowerBound + range.upperBound) / 2)) · ширина \(NativeSpectrumInspection.frequency(range.upperBound - range.lowerBound)) · \(count) точек · шаг \(step)")
-                    .font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Text(NativeSpectrumInspection.interval(sweep))
                     if let start = NativeSpectrumTimeline.date(sweep.interval.startedAt), let end = NativeSpectrumTimeline.date(sweep.interval.endedAt) {
                         Text(String(format: "· свип %.2f с", end.timeIntervalSince(start)))
                     }
-                    Text("· RBW: \(rbw(sweep))")
+                    Text("· \(count) точек · шаг \(step) · RBW \(rbw(sweep))")
                 }.font(.caption2).foregroundStyle(.secondary)
             } else { Text("Нет сохранённых свипов").font(.caption) }
         }.textSelection(.enabled)
@@ -229,13 +318,13 @@ struct NativeSpectrumCursorReadout: View {
         VStack(alignment: .leading, spacing: 2) {
             if let sample {
                 Text("Курсор: \(sample.frequency) Гц · \(String(format: "%.1f", sample.level)) дБм · \(NativeSpectrumInspection.interval(sample.sweep))")
-            } else { Text(inGap ? "Курсор: промежуток между свипами — измерений нет" : "Наведите курсор на спектр или водопад; клик закрепляет отсчёт") }
+            } else { Text(inGap ? "Курсор: в этом интервале нет загруженного свипа" : "Курсор: частота · уровень · UTC (интервал свипа)") }
             ForEach(Array(markers.enumerated()), id: \.offset) { index, marker in
                 Text("M\(index + 1): \(marker.frequency) Гц · \(String(format: "%.1f", marker.level)) дБм · \(NativeSpectrumInspection.interval(marker.sweep))")
                     .foregroundStyle(.yellow)
             }
             if markers.count == 2 { Text(NativeSpectrumInspection.delta(markers[0], markers[1])).foregroundStyle(.yellow) }
-            else { Text("Время относится ко всему свипу; время отдельной точки неизвестно.").foregroundStyle(.secondary) }
+
         }.font(.system(.caption, design: .monospaced)).textSelection(.enabled)
     }
 }
@@ -243,10 +332,10 @@ struct NativeSpectrumCursorReadout: View {
 struct NativeSpectrumPlotLayout {
     let spectrum: CGRect
     let waterfall: CGRect
-    init(size: CGSize) {
+    init(size: CGSize, spectrumFraction: Double = 0.48) {
         let width = max(1, size.width - 94)
         let available = max(40, size.height - 62)
-        spectrum = CGRect(x: 76, y: 20, width: width, height: available * 0.48)
-        waterfall = CGRect(x: 76, y: spectrum.maxY + 35, width: width, height: available * 0.52)
+        spectrum = CGRect(x: 76, y: 20, width: width, height: available * min(0.75, max(0.25, spectrumFraction)))
+        waterfall = CGRect(x: 76, y: spectrum.maxY + 35, width: width, height: available - spectrum.height)
     }
 }

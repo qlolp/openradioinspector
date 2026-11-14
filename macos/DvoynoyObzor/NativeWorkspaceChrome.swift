@@ -128,6 +128,7 @@ struct NativeConnectionPane: View {
 struct NativeContinuityBar: View {
     @ObservedObject var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
+    @State private var details = false
     private var coverage: String {
         let value = workspace.project["coverage"].text.isEmpty ? workspace.coverage : workspace.project["coverage"].text
         return ["wide": "Широкий обзор", "narrow": "Узкая полоса · широкий обзор приостановлен", "restoring": "Восстановление широкого обзора", "preparation": "Подготовка эталона", "stopped": "Покрытие остановлено", "paused": "Покрытие на паузе", "unavailable": "Покрытие недоступно", "error": "Ошибка покрытия"][value] ?? "Покрытие не подтверждено"
@@ -147,7 +148,7 @@ struct NativeContinuityBar: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 16) {
                 Label(model.coreReachable ? "Ядро на связи" : "Нет связи с ядром", systemImage: "network")
                     .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
@@ -155,6 +156,14 @@ struct NativeContinuityBar: View {
                 Text(archiveLabel)
                 Text(workspace.isArmed && model.coreReachable ? "Охрана включена" : "Охрана не подтверждена")
                 Spacer(minLength: 0)
+                Button("Диагностика") { details.toggle() }.controlSize(.mini)
+                    .popover(isPresented: $details) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(coverage)
+                            Text(model.eventStatus).textSelection(.enabled)
+                            if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
+                        }.padding().frame(width: 380)
+                    }
             }.font(.caption).lineLimit(1)
             if model.archiveCapacity?.measurementWritesBlocked == true {
                 Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
@@ -167,14 +176,6 @@ struct NativeContinuityBar: View {
                     Button("Понятно") { model.eventGapNotice = nil }
                 }.font(.caption)
             }
-            DisclosureGroup("Покрытие и доставка данных") {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(coverage)
-                    Text(model.eventStatus).textSelection(.enabled)
-                    if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
-                    Text("Пауза отображения не управляет охраной или записью. Состояние ядра показано отдельно.")
-                }.font(.caption).foregroundStyle(.secondary)
-            }.font(.caption)
-        }.padding(.horizontal, 16).padding(.vertical, 8)
+        }.padding(.horizontal, 10).padding(.vertical, 3)
     }
 }
