@@ -12,6 +12,70 @@ fn operations_fixture() -> Value {
 }
 
 #[tokio::test]
+async fn eight_hour_budget_reserves_a_future_backup_and_refuses_primary_only_space() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    h.service.update_settings(&id,json!({"archive":{"minimum_free_bytes":1_048_576,"minimum_retention_seconds":43_200,"reserve_backup":true}})).await.unwrap();
+    let report = h.service.storage_report(&id, true).await.unwrap();
+    let rate = report["bytes_per_second"].as_f64().unwrap();
+    let required = (rate * 43_200.).ceil() as u64;
+    let database = report["capacity"]["database_bytes"].as_u64().unwrap();
+    assert!(rate > 0.);
+    assert_eq!(
+        report["backup_reserve_bytes"].as_u64(),
+        database.checked_add(required)
+    );
+    assert_eq!(report["backup_reserve_requested"], true);
+    assert_eq!(report["ready"], true);
+    let preflight = h.service.preflight(&id, true).await.unwrap();
+    assert_eq!(preflight["performance"]["mean_observed_cycle_seconds"], 4.0);
+    // Enough for a primary recording alone, but no room for its future backup.
+    h.control.storage.lock().unwrap().filesystem_free_bytes = Some(1_048_576 + required + database);
+    assert_eq!(
+        h.service.storage_report(&id, true).await.unwrap()["ready"],
+        false
+    );
+    let before = h.service.project(&id).await.unwrap();
+    assert!(h.service.arm(&id, json!({})).await.is_err());
+    assert_eq!(h.service.project(&id).await.unwrap(), before);
+    h.control.storage.lock().unwrap().filesystem_free_bytes =
+        Some(1_048_576 + required + database + required + 1_048_576);
+    assert_eq!(
+        h.service.storage_report(&id, true).await.unwrap()["ready"],
+        true
+    );
+    h.close().await;
+}
+
+#[tokio::test]
+async fn backup_budget_never_claims_readiness_without_a_measured_rate() {
+    let h = Harness::new().await;
+    let p = h
+        .service
+        .create(json!({"name":"No rate","site":"Fixture","session_id":fixture()["session"]["id"]}))
+        .await
+        .unwrap();
+    let id = p["id"].as_str().unwrap();
+    h.service
+        .update_settings(id, json!({"archive":{"reserve_backup":true}}))
+        .await
+        .unwrap();
+    let report = h.service.storage_report(id, true).await.unwrap();
+    assert!(report["bytes_per_second"].is_null());
+    assert!(report["backup_reserve_bytes"].is_null());
+    assert_eq!(report["ready"], false);
+    let before = h.service.project(id).await.unwrap();
+    assert!(
+        h.service
+            .update_settings(id, json!({"archive":{"reserve_backup":1}}))
+            .await
+            .is_err()
+    );
+    assert_eq!(h.service.project(id).await.unwrap(), before);
+    h.close().await;
+}
+
+#[tokio::test]
 async fn python_settings_outbox_dedup_retry_ack_and_exact_transport_body() {
     let h = Harness::new().await;
     let f = operations_fixture();

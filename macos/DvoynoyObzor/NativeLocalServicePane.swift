@@ -11,6 +11,8 @@ struct NativeLocalServicePane: View {
                 Label("Личная macOS RC · Rust-служба", systemImage: "desktopcomputer")
                 Spacer()
                 if service.busy { ProgressView().controlSize(.small) }
+            }
+            HStack {
                 Button("Запустить службу") { Task { await service.start() } }.disabled(service.busy)
                 Button("Проверить") { Task { await service.inspect() } }.disabled(service.busy)
                 Button("Подключить интерфейс", action: connect).disabled(service.status == nil || service.busy)

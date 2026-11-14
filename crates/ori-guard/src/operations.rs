@@ -109,7 +109,11 @@ impl GuardService {
         if let Some(config) = payload.get("archive") {
             fields(
                 config,
-                &["minimum_free_bytes", "minimum_retention_seconds"],
+                &[
+                    "minimum_free_bytes",
+                    "minimum_retention_seconds",
+                    "reserve_backup",
+                ],
                 false,
             )?;
             let mut merged = settings["archive"].clone();
@@ -128,6 +132,12 @@ impl GuardService {
                 || !(60..=31536000).contains(&retention)
             {
                 return Err(invalid("Недопустимый резерв/прогноз хранения архива"));
+            }
+            if merged
+                .get("reserve_backup")
+                .is_some_and(|value| !value.is_boolean())
+            {
+                return Err(invalid("reserve_backup должен быть boolean"));
             }
             p["archive"] = merged;
         }

@@ -253,6 +253,8 @@ extension PlatformClient {
         return try await get("/monitoring-projects" + path)
     }
 
+    public func coreCapabilities() async throws -> MonitoringValue { try await get("/capabilities") }
+
     public func monitoringProject(
         _ projectID: String, resource: String = "", body: [String: MonitoringValue]? = nil
     ) async throws -> MonitoringValue {

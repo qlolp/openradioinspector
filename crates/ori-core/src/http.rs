@@ -816,6 +816,7 @@ fn capabilities(core: &Core) -> Value {
     value["features"]["control_task_scheduler_policy_persistent"] = Value::Bool(false);
     value["features"]["openapi_v1"] = Value::Bool(true);
     value["features"]["monitoring_receiver_profile"] = json!("ardv1-monitor-v1");
+    value["features"]["monitoring_backup_reserve"] = Value::Bool(archived);
     value["features"]["guard_original_tune_audio_capture"] = Value::Bool(core.audio.is_some());
     value["features"]["analog_audio_inputs"] = Value::Bool(core.audio.is_some());
     value["features"]["legacy_workspace_state"] = Value::Bool(core.legacy.get().is_some());

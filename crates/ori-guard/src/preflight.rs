@@ -327,7 +327,25 @@ impl GuardService {
             bytes = bytes.saturating_add(spaced_json(sweep, true)?.len());
         }
         let n = sweeps.len();
-        let performance = json!({"sweeps":n,"mean_sweep_seconds":if n>0{Some(durations.iter().sum::<f64>()/n as f64)}else{None},"mean_sweep_bytes":if n>0{Some(bytes as f64/n as f64)}else{None}});
+        let mut performance = json!({"sweeps":n,"mean_sweep_seconds":if n>0{Some(durations.iter().sum::<f64>()/n as f64)}else{None},"mean_sweep_bytes":if n>0{Some(bytes as f64/n as f64)}else{None}});
+        if p.get("archive")
+            .is_some_and(|archive| archive.get("reserve_backup").is_some())
+        {
+            let cycle = if n > 1 {
+                let span = elapsed(
+                    s(&sweeps[0]["interval"], "started_at")?,
+                    s(&sweeps[n - 1]["interval"], "started_at")?,
+                )?;
+                (span.is_finite() && span > 0.).then_some(span / (n - 1) as f64)
+            } else {
+                None
+            };
+            performance["mean_observed_cycle_seconds"] = json!(cycle);
+            performance["latest_sweep_ended_at"] = sweeps
+                .last()
+                .map(|sweep| sweep["interval"]["ended_at"].clone())
+                .unwrap_or(Value::Null);
+        }
         let storage = self.storage_report(id, true).await?;
         check(
             "storage_budget",
@@ -346,6 +364,12 @@ impl GuardService {
         );
         let minimum = integer(&config, "minimum_free_bytes")?;
         let retention_required = integer(&config, "minimum_retention_seconds")?;
+        let reserve_backup = match config.get("reserve_backup") {
+            None => false,
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| invalid("archive reserve_backup"))?,
+        };
         let capacity = self.archive.capacity().await?;
         let inspected = self.control.storage_probe().await.unwrap_or(StorageProbe {
             filesystem_free_bytes: None,
@@ -403,9 +427,24 @@ impl GuardService {
                 }
             }
         }
+        let backup_reserve = if reserve_backup {
+            rate.filter(|rate| rate.is_finite() && *rate > 0.)
+                .and_then(|rate| {
+                    let projected = (rate * retention_required as f64).ceil();
+                    if projected.is_finite() && projected >= 0. && projected < u64::MAX as f64 {
+                        size.checked_add(projected as u64)
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            Some(0)
+        };
+        let effective_minimum = backup_reserve.and_then(|backup| minimum.checked_add(backup));
         let mut available = inspected
             .filesystem_free_bytes
-            .map_or(0, |free| free.saturating_sub(minimum));
+            .zip(effective_minimum)
+            .map_or(0, |(free, reserve)| free.saturating_sub(reserve));
         if let Some(remaining) = capacity["remaining_bytes"].as_u64() {
             available = available.min(remaining);
         }
@@ -414,9 +453,13 @@ impl GuardService {
             && available > 0
             && capacity["state"] != "full"
             && retention.is_none_or(|r| r >= retention_required as f64);
-        Ok(
-            json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false}),
-        )
+        let mut report = json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false});
+        if reserve_backup {
+            report["backup_reserve_requested"] = json!(true);
+            report["backup_reserve_bytes"] = json!(backup_reserve);
+            report["effective_minimum_free_bytes"] = json!(effective_minimum);
+        }
+        Ok(report)
     }
 }
 fn valid_com(raw: &str) -> bool {

@@ -50,3 +50,33 @@ idle registration, explicit/idempotent start, independent reconnect, refused
 cutover and acknowledged resource release. Swift/SMAppService/IOPM integration
 requires native CI and installed-package acceptance; these checks do not replace
 the 30-minute Mac workload or the eight-hour two-instrument protocol.
+
+## First connection wizard
+
+The personal RC offers **Prepare instruments**. Select two distinct `/dev/cu.…`
+ports, the object and an integer-Hz receive range. Port suggestions are not
+model identification. The conservative profile accepts 0.1–800 MHz, 2–290
+points and RBW 10/30 kHz. Profile creation opens no USB port. AR-DV1 uses the
+explicit `ardv1-monitor-v1` profile; AUTO excludes TETRA.
+
+Confirm the antenna, receive path and location, then explicitly start collection.
+The core validates model/firmware and acknowledges generator-off/input commands.
+The wizard displays actual firmware, sweep duration and the observed start-to-start
+cycle from archived measurements. Command acknowledgement is not physical RF
+readback. At least 60 seconds and 20 full compatible sweeps are required; the
+operator separately confirms the reference environment.
+
+Before making the baseline armable, the wizard stores a 43,200-second primary
+budget (eight hours plus 50%) with `archive.reserve_backup=true`. The core reserves
+the current database plus the projected 43,200-second growth for a future backup,
+in addition to the 256-MiB free-space floor. It recalculates this reservation from
+the measured archive rate during preflight/guard checks; an unknown rate,
+overflow, failed write probe or insufficient filesystem/quota space refuses
+readiness. Automatic deletion remains false. The optional policy is additive;
+projects without it keep their existing storage semantics.
+
+Saving a baseline does not arm guard. The final button requires current core
+preflight and budget readiness. A new range/profile requires a new baseline.
+Closing the wizard stops only its polling. Explicit stop collection, disarm
+and stop service remain separate actions. The RC uses a compact initial layout
+for the MacBook Air; advanced session controls remain in a disclosure panel.

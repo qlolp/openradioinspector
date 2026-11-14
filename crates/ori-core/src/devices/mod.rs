@@ -244,7 +244,7 @@ impl Native {
             }
             Self::Receiver(actor) => {
                 let state = actor.state();
-                json!({"frequency_hz":state.frequency_hz,"mode":state.mode,"requested_frequency_hz":state.requested_frequency_hz,"requested_mode":state.requested_mode,"frequency_source":state.frequency_source,"mode_source":state.frequency_source,"frequency_readback":false,"restart_required":state.restart_required,"simulated":false,"hardware_validation":"not_run"})
+                json!({"frequency_hz":state.frequency_hz,"mode":state.mode,"requested_frequency_hz":state.requested_frequency_hz,"requested_mode":state.requested_mode,"frequency_source":state.frequency_source,"mode_source":state.frequency_source,"frequency_readback":false,"receiver_firmware":state.firmware,"restart_required":state.restart_required,"simulated":false,"hardware_validation":"not_run"})
             }
         }
     }

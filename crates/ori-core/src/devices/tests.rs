@@ -203,7 +203,7 @@ async fn stalled_receiver_does_not_block_analyzer_commits_or_other_status_and_st
     let core = core(directory.path(), factory.clone()).await;
     let manager = core.devices.as_ref().unwrap();
     let receiver = Target::new("devices", "r");
-    manager
+    let receiver_status = manager
         .start_stream("devices", "r", manager.public_gate(receiver))
         .await
         .unwrap();
@@ -248,6 +248,7 @@ async fn stalled_receiver_does_not_block_analyzer_commits_or_other_status_and_st
     factory.pause_poll.store(false, Ordering::Release);
     factory.poll_release.add_permits(1);
     core.close().await.unwrap();
+    assert_eq!(receiver_status.current["receiver_firmware"], "2504A");
 }
 
 #[tokio::test]

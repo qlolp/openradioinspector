@@ -307,6 +307,26 @@ final class PlatformAPITests: XCTestCase {
         )
     }
 
+    func testPersonalRCUsesAnExplicitReceiveRangeAndVerifiedReceiverProfile() async throws {
+        let configuration = try PlatformSerialReceiveConfiguration(startHz: 430_000_000, stopHz: 440_000_000, points: 290, rbwHz: 30_000)
+        let client = try client { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let streams = body["streams"] as! [[String: Any]]
+            let receive = streams[0]["settings"] as! [String: Any]
+            XCTAssertEqual(receive["start_hz"] as? Int, 430_000_000)
+            XCTAssertEqual(receive["stop_hz"] as? Int, 440_000_000)
+            XCTAssertEqual(receive["points"] as? Int, 290)
+            XCTAssertEqual(receive["rbw_hz"] as? Int, 30_000)
+            XCTAssertEqual((streams[1]["settings"] as? [String: Any])?["receiver_profile"] as? String, "ardv1-monitor-v1")
+            return (self.response(request.url!), self.envelope(self.sessionJSON))
+        }
+        _ = try await client.createSerialSession(name: "RC", tinySAPort: "/dev/cu.tiny", ardv1Port: "/dev/cu.aor", receive: configuration, monitorReceiverProfile: true)
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 440_000_000, stopHz: 430_000_000, points: 290, rbwHz: 30_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 801_000_000, points: 290, rbwHz: 10_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 800_000_000, points: 291, rbwHz: 10_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 800_000_000, points: 290, rbwHz: 20_000))
+    }
+
     func testTuneEncodesBothIDsAndUsesIntegerHertz() async throws {
         let client = try client { request in
             XCTAssertEqual(

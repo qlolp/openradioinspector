@@ -124,6 +124,8 @@
 				<string>AEF42B7AD37AC87AE3B65651</string>
 				<string>57DAEC6D4E67B42F513EFE1F</string>
 				<string>A7DBCA73C41924881647F3D3</string>
+				<string>9E5734938479EEA975ABD862</string>
+				<string>A460C49E4B62078F22DC9CFB</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -215,6 +217,8 @@
 				<string>0F61FF714A20009CFB00AA5C</string>
 				<string>077585AF82E27615C14AB3EB</string>
 				<string>93936EB83269C88984983395</string>
+				<string>A46CFC0C94D45033A0AE097E</string>
+				<string>510EC8D85DF7CD55EF645D34</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -1293,6 +1297,42 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>A7DBCA73C41924881647F3D3</string>
+		</dict>
+		<key>9E5734938479EEA975ABD862</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeRCPreparationModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A46CFC0C94D45033A0AE097E</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>9E5734938479EEA975ABD862</string>
+		</dict>
+		<key>A460C49E4B62078F22DC9CFB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeRCPreparationPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>510EC8D85DF7CD55EF645D34</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A460C49E4B62078F22DC9CFB</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

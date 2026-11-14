@@ -251,6 +251,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
         if created, !Task.isCancelled { await refreshStatus(syncConfiguration: true) }
     }
 
+    func adoptCreatedProject(_ project: MonitoringValue) async {
+        projectPages.created(project); projects = projectPages.items; selected = projectPages.selectedID
+        await refreshStatus(syncConfiguration: true)
+        await loadOperationsSettings()
+    }
+
     func refreshStatus(syncConfiguration: Bool = false) async {
         guard let client, !selected.isEmpty else { return }
         let generation = revision, projectID = selected

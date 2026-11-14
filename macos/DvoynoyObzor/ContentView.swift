@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var workspace: MonitoringWorkspaceModel
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
+    @State private var showRCPreparation = false
     @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
 
@@ -34,16 +35,24 @@ struct ContentView: View {
                         connectLocalService()
                     }, disconnect: { nodeConnection.cancel(); model.disconnect() })
                 }
-                NativeConnectionPane(model: model, connection: nodeConnection,
-                    localServiceRequired: NativeLocalService.isPersonalRC,
-                    localServiceReady: localService.status != nil)
+                if NativeLocalService.isPersonalRC {
+                    HStack {
+                        Button("Подготовить приборы…") { showRCPreparation = true }
+                            .disabled(!model.connected)
+                        DisclosureGroup("Сеансы и дополнительные действия") {
+                            NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil)
+                        }
+                    }.padding(.horizontal, 12)
+                } else {
+                    NativeConnectionPane(model: model, connection: nodeConnection)
+                }
                 NativeContinuityBar(model: model, workspace: workspace)
                 RemoteArchiveCapacityPane(model: model).padding(.horizontal, 16)
                 VSplitView {
                     HSplitView {
                         RemoteUltraPane(model: model, research: mode == .research).frame(minWidth: 460)
                         RemoteArPane(model: model).frame(minWidth: 340, idealWidth: 380, maxWidth: 560)
-                    }.frame(minHeight: 400)
+                    }.frame(minHeight: NativeLocalService.isPersonalRC ? 300 : 400)
                     VStack(spacing: 8) {
                         // One model and one view identity survive local workspace changes.
                         MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, sessionID: model.selectedSessionID,
@@ -55,12 +64,13 @@ struct ContentView: View {
                             DisclosureGroup("Задания и автоматический анализ") { RemoteWorkflowPane(model: model).frame(minHeight: 280, maxHeight: 400) }
                                 .padding(.horizontal)
                         }
-                    }.frame(minHeight: 220, idealHeight: 360)
+                    }.frame(minHeight: NativeLocalService.isPersonalRC ? 180 : 220, idealHeight: 300)
                 }
             }
             .navigationTitle(mode.title)
         }
-        .frame(minWidth: 1150, minHeight: 850)
+        .frame(minWidth: NativeLocalService.isPersonalRC ? 1060 : 1150, minHeight: NativeLocalService.isPersonalRC ? 680 : 850)
+        .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: $model.showTinySAControl) {
             RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",

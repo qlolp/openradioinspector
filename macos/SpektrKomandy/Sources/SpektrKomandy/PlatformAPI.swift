@@ -675,6 +675,22 @@ private struct StreamDraft: Encodable, Sendable {
     let settings: [String: PlatformSettingValue]?
 }
 
+/// The conservative receive profile accepted by the shared core. These values
+/// configure a new session; constructing it never opens a device.
+public struct PlatformSerialReceiveConfiguration: Equatable, Sendable {
+    public let startHz, stopHz, points, rbwHz: Int
+    public init() {
+        startHz = 88_000_000; stopHz = 108_000_000; points = 201; rbwHz = 10_000
+    }
+    public init(startHz: Int, stopHz: Int, points: Int, rbwHz: Int) throws {
+        guard (100_000...800_000_000).contains(startHz), (100_000...800_000_000).contains(stopHz),
+              stopHz > startHz, (2...290).contains(points), [10_000, 30_000].contains(rbwHz) else {
+            throw PlatformError.invalidCommand("RX-профиль: 0,1–800 МГц, начало < конец, 2…290 точек, RBW 10 или 30 кГц.")
+        }
+        self.startHz = startHz; self.stopHz = stopHz; self.points = points; self.rbwHz = rbwHz
+    }
+}
+
 private func platformArchiveCount(_ response: URLResponse, name: String) throws -> Int {
     guard let text = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: name),
           let value = Int(text), value >= 0, String(value) == text else {
@@ -849,7 +865,8 @@ public final class PlatformClient: Sendable {
     }
 
     public func createSerialSession(
-        name: String, tinySAPort: String, ardv1Port: String = ""
+        name: String, tinySAPort: String, ardv1Port: String = "",
+        receive: PlatformSerialReceiveConfiguration = .init(), monitorReceiverProfile: Bool = false
     ) async throws -> PlatformSession {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let spectrumPort = tinySAPort.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -862,6 +879,9 @@ public final class PlatformClient: Sendable {
         }
         guard !spectrumPort.hasPrefix("sim://") else {
             throw PlatformError.invalidCommand("Serial-профиль не должен использовать sim://")
+        }
+        if monitorReceiverProfile && targetPort.isEmpty {
+            throw PlatformError.invalidCommand("Для двухприборного RC выберите AR-DV1.")
         }
         if !targetPort.isEmpty {
             guard spectrumPort != targetPort else {
@@ -877,25 +897,24 @@ public final class PlatformClient: Sendable {
             settings: [
                 "adapter": .string("tinysa-serial"),
                 "receive_profile": .string("tinysa-ultra-zs405-receive-v1"),
-                "start_hz": .integer(88_000_000),
-                "stop_hz": .integer(108_000_000),
-                "points": .integer(201),
-                "rbw_hz": .integer(10_000),
+                "start_hz": .integer(receive.startHz),
+                "stop_hz": .integer(receive.stopHz),
+                "points": .integer(receive.points),
+                "rbw_hz": .integer(receive.rbwHz),
                 "period_s": .floating(0.25),
             ]
         )
         var streams = [analyzer]
         if !targetPort.isEmpty {
+            var settings: [String: PlatformSettingValue] = [
+                "adapter": .string("ardv1-serial"), "frequency_hz": .integer(145_500_000),
+                "mode": .string("FM"), "squelch": .integer(10), "period_s": .floating(0.25)
+            ]
+            if monitorReceiverProfile { settings["receiver_profile"] = .string("ardv1-monitor-v1") }
             let receiver = StreamDraft(
                 device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
                 port: targetPort, capabilities: ["tune", "audio"],
-                settings: [
-                    "adapter": .string("ardv1-serial"),
-                    "frequency_hz": .integer(145_500_000),
-                    "mode": .string("FM"),
-                    "squelch": .integer(10),
-                    "period_s": .floating(0.25),
-                ]
+                settings: settings
             )
             streams.append(receiver)
         }
