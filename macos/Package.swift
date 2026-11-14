@@ -1,7 +1,7 @@
 // swift-tools-version: 6.4
 import PackageDescription
 
-// Local app implementation, operator console and monitoring controls shared by the launcher and tests.
+// Local app implementation, operator console, spectrum inspection and monitoring controls shared by the launcher and tests.
 let package = Package(
     name: "DvoynoyObzorKit",
     platforms: [.macOS(.v14)],

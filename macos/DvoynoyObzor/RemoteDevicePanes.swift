@@ -119,46 +119,10 @@ struct RemoteUltraPane: View {
                 }
             }.controlSize(.small)
             NativeMeasurementStatus(model: model)
-            // The two plots share the available viewport; neither lives in a scroll view.
-            GeometryReader { geometry in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("СПЕКТР").font(.caption.weight(.semibold)).tracking(1.5)
-                        Spacer()
-                        Text(model.spectrumPresentation.paused ? "Показ зафиксирован" : "Последний сохранённый свип")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    TraceChart(
-                        current: model.displayCurrent, minimum: model.displayMinimum, maximum: model.displayMaximum,
-                        threshold: model.thresholdDbm, yTitle: "дБм · исходные", displayScale: model.displaySpectrumScale, plotHeight: max(90, (geometry.size.height - 160) * 0.58), showsGrid: true, usesMetal: false
-                    )
-                    HStack {
-                        Text(model.displayCurrent.first.map { String(format: "%.5f", $0.x) } ?? "—")
-                        Spacer()
-                        Text("МГц")
-                        Spacer()
-                        Text(model.displayCurrent.last.map { String(format: "%.5f", $0.x) } ?? "—")
-                    }.font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                    if model.displayCurrent.isEmpty {
-                        Label("Нет измерений · выберите сеанс и начните приём", systemImage: "waveform.path")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                    Divider()
-                    HStack {
-                        Text("ВОДОПАД").font(.caption.weight(.semibold)).tracking(1.5)
-                        Spacer()
-                        Text("Новые свипы сверху").font(.caption).foregroundStyle(.secondary)
-                    }
-                    WaterfallView(history: model.displayWaterfall, revision: model.displayWaterfallRevision,
-                        unitTitle: "дБм", displayScale: model.displaySpectrumScale, plotHeight: max(60, (geometry.size.height - 160) * 0.42), usesMetal: false)
-                    Text("Строки — порядок свипов, не шкала времени; столбцы — отсчёты частоты.")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(10)
-                .background(Color(red: 0.055, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 10))
-                .environment(\.colorScheme, .dark)
-
-            }.frame(minHeight: 310).layoutPriority(1)
+            NativeSpectrumInspector(sweeps: model.spectrumPresentation.sweeps,
+                                    scale: model.displaySpectrumScale, threshold: model.thresholdDbm)
+                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+                .frame(minHeight: 370).layoutPriority(1)
             HStack {
                 Button { model.toggleSpectrumPause() } label: {
                     Label(model.spectrumPresentation.paused ? "Продолжить показ" : "Пауза показа",
