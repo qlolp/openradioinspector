@@ -68,7 +68,7 @@ enum NativeServiceSocket {
         var metadata = stat()
         guard lstat(url.path, &metadata) == 0, metadata.st_uid == geteuid(),
               metadata.st_mode & S_IFMT == S_IFSOCK, metadata.st_mode & 0o077 == 0 else {
-            throw NativeServiceError.unavailable("Приватный сокет службы недоступен. Проверьте разрешение фоновой службы в настройках macOS.")
+            throw NativeServiceError.unavailable("Нет связи с фоновой службой. Проверьте её разрешение в настройках macOS.")
         }
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw NativeServiceError.unavailable("Не удалось открыть соединение со службой.") }
