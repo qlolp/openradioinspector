@@ -326,6 +326,40 @@ async fn quiet_fixture_grant(
     .unwrap_or(Err(QosError::Pressure))
 }
 
+// Freeze a known quiet *fixture* observation before admitting its original
+// grant. This test isolates post-ACK calibration: unrelated host scheduling
+// before the command must not be mistaken for the new hardware cadence.
+// The caller resumes immediately after the actual acknowledged operation.
+async fn quiet_held_fixture_grant(
+    observer: &AcquisitionPressure,
+    qos: &BackgroundQos,
+    cancellation: Cancellation,
+) -> std::result::Result<BackgroundWorkGuard, QosError> {
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let before = observer.probe.hold.entered.load(Ordering::Acquire);
+            observer.probe.hold.held.store(true, Ordering::Release);
+            if !until(|| observer.probe.hold.entered.load(Ordering::Acquire) > before).await {
+                return Err(QosError::Pressure);
+            }
+            match qos.register(cancellation.clone()) {
+                Ok(grant) => return Ok(grant),
+                Err(QosError::Pressure) => {
+                    observer.probe.hold.resume();
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    })
+    .await
+    .unwrap_or(Err(QosError::Pressure));
+    if result.is_err() {
+        observer.probe.hold.resume();
+    }
+    result
+}
+
 #[tokio::test]
 async fn quiet_fixture_waits_for_admission_without_replacing_an_original_grant() {
     let qos = BackgroundQos::default();
@@ -808,7 +842,7 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     assert!(until(|| before.started_at.elapsed() > Duration::from_millis(1100)).await);
     let qos = &core.background.as_ref().unwrap().qos;
     let cancellation = Cancellation::default();
-    let grant = match quiet_fixture_grant(qos, cancellation.clone()).await {
+    let grant = match quiet_held_fixture_grant(observer, qos, cancellation.clone()).await {
         Ok(grant) => grant,
         Err(error) => {
             let evidence = pressure_evidence(manager, observer, qos, &cancellation);
@@ -827,6 +861,7 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     .await;
     let terminal = completed_setting(&core, submitted["operation_id"].as_str().unwrap()).await;
     let changed = manager.acquisition_health().unwrap().remove(0);
+    observer.probe.hold.resume();
     let progressed = until(|| {
         let row = manager.acquisition_health().unwrap().remove(0);
         row.completed_cycles >= changed.completed_cycles + 4
