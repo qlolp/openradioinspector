@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Check a relocated signed RC without registering its service or using USB."""
 import argparse
+from datetime import datetime, timezone
 from contextlib import contextmanager
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 import struct
@@ -11,7 +13,10 @@ import subprocess
 import time
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-from macos_rc_package import RELEASE_VERSION, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+if __package__:
+    from .macos_rc_package import RELEASE_VERSION, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
+else:
+    from macos_rc_package import RELEASE_VERSION, UI_EXECUTABLE, read_json, verify_inventory, validate_runtime_profile
 
 
 def request(url, method, path, body=None):
@@ -44,6 +49,36 @@ def core(executable, data, env):
                 child.stdin.close(); child.stdin = None
                 try: child.wait(timeout=120)
                 except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=10)
+
+
+def utc_instant(value, *, require_utc=False):
+    # Keep the fraction separate: datetime truncates sub-microsecond digits.
+    match = re.fullmatch(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})', value) if isinstance(value, str) else None
+    if match is None or match[3] == '-00:00':
+        raise RuntimeError('invalid original timestamp')
+    if require_utc and match[3] not in ('Z', '+00:00'):
+        raise RuntimeError('restored timestamp must be UTC')
+    try:
+        instant = datetime.fromisoformat(match[1] + match[3].replace('Z', '+00:00')).astimezone(timezone.utc)
+    except ValueError as error:
+        raise RuntimeError('invalid original timestamp') from error
+    return instant, (match[2] or '').ljust(9, '0')
+
+
+def verify_original(actual, expected, key):
+    for field, value in expected.items():
+        if field not in actual:
+            raise RuntimeError('restored original field missing: ' + field)
+        if field == 'interval':
+            for boundary in ('started_at', 'ended_at'):
+                if utc_instant(actual[field].get(boundary), require_utc=True) != utc_instant(value[boundary]):
+                    raise RuntimeError('restored original UTC instant differs: ' + boundary)
+        elif actual[field] != value:
+            raise RuntimeError('restored original field differs: ' + field)
+    values = actual['levels'] if key == 'sweep' else [actual['level']]
+    reference = expected['levels'] if key == 'sweep' else [expected['level']]
+    if [struct.pack('>d', x) for x in values] != [struct.pack('>d', x) for x in reference]:
+        raise RuntimeError('restored float bits differ')
 
 
 def main():
@@ -99,12 +134,7 @@ def main():
             for resource, key in [('sweeps', 'sweep'), ('observations', 'observation')]:
                 rows = request(url, 'GET', route + '/' + resource + '?limit=100')
                 if len(rows) != 1: raise RuntimeError('restored source count mismatch')
-                expected = fixture[key]
-                fields = ['id', 'session_id', 'stream_id', 'interval', 'frequencies_hz', 'levels', 'level_unit'] if key == 'sweep' else ['id', 'frequency_hz', 'level', 'level_unit', 'interval']
-                if key == 'sweep' and [struct.pack('>d', x) for x in rows[0]['levels']] != [struct.pack('>d', x) for x in expected['levels']]:
-                    raise RuntimeError('restored float bits differ')
-                for field in fields:
-                    if rows[0].get(field) != expected.get(field): raise RuntimeError('restored original field differs: ' + field)
+                verify_original(rows[0], fixture[key], key)
         outcome['successful'] = True
     except BaseException as error:
         outcome['error'] = str(error)
