@@ -225,17 +225,30 @@ def document():
     paths['/api/v1/sessions/{id}/sweep-summaries']['get']['description'] = \
         'Newest UTC start and exact UTF-8 ID first. Cursor freezes the ingestion watermark and filters. Frequency filters select intersecting complete source sweeps; peaks summarize the whole source.'
     add('/sessions/{id}/audio-segments','post',ref('ArtifactSummary'),body=ref('AudioSegmentInput'),status=201)
-    add('/workers', response=array(ref('JSONObject')))
+    worker_status = obj({'session_id': {'type': 'string'}, 'stream_id': {'type': 'string'},
+        'alive': {'type': 'boolean'}, 'stopping': {'type': 'boolean'},
+        'stop_mode': {'type': ['string', 'null'], 'enum': ['graceful', 'force', None]}},
+        ('session_id', 'stream_id', 'alive'))
+    stop_request = obj({'mode': {'type': 'string', 'enum': ['graceful', 'force'],
+        'default': 'force', 'description': 'graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.'}})
+    add('/workers', response=array(worker_status))
     add('/events/history', response=array(ref('SessionEvent')), queries=('after', 'limit'))
     add('/events', mime='text/event-stream', queries=('after',))
     base = '/sessions/{id}'
     add(base, response=ref('Session'))
     for action in ('start', 'stop', 'workers/start', 'workers/stop'):
         add(base+'/'+action, 'post')
-    add(base+'/workers', response=array(ref('JSONObject')))
+    add(base+'/workers', response=array(worker_status))
     add(base+'/streams/{stream_id}')
     for action in ('start', 'stop', 'tune'):
         add(base+'/streams/{stream_id}/'+action, 'post')
+    for route, response in ((base+'/workers/stop', array(worker_status)),
+                            (base+'/streams/{stream_id}/stop', worker_status)):
+        add(route, 'post', response, body=stop_request)
+        paths['/api/v1'+route]['post']['requestBody']['required'] = False
+        paths['/api/v1'+route]['post']['description'] = (
+            'Omitted mode retains force behavior. Graceful returns while stopping; '
+            'poll workers until alive=false before restarting. A force request escalates graceful.')
     for kind, model in (('sweeps', 'Sweep'), ('observations', 'ReceiverObservation')):
         add(base+'/'+kind, response=array(ref(model)), queries=('stream_id', 'limit'))
         add(base+'/'+kind, 'post', ref(model), body=ref('JSONObject'), status=201)

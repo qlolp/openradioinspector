@@ -22,6 +22,6 @@ public struct DvoynoyObzorApplication: App {
         WindowGroup {
             ContentView()
         }
-        .defaultSize(width: 1200, height: NativeLocalService.isPersonalRC ? 780 : 840)
+        .defaultSize(width: 1200, height: 740)
     }
 }

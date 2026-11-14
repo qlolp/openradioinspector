@@ -13,9 +13,10 @@ class WebTinySATests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         import plistlib
         project=plistlib.loads((root/'macos/DvoynoyObzor.xcodeproj/project.pbxproj').read_bytes())['objects']
-        reference=next(k for k,v in project.items() if v.get('path')=='TinySAControlPane.swift')
-        build=next(k for k,v in project.items() if v.get('isa')=='PBXBuildFile' and v.get('fileRef')==reference)
-        self.assertTrue(any(build in v.get('files',[]) for v in project.values() if v.get('isa')=='PBXSourcesBuildPhase'))
+        from tests.test_xcode_sources import XcodeSourceRegistrationTests
+        # The package owns this pane; verify the actual linked source ownership.
+        XcodeSourceRegistrationTests().test_each_native_source_is_compiled_once_and_object_keys_are_unique()
+        self.assertTrue((root/'macos/DvoynoyObzor/TinySAControlPane.swift').is_file())
         app_configs=[v['buildSettings'] for v in project.values() if v.get('isa')=='XCBuildConfiguration' and v.get('buildSettings',{}).get('PRODUCT_BUNDLE_IDENTIFIER')]
         self.assertEqual(len(app_configs),2)
         for config in app_configs:self.assertIn('аналогового',config['INFOPLIST_KEY_NSMicrophoneUsageDescription'])

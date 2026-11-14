@@ -25,11 +25,15 @@ from .contracts import (
     format_time,
     utc_now,
 )
-from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adapter
+from .device_workers import SimulatedAdapter, WorkerError, WorkerCancelled, create_simulated_adapter
 from .tinysa_profile import PROFILE_ID, matches_identity, profile_description, validate_receive_settings
 
 
 HARDWARE_VALIDATION_NOT_RUN = "not_run"
+
+# Survives adapter replacement within the sole owning core process.
+_TINYSA_PENDING_UNTIL: dict[str, float] = {}
+_TINYSA_PENDING_LOCK = threading.Lock()
 
 
 class _SerialFraming:
@@ -41,10 +45,39 @@ class _SerialFraming:
 
     def _check_cancelled(self) -> None:
         if self._cancelled.is_set():
-            raise WorkerError(f"Операция на {self.path} остановлена; требуется новое соединение")
+            raise WorkerCancelled(f"Операция на {self.path} остановлена; требуется новое соединение")
         check = getattr(self, '_ownership_check', None)
         if check is not None:
             check()
+
+    def synchronize_tinysa(self, pending_until: float = 0.0) -> None:
+        """Drain only before the first command on a new connection.
+
+        Silence is not proof that an interrupted scan finished. Wait within
+        its remaining command budget for a terminal prompt and quiet window.
+        No bytes from this phase are returned as a command response.
+        """
+        now = time.monotonic()
+        deadline = max(now, pending_until) + 3.0
+        requires_prompt = pending_until > 0.0
+        quiet_since = now
+        boundary = bytearray()
+        prompt_seen = False
+        while time.monotonic() < deadline:
+            self._check_cancelled()
+            chunk = self._read_once(0.1, "tinySA synchronization")
+            if chunk or self._stash:
+                requires_prompt = True
+                boundary.extend(self._stash)
+                if len(boundary) > 1024 * 1024:
+                    raise WorkerError("tinySA synchronization exceeded response limit")
+                prompt_seen = bool(re.search(rb"(?:^|[\r\n])ch>\s*$", boundary))
+                self._stash.clear()
+                quiet_since = time.monotonic()
+            now = time.monotonic()
+            if (not requires_prompt or prompt_seen) and now - quiet_since >= 0.3:
+                return
+        raise WorkerError("tinySA synchronization timed out; no command sent")
 
     def _require_clean_input(self) -> None:
         # There are no transaction IDs: pending bytes belong to an earlier
@@ -93,7 +126,7 @@ class _SerialFraming:
 class PosixSerialTransport(_SerialFraming):
     """Маленький blocking-by-timeout transport без внешних зависимостей."""
 
-    def __init__(self, path: str, baud: int = 9600) -> None:
+    def __init__(self, path: str, baud: int = 9600, *, discard_input: bool = True) -> None:
         import termios
 
         if not isinstance(path, str) or not path.strip():
@@ -141,7 +174,8 @@ class PosixSerialTransport(_SerialFraming):
             settings[6][termios.VMIN] = 1
             settings[6][termios.VTIME] = 0
             termios.tcsetattr(self._fd, termios.TCSANOW, settings)
-            termios.tcflush(self._fd, termios.TCIOFLUSH)
+            if discard_input:
+                termios.tcflush(self._fd, termios.TCIOFLUSH)
         except Exception as exc:
             try:
                 self.close()
@@ -223,7 +257,7 @@ def validate_windows_com_port(path: str) -> str:
 class WindowsSerialTransport(_SerialFraming):
     """Bounded COM I/O through optional pySerial, owned only by the core worker."""
 
-    def __init__(self, path: str, baud: int = 9600) -> None:
+    def __init__(self, path: str, baud: int = 9600, *, discard_input: bool = True) -> None:
         # Accept only native COM names, never pySerial URL handlers or arbitrary files.
         name = validate_windows_com_port(path)
         if type(baud) is not int or baud not in (9600, 19200, 38400, 57600, 115200):
@@ -248,7 +282,8 @@ class WindowsSerialTransport(_SerialFraming):
             self._serial.rts = False
             self._serial.port = self.path
             self._serial.open()
-            self._serial.reset_input_buffer()
+            if discard_input:
+                self._serial.reset_input_buffer()
             self._serial.reset_output_buffer()
         except Exception as exc:
             try:
@@ -317,11 +352,14 @@ class WindowsSerialTransport(_SerialFraming):
                 raise WorkerError(f"Ошибка закрытия порта {self.path}: {exc}") from exc
 
 
-def create_serial_transport(path: str, baud: int = 9600):
+def create_serial_transport(path: str, baud: int = 9600, *, discard_input: bool = True):
     """Select by the core OS, not the OS of an HTTP client."""
     if os.name == "nt":
-        return WindowsSerialTransport(path, baud)
-    return PosixSerialTransport(path, baud)
+        return WindowsSerialTransport(path, baud, discard_input=discard_input)
+    return PosixSerialTransport(path, baud, discard_input=discard_input)
+
+
+_DEFAULT_SERIAL_TRANSPORT_FACTORY = create_serial_transport
 
 
 def _command(text: str) -> bytes:
@@ -452,13 +490,21 @@ class TinySASerialAdapter(SimulatedAdapter):
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("tinysa-serial требует физический последовательный порт")
-            transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)))
+            if transport_factory is _DEFAULT_SERIAL_TRANSPORT_FACTORY:
+                transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)), discard_input=False)
+            else:
+                transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)))
         self.transport = transport
         self._ready = False
         self._closed = False
         self._sequence = 0
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
+        self._synchronized = False
+        from .serial_ports import serial_port_identity
+        path = getattr(transport, "path", None)
+        identity = serial_port_identity(path) if path else None
+        self._port_identity = (identity if identity.upper().startswith("COM") else os.path.realpath(identity)) if identity else None
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:
@@ -470,11 +516,23 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._ready = False
         self._restart_required = True
         self._generator_output_source = "unknown"
+        if isinstance(error, WorkerCancelled):
+            return error
         return WorkerError(
             f"{error}; tinySA: требуется перезапуск потока (stop/start) с новым соединением"
         )
 
     def _transact(self, text: str, maximum: float, *, allow_leading_prompt: bool = False) -> str:
+        if not self._synchronized:
+            synchronize = getattr(self.transport, "synchronize_tinysa", None)
+            if synchronize is not None:
+                with _TINYSA_PENDING_LOCK:
+                    pending_until = _TINYSA_PENDING_UNTIL.get(self._port_identity, 0.0)
+                synchronize(pending_until)
+            self._synchronized = True
+        if self._port_identity is not None:
+            with _TINYSA_PENDING_LOCK:
+                _TINYSA_PENDING_UNTIL[self._port_identity] = time.monotonic() + maximum
         self.transport.send(_command(text))
         raw = self.transport.read_until_quiet(quiet=0.25, maximum=maximum, label=text)
         # A quiet interval alone is not a completed command. Accept only the
@@ -493,6 +551,8 @@ class TinySASerialAdapter(SimulatedAdapter):
             lines = lines[1:]
         if not lines or lines[-1] != "ch>" or any("ch>" in line for line in lines[:-1]):
             raise WorkerError(f"Незавершённый или неоднозначный ответ tinySA на {text}: {raw!r}")
+        with _TINYSA_PENDING_LOCK:
+            _TINYSA_PENDING_UNTIL.pop(self._port_identity, None)
         body = lines[:-1]
         if body and body[0] == text:
             body = body[1:]
@@ -700,6 +760,8 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self.frequency_hz = None
         self.mode = None
         self._frequency_source = "unknown"
+        if isinstance(error, WorkerCancelled):
+            return error
         return WorkerError(
             f"{error}; AR-DV1: требуется перезапуск потока (stop/start) с новым соединением"
         )

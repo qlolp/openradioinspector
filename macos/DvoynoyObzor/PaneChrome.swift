@@ -572,9 +572,9 @@ struct RemoteSerialSessionPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Новый serial-профиль")
+            Text("Подключить приборы")
                 .font(.title2.weight(.semibold))
-            Text("Порты указываются явно. Адаптеры tinysa-serial и ardv1-serial назначаются только этому профилю; обычный draft и симуляторы не изменяются.")
+            Text("Выберите tinySA. Приёмник AR-DV1 можно добавить, если он подключён. Создание сеанса не запускает измерения.")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -601,7 +601,7 @@ struct RemoteSerialSessionPane: View {
             HStack {
                 Button("Отмена") { model.showSerialForm = false }
                 Spacer()
-                Button("Создать serial-профиль") { model.createSerialSession() }
+                Button("Создать сеанс") { model.createSerialSession() }
                     .buttonStyle(.borderedProminent)
                     .disabled(model.busy)
             }

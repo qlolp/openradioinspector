@@ -1507,7 +1507,7 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[5] == "start":
                     result = self.workers.start_session(parts[3])
                 else:
-                    result = self.workers.stop_session(parts[3])
+                    result = self.workers.stop_session(parts[3], mode=payload.get("mode", "force"))
                 self._send_json(api_payload(result))
                 return
             if (
@@ -1519,7 +1519,7 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[6] == "start":
                     result = self.workers.start_stream(parts[3], parts[5])
                 elif parts[6] == "stop":
-                    result = self.workers.stop_stream(parts[3], parts[5])
+                    result = self.workers.stop_stream(parts[3], parts[5], mode=payload.get("mode", "force"))
                 else:
                     result = self.workers.tune(parts[3], parts[5], payload)
                 self._send_json(api_payload(result))
