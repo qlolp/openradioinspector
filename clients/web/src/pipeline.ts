@@ -97,6 +97,17 @@ export function prepareSweep(
           ? sweep.original_point_count
           : levels.length,
       display_only: true,
+      ...(typeof sweep.settings?.scan_plan_id === 'string' &&
+      sweep.settings.scan_plan_id.length <= 200 &&
+      typeof sweep.settings?.scan_band_id === 'string' &&
+      /^[A-Za-z0-9_-]{1,64}$/.test(sweep.settings.scan_band_id)
+        ? {
+            scan_context: {
+              plan_id: sweep.settings.scan_plan_id,
+              band_id: sweep.settings.scan_band_id,
+            },
+          }
+        : {}),
       peak: { index: peak, frequency_hz: Number(hz[peak]), level: levels[peak] },
     },
   };

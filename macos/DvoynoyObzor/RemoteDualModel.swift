@@ -55,6 +55,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var mode = "FM"
     @Published var threshold = "-80"
     @Published var spectrumPresentation = PlatformSpectrumPresentation()
+    @Published var selectedScanBand = ""
     @Published var spectrumClippedCount = 0
     @Published var spectrumLower = ""
     @Published var spectrumUpper = ""
@@ -838,17 +839,41 @@ final class RemoteDualModel: ObservableObject {
     func fitSpectrum() { spectrumRenderRevision += 1; spectrumPresentation.fit(); spectrumClippedCount = spectrumPresentation.clippedCount }
     func applySpectrumBounds() { spectrumRenderRevision += 1; spectrumPresentation.setBounds(lower: spectrumLower, upper: spectrumUpper); spectrumClippedCount = spectrumPresentation.clippedCount }
     func clearSpectrumPresentation() { spectrumPresentation.reset(); renderSpectrumPresentation() }
+
+    private static func scanContext(_ sweep: PlatformSweep) -> (band: String, plan: String)? {
+        guard let bandValue = sweep.settings?["scan_band_id"], case .string(let band) = bandValue,
+              let planValue = sweep.settings?["scan_plan_id"], case .string(let plan) = planValue,
+              !band.isEmpty, band.utf8.count <= 64, !plan.isEmpty, plan.utf8.count <= 800 else { return nil }
+        return (band, plan)
+    }
+    var availableScanBandIDs: [String] {
+        Array(Set((measurementSnapshot?.sweeps ?? []).compactMap { Self.scanContext($0)?.band })).sorted()
+    }
+    func selectScanBand(_ id: String) {
+        guard !PlatformExactID.same(id, selectedScanBand) else { return }
+        selectedScanBand = id; clearSpectrumPresentation()
+        let sourceGeneration = generation, sourceClient = client
+        Task { [weak self] in
+            guard let self, self.generation == sourceGeneration, self.client === sourceClient,
+                  PlatformExactID.same(self.selectedScanBand, id), let snapshot = self.measurementSnapshot else { return }
+            _ = await self.applyMeasurements(snapshot)
+        }
+    }
     private func renderSpectrumPresentation() {
         spectrumRenderRevision += 1
         spectrumClippedCount = spectrumPresentation.clippedCount
         if let frame = try? NativeSpectrumFrame(sweeps: spectrumPresentation.sweeps, threshold: thresholdDbm ?? -80) { publish(frame) }
     }
     private func prepareSpectrum(scope: PlatformSpectrumPresentation.Scope?, incoming: [PlatformSweep]) async -> Bool {
+        if selectedScanBand.isEmpty { selectedScanBand = incoming.compactMap { Self.scanContext($0)?.band }.first ?? "" }
+        let selected = selectedScanBand.isEmpty ? incoming : incoming.filter { Self.scanContext($0)?.band == selectedScanBand }
+        let newestPlan = selected.last.flatMap(Self.scanContext)?.plan
+        let visible = newestPlan == nil ? selected : selected.filter { Self.scanContext($0)?.plan == newestPlan }
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
         let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
             var next = previous
-            if let scope { next.update(scope: scope, sweeps: incoming) } else { next.reset() }
+            if let scope { next.update(scope: scope, sweeps: visible) } else { next.reset() }
             let frame = next.paused ? nil : try NativeSpectrumFrame(sweeps: next.sweeps, threshold: threshold)
             return (next, frame, next.clippedCount)
         }

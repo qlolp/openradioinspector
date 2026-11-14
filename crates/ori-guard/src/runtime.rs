@@ -279,6 +279,10 @@ impl GuardService {
                     p.get("receiver_mode").cloned().unwrap_or(json!("AUTO"));
             }
             if let Some(search) = search {
+                stream["settings"]
+                    .as_object_mut()
+                    .ok_or_else(|| invalid("search receive settings"))?
+                    .remove("scan_plan");
                 let center = integer(search, "center_frequency_hz")?;
                 let span = integer(search, "span_hz")?;
                 stream["settings"]["start_hz"] = json!(
@@ -528,7 +532,7 @@ impl GuardService {
             all.projects.contains_key(id)
         };
         if !has_runtime {
-            p["state"] = json!(if p["baseline_id"].is_null() {
+            p["state"] = json!(if !crate::scan_plan::all_baselines_ready(&p)? {
                 "draft"
             } else {
                 "ready"
@@ -566,7 +570,7 @@ impl GuardService {
         } else {
             self.preflight(id, false).await?
         };
-        if original["baseline_id"].is_null() || preflight["ready"] != true {
+        if !crate::scan_plan::all_baselines_ready(&original)? || preflight["ready"] != true {
             return Err(invalid(
                 "Требуются подтверждённый эталон и успешная подготовка",
             ));
@@ -584,7 +588,7 @@ impl GuardService {
         let mut p = original;
         Self::select_project_session(&mut p, &session)?;
         p["state"] = json!("armed");
-        p["detector_state"] = Value::Null;
+        reset_detectors(&mut p);
         p["detector_cursor"] = Value::Null;
         p["detector_rowid"] = json!(0);
         p["last_error"] = Value::Null;

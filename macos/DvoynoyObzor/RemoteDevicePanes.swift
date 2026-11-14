@@ -89,6 +89,7 @@ struct RemoteArPane: View {
 struct RemoteUltraPane: View {
     @ObservedObject var model: RemoteDualModel
     var research = true
+    var scanBands: [MonitoringValue] = []
 
     var body: some View {
         ScrollView {
@@ -106,6 +107,19 @@ struct RemoteUltraPane: View {
                     TextField("Порог, dBm", text: $model.threshold)
                         .textFieldStyle(.roundedBorder).frame(width: 140)
                     Text(model.live).font(.caption).foregroundStyle(.secondary)
+                }
+                if !scanBands.isEmpty || !model.availableScanBandIDs.isEmpty {
+                    Picker("Поддиапазон графика", selection: Binding(get: { model.selectedScanBand }, set: model.selectScanBand)) {
+                        if model.selectedScanBand.isEmpty { Text("Ожидание измерения").tag("") }
+                        if scanBands.isEmpty {
+                            ForEach(model.availableScanBandIDs, id: \.self) { id in Text(id).tag(id) }
+                        } else {
+                            ForEach(Array(scanBands.enumerated()), id: \.offset) { _, band in
+                                Text(band["name"].text).tag(band["id"].text)
+                            }
+                        }
+                    }
+                    Text("Выбор графика не меняет обход диапазонов ядром.").font(.caption)
                 }
                 TraceChart(
                     current: model.current, minimum: model.minimum, maximum: model.maximum,

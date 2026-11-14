@@ -84,6 +84,28 @@ pub(crate) fn receiver_frequency(value: &Value) -> Result<u64> {
 }
 impl GuardService {
     pub async fn baseline_collection(&self, project: &Value) -> Result<Value> {
+        if let Some(plan) = crate::scan_plan::configured_plan(project)? {
+            let mut bands = vec![];
+            for band in plan.bands {
+                let selected = self
+                    .archive
+                    .baseline_selection_for_scan_band(
+                        s(project, "active_session_id")?,
+                        s(project, "analyzer_stream_id")?,
+                        s(&project["scan_plan"], "id")?,
+                        &band.id,
+                    )
+                    .await?;
+                bands.push(json!({"band_id":band.id,"name":band.name,"sweeps":selected.count,
+                    "elapsed_seconds":selected.elapsed_seconds,"minimum_sweeps":20,"minimum_seconds":60,
+                    "ready":selected.count>=20&&selected.elapsed_seconds>=60.,
+                    "baseline_id":project["band_baselines"][&band.id]}));
+            }
+            return Ok(
+                json!({"bands":bands,"ready":bands.iter().all(|b|b["ready"]==true),
+                "minimum_sweeps":20,"minimum_seconds":60}),
+            );
+        }
         let selected = self
             .archive
             .baseline_selection(
@@ -177,6 +199,15 @@ impl GuardService {
             !self.closed.load(std::sync::atomic::Ordering::Acquire),
             "Служба принимает новые действия".into(),
         );
+        if let Some(plan) = crate::scan_plan::configured_plan(&p)? {
+            let maximum = if aa == "tinysa-serial" {
+                800_000_000
+            } else {
+                20_000_000_000
+            };
+            check("scan_plan_receive_profile",plan.validate(maximum).is_ok(),
+                "Все поддиапазоны должны соответствовать RX-профилю; эталон каждого подтверждается отдельно".into());
+        }
         check(
             "adapters",
             (aa == "tinysa-serial" && ra == "ardv1-serial")
@@ -354,7 +385,7 @@ impl GuardService {
         );
         let workers = self.control.list_workers(&typed.id).await?;
         Ok(
-            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":!p["baseline_id"].is_null()}),
+            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)?}),
         )
     }
     pub async fn storage_report(&self, id: &str, probe: bool) -> Result<Value> {

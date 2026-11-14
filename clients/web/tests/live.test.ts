@@ -345,3 +345,28 @@ it('fences same-ID archive resets and unsupported plots but preserves same-scope
   expect(store.getSnapshot().presentation.epoch).not.toBe(resetReceipt.epoch);
   store.dispose();
 });
+
+it('counts committed display sources separately per scan band and resets them with archive context', async () => {
+  const { store, deliver, parser } = fixture();
+  store.scope('s', 'a', 'r');
+  await store.start(0);
+  for (const [index, band] of ['low', 'high', 'low'].entries()) {
+    const raw = event(BigInt(index + 1)).replace(
+      '"settings":{}',
+      JSON.stringify({
+        settings: { scan_plan_id: 'p', scan_plan_revision: 1, scan_band_id: band },
+      }).slice(1, -1),
+    );
+    const pending = deliver(raw);
+    parser().complete();
+    await pending;
+  }
+  await vi.waitFor(() => expect(store.getSnapshot().rows).toHaveLength(3));
+  const snapshot = store.getSnapshot();
+  expect(snapshot.presentation.total).toBe(3n);
+  expect([...(snapshot.scanPresentations?.values() ?? [])].map((p) => p.total)).toEqual([2n, 1n]);
+  store.resetArchive(0);
+  await vi.waitFor(() => expect(store.getSnapshot().rows).toHaveLength(0));
+  expect(store.getSnapshot().scanPresentations?.size ?? 0).toBe(0);
+  store.dispose();
+});

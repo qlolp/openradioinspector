@@ -1729,6 +1729,152 @@
         ],
         "type": "object"
       },
+      "ScanBand": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "type": "string"
+          },
+          "max_revisit_seconds": {
+            "maximum": 3600,
+            "minimum": 1,
+            "type": "number"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "points": {
+            "maximum": 290,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "rbw_hz": {
+            "description": "The receive profile accepts exactly 10000 or 30000 Hz; profile-specific validation is authoritative.",
+            "maximum": 30000,
+            "minimum": 10000,
+            "type": "integer",
+            "x-receive-profile-values": [
+              10000,
+              30000
+            ]
+          },
+          "start_hz": {
+            "maximum": 20000000000,
+            "minimum": 100000,
+            "type": "integer"
+          },
+          "stop_hz": {
+            "maximum": 20000000000,
+            "minimum": 100001,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "start_hz",
+          "stop_hz",
+          "points",
+          "rbw_hz",
+          "max_revisit_seconds"
+        ],
+        "type": "object"
+      },
+      "ScanPlanConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "bands": {
+            "items": {
+              "$ref": "#/components/schemas/ScanBand"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "bands"
+        ],
+        "type": "object"
+      },
+      "ScanPlanEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ScanPlanRevision"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ScanPlanRevision": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/ScanPlanConfig"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "hardware_validation": {
+            "enum": [
+              "not_run"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "revision": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "schema_version": {
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "created_at",
+          "schema_version",
+          "revision",
+          "config",
+          "hardware_validation"
+        ],
+        "type": "object"
+      },
       "SecurityStatus": {
         "properties": {
           "mode": {
@@ -8944,6 +9090,159 @@
           "monitoring_projects"
         ],
         "x-ori-max-request-bytes": 65536,
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/scan-plan": {
+      "get": {
+        "description": "Current immutable scan-plan revision, or null for the compatible implicit single-band profile.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_scan_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanPlanEnvelope"
+                }
+              }
+            },
+            "description": "Current plan"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_scan_plans"
+        ],
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      },
+      "post": {
+        "description": "Save a bounded sequential receive-only scan plan. No instruments are opened. A new revision invalidates confirmed band baselines. Armed, collecting or manually owned projects reject changes; native range admission remains profile-specific.",
+        "operationId": "post_api_v1_monitoring_projects_project_id_scan_plan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanPlanConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanPlanEnvelope"
+                }
+              }
+            },
+            "description": "New immutable revision"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or unsupported receive plan"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project owns instruments"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Request body too large"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-max-body-bytes": 65536,
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_scan_plans"
+        ],
         "x-ori-request-feature-requirements": [],
         "x-ori-runtime-support": "feature-gated"
       }

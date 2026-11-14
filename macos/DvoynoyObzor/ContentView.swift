@@ -50,7 +50,8 @@ struct ContentView: View {
                 RemoteArchiveCapacityPane(model: model).padding(.horizontal, 16)
                 VSplitView {
                     HSplitView {
-                        RemoteUltraPane(model: model, research: mode == .research).frame(minWidth: 460)
+                        RemoteUltraPane(model: model, research: mode == .research,
+                            scanBands: workspace.project["scan_plan"]["config"]["bands"].items).frame(minWidth: 460)
                         RemoteArPane(model: model).frame(minWidth: 340, idealWidth: 380, maxWidth: 560)
                     }.frame(minHeight: NativeLocalService.isPersonalRC ? 300 : 400)
                     VStack(spacing: 8) {

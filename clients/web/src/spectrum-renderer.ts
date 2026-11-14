@@ -25,6 +25,8 @@ export function sameSpectrumContext(first?: DisplaySweep, second?: DisplaySweep)
     first.session_id === second.session_id &&
     first.stream_id === second.stream_id &&
     first.level_unit === second.level_unit &&
+    first.scan_context?.plan_id === second.scan_context?.plan_id &&
+    first.scan_context?.band_id === second.scan_context?.band_id &&
     first.frequencies_hz[0] === second.frequencies_hz[0] &&
     first.frequencies_hz.at(-1) === second.frequencies_hz.at(-1) &&
     (first.original_point_count ?? first.frequencies_hz.length) ===

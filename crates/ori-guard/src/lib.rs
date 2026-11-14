@@ -14,10 +14,17 @@ mod operations;
 mod preflight;
 mod receiver;
 mod runtime;
+mod scan_plan;
+#[cfg(test)]
+mod scan_plan_tests;
 mod search;
 mod service;
 mod supervisor;
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod test_common;
 mod util;
 pub use history::HistoryQuery;
+pub use ori_monitoring::{ScanBand, ScanPlan};
 pub use service::{Clock, GuardError, GuardService, IdKind, IdSource, Result};
 pub use supervisor::GuardShutdown;

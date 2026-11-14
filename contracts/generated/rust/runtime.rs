@@ -103,6 +103,15 @@ impl crate::RestoreKeys for PairingInputClient {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScanPlanRevisionHardwareValidation {
+    #[serde(rename = "not_run")]
+    NotRun,
+}
+impl crate::RestoreKeys for ScanPlanRevisionHardwareValidation {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SecurityStatusMode {
     #[serde(rename = "legacy_loopback")]
     LegacyLoopback,
@@ -668,6 +677,60 @@ pub struct PairingInput {
 impl crate::RestoreKeys for PairingInput {
     fn restore_keys(&mut self) {
         crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScanBand {
+    pub id: String,
+    pub max_revisit_seconds: f64,
+    pub name: String,
+    pub points: u64,
+    pub rbw_hz: u64,
+    pub start_hz: u64,
+    pub stop_hz: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ScanBand {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScanPlanConfig {
+    pub bands: Vec<ScanBand>,
+    pub name: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ScanPlanConfig {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.bands);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScanPlanRevision {
+    pub config: ScanPlanConfig,
+    pub created_at: UtcTimestamp,
+    pub hardware_validation: ScanPlanRevisionHardwareValidation,
+    pub id: String,
+    pub project_id: String,
+    pub revision: u64,
+    pub schema_version: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for ScanPlanRevision {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.config);
     }
 }
 
@@ -1269,6 +1332,30 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &[],
         path_parameters: &["project_id"],
         max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_scan_plan",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/scan-plan",
+        backends: &["rust-candidate"],
+        features: &["monitoring_scan_plans"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_scan_plan",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/scan-plan",
+        backends: &["rust-candidate"],
+        features: &["monitoring_scan_plans"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
         request_features: &[],
     },
     RuntimeOperation {

@@ -54,6 +54,7 @@ struct MonitoringWorkspacePane: View {
                 } else {
                     eventControls
                 }
+                if workspace.scanPlansAvailable { MonitoringScanPlanPane(workspace: workspace) }
                 preparation
                 receiverControls
                 allowedControls
@@ -80,7 +81,7 @@ struct MonitoringWorkspacePane: View {
         }
         .padding(.horizontal)
         .task(id: MonitoringConnectionIdentity(server: PlatformExactID(server), client: client.map(ObjectIdentifier.init))) {
-            workspace.configure(server, client: client); await workspace.load()
+            workspace.configure(server, client: client); await workspace.load(); await workspace.loadScanPlanCapabilities()
         }
         .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
@@ -201,7 +202,7 @@ struct MonitoringWorkspacePane: View {
                     Button("Зафиксировать эталон") {
                         let body: [String: MonitoringValue] = ["name": .string(name), "location": .string(site), "confirm": .boolean(workspace.baselineConfirmed)]
                         workspace.perform { await workspace.command("baselines", body: body, success: "Эталон сохранён.") }
-                    }.disabled(!workspace.baselineConfirmed || workspace.isArmed || workspace.preflight["baseline_collection"]["ready"].bool != true || (!workspace.preparationSimulation && (!workspace.savedPreparationReady || workspace.preparationDirty)))
+                    }.disabled(workspace.project["scan_plan"] != .null || !workspace.baselineConfirmed || workspace.isArmed || workspace.preflight["baseline_collection"]["ready"].bool != true || (!workspace.preparationSimulation && (!workspace.savedPreparationReady || workspace.preparationDirty)))
                     Button("Анализ новых свипов") { workspace.perform { await workspace.command("analyze", success: "Анализ новых свипов выполнен.") } }
                 }.disabled(workspace.selected.isEmpty || workspace.pending || workspace.operationsPending.contains("preparation"))
                 if workspace.preflight != .null {
@@ -219,6 +220,9 @@ struct MonitoringWorkspacePane: View {
         let collection = workspace.preflight["baseline_collection"]
         return VStack(alignment: .leading, spacing: 4) {
             if collection == .null { Text("Прогресс сбора ещё не получен от ядра.").font(.caption).foregroundStyle(.secondary) }
+            else if !collection["bands"].items.isEmpty {
+                Text("Подтверждайте эталон каждого поддиапазона в разделе «План последовательного обзора».").font(.caption)
+            }
             else {
                 Text("Свипы: \(collection["sweeps"].scalar) / \(collection["minimum_sweeps"].scalar) · длительность: \(collection["elapsed_seconds"].scalar) / \(collection["minimum_seconds"].scalar) с").font(.caption)
                 ProgressView(value: min(collection["sweeps"].double ?? 0, max(1, collection["minimum_sweeps"].double ?? 20)), total: max(1, collection["minimum_sweeps"].double ?? 20))

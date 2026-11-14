@@ -65,6 +65,12 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         checks = []
         def check(name, ok, detail):
             checks.append(dict(name=name, ok=bool(ok), detail=detail))
+        if any(plan is not None for plan in (
+                project.get('scan_plan'),
+                project.get('profile', {}).get('analyzer', {}).get('settings', {}).get('scan_plan'),
+                analyzer.settings.get('scan_plan'))):
+            check('scan_plan_runtime', False,
+                  'Сохранённый план поддиапазонов требует Rust-ядро; Python не запускает частичный обзор')
         adapters = (analyzer.settings.get('adapter'), receiver.settings.get('adapter'))
         check('adapters', adapters in (('tinysa-serial', 'ardv1-serial'), ('tinysa-sim', 'ardv1-sim')),
               'tinySA Ultra + AR-DV1; симуляторы выбираются только явно')
