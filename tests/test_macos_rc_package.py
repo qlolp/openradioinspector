@@ -3,6 +3,9 @@ from pathlib import Path
 import tempfile
 import unittest
 import plistlib
+import os
+import stat
+from unittest import mock
 
 from tools.release import macos_rc_package as package
 
@@ -17,6 +20,36 @@ class MacOSRCPackageTests(unittest.TestCase):
             path.write_bytes(b'owned synthetic executable\x00' * 4096)
             path.chmod(0o755)
         return app
+
+    def target_app(self, root):
+        """A synthetic Mac filesystem, including executable bits absent on NTFS.
+
+        Only these three fixture paths receive target attributes. Missing files,
+        symlinks and every other bundle retain the real host filesystem checks.
+        No synthetic executable is ever launched.
+        """
+        app = self.app(root)
+        executables = {app / 'Contents' / name for name in
+            ['MacOS/OpenRadioInspectorRC', 'Helpers/ori-core', 'Helpers/ori-supervisor']}
+        actual_stat = Path.stat
+        def target_stat(path, *args, **kwargs):
+            result = actual_stat(path, *args, **kwargs)
+            if path in executables:
+                return os.stat_result((result.st_mode | stat.S_IXUSR, *result[1:]))
+            return result
+        patcher = mock.patch.object(Path, 'stat', autospec=True, side_effect=target_stat)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return app
+
+    def test_target_fixture_does_not_relax_permissions_of_another_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = self.target_app(root / 'target')
+            package.validate_runtime_profile(target)
+            other = self.app(root / 'other')
+            (other / 'Contents/MacOS/OpenRadioInspectorRC').chmod(0o644)
+            with self.assertRaises(ValueError): package.validate_runtime_profile(other)
 
     def test_inventory_survives_relocation_and_detects_missing_changed_and_extra_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -87,7 +120,7 @@ class MacOSRCPackageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             package.validate_components(dict(core,features={'serial':True,'audio':False}),supervisor,source,profile='rc2-audio')
         with tempfile.TemporaryDirectory() as directory:
-            app=self.app(Path(directory))
+            app=self.target_app(Path(directory))
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'fixture'}))
             build=package.prepare(app,source,core,supervisor,{},profile='rc2-audio')
             info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
@@ -106,7 +139,7 @@ class MacOSRCPackageTests(unittest.TestCase):
             features={'serial':True,'audio':False},sqlite_version='3.54.1',version='0.1.0')
         supervisor=dict(component='ori-supervisor',source_revision=source,target_arch='aarch64',target_os='macos',version='0.1.0')
         with tempfile.TemporaryDirectory() as directory:
-            app=self.app(Path(directory))
+            app=self.target_app(Path(directory))
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'NSMicrophoneUsageDescription':'must be removed'}))
             build=package.prepare(app,source,core,supervisor,{})
             info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
@@ -123,7 +156,7 @@ class MacOSRCPackageTests(unittest.TestCase):
             features={'serial':True,'audio':True},sqlite_version='3.54.1',version='0.1.0')
         supervisor=dict(component='ori-supervisor',source_revision=source,target_arch='aarch64',target_os='macos',version='0.1.0')
         with tempfile.TemporaryDirectory() as directory:
-            app=self.app(Path(directory));info_path=app/'Contents/Info.plist'
+            app=self.target_app(Path(directory));info_path=app/'Contents/Info.plist'
             info_path.write_bytes(plistlib.dumps({}))
             package.prepare(app,source,core,supervisor,{},profile='rc2-audio')
             original=plistlib.loads(info_path.read_bytes())
