@@ -89,10 +89,14 @@ class SerialScpiInstrument(Instrument):
     def identify(self) -> InstrumentInfo:
         return self._info
 
-    def query(self, command: str) -> str:
+    def write(self, command: str) -> None:
+        """Send a setter without waiting for an acknowledgement."""
         if self._serial is None:
             raise InstrumentError("Прибор не подключён")
         self._serial.write((command + self.read_termination).encode("ascii"))
+
+    def query(self, command: str) -> str:
+        self.write(command)
         return self._read_response().strip()
 
     def _read_response(self, *, allow_empty=False):
@@ -136,10 +140,10 @@ class SerialScpiInstrument(Instrument):
         if self._serial is None:
             self.connect()
         try:
-            self.query(f"STAR {config.start_hz:.0f}")
-            self.query(f"STOP {config.stop_hz:.0f}")
-            self.query(f"RESB {config.resolution_bandwidth_hz:.0f}")
-            self.query(f"POIN {config.points}")
+            self.write(f"STAR {config.start_hz:.0f}")
+            self.write(f"STOP {config.stop_hz:.0f}")
+            self.write(f"RESB {config.resolution_bandwidth_hz:.0f}")
+            self.write(f"POIN {config.points}")
             payload = self.query("TRAC:DATA? TRACE1")
             levels = parse_ascii(payload, expected_points=config.points, semicolons=True)
         except ScpiDataError as error:
