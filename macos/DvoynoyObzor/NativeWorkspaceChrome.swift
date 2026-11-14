@@ -148,12 +148,14 @@ struct NativeContinuityBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 8)], spacing: 8) {
-                NativeOperatorMetric(title: "Ядро", value: model.coreReachable ? "На связи" : "Нет связи", symbol: "network", tint: model.coreReachable ? .green : .orange)
-                NativeOperatorMetric(title: "Приём", value: acquisition, symbol: "antenna.radiowaves.left.and.right", tint: .primary)
-                NativeOperatorMetric(title: "Хранилище", value: model.coreReachable ? archiveLabel : "Не подтверждено", symbol: "externaldrive", tint: model.archiveCapacity?.measurementWritesBlocked == true ? .red : .primary)
-                NativeOperatorMetric(title: "Охрана", value: model.coreReachable && workspace.isArmed ? "Включена" : "Не подтверждена", symbol: "shield", tint: model.coreReachable && workspace.isArmed ? .green : .secondary)
-            }
+            HStack(spacing: 16) {
+                Label(model.coreReachable ? "Ядро на связи" : "Нет связи с ядром", systemImage: "network")
+                    .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
+                Text("Приём: \(acquisition)")
+                Text(archiveLabel)
+                Text(workspace.isArmed && model.coreReachable ? "Охрана включена" : "Охрана не подтверждена")
+                Spacer(minLength: 0)
+            }.font(.caption).lineLimit(1)
             if model.archiveCapacity?.measurementWritesBlocked == true {
                 Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
                     .font(.callout).foregroundStyle(.red)
