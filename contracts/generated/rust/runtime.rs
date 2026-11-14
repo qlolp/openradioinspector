@@ -4,6 +4,15 @@ use serde::{Deserialize, Serialize};
 pub type JSONObject = std::collections::BTreeMap<String, serde_json::Value>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AudioEvidenceInfoEncoding {
+    #[serde(rename = "pcm16_le")]
+    Pcm16Le,
+}
+impl crate::RestoreKeys for AudioEvidenceInfoEncoding {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BrowserPairingCredential {
     #[serde(rename = "browser_cookie")]
     BrowserCookie,
@@ -120,6 +129,169 @@ pub enum SecurityStatusMode {
 }
 impl crate::RestoreKeys for SecurityStatusMode {
     fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioEvidenceInfo {
+    pub artifact_id: String,
+    #[serde(deserialize_with = "runtime_integer_audioevidenceinfo_channels")]
+    pub channels: u64,
+    pub encoding: AudioEvidenceInfoEncoding,
+    #[serde(deserialize_with = "runtime_integer_audioevidenceinfo_frame_count")]
+    pub frame_count: u64,
+    #[serde(deserialize_with = "runtime_integer_audioevidenceinfo_sample_rate_hz")]
+    pub sample_rate_hz: u64,
+    pub sha256: String,
+    pub source_context: JSONObject,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for AudioEvidenceInfo {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.source_context);
+    }
+}
+
+fn runtime_integer_audioevidenceinfo_channels<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=1).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_audioevidenceinfo_frame_count<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=8388608).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_audioevidenceinfo_sample_rate_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=192000).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioMarkPage {
+    pub items: Vec<AudioRangeMark>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub next_cursor: Option<String>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for AudioMarkPage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioMarkRequest {
+    #[serde(deserialize_with = "runtime_integer_audiomarkrequest_end_frame")]
+    pub end_frame: u64,
+    pub label: String,
+    pub source_artifact_id: String,
+    pub source_sha256: String,
+    #[serde(deserialize_with = "runtime_integer_audiomarkrequest_start_frame")]
+    pub start_frame: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for AudioMarkRequest {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_audiomarkrequest_end_frame<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=8388608).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_audiomarkrequest_start_frame<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value > 8388608 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AudioRangeMark {
+    pub created_at: UtcTimestamp,
+    #[serde(deserialize_with = "runtime_integer_audiorangemark_end_frame")]
+    pub end_frame: u64,
+    pub event_id: String,
+    pub id: String,
+    pub label: String,
+    pub project_id: String,
+    #[serde(deserialize_with = "runtime_integer_audiorangemark_sample_rate_hz")]
+    pub sample_rate_hz: u64,
+    pub source_artifact_id: String,
+    pub source_sha256: String,
+    #[serde(deserialize_with = "runtime_integer_audiorangemark_start_frame")]
+    pub start_frame: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for AudioRangeMark {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+fn runtime_integer_audiorangemark_end_frame<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=8388608).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_audiorangemark_sample_rate_hz<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if !(1..=192000).contains(&value) {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
+}
+
+fn runtime_integer_audiorangemark_start_frame<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u64, D::Error> {
+    let value: u64 = Deserialize::deserialize(deserializer)?;
+    if value > 8388608 {
+        return Err(serde::de::Error::custom("Integer outside schema bounds"));
+    }
+    Ok(value)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1170,6 +1342,59 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio",
         backends: &["python-legacy", "rust-candidate"],
         features: &["monitoring_projects"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_events_event_id_audio_clip",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/clip",
+        backends: &["rust-candidate"],
+        features: &["audio_evidence_export"],
+        capabilities: &[],
+        query: &[
+            "start_frame",
+            "end_frame",
+            "source_sha256",
+            "source_artifact_id",
+        ],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_events_event_id_audio_info",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/info",
+        backends: &["rust-candidate"],
+        features: &["audio_evidence_export"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/marks",
+        backends: &["rust-candidate"],
+        features: &["audio_evidence_export"],
+        capabilities: &[],
+        query: &["limit", "after"],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/marks",
+        backends: &["rust-candidate"],
+        features: &["audio_evidence_export"],
         capabilities: &[],
         query: &[],
         path_parameters: &["project_id", "event_id"],

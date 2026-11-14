@@ -633,6 +633,238 @@
   },
   "components": {
     "schemas": {
+      "AudioEvidenceInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "channels": {
+            "format": "uint64",
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "encoding": {
+            "enum": [
+              "pcm16_le"
+            ],
+            "type": "string"
+          },
+          "frame_count": {
+            "format": "uint64",
+            "maximum": 8388608,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sample_rate_hz": {
+            "format": "uint64",
+            "maximum": 192000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "source_context": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "sha256",
+          "frame_count",
+          "sample_rate_hz",
+          "channels",
+          "encoding",
+          "source_context"
+        ],
+        "type": "object"
+      },
+      "AudioEvidenceInfoEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AudioEvidenceInfo"
+              }
+            }
+          }
+        ]
+      },
+      "AudioMarkPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AudioRangeMark"
+            },
+            "maxItems": 64,
+            "type": "array"
+          },
+          "next_cursor": {
+            "maxLength": 1024,
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "AudioMarkPageEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AudioMarkPage"
+              }
+            }
+          }
+        ]
+      },
+      "AudioMarkRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "end_frame": {
+            "format": "uint64",
+            "maximum": 8388608,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_artifact_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "start_frame": {
+            "format": "uint64",
+            "maximum": 8388608,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_frame",
+          "end_frame",
+          "label",
+          "source_sha256",
+          "source_artifact_id"
+        ],
+        "type": "object"
+      },
+      "AudioRangeMark": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "end_frame": {
+            "format": "uint64",
+            "maximum": 8388608,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "project_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sample_rate_hz": {
+            "format": "uint64",
+            "maximum": 192000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "source_artifact_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "start_frame": {
+            "format": "uint64",
+            "maximum": 8388608,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "created_at",
+          "event_id",
+          "source_artifact_id",
+          "source_sha256",
+          "start_frame",
+          "end_frame",
+          "sample_rate_hz",
+          "label"
+        ],
+        "type": "object"
+      },
+      "AudioRangeMarkEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AudioRangeMark"
+              }
+            }
+          }
+        ]
+      },
       "BrowserPairing": {
         "additionalProperties": false,
         "properties": {
@@ -2780,6 +3012,426 @@
           "capabilities": [],
           "features": [
             "derived_history_viewport"
+          ]
+        }
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/clip": {
+      "get": {
+        "description": "Export original mono PCM16 samples in [start_frame,end_frame). WAV includes an ori-space chunk with UTF-8 JSON provenance, source SHA-256/IDs and unchanged source context. No resampling or source mutation. WAV <=16 MiB, provenance <=64 KiB; unknown parameters rejected.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_clip",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_frame",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 8388608,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_frame",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 8388608,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_sha256",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_artifact_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Exact PCM fragment and source provenance",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
+              "ETag": {
+                "schema": {
+                  "description": "Quoted SHA-256 of exported WAV bytes",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid range, cursor, WAV or checksum"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Scoped source not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source changed; reload its descriptor"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "audio_evidence_export"
+          ]
+        }
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/info": {
+      "get": {
+        "description": "Bounded archive-only PCM descriptor; never enumerates or opens an audio input.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_info",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioEvidenceInfoEnvelope"
+                }
+              }
+            },
+            "description": "Bounded archive-only PCM descriptor; never enumerates or opens an audio input."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid range, cursor, WAV or checksum"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Scoped source not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source changed; reload its descriptor"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "audio_evidence_export"
+          ]
+        }
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/marks": {
+      "get": {
+        "description": "Immutable operator range marks, ordered by original UTF-8 ID with an exclusive cursor. At most 64 per page; no source rewrites.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 32,
+              "maximum": 64,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "maxLength": 1024,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioMarkPageEnvelope"
+                }
+              }
+            },
+            "description": "Immutable operator range marks, ordered by original UTF-8 ID with an exclusive cursor. At most 64 per page; no source rewrites."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid range, cursor, WAV or checksum"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Scoped source not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source changed; reload its descriptor"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "audio_evidence_export"
+          ]
+        }
+      },
+      "post": {
+        "description": "Atomically append a source-bound half-open PCM range mark and audit event. A stale source hash returns 409 without mutation.",
+        "operationId": "post_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudioMarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioRangeMarkEnvelope"
+                }
+              }
+            },
+            "description": "Atomically append a source-bound half-open PCM range mark and audit event. A stale source hash returns 409 without mutation."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid range, cursor, WAV or checksum"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Scoped source not found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Original source changed; reload its descriptor"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "audio_evidence_export"
           ]
         }
       }

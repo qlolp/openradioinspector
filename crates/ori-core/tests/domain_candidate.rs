@@ -415,3 +415,108 @@ async fn scan_plan_http_is_versioned_bounded_and_never_opens_devices() {
     assert!(!workers.to_string().contains("\"alive\":true"));
     restarted.stop().await;
 }
+
+#[tokio::test]
+async fn audio_marks_and_exact_frame_export_are_archive_only_and_reject_ambiguous_ranges() {
+    use ori_archive::{Archive, ArchiveConfig, Artifact, Mutation};
+    use sha2::{Digest, Sha256};
+    let directory = tempfile::tempdir().unwrap();
+    let server = Server::start(directory.path()).await;
+    assert_eq!(
+        server
+            .request("POST", "/api/v1/sessions", Some(&fixture()))
+            .await
+            .0,
+        201
+    );
+    let id = project(&server).await;
+    server.stop().await;
+    let archive = Archive::open(ArchiveConfig::new(
+        directory.path().join("sessions.sqlite3"),
+    ))
+    .unwrap();
+    let mut wav = b"RIFF".to_vec();
+    wav.extend(40u32.to_le_bytes());
+    wav.extend(b"WAVEfmt ");
+    wav.extend(16u32.to_le_bytes());
+    wav.extend([1, 0, 1, 0, 64, 31, 0, 0, 128, 62, 0, 0, 2, 0, 16, 0]);
+    wav.extend(b"data");
+    wav.extend(4u32.to_le_bytes());
+    wav.extend([0, 128, 255, 127]);
+    let digest = Sha256::digest(&wav)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    archive.apply(vec![Mutation::Artifact(Artifact { id:"http-audio".into(), session_id:"domain".into(), stream_id:"receiver".into(),
+        schema_version:1,kind:"audio".into(),mime_type:"audio/wav".into(),filename:"original.wav".into(),sha256:digest.clone(),
+        created_at:"2026-11-14T00:00:00Z".into(),payload:wav.clone(),metadata:json!({"source":"synthetic_fixture","frequency_hz":100010000,"requested_mode":"FM"}) }),
+        Mutation::Monitoring { kind:"event".into(), value:json!({"id":"http-event","project_id":id,"created_at":"2026-11-14T00:00:00Z",
+            "analysis":{"audio":{"id":"http-audio","session_id":"domain","stream_id":"receiver","sha256":digest}}}) }]).await.unwrap();
+    archive.close().await.unwrap();
+    let server = Server::start(directory.path()).await;
+    let base = format!("/api/v1/monitoring-projects/{id}/events/http-event/audio");
+    let (status, info) = server.request("GET", &format!("{base}/info"), None).await;
+    assert_eq!(status, 200, "{info}");
+    assert_eq!(info["data"]["frame_count"], 2);
+    for query in [
+        "",
+        "?start_frame=0",
+        "?start_frame=0&end_frame=0",
+        "?start_frame=-1&end_frame=1",
+        "?start_frame=0.5&end_frame=1",
+        "?start_frame=0&end_frame=3",
+        "?start_frame=%2B0&end_frame=1",
+        "?start_frame=0&start_frame=1&end_frame=2",
+        "?start_frame=0&end_frame=1&unknown=1",
+    ] {
+        let separator = if query.is_empty() { "?" } else { "&" };
+        assert_eq!(
+            server
+                .request(
+                    "GET",
+                    &format!(
+                        "{base}/clip{query}{separator}source_artifact_id=http-audio&source_sha256={digest}"
+                    ),
+                    None
+                )
+                .await
+                .0,
+            400,
+            "{query}"
+        );
+    }
+    assert_eq!(server.request("GET",&format!("{base}/clip?start_frame=0&end_frame=1&source_artifact_id=other-tuning&source_sha256={digest}"),None).await.0,409);
+    assert_eq!(server.request("POST",&format!("{base}/marks"),Some(&json!({"start_frame":0,"end_frame":1,"label":"Wrong original","source_artifact_id":"other-tuning","source_sha256":digest}))).await.0,409);
+    assert_eq!(server.request("POST", &format!("{base}/marks"), Some(&json!({"start_frame":0,"end_frame":1,"label":"First sample","source_artifact_id":"http-audio","source_sha256":digest}))).await.0, 201);
+    let (_, marks) = server
+        .request("GET", &format!("{base}/marks?limit=1"), None)
+        .await;
+    assert_eq!(marks["data"]["items"].as_array().unwrap().len(), 1);
+    let response = reqwest::get(format!("{}{base}/clip?start_frame=1&end_frame=2&source_artifact_id=http-audio&source_sha256={digest}",server.url)).await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-type"], "audio/wav");
+    assert_eq!(
+        response.headers()["content-disposition"],
+        "attachment; filename=ori-audio-clip.wav"
+    );
+    let clip = response.bytes().await.unwrap();
+    assert_eq!(&clip[clip.len() - 2..], &[255, 127]);
+    assert!(
+        clip.windows(digest.len())
+            .any(|bytes| bytes == digest.as_bytes())
+    );
+    let original = reqwest::get(format!("{}{base}", server.url))
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert_eq!(original.as_ref(), wav);
+    let (_, caps) = server.request("GET", "/api/v1/capabilities", None).await;
+    assert_eq!(caps["data"]["features"]["audio_evidence_export"], true);
+    let (_, workers) = server
+        .request("GET", "/api/v1/sessions/domain/workers", None)
+        .await;
+    assert!(!workers.to_string().contains("\"alive\":true"));
+    server.stop().await;
+}

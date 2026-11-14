@@ -738,4 +738,38 @@ final class MonitoringTests: XCTestCase {
         _ = try await client.monitoringSettings(projectID: "p", body: ["detector": .object(expected)])
     }
 
+    func testAudioClipBindsOriginalHashAndExactFrameRangeToEncodedEvent() async throws {
+        let hash = String(repeating: "a", count: 64)
+        let client = try makeClient { request in
+            XCTAssertTrue(request.url!.absoluteString.contains("/monitoring-projects/p%2F1/events/e%2F2/audio/clip?"))
+            let query = Dictionary(uniqueKeysWithValues: URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value!) })
+            XCTAssertEqual(query, ["start_frame":"1","end_frame":"2","source_artifact_id":"source/1","source_sha256":hash])
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "audio/wav")
+            return (self.response(request, mime: "audio/wav"), self.wav)
+        }
+        let actual = try await client.monitoringEventAudioClip(projectID: "p/1", eventID: "e/2", startFrame: 1, endFrame: 2, sourceArtifactID: "source/1", sourceSHA256: hash)
+        XCTAssertEqual(actual, wav)
+    }
+
+    func testAudioMarkSendsSourceIdentityWithoutStartingCapture() async throws {
+        let hash = String(repeating: "b", count: 64)
+        let client = try makeClient { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url!.path.hasSuffix("/audio/marks"))
+            let body = try JSONDecoder().decode(MonitoringValue.self, from: XCTUnwrap(request.httpBody))
+            XCTAssertEqual(body["source_sha256"], .string(hash)); XCTAssertEqual(body["start_frame"], .integer(0)); XCTAssertEqual(body["end_frame"], .integer(1))
+            return (self.response(request), self.envelope("{\"id\":\"mark\"}"))
+        }
+        _ = try await client.monitoringAddAudioMark(projectID: "p", eventID: "e", startFrame: 0, endFrame: 1, label: "Voice", sourceArtifactID: "source/1", sourceSHA256: hash)
+    }
+
+    func testAudioEvidenceRejectsInvalidRangesBeforeAnyRequest() async throws {
+        let client = try makeClient { _ in XCTFail("Invalid input must not reach core"); throw URLError(.badURL) }
+        for (start, end, hash) in [(Int64(-1),Int64(2),String(repeating:"a",count:64)),(0,0,String(repeating:"a",count:64)),(0,1,"unknown")] {
+            do {
+                _ = try await client.monitoringEventAudioClip(projectID: "p", eventID: "e", startFrame: start, endFrame: end, sourceArtifactID: "source/1", sourceSHA256: hash)
+                XCTFail("Invalid source/range accepted")
+            } catch let error as PlatformError { if case .invalidCommand = error {} else { XCTFail("Unexpected error: \(error)") } }
+        }
+    }
 }

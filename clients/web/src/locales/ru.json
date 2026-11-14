@@ -474,5 +474,18 @@
   "Calibration profile (JSON)": "Калибровочный профиль (JSON)",
   "Estimate field": "Рассчитать поле",
   "Uncertainty unknown": "Погрешность неизвестна",
-  "Combined {count} display updates. Original sweeps remain archived.": "Объединено обновлений графика: {count}. Исходные свипы сохранены в архиве."
+  "Combined {count} display updates. Original sweeps remain archived.": "Объединено обновлений графика: {count}. Исходные свипы сохранены в архиве.",
+  "Audio fragments and marks": "Отметки и фрагменты фонограммы",
+  "Exports preserve original samples and include source identity. The original recording stays unchanged.": "Фрагмент содержит исходные отсчёты и сведения об источнике. Оригинальная запись остаётся в архиве.",
+  "First sample": "Начальный отсчёт",
+  "End sample (excluded)": "Конечный отсчёт (не включён)",
+  "Mark label": "Подпись отметки",
+  "Save audio mark": "Сохранить аудиоотметку",
+  "Export WAV fragment": "Экспортировать фрагмент WAV",
+  "First marks page": "Первая страница отметок",
+  "Next marks page": "Следующая страница отметок",
+  "Loading or saving audio evidence": "Загрузка или сохранение аудиоданных",
+  "Audio mark saved": "Аудиоотметка сохранена",
+  "Audio fragment exported": "Фрагмент WAV экспортирован",
+  "Invalid audio source": "Некорректное описание исходной фонограммы"
 }
