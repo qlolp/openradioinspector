@@ -13,6 +13,8 @@ struct TraceChart: View {
     var currentTitle = "текущая"
     var thresholdTitle = "порог"
     var displayScale: PlatformSpectrumScale? = nil
+    var plotHeight: CGFloat = 220
+    var showsGrid = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -23,7 +25,25 @@ struct TraceChart: View {
                     Canvas { context, size in draw(context: context, size: size) }
                 }
             }
-            .frame(height: 220)
+            .frame(height: plotHeight)
+            .background {
+                if showsGrid {
+                    Canvas { context, size in
+                        let rect = CGRect(x: 8, y: 8, width: max(size.width - 16, 1), height: max(size.height - 16, 1))
+                        var grid = Path()
+                        for index in 0...4 {
+                            let fraction = Double(index) / 4
+                            let y = rect.minY + rect.height * fraction
+                            grid.move(to: CGPoint(x: rect.minX, y: y))
+                            grid.addLine(to: CGPoint(x: rect.maxX, y: y))
+                            let x = rect.minX + rect.width * fraction
+                            grid.move(to: CGPoint(x: x, y: rect.minY))
+                            grid.addLine(to: CGPoint(x: x, y: rect.maxY))
+                        }
+                        context.stroke(grid, with: .color(.primary.opacity(0.12)), lineWidth: 0.5)
+                    }
+                }
+            }
             .background(Color.primary.opacity(0.04))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             HStack(spacing: 14) {

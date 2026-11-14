@@ -138,29 +138,26 @@ struct NativeContinuityBar: View {
         let state = ["unlimited": "без лимита", "ok": "норма", "warning": "мало места", "full": "заполнен", "unavailable": "недоступен"][capacity.state.rawValue] ?? capacity.state.rawValue
         return "Архив · " + state
     }
-    private func deviceState(_ value: String) -> String {
-        ["connected": "подключён", "running": "работает", "stopped": "остановлен", "disconnected": "отключён", "error": "ошибка", "busy": "занят", "draft": "подготовка"][value] ?? value
+    private var acquisition: String {
+        guard model.coreReachable else { return "Не подтверждён" }
+        let active = model.workers.filter { $0.alive }
+        if active.contains(where: { $0.stopping == true }) { return "Завершение свипа" }
+        if active.contains(where: { $0.state == "degraded" || $0.state == "error" }) { return "Есть ошибки" }
+        return active.isEmpty ? "Остановлен" : "Ведётся"
     }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 16) {
-                Label(workspace.isArmed ? "Охрана включена" : "Охрана не подтверждена", systemImage: workspace.isArmed ? "shield.fill" : "shield")
-                    .foregroundStyle(workspace.isArmed ? Color.green : Color.secondary)
-                Text(coverage)
-                Spacer()
-                if let capacity = model.archiveCapacity {
-                    Label(archiveLabel, systemImage: "externaldrive")
-                        .foregroundStyle(capacity.measurementWritesBlocked ? Color.red : Color.secondary)
-                } else { Label("Состояние архива неизвестно", systemImage: "externaldrive.badge.questionmark") }
+        VStack(alignment: .leading, spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 8)], spacing: 8) {
+                NativeOperatorMetric(title: "Ядро", value: model.coreReachable ? "На связи" : "Нет связи", symbol: "network", tint: model.coreReachable ? .green : .orange)
+                NativeOperatorMetric(title: "Приём", value: acquisition, symbol: "antenna.radiowaves.left.and.right", tint: .primary)
+                NativeOperatorMetric(title: "Хранилище", value: model.coreReachable ? archiveLabel : "Не подтверждено", symbol: "externaldrive", tint: model.archiveCapacity?.measurementWritesBlocked == true ? .red : .primary)
+                NativeOperatorMetric(title: "Охрана", value: model.coreReachable && workspace.isArmed ? "Включена" : "Не подтверждена", symbol: "shield", tint: model.coreReachable && workspace.isArmed ? .green : .secondary)
             }
-            HStack {
-                ForEach(model.session?.streams ?? [], id: \.exactID) { stream in
-                    Text("\(stream.device) · \(deviceState(stream.state))")
-                }
-                Spacer()
-                Text(model.eventStatus)
-                if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
-            }.font(.caption).foregroundStyle(.secondary)
+            if model.archiveCapacity?.measurementWritesBlocked == true {
+                Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
+                    .font(.callout).foregroundStyle(.red)
+            }
             if let issue = model.measurementDisplayIssue { Text(issue.message).font(.caption).foregroundStyle(.orange) }
             if let notice = model.eventGapNotice {
                 HStack {
@@ -168,10 +165,14 @@ struct NativeContinuityBar: View {
                     Button("Понятно") { model.eventGapNotice = nil }
                 }.font(.caption)
             }
-            Text(model.usesBundledLegacyHelper
-                 ? "История и пауза графика не останавливают охрану. Вспомогательное ядро работает, пока запущено приложение."
-                 : "Просмотр истории и пауза графика действуют только в этом клиенте. Охрана и запись продолжаются в ядре.")
-                .font(.caption).foregroundStyle(.secondary)
-        }.padding(.horizontal, 16).padding(.vertical, 8).background(Color.primary.opacity(0.04))
+            DisclosureGroup("Покрытие и доставка данных") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(coverage)
+                    Text(model.eventStatus).textSelection(.enabled)
+                    if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
+                    Text("Пауза отображения не управляет охраной или записью. Состояние ядра показано отдельно.")
+                }.font(.caption).foregroundStyle(.secondary)
+            }.font(.caption)
+        }.padding(.horizontal, 16).padding(.vertical, 8)
     }
 }
