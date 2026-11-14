@@ -1,4 +1,6 @@
 #![cfg(unix)]
+#[path = "support/backend_ports.rs"]
+mod backend_ports;
 #[path = "support/backend_python.rs"]
 mod backend_python;
 
@@ -112,6 +114,8 @@ fn startup_evidence(data: &Path, child: &mut Child) -> serde_json::Value {
             "candidate_exited_before_readiness"
         } else if text.contains("refusing to replace foreign admin socket") {
             "foreign_admin_refused"
+        } else if text.contains("backend port is occupied") {
+            "backend_port_occupied"
         } else if text.contains("ori-supervisor: I/O failure:") {
             "io_failure"
         } else if bytes.is_empty() {
@@ -183,10 +187,7 @@ fn command(data: &Path, request: serde_json::Value) -> serde_json::Value {
     serde_json::from_slice(&reply).unwrap()
 }
 fn backend(data: &Path, mode: &str) -> BackendSpec {
-    let address = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
+    let address = backend_ports::address();
     BackendSpec {
         name: mode.into(),
         program: backend_python::program(),
