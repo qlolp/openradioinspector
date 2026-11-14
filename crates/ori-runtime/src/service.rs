@@ -22,6 +22,7 @@ pub struct ServiceConfig {
 pub enum AdminCommand {
     Status,
     Start,
+    Stop,
     Shutdown,
     Cutover {
         candidate: BackendSpec,
@@ -160,6 +161,13 @@ async fn run_with_policy(config: ServiceConfig, macos_rc: bool) -> Result<()> {
                                 }
                             },
                             Ok(AdminCommand::Start)=>serde_json::json!({"ok":false,"error":"start_requires_personal_rc_agent"}),
+                            Ok(AdminCommand::Stop) if macos_rc=>{
+                                match supervisor.shutdown().await {
+                                    Ok(())=>{idle_sleep.set_armed(false)?;paused=true;pause_reason="operator_stopped";serde_json::json!({"ok":true})},
+                                    Err(_)=>serde_json::json!({"ok":false,"error":"core_stop_not_confirmed"}),
+                                }
+                            },
+                            Ok(AdminCommand::Stop)=>serde_json::json!({"ok":false,"error":"stop_requires_personal_rc_agent"}),
                             Ok(AdminCommand::Shutdown)=>{
                                 let result=supervisor.shutdown().await;
                                 let response=serde_json::json!({"ok":result.is_ok()});

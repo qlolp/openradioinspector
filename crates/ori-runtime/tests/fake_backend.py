@@ -51,6 +51,7 @@ import pathlib
 import signal
 import socketserver
 import threading
+import stat
 
 milestone('imports_complete', python_executable=sys.executable[:128],
           python_executable_truncated=len(sys.executable) > 128,
@@ -121,6 +122,16 @@ class NumericLoopbackHTTPServer(http.server.HTTPServer):
 milestone('socket_create_started')
 server = NumericLoopbackHTTPServer(('127.0.0.1', port), Handler)
 milestone('listener_bound')
+if os.environ.get('ORI_TEST_BACKEND_STDIN_LIFELINE') == '1':
+    if not stat.S_ISFIFO(os.fstat(sys.stdin.fileno()).st_mode):
+        server.server_close()
+        lock.close()
+        sys.exit(9)
+    def stop_on_owner_eof():
+        while sys.stdin.buffer.read(1):
+            pass
+        server.shutdown()
+    threading.Thread(target=stop_on_owner_eof, daemon=True).start()
 try:
     server.serve_forever(poll_interval=0.01)
 finally:

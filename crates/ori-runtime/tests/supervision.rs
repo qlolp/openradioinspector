@@ -26,6 +26,7 @@ fn spec(data: &Path, mode: &str, address: SocketAddr) -> BackendSpec {
         ports: vec![address],
         startup_timeout_ms: 2000,
         shutdown_timeout_ms: 2000,
+        supervisor_lifeline: false,
     }
 }
 fn address() -> SocketAddr {

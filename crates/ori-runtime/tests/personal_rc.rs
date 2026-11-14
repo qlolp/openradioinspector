@@ -23,6 +23,23 @@ async fn request(data: &Path, command: AdminCommand) -> serde_json::Value {
         .unwrap()
 }
 
+async fn raw_stop(data: &Path) -> serde_json::Value {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    tokio::time::timeout(Duration::from_secs(3), async {
+        let mut stream = tokio::net::UnixStream::connect(service::admin_socket_path(data).unwrap())
+            .await
+            .unwrap();
+        stream.write_all(b"{\"command\":\"stop\"}").await.unwrap();
+        stream.shutdown().await.unwrap();
+        let mut bytes = Vec::new();
+        stream.take(4097).read_to_end(&mut bytes).await.unwrap();
+        assert!(bytes.len() <= 4096);
+        serde_json::from_slice(&bytes).unwrap()
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn registered_rc_stays_idle_until_explicit_start_and_never_duplicates_its_owner() {
     let root = tempfile::tempdir().unwrap();
@@ -42,6 +59,7 @@ async fn registered_rc_stays_idle_until_explicit_start_and_never_duplicates_its_
         ports: vec![address],
         startup_timeout_ms: 2000,
         shutdown_timeout_ms: 2000,
+        supervisor_lifeline: false,
     };
     let mut service = OwnedService(tokio::spawn(service::run_personal_rc(ServiceConfig {
         data_directory: data.to_owned(),
@@ -65,13 +83,27 @@ async fn registered_rc_stays_idle_until_explicit_start_and_never_duplicates_its_
     let first = request(data, AdminCommand::Start).await;
     assert_eq!(first["ok"], true);
     assert_eq!(first["status"]["writer_owned"], true);
-    let owner = first["status"]["instance_id"].clone();
+    let mut owner = first["status"]["instance_id"].clone();
     assert!(WriterLease::acquire(data).is_err());
     // Leaving one client and attaching another never tears down the owner.
     assert_eq!(
         request(data, AdminCommand::Status).await["status"]["instance_id"],
         owner
     );
+    assert_eq!(raw_stop(data).await["ok"], true);
+    assert!(
+        !service.0.is_finished(),
+        "a cancelled UI stop must leave the registered agent available for recovery"
+    );
+    assert!(WriterLease::acquire(data).is_ok());
+    assert_eq!(
+        request(data, AdminCommand::Status).await["service_state"],
+        "stopped"
+    );
+    let restarted = request(data, AdminCommand::Start).await;
+    assert_eq!(restarted["ok"], true);
+    assert_ne!(restarted["status"]["instance_id"], owner);
+    owner = restarted["status"]["instance_id"].clone();
     assert_eq!(
         request(data, AdminCommand::Start).await["status"]["instance_id"],
         owner
@@ -103,6 +135,6 @@ async fn registered_rc_stays_idle_until_explicit_start_and_never_duplicates_its_
             .unwrap()
             .lines()
             .count(),
-        1
+        2
     );
 }

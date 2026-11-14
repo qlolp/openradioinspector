@@ -4,7 +4,7 @@
 The target macOS 27.3 installation and physical acceptance are still required.
 It does not promote Rust to the stable default or accept Pi/Windows hardware.
 
-The installed app registers `local.dvoynoyobzor.core.plist` with SMAppService.
+The installed app registers `org.openradioinspector.macos.rc.core.plist` with SMAppService.
 Registration/approval, starting the core, connecting devices and arming guard
 are separate actions. The agent starts idle at login; RC1 requires an explicit
 core start. It does not automatically arm guard. Closing the window or
@@ -13,7 +13,7 @@ Opening the UI again verifies the private owner and reconnects to that core.
 
 The agent runs the bundled `ori-supervisor macos-agent`. Only its selected
 `ori-core --mode live --allow-serial` owns physical ports and the SQLite writer.
-There is no Python/simulator fallback. Its client API is loopback-only at
+The supervisor retains the core’s stdin lifeline: supervisor death closes it and requests core shutdown; the UI never owns that pipe. There is no Python/simulator fallback. Its client API is loopback-only at
 `http://127.0.0.1:8772`; service start/status/shutdown use a separate owner-only
 Unix socket, not the public HTTP API. The socket is in the canonical OS-provided
 per-user temporary directory, under a hash of the canonical data path. This
@@ -26,7 +26,7 @@ separate from the legacy installation. The initial archive quota is 64 GiB;
 guard preparation must still verify actual free space and the eight-hour
 storage/backup budget. No automatic original-measurement deletion is enabled.
 
-**Stop service** waits for the core's real shutdown, device release, writer
+**Stop service** first sends private Stop (the agent remains idle and recoverable if the UI disappears), then waits for the core's real shutdown, device release, writer
 lease and listeners before acknowledging and unregistering the LaunchAgent.
 An error is not proof of release: do not update the installed app until stop is
 confirmed. RC refuses private backend cutover; update/rollback stop the service
