@@ -2,6 +2,7 @@
 import type {JSONValue, JSONObject, Integer} from './codec.ts';
 export type {JSONValue, JSONObject, Integer} from './codec.ts';
 
+export type AudioEvidenceInfoEncoding = "pcm16_le";
 export type BrowserPairingCredential = "browser_cookie";
 export type HistoryJobOperation = "export" | "summary" | "occupancy";
 export type HistoryJobPhase = "snapshot" | "running" | "completed" | "cancelled" | "failed";
@@ -13,6 +14,46 @@ export type NativePairingCredential = "bearer";
 export type PairingInputClient = "browser" | "native";
 export type ScanPlanRevisionHardwareValidation = "not_run";
 export type SecurityStatusMode = "legacy_loopback" | "lan_tls";
+export interface AudioEvidenceInfo {
+  artifact_id: string;
+  channels: Integer;
+  encoding: AudioEvidenceInfoEncoding;
+  frame_count: Integer;
+  sample_rate_hz: Integer;
+  sha256: string;
+  source_context: JSONObject;
+  [key: string]: unknown;
+}
+
+export interface AudioMarkPage {
+  items: Array<AudioRangeMark>;
+  next_cursor: string | null;
+  [key: string]: unknown;
+}
+
+export interface AudioMarkRequest {
+  end_frame: Integer;
+  label: string;
+  source_artifact_id: string;
+  source_sha256: string;
+  start_frame: Integer;
+  [key: string]: unknown;
+}
+
+export interface AudioRangeMark {
+  created_at: string;
+  end_frame: Integer;
+  event_id: string;
+  id: string;
+  label: string;
+  project_id: string;
+  sample_rate_hz: Integer;
+  source_artifact_id: string;
+  source_sha256: string;
+  start_frame: Integer;
+  [key: string]: unknown;
+}
+
 export interface BrowserPairing {
   credential: BrowserPairingCredential;
   paired: true;
@@ -223,6 +264,238 @@ export interface SecurityStatus {
 import {Float64, stringifyJSON, normalizeUTC} from './codec.ts';
 import {schemas as baselineSchemas} from './schema.ts';
 const schemas = {...baselineSchemas, ...{
+  "AudioEvidenceInfo": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "channels": {
+        "format": "uint64",
+        "maximum": 1,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "encoding": {
+        "enum": [
+          "pcm16_le"
+        ],
+        "type": "string"
+      },
+      "frame_count": {
+        "format": "uint64",
+        "maximum": 8388608,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "sample_rate_hz": {
+        "format": "uint64",
+        "maximum": 192000,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "source_context": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    "required": [
+      "artifact_id",
+      "sha256",
+      "frame_count",
+      "sample_rate_hz",
+      "channels",
+      "encoding",
+      "source_context"
+    ],
+    "type": "object"
+  },
+  "AudioEvidenceInfoEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AudioEvidenceInfo"
+          }
+        }
+      }
+    ]
+  },
+  "AudioMarkPage": {
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/components/schemas/AudioRangeMark"
+        },
+        "maxItems": 64,
+        "type": "array"
+      },
+      "next_cursor": {
+        "maxLength": 1024,
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "items",
+      "next_cursor"
+    ],
+    "type": "object"
+  },
+  "AudioMarkPageEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AudioMarkPage"
+          }
+        }
+      }
+    ]
+  },
+  "AudioMarkRequest": {
+    "additionalProperties": false,
+    "properties": {
+      "end_frame": {
+        "format": "uint64",
+        "maximum": 8388608,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "label": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "source_artifact_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "source_sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "start_frame": {
+        "format": "uint64",
+        "maximum": 8388608,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "start_frame",
+      "end_frame",
+      "label",
+      "source_sha256",
+      "source_artifact_id"
+    ],
+    "type": "object"
+  },
+  "AudioRangeMark": {
+    "additionalProperties": false,
+    "properties": {
+      "created_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "end_frame": {
+        "format": "uint64",
+        "maximum": 8388608,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "event_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "label": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "project_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "sample_rate_hz": {
+        "format": "uint64",
+        "maximum": 192000,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "source_artifact_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "source_sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[a-f0-9]{64}$",
+        "type": "string"
+      },
+      "start_frame": {
+        "format": "uint64",
+        "maximum": 8388608,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "project_id",
+      "created_at",
+      "event_id",
+      "source_artifact_id",
+      "source_sha256",
+      "start_frame",
+      "end_frame",
+      "sample_rate_hz",
+      "label"
+    ],
+    "type": "object"
+  },
+  "AudioRangeMarkEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AudioRangeMark"
+          }
+        }
+      }
+    ]
+  },
   "BrowserPairing": {
     "additionalProperties": false,
     "properties": {
@@ -1328,6 +1601,14 @@ function walk(schema: Schema, value: JSONValue, encode: boolean): JSONValue {
   if (type==='boolean' && typeof value!=='boolean') throw new TypeError('Expected boolean');
   return value;
 }
+export const decodeAudioEvidenceInfo = (value: JSONValue): AudioEvidenceInfo => walk(schemas.AudioEvidenceInfo as unknown as Schema,value,false) as unknown as AudioEvidenceInfo;
+export const encodeAudioEvidenceInfo = (value: AudioEvidenceInfo): string => stringifyJSON(walk(schemas.AudioEvidenceInfo as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeAudioMarkPage = (value: JSONValue): AudioMarkPage => walk(schemas.AudioMarkPage as unknown as Schema,value,false) as unknown as AudioMarkPage;
+export const encodeAudioMarkPage = (value: AudioMarkPage): string => stringifyJSON(walk(schemas.AudioMarkPage as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeAudioMarkRequest = (value: JSONValue): AudioMarkRequest => walk(schemas.AudioMarkRequest as unknown as Schema,value,false) as unknown as AudioMarkRequest;
+export const encodeAudioMarkRequest = (value: AudioMarkRequest): string => stringifyJSON(walk(schemas.AudioMarkRequest as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeAudioRangeMark = (value: JSONValue): AudioRangeMark => walk(schemas.AudioRangeMark as unknown as Schema,value,false) as unknown as AudioRangeMark;
+export const encodeAudioRangeMark = (value: AudioRangeMark): string => stringifyJSON(walk(schemas.AudioRangeMark as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeBrowserPairing = (value: JSONValue): BrowserPairing => walk(schemas.BrowserPairing as unknown as Schema,value,false) as unknown as BrowserPairing;
 export const encodeBrowserPairing = (value: BrowserPairing): string => stringifyJSON(walk(schemas.BrowserPairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeCredentialRevocation = (value: JSONValue): CredentialRevocation => walk(schemas.CredentialRevocation as unknown as Schema,value,false) as unknown as CredentialRevocation;
@@ -1998,6 +2279,90 @@ export const runtimeOperations = [
     "method": "GET",
     "operation_id": "get_api_v1_monitoring_projects_project_id_events_event_id_audio",
     "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio",
+    "path_parameters": [
+      "project_id",
+      "event_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "audio_evidence_export"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_clip",
+    "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/clip",
+    "path_parameters": [
+      "project_id",
+      "event_id"
+    ],
+    "query": [
+      "start_frame",
+      "end_frame",
+      "source_sha256",
+      "source_artifact_id"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "audio_evidence_export"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_info",
+    "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/info",
+    "path_parameters": [
+      "project_id",
+      "event_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "audio_evidence_export"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+    "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/marks",
+    "path_parameters": [
+      "project_id",
+      "event_id"
+    ],
+    "query": [
+      "limit",
+      "after"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "audio_evidence_export"
+    ],
+    "max_request_bytes": null,
+    "method": "POST",
+    "operation_id": "post_api_v1_monitoring_projects_project_id_events_event_id_audio_marks",
+    "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio/marks",
     "path_parameters": [
       "project_id",
       "event_id"

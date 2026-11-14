@@ -400,3 +400,39 @@ async fn native_reconnect_cursor_is_exact_after_lossless_metadata_is_applied() {
     server.await.unwrap();
     assert_eq!(received.lock().unwrap()[0], first);
 }
+
+#[tokio::test]
+async fn exact_event_clip_is_allowed_as_bounded_audio_but_other_binary_routes_are_rejected() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let node = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut bytes = [0; 4096];
+        let length = socket.read(&mut bytes).await.unwrap();
+        assert!(
+            String::from_utf8_lossy(&bytes[..length])
+                .starts_with("GET /api/v1/monitoring-projects/p%2F1/events/e%2F1/audio/clip?")
+        );
+        socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: 4\r\nConnection: close\r\n\r\nRIFF").await.unwrap();
+    });
+    let bridge = Bridge::new(&node, "").unwrap();
+    let result=bridge.request(&format!("/api/v1/monitoring-projects/p%2F1/events/e%2F1/audio/clip?start_frame=0&end_frame=1&source_sha256={}","a".repeat(64)),None,true).await;
+    if result.is_err() {
+        server.abort();
+    }
+    assert!(result.is_ok(), "{result:?}");
+    server.await.unwrap();
+    for path in [
+        "/api/v1/health",
+        "/api/v1/monitoring-projects/p/settings/audio",
+        "/api/v1/monitoring-projects/p/events/e/audio/clip/extra",
+    ] {
+        assert!(
+            bridge
+                .request(path, None, true)
+                .await
+                .unwrap_err()
+                .contains("Only project event audio")
+        );
+    }
+}

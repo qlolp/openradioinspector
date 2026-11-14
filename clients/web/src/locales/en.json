@@ -474,5 +474,18 @@
   "Calibration profile (JSON)": "Calibration profile (JSON)",
   "Estimate field": "Estimate field",
   "Uncertainty unknown": "Uncertainty unknown",
-  "Combined {count} display updates. Original sweeps remain archived.": "Combined {count} display updates. Original sweeps remain archived."
+  "Combined {count} display updates. Original sweeps remain archived.": "Combined {count} display updates. Original sweeps remain archived.",
+  "Audio fragments and marks": "Audio fragments and marks",
+  "Exports preserve original samples and include source identity. The original recording stays unchanged.": "Exports preserve original samples and include source identity. The original recording stays unchanged.",
+  "First sample": "First sample",
+  "End sample (excluded)": "End sample (excluded)",
+  "Mark label": "Mark label",
+  "Save audio mark": "Save audio mark",
+  "Export WAV fragment": "Export WAV fragment",
+  "First marks page": "First marks page",
+  "Next marks page": "Next marks page",
+  "Loading or saving audio evidence": "Loading or saving audio evidence",
+  "Audio mark saved": "Audio mark saved",
+  "Audio fragment exported": "Audio fragment exported",
+  "Invalid audio source": "Invalid audio source"
 }

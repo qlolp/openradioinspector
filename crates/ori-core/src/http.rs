@@ -953,6 +953,9 @@ fn capabilities(core: &Core) -> Value {
     let uploaded_audio = archived && core.audio_http.get().is_some();
     value["features"]["phonogram_pre_history"] = Value::Bool(uploaded_audio);
     value["features"]["remote_audio_stream"] = Value::Bool(uploaded_audio);
+    // Archive-only operations remain available with native capture disabled.
+    value["features"]["audio_evidence_export"] =
+        Value::Bool(archived && core.domains.get().is_some());
     if uploaded_audio {
         let unsupported = value["candidate"]["unsupported_features"]
             .as_array_mut()

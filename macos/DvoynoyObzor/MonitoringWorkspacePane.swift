@@ -34,6 +34,9 @@ struct MonitoringWorkspacePane: View {
     @State private var manualMode = "AUTO"
     @State private var searchSpan = "1000000"
     @State private var markLabel = "Точка 1"
+    @State private var audioStartFrame = "0"
+    @State private var audioEndFrame = ""
+    @State private var audioMarkLabel = ""
     @State private var searchExpanded = false
     @State private var historyExpanded = false
     @State private var historyStart = ""
@@ -671,6 +674,58 @@ struct MonitoringWorkspacePane: View {
         }
     }
 
+    private var selectedAudioRange: MonitoringAudioRange? {
+        guard let start = Int64(audioStartFrame), let end = Int64(audioEndFrame) else { return nil }
+        return workspace.audioRange(start: start, end: end)
+    }
+    private var audioEvidenceControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Отметки и фрагменты фонограммы").font(.headline)
+            Button("Загрузить сведения и отметки") { workspace.perform { await workspace.loadAudioEvidence() } }
+                .disabled(workspace.researchPending.contains("audio-evidence"))
+            if workspace.audioEvidenceInfo != .null {
+                Text("\(workspace.audioEvidenceInfo["frame_count"].scalar) отсчётов · \(workspace.audioEvidenceInfo["sample_rate_hz"].scalar) Гц").font(.caption)
+                HStack {
+                    TextField("Начальный отсчёт", text: $audioStartFrame)
+                    TextField("Конечный отсчёт (не включён)", text: $audioEndFrame)
+                }
+                if let range = selectedAudioRange, let rate = Double(workspace.audioEvidenceInfo["sample_rate_hz"].scalar) {
+                    Text(String(format: "%.3f…%.3f с", Double(range.start)/rate, Double(range.end)/rate)).font(.caption).monospacedDigit()
+                }
+                TextField("Подпись отметки", text: $audioMarkLabel)
+                HStack {
+                    Button("Сохранить аудиоотметку") {
+                        guard let range = selectedAudioRange else { return }
+                        let label = audioMarkLabel
+                        workspace.perform { await workspace.saveAudioMark(range, label: label) }
+                    }.disabled(selectedAudioRange == nil || audioMarkLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.researchPending.contains("audio-mark"))
+                    Button("Экспортировать фрагмент WAV") {
+                        guard let range = selectedAudioRange else { return }
+                        let panel = NSSavePanel(); panel.allowedContentTypes = [UTType(filenameExtension: "wav") ?? .audio]
+                        panel.nameFieldStringValue = "ori-audio-clip.wav"
+                        if panel.runModal() == .OK, let destination = panel.url {
+                            workspace.perform { await workspace.exportAudioClip(range, to: destination) }
+                        }
+                    }.disabled(selectedAudioRange == nil || workspace.researchPending.contains("audio-export"))
+                }
+                Text("Фрагмент содержит исходные отсчёты, ID, SHA-256 и контекст записи. Оригинал остаётся в архиве.").font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(workspace.audioMarks.enumerated()), id: \.offset) { _, mark in
+                    Button("\(mark["label"].text) · \(mark["start_frame"].scalar)…\(mark["end_frame"].scalar)") {
+                        audioStartFrame = mark["start_frame"].scalar; audioEndFrame = mark["end_frame"].scalar
+                    }.disabled(!PlatformExactID.same(mark["source_artifact_id"].text, workspace.audioEvidenceInfo["artifact_id"].text) || mark["source_sha256"].text != workspace.audioEvidenceInfo["sha256"].text)
+                }
+                HStack {
+                    Button("Первая страница отметок") { workspace.perform { await workspace.loadAudioEvidence() } }
+                    Button("Следующая страница отметок") { let after = workspace.audioMarksNext; workspace.perform { await workspace.loadAudioEvidence(after: after) } }
+                        .disabled(workspace.audioMarksNext.isEmpty)
+                }.disabled(workspace.researchPending.contains("audio-evidence"))
+            }
+        }
+        .onChange(of: workspace.audioEvidenceInfo) { _, value in
+            audioStartFrame = "0"; audioEndFrame = value["frame_count"].scalar; audioMarkLabel = ""
+        }
+    }
+
     private var eventDetails: some View {
         let event = workspace.event
         let analysis = event["analysis"]
@@ -698,6 +753,7 @@ struct MonitoringWorkspacePane: View {
                     Text(workspace.audioNotice).font(.caption)
                 }
                 Text("Загрузка до 16 МиБ через API ядра.").font(.caption).foregroundStyle(.secondary)
+                if workspace.audioEvidenceAvailable { audioEvidenceControls }
             } else { Text("Записи WAV для события нет.").font(.caption) }
             Button("Контекст события в истории") {
                 historyExpanded = true

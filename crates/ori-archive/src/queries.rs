@@ -854,15 +854,43 @@ impl Archive {
         after: &str,
         limit: usize,
     ) -> Result<RecordPage> {
+        self.event_records("event-source", project, event, after, limit)
+            .await
+    }
+
+    /// Immutable operator marks use the existing indexed event scope and bounded
+    /// ID cursor, without scanning every event in a project's history.
+    pub async fn audio_marks(
+        &self,
+        project: &str,
+        event: &str,
+        after: &str,
+        limit: usize,
+    ) -> Result<RecordPage> {
+        self.event_records("audio-mark", project, event, after, limit)
+            .await
+    }
+
+    async fn event_records(
+        &self,
+        kind: &'static str,
+        project: &str,
+        event: &str,
+        after: &str,
+        limit: usize,
+    ) -> Result<RecordPage> {
         validate_limit(limit, 64)?;
+        if after.len() > 1024 {
+            return Err(error::invalid("event record cursor"));
+        }
         let project = project.to_owned();
         let event = event.to_owned();
         let after = after.to_owned();
         let maximum = self.inner.config.max_response_bytes;
         self.inner.read(move |db| {
             if db.query_row("SELECT 1 FROM monitoring_records WHERE kind='event' AND project_id=? AND id=?", params![project, event], |row| row.get::<_, i64>(0)).optional()?.is_none() { return Err(ArchiveError::NotFound); }
-            let mut statement = db.prepare("SELECT payload FROM monitoring_records WHERE kind='event-source' AND project_id=? AND json_extract(payload,'$.event_id')=? AND id>? ORDER BY id LIMIT ?")?;
-            let mut rows = statement.query(params![project, event, after, limit as i64+1])?;
+            let mut statement = db.prepare("SELECT payload FROM monitoring_records WHERE kind=? AND project_id=? AND json_extract(payload,'$.event_id')=? AND id>? ORDER BY id LIMIT ?")?;
+            let mut rows = statement.query(params![kind, project, event, after, limit as i64+1])?;
             let mut remaining = maximum;
             let mut output = Vec::new();
             while let Some(row) = rows.next()? { push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?; }

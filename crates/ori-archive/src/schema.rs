@@ -65,6 +65,7 @@ fn table(db: &Connection, name: &str) -> Result<bool> {
 }
 pub(crate) fn versions(db: &Connection) -> Result<(i64, i64, i64)> {
     crate::candidate_precision::check(db)?;
+    crate::query_indexes::check(db)?;
     let main: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let monitoring = if table(db, "monitoring_schema")? {
         db.query_row(
@@ -226,6 +227,7 @@ pub(crate) fn writer(
     }
     tx.execute_batch(PRECISION_DDL)?;
     crate::candidate_precision::install(&tx)?;
+    crate::query_indexes::install(&tx)?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM ori_archive_schema", [], |r| r.get(0))?;
     if count != 1 {
         return Err(ArchiveError::Corrupt("precision schema metadata".into()));

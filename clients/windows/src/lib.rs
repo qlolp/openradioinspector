@@ -173,11 +173,12 @@ impl Bridge {
         {
             return Err("Use the native pairing command for credential issuance".into());
         }
-        if audio
-            && (body.is_some()
-                || !endpoint.path().starts_with("/api/v1/monitoring-projects/")
-                || !endpoint.path().ends_with("/audio"))
-        {
+        let path_parts = endpoint.path().split('/').skip(1).collect::<Vec<_>>();
+        let event_audio = matches!(path_parts.as_slice(),
+            ["api","v1","monitoring-projects",project,"events",event,"audio"]
+                | ["api","v1","monitoring-projects",project,"events",event,"audio","clip"]
+                if !project.is_empty() && !event.is_empty());
+        if audio && (body.is_some() || !event_audio) {
             return Err("Only project event audio is allowed".into());
         }
         let request = match body {

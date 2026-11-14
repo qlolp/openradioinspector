@@ -353,12 +353,18 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
     let probe = fs::File::open(&path).unwrap();
     assert!(probe.try_lock().is_err());
-    let closing = workspace.clone();
-    let close = tokio::spawn(async move { closing.close().await });
-    tokio::task::yield_now().await;
-    assert!(!close.is_finished());
+    // Record close/cancellation intent while the post-child callback is held,
+    // retaining the same future until the original resources actually close.
+    let mut close = std::pin::pin!(workspace.close());
+    std::future::poll_fn(|context| {
+        assert!(std::future::Future::poll(close.as_mut(), context).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
+    assert!(probe.try_lock().is_err());
     release.send(()).unwrap();
-    close.await.unwrap().unwrap();
+    close.await.unwrap();
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 0);
     assert!(!controls.released_with_stage.load(Ordering::SeqCst));
     assert_eq!(workspace.version(), 1);

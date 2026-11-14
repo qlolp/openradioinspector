@@ -9,6 +9,7 @@ mod json;
 mod model;
 mod outbox;
 mod queries;
+mod query_indexes;
 mod rows;
 mod schema;
 mod session_lifecycle;

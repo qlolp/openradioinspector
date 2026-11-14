@@ -377,6 +377,73 @@ async fn guard_get(core: &Core, tail: &[&str], query: &Query) -> ApiResult<Respo
                 .body(Body::from(artifact.payload))
                 .map_err(|_| ApiError::unavailable("audio_response"));
         }
+        [id, "events", event, "audio", "info"] => {
+            if !query.is_empty() {
+                return Err(ApiError::invalid(
+                    "Сведения о фонограмме не принимают параметры",
+                ));
+            }
+            guard.event_audio_info(id, event).await?
+        }
+        [id, "events", event, "audio", "marks"] => {
+            if query
+                .keys()
+                .any(|key| !matches!(key.as_str(), "limit" | "after"))
+            {
+                return Err(ApiError::invalid("Неверная пагинация аудиоотметок"));
+            }
+            guard
+                .audio_marks(id, event, after(), count(query, "limit", 32, 64)?)
+                .await?
+        }
+        [id, "events", event, "audio", "clip"] => {
+            if query.len() != 4
+                || query.keys().any(|key| {
+                    !matches!(
+                        key.as_str(),
+                        "start_frame" | "end_frame" | "source_sha256" | "source_artifact_id"
+                    )
+                })
+            {
+                return Err(ApiError::invalid(
+                    "Экспорт требует start_frame, end_frame, source_artifact_id и source_sha256",
+                ));
+            }
+            let frame = |name: &str| -> ApiResult<u64> {
+                let raw = optional(query, name)
+                    .filter(|s| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()))
+                    .ok_or_else(|| {
+                        ApiError::invalid("Номер отсчёта должен быть неотрицательным целым")
+                    })?;
+                raw.parse()
+                    .map_err(|_| ApiError::invalid("Номер отсчёта превышает допустимый диапазон"))
+            };
+            let source_id = optional(query, "source_artifact_id")
+                .filter(|id| !id.is_empty() && id.chars().count() <= 200)
+                .ok_or_else(|| ApiError::invalid("Нужен ID исходной фонограммы"))?;
+            let clip = guard
+                .event_audio_clip(
+                    id,
+                    event,
+                    frame("start_frame")?,
+                    frame("end_frame")?,
+                    optional(query, "source_sha256").unwrap_or(""),
+                    source_id,
+                )
+                .await?;
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "audio/wav")
+                .header(header::CONTENT_LENGTH, clip.bytes.len())
+                .header(
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=ori-audio-clip.wav",
+                )
+                .header(header::CACHE_CONTROL, "no-store")
+                .header(header::ETAG, format!("\"{}\"", clip.sha256))
+                .body(Body::from(clip.bytes))
+                .map_err(|_| ApiError::unavailable("audio_response"));
+        }
         [id, "events", event] => guard.get_record("event", event, Some(id)).await?,
         [id, "baselines", baseline] => guard.get_record("baseline", baseline, Some(id)).await?,
         [id, "history"] => {
@@ -453,6 +520,10 @@ async fn guard_post(core: &Core, tail: &[&str], payload: Value) -> ApiResult<Res
         [id, "events", event, "review"] => (
             StatusCode::OK,
             guard.review_event(id, event, payload).await?,
+        ),
+        [id, "events", event, "audio", "marks"] => (
+            StatusCode::CREATED,
+            guard.add_audio_mark(id, event, payload).await?,
         ),
         [id, "alerts", alert, "ack"] => (
             StatusCode::OK,

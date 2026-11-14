@@ -6,6 +6,7 @@ import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
 import { Research } from './Research';
+import { AudioEvidence } from './AudioEvidence';
 import { ScanPlan } from './ScanPlan';
 import { scanChoices, scanKey } from './scan-plan';
 import { remember, save, useDesk, type Desk } from './useDesk';
@@ -1024,6 +1025,16 @@ export function App({
             aria-label={t('Event audio evidence')}
           />
           {audioError && <p className="error-text">{t(audioError)}</p>}
+          {event.analysis?.audio && (
+            <AudioEvidence
+              key={desk.connectionVersion + '\0' + desk.projectId + '\0' + event.id}
+              api={desk.api}
+              projectId={desk.projectId}
+              eventId={event.id}
+              available={desk.capabilities?.features.audio_evidence_export === true}
+              audio={transport.audio}
+            />
+          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();

@@ -432,8 +432,54 @@ extension PlatformClient {
         guard !projectID.isEmpty, !eventID.isEmpty, (44...(32 * 1024 * 1024)).contains(maximumBytes) else {
             throw PlatformError.invalidCommand("Нужны проект, событие и допустимый предел WAV")
         }
+        return try await monitoringWAV(path: "/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio", maximumBytes: maximumBytes)
+    }
+
+    public func monitoringEventAudioInfo(projectID: String, eventID: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !eventID.isEmpty else { throw PlatformError.invalidCommand("Выберите событие проекта") }
+        let info: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio/info")
+        guard let count = Int64(info["frame_count"].scalar), (1...8_388_608).contains(count),
+              let rate = Int64(info["sample_rate_hz"].scalar), (1...192_000).contains(rate),
+              !info["artifact_id"].text.isEmpty, Self.audioHash(info["sha256"].text) else {
+            throw PlatformError.invalidResponse("Некорректное описание исходной фонограммы")
+        }
+        return info
+    }
+
+    public func monitoringAudioMarks(projectID: String, eventID: String, after: String? = nil, limit: Int = 32) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !eventID.isEmpty, (1...64).contains(limit), (after?.utf8.count ?? 0) <= 1024 else { throw PlatformError.invalidCommand("Неверная страница аудиоотметок") }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let value: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio/marks", query: query)
+        guard case .array(let items) = value["items"], items.count <= limit else { throw PlatformError.invalidResponse("Неверная страница аудиоотметок") }
+        return value
+    }
+
+    public func monitoringAddAudioMark(projectID: String, eventID: String, startFrame: Int64, endFrame: Int64, label: String, sourceArtifactID: String, sourceSHA256: String) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, !eventID.isEmpty, startFrame >= 0, startFrame < endFrame, endFrame <= 8_388_608,
+              !sourceArtifactID.isEmpty, sourceArtifactID.unicodeScalars.count <= 200, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, label.unicodeScalars.count <= 200, Self.audioHash(sourceSHA256) else {
+            throw PlatformError.invalidCommand("Нужны исходная SHA-256, диапазон отсчётов и подпись 1…200 символов")
+        }
+        let body: [String: MonitoringValue] = ["start_frame": .integer(startFrame), "end_frame": .integer(endFrame), "label": .string(label), "source_artifact_id": .string(sourceArtifactID), "source_sha256": .string(sourceSHA256)]
+        return try await post("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio/marks", body: body)
+    }
+
+    public func monitoringEventAudioClip(projectID: String, eventID: String, startFrame: Int64, endFrame: Int64, sourceArtifactID: String, sourceSHA256: String, maximumBytes: Int = 16 * 1024 * 1024) async throws -> Data {
+        guard !projectID.isEmpty, !eventID.isEmpty, startFrame >= 0, startFrame < endFrame, endFrame <= 8_388_608,
+              (44...(16 * 1024 * 1024)).contains(maximumBytes), !sourceArtifactID.isEmpty, sourceArtifactID.unicodeScalars.count <= 200, Self.audioHash(sourceSHA256) else {
+            throw PlatformError.invalidCommand("Нужны исходная SHA-256 и непустой диапазон отсчётов")
+        }
+        return try await monitoringWAV(path: "/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio/clip", query: [
+            .init(name: "start_frame", value: String(startFrame)), .init(name: "end_frame", value: String(endFrame)), .init(name: "source_artifact_id", value: sourceArtifactID), .init(name: "source_sha256", value: sourceSHA256)
+        ], maximumBytes: maximumBytes)
+    }
+
+    private static func audioHash(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+    private func monitoringWAV(path: String, query: [URLQueryItem] = [], maximumBytes: Int) async throws -> Data {
         var request = URLRequest(url: try baseURL.endpoint(
-            path: "/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))/audio"))
+            path: path, query: query))
         request.httpMethod = "GET"
         request.timeoutInterval = 15
         request.setValue("audio/wav", forHTTPHeaderField: "Accept")
