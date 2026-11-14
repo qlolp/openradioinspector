@@ -11,6 +11,7 @@ export type MeasurementWebSocketSubprotocol = "ori.measurements.v1.protobuf";
 export type MeasurementWebSocketTransport = "websocket";
 export type NativePairingCredential = "bearer";
 export type PairingInputClient = "browser" | "native";
+export type ScanPlanRevisionHardwareValidation = "not_run";
 export type SecurityStatusMode = "legacy_loopback" | "lan_tls";
 export interface BrowserPairing {
   credential: BrowserPairingCredential;
@@ -181,6 +182,34 @@ export interface PairingInput {
   client?: PairingInputClient;
   label: string;
   pairing_code: string;
+  [key: string]: unknown;
+}
+
+export interface ScanBand {
+  id: string;
+  max_revisit_seconds: number;
+  name: string;
+  points: Integer;
+  rbw_hz: Integer;
+  start_hz: Integer;
+  stop_hz: Integer;
+  [key: string]: unknown;
+}
+
+export interface ScanPlanConfig {
+  bands: Array<ScanBand>;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface ScanPlanRevision {
+  config: ScanPlanConfig;
+  created_at: string;
+  hardware_validation: ScanPlanRevisionHardwareValidation;
+  id: string;
+  project_id: string;
+  revision: Integer;
+  schema_version: Integer;
   [key: string]: unknown;
 }
 
@@ -1069,6 +1098,152 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "ScanBand": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "pattern": "^[A-Za-z0-9_-]{1,64}$",
+        "type": "string"
+      },
+      "max_revisit_seconds": {
+        "maximum": 3600,
+        "minimum": 1,
+        "type": "number"
+      },
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "points": {
+        "maximum": 290,
+        "minimum": 2,
+        "type": "integer"
+      },
+      "rbw_hz": {
+        "description": "The receive profile accepts exactly 10000 or 30000 Hz; profile-specific validation is authoritative.",
+        "maximum": 30000,
+        "minimum": 10000,
+        "type": "integer",
+        "x-receive-profile-values": [
+          10000,
+          30000
+        ]
+      },
+      "start_hz": {
+        "maximum": 20000000000,
+        "minimum": 100000,
+        "type": "integer"
+      },
+      "stop_hz": {
+        "maximum": 20000000000,
+        "minimum": 100001,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "start_hz",
+      "stop_hz",
+      "points",
+      "rbw_hz",
+      "max_revisit_seconds"
+    ],
+    "type": "object"
+  },
+  "ScanPlanConfig": {
+    "additionalProperties": false,
+    "properties": {
+      "bands": {
+        "items": {
+          "$ref": "#/components/schemas/ScanBand"
+        },
+        "maxItems": 16,
+        "minItems": 1,
+        "type": "array"
+      },
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "bands"
+    ],
+    "type": "object"
+  },
+  "ScanPlanEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanPlanRevision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "ScanPlanRevision": {
+    "additionalProperties": false,
+    "properties": {
+      "config": {
+        "$ref": "#/components/schemas/ScanPlanConfig"
+      },
+      "created_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "hardware_validation": {
+        "enum": [
+          "not_run"
+        ],
+        "type": "string"
+      },
+      "id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "project_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "revision": {
+        "maximum": 9007199254740991,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "schema_version": {
+        "maximum": 1,
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "project_id",
+      "created_at",
+      "schema_version",
+      "revision",
+      "config",
+      "hardware_validation"
+    ],
+    "type": "object"
+  },
   "SecurityStatus": {
     "properties": {
       "mode": {
@@ -1197,6 +1372,12 @@ export const decodeNativePairing = (value: JSONValue): NativePairing => walk(sch
 export const encodeNativePairing = (value: NativePairing): string => stringifyJSON(walk(schemas.NativePairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairingInput = (value: JSONValue): PairingInput => walk(schemas.PairingInput as unknown as Schema,value,false) as unknown as PairingInput;
 export const encodePairingInput = (value: PairingInput): string => stringifyJSON(walk(schemas.PairingInput as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeScanBand = (value: JSONValue): ScanBand => walk(schemas.ScanBand as unknown as Schema,value,false) as unknown as ScanBand;
+export const encodeScanBand = (value: ScanBand): string => stringifyJSON(walk(schemas.ScanBand as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeScanPlanConfig = (value: JSONValue): ScanPlanConfig => walk(schemas.ScanPlanConfig as unknown as Schema,value,false) as unknown as ScanPlanConfig;
+export const encodeScanPlanConfig = (value: ScanPlanConfig): string => stringifyJSON(walk(schemas.ScanPlanConfig as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeScanPlanRevision = (value: JSONValue): ScanPlanRevision => walk(schemas.ScanPlanRevision as unknown as Schema,value,false) as unknown as ScanPlanRevision;
+export const encodeScanPlanRevision = (value: ScanPlanRevision): string => stringifyJSON(walk(schemas.ScanPlanRevision as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeSecurityStatus = (value: JSONValue): SecurityStatus => walk(schemas.SecurityStatus as unknown as Schema,value,false) as unknown as SecurityStatus;
 export const encodeSecurityStatus = (value: SecurityStatus): string => stringifyJSON(walk(schemas.SecurityStatus as unknown as Schema,value as unknown as JSONValue,true));
 export {decodeSweepSummaryPage, encodeSweepSummaryPage} from './index.ts';
@@ -2077,6 +2258,42 @@ export const runtimeOperations = [
     "method": "POST",
     "operation_id": "post_api_v1_monitoring_projects_project_id_preparation_stop",
     "path": "/api/v1/monitoring-projects/{project_id}/preparation/stop",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_scan_plans"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_scan_plan",
+    "path": "/api/v1/monitoring-projects/{project_id}/scan-plan",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_scan_plans"
+    ],
+    "max_request_bytes": null,
+    "method": "POST",
+    "operation_id": "post_api_v1_monitoring_projects_project_id_scan_plan",
+    "path": "/api/v1/monitoring-projects/{project_id}/scan-plan",
     "path_parameters": [
       "project_id"
     ],

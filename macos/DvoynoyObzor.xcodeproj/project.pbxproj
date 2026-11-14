@@ -109,6 +109,7 @@
 				<string>E607E554409ABB5773EE7BD6</string>
 				<string>441C5A87CDBAD8331BA23011</string>
 				<string>F9EAE3314B5272C2A4D9497F</string>
+				<string>6300D08C718EC22A8BED75B2</string>
 				<string>52EF5E3053D7F2F630CA27F9</string>
 				<string>64364FFC96A84AECB0D56273</string>
 				<string>35BCB26CBE4CBDEBA091E8A5</string>
@@ -203,6 +204,7 @@
 				<string>62D031DB8E6EE356FC5B8B65</string>
 				<string>7548CF4A65AAA62A5522EED8</string>
 				<string>B2DD3566B342610451707609</string>
+				<string>A1BFF6B7DCADACCFBF7805DF</string>
 				<string>D2894808D5EC61B1CBA5F331</string>
 				<string>94A403ACAA6EC797D5ECBC60</string>
 				<string>A4FB972D19E5C965327FDA29</string>
@@ -1353,6 +1355,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>98235B57063C3B404D840699</string>
+		</dict>
+		<key>6300D08C718EC22A8BED75B2</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>MonitoringScanPlanPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A1BFF6B7DCADACCFBF7805DF</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>6300D08C718EC22A8BED75B2</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

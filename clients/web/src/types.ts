@@ -17,6 +17,7 @@ export interface Sweep {
 }
 export type DisplayNumbers = number[] | Float64Array<ArrayBuffer>;
 export interface DisplaySweep extends Omit<Sweep, 'settings' | 'frequencies_hz' | 'levels'> {
+  scan_context?: { plan_id: string; band_id: string };
   frequencies_hz: DisplayNumbers;
   levels: DisplayNumbers;
   source_indices: number[] | Uint32Array<ArrayBuffer>;
@@ -50,6 +51,8 @@ export interface Session {
   streams: Stream[];
 }
 export interface Project {
+  scan_plan?: import('../../../contracts/generated/typescript/runtime').ScanPlanRevision;
+  band_baselines?: Record<string, string>;
   id: string;
   name: string;
   site: string;
@@ -94,6 +97,16 @@ export interface Preflight {
   checks: { name: string; ok: boolean; detail: string }[];
   baseline_ready: boolean;
   baseline_collection: {
+    bands?: {
+      band_id: string;
+      name: string;
+      sweeps: number;
+      elapsed_seconds: number;
+      minimum_sweeps: number;
+      minimum_seconds: number;
+      ready: boolean;
+      baseline_id: string | null;
+    }[];
     sweeps: number;
     elapsed_seconds: number;
     minimum_sweeps: number;

@@ -113,6 +113,18 @@ impl Simulated {
             }
         }
     }
+    pub fn select_band(&mut self, band: &ori_guard::ScanBand) -> DeviceResult<()> {
+        let Self::Analyzer(value) = self else {
+            return Err(DeviceError::Invalid(
+                "Scan band requires an analyzer".into(),
+            ));
+        };
+        value.start = band.start_hz;
+        value.stop = band.stop_hz;
+        value.points = band.points;
+        value.rbw = band.rbw_hz.into();
+        Ok(())
+    }
     pub fn tune(&mut self, frequency: u64, mode: Option<&str>) -> DeviceResult<Value> {
         let Self::Receiver(value) = self else {
             return Err(DeviceError::Worker(

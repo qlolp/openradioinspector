@@ -2103,3 +2103,67 @@ async fn receiver_guard_denies_stale_generation_without_tune_bytes_or_token_deta
     assert!(!actor.state().restart_required);
     assert_drained(&audit);
 }
+
+#[tokio::test]
+async fn scan_band_switch_preserves_input_and_uses_only_required_receive_commands() {
+    let mut steps = setup();
+    steps.push(Step::text(
+        "scan 100M 101M 3 3",
+        "100000000 -90\r\n100500000 -80\r\n101000000 -90\r\n",
+    ));
+    steps.push(Step::ack("rbw 30"));
+    steps.push(Step::text(
+        "scan 200M 201M 3 3",
+        "200000000 -90\r\n200500000 -70\r\n201000000 -90\r\n",
+    ));
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    let first = adapter.poll_band(receive()).await.unwrap();
+    assert_eq!(first.frequencies_hz, vec![100000000, 100500000, 101000000]);
+    let next = ReceiveConfig {
+        start_hz: 200000000,
+        stop_hz: 201000000,
+        points: 3,
+        rbw_hz: 30000,
+    };
+    let second = adapter.poll_band(next).await.unwrap();
+    assert_eq!(second.frequencies_hz, vec![200000000, 200500000, 201000000]);
+    assert_eq!(second.levels, vec![-90., -70., -90.]);
+    assert_eq!(adapter.state().device_mode, DeviceMode::Input);
+    assert_eq!(adapter.state().settings["rbw_hz"], 30000);
+    adapter.invalidate_device_knowledge();
+    assert!(adapter.poll_band(receive()).await.is_err());
+    assert_drained(&audit);
+}
+
+#[tokio::test]
+async fn failed_band_switch_taints_connection_and_never_scans_new_range() {
+    let mut steps = setup();
+    steps.push(Step::text("rbw 30", "invalid\r\n"));
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    let next = ReceiveConfig {
+        start_hz: 200000000,
+        stop_hz: 201000000,
+        points: 3,
+        rbw_hz: 30000,
+    };
+    assert!(adapter.poll_band(next).await.is_err());
+    assert_eq!(adapter.state().device_mode, DeviceMode::Unknown);
+    assert!(adapter.poll_spectrum().await.is_err());
+    assert_drained(&audit);
+}
+
+#[tokio::test]
+async fn scan_plan_requires_explicit_receive_preparation_before_any_wire_command() {
+    let (wire, audit) = Scripted::new(vec![
+        Step::text("info", "tinySA Ultra ZS405\r\n"),
+        Step::text("version", "unsupported firmware\r\n"),
+        Step::text("deviceid", "SYNTHETIC\r\n"),
+    ]);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    assert!(adapter.poll_band(receive()).await.is_err());
+    assert!(audit.lock().unwrap().sent.is_empty());
+}

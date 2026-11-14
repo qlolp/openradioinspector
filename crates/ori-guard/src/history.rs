@@ -160,6 +160,9 @@ impl GuardService {
                             "overload",
                             "incomplete",
                             "simulated",
+                            "scan_band_id",
+                            "scan_plan_id",
+                            "scan_plan_revision",
                         ]
                         .contains(&k.as_str())
                             && (v.is_null()
@@ -201,10 +204,19 @@ impl GuardService {
     }
     pub async fn history_comparison(&self, id: &str, sweep_id: &str) -> Result<Value> {
         let project = self.project(id).await?;
-        let baseline = self
-            .get_record("baseline", s(&project, "baseline_id")?, Some(id))
-            .await?;
         let raw = self.history_original(id, sweep_id).await?;
+        let baseline = if let (Some(plan), Some(band)) = (
+            raw["settings"]["scan_plan_id"].as_str(),
+            raw["settings"]["scan_band_id"].as_str(),
+        ) {
+            self.archive
+                .latest_scan_baseline(id, plan, band)
+                .await?
+                .ok_or(GuardError::NotFound)?
+        } else {
+            self.get_record("baseline", s(&project, "baseline_id")?, Some(id))
+                .await?
+        };
         let sweep: Sweep = decode(&raw)?;
         let compatible = ori_monitoring::fingerprint(&sweep)? == s(&baseline, "fingerprint")?;
         let mut items = vec![];

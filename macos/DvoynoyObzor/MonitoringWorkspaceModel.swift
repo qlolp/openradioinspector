@@ -24,6 +24,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var selectedInput = ""
     @Published var audioConfirmed = false
     @Published var baselineConfirmed = false
+    @Published var scanPlansAvailable = false
     @Published var details = "Выберите подготовленный сеанс."
     @Published var notice = ""
     @Published var error = ""
@@ -141,6 +142,15 @@ final class MonitoringWorkspaceModel: ObservableObject {
         scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
         client = server.isEmpty ? nil : suppliedClient
+        scanPlansAvailable = false
+    }
+
+    func loadScanPlanCapabilities() async {
+        guard let client else { return }
+        let scope = self.scope
+        let value = try? await client.coreCapabilities()
+        guard self.client === client, PlatformExactID.same(scope, self.scope), !Task.isCancelled else { return }
+        scanPlansAvailable = value?["features"]["monitoring_scan_plans"].bool == true
     }
 
     /// Synchronous notification from the live view, including a failed current-health check.

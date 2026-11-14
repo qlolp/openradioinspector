@@ -921,6 +921,8 @@ fn capabilities(core: &Core) -> Value {
     for name in [
         "independent_device_streams",
         "monitoring_projects",
+        "monitoring_scan_plans",
+        "scan_plan_coverage",
         "monitoring_guard",
         "candidate_investigations",
         "manual_investigation_handoff",
