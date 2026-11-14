@@ -78,11 +78,92 @@ pub async fn run() -> Result<()> {
         .mode(0o700)
         .create(&data)?;
     crate::lease::state_directory(&data)?;
-    let config = configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?;
+    let mut config = configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?;
+    config.backend.name = bundled_backend_id(bundle)?;
     crate::service::run_personal_rc(config).await
 }
 
 #[cfg(not(target_os = "macos"))]
 pub async fn run() -> Result<()> {
     Err(Error::Unsafe("SMAppService RC agent requires macOS".into()))
+}
+
+/// Identity of an immutable RC package, shared with the native client. This
+/// checks only installed files; it never opens hardware or a working archive.
+pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let root = std::fs::canonicalize(bundle)?;
+    let path = root.join("Contents/Resources/rc-build-info.json");
+    let metadata = std::fs::symlink_metadata(&path)?;
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 65_536 {
+        return Err(Error::Unsafe("invalid RC build manifest".into()));
+    }
+    let bytes = std::fs::read(path)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let source = value["source_revision"].as_str().unwrap_or("");
+    if value["schema_version"] != 1
+        || value["release_version"] != "0.4.0-macos.rc.1"
+        || value["bundle_identifier"] != "org.openradioinspector.macos.rc"
+        || value["architecture"] != "arm64"
+        || source.len() != 40
+        || !source
+            .bytes()
+            .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+    {
+        return Err(Error::Unsafe("mixed or invalid RC build manifest".into()));
+    }
+    for name in ["ori-core", "ori-supervisor"] {
+        let item = &value["components"][name];
+        let relative = format!("Contents/Helpers/{name}");
+        if item["component"] != name
+            || item["source_revision"] != source
+            || item["target_arch"] != "aarch64"
+            || item["target_os"] != "macos"
+            || item["path"] != relative
+            || (name == "ori-core"
+                && item["features"] != serde_json::json!({"serial":true,"audio":false}))
+        {
+            return Err(Error::Unsafe("mixed RC helper configuration".into()));
+        }
+        let path = root.join(relative);
+        if !std::fs::symlink_metadata(&path)?.is_file() || std::fs::canonicalize(&path)? != path {
+            return Err(Error::Unsafe(
+                "RC helper must be a bundled regular file".into(),
+            ));
+        }
+        let mut file = std::fs::File::open(path)?;
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 65_536];
+        loop {
+            let count = file.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hash.update(&buffer[..count]);
+        }
+        if item["sha256"] != format!("{:x}", hash.finalize()) {
+            return Err(Error::Unsafe("RC helper integrity failed".into()));
+        }
+    }
+    Ok(format!("macos-rc1-{:x}", Sha256::digest(bytes)))
+}
+
+pub fn verify_backend_package(backend: &BackendSpec) -> Result<()> {
+    // Other embedding configurations retain their existing policy. The physical
+    // macos-agent always derives this identity from its signed bundle.
+    if backend.name.starts_with("macos-rc1-") && backend.name != "macos-rc1-live" {
+        let bundle = backend
+            .program
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .ok_or_else(|| Error::Unsafe("invalid bundled backend path".into()))?;
+        if bundled_backend_id(bundle)? != backend.name {
+            return Err(Error::Unsafe(
+                "installed RC changed; stop service before updating".into(),
+            ));
+        }
+    }
+    Ok(())
 }

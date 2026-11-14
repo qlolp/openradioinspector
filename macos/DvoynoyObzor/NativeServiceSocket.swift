@@ -4,8 +4,12 @@ import Darwin
 
 enum NativeServiceError: LocalizedError {
     case unavailable(String)
+    case differentBuild
     var errorDescription: String? {
-        switch self { case .unavailable(let message): message }
+        switch self {
+        case .unavailable(let message): message
+        case .differentBuild: "Служба другой сборки. Сначала явно остановите её перед обновлением RC."
+        }
     }
 }
 
@@ -34,8 +38,8 @@ struct NativeServiceStatus: Decodable, Sendable {
 struct NativeServiceReply: Decodable, Sendable {
     let ok: Bool
     let status: NativeServiceStatus?
-    let serviceState, reason, error: String?
-    enum CodingKeys: String, CodingKey { case ok, status, reason, error; case serviceState = "service_state" }
+    let serviceState, reason, error, backendID: String?
+    enum CodingKeys: String, CodingKey { case ok, status, reason, error; case serviceState = "service_state"; case backendID = "backend_id" }
     var readyStatus: NativeServiceStatus? { status }
     static func decode(_ data: Data) throws -> Self {
         let value = try JSONDecoder().decode(Self.self, from: data)

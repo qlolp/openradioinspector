@@ -728,3 +728,37 @@ async fn explicit_analysis_program_flags_are_owned_argv_and_report_only_configur
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+#[test]
+fn build_info_opens_no_archive_and_reports_the_actual_compiled_profile() {
+    let directory = tempfile::tempdir().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_ori-core"))
+        .arg("--build-info")
+        .current_dir(directory.path())
+        .env(
+            "ORI_RUNTIME_DATA_DIR",
+            directory.path().join("must-not-exist"),
+        )
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value["component"], "ori-core");
+    assert_eq!(value["schema_version"], 1);
+    assert_eq!(value["target_arch"], std::env::consts::ARCH);
+    assert_eq!(value["target_os"], std::env::consts::OS);
+    assert_eq!(
+        value["source_revision"],
+        serde_json::json!(option_env!("ORI_BUILD_SOURCE_SHA"))
+    );
+    assert_eq!(value["sqlite_version"], rusqlite::version());
+    assert_eq!(
+        value["features"],
+        serde_json::json!({"serial":cfg!(feature="serial"),"audio":cfg!(feature="audio")})
+    );
+    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+}

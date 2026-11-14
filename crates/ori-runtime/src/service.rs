@@ -150,13 +150,18 @@ async fn run_with_policy(config: ServiceConfig, macos_rc: bool) -> Result<()> {
                     let read=timeout(Duration::from_secs(1),(&mut stream).take(1024*1024+1).read_to_end(&mut bytes)).await;
                     let response=if !matches!(read,Ok(Ok(_))) || bytes.len()>1024*1024 {serde_json::json!({"ok":false,"error":"invalid_request"})} else {
                         match serde_json::from_slice::<AdminCommand>(&bytes) {
-                            Ok(AdminCommand::Status) if paused=>serde_json::json!({"ok":true,"service_state":"stopped","reason":pause_reason}),
-                            Ok(AdminCommand::Status)=>match supervisor.status().await {Ok(status)=>serde_json::json!({"ok":true,"status":status}),Err(_)=>serde_json::json!({"ok":false,"error":"status_unavailable"})},
+                            Ok(AdminCommand::Status) if paused=>serde_json::json!({"ok":true,"service_state":"stopped","reason":pause_reason,"backend_id":selected.name}),
+                            Ok(AdminCommand::Status)=>match supervisor.status().await {Ok(status)=>serde_json::json!({"ok":true,"status":status,"backend_id":selected.name}),Err(_)=>serde_json::json!({"ok":false,"error":"status_unavailable"})},
                             Ok(AdminCommand::Start) if macos_rc=>{
+                                if crate::macos_agent::verify_backend_package(&selected).is_err() {
+                                    let response=serde_json::json!({"ok":false,"error":"installed_rc_changed_stop_before_update"});
+                                    let _=timeout(Duration::from_secs(1),stream.write_all(&serde_json::to_vec(&response)?)).await;
+                                    continue;
+                                }
                                 let starting=paused;
                                 let result=if starting {supervisor.start(selected.clone()).await} else {supervisor.status().await};
                                 match result {
-                                    Ok(status)=>{if starting {continuity=crate::power::ContinuityFence::system()?;}paused=false;serde_json::json!({"ok":true,"status":status})},
+                                    Ok(status)=>{if starting {continuity=crate::power::ContinuityFence::system()?;}paused=false;serde_json::json!({"ok":true,"status":status,"backend_id":selected.name})},
                                     Err(_)=>serde_json::json!({"ok":false,"error":"bundled_core_start_failed"}),
                                 }
                             },

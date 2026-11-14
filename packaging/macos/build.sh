@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+if [[ "${1:-}" == "--personal-rc" ]]; then
+    shift
+    exec python3 packaging/macos/build_personal_rc.py "$@"
+fi
 python3 -m pip install -e '.[serial,audio]' 'pyinstaller>=6.16,<7'
 python3 -m PyInstaller --clean --noconfirm --name openradioinspector-core --collect-all radioinspector --collect-all sounddevice --collect-all _sounddevice_data --hidden-import serial.tools.list_ports --distpath build/macos/core --workpath build/macos/work --specpath build/macos packaging/core_entry.py
 xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Release -derivedDataPath build/macos/DerivedData ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build

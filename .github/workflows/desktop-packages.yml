@@ -157,3 +157,46 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Debug -jobs 2 -destination platform=macOS -derivedDataPath "$RUNNER_TEMP/native-swift6" CODE_SIGNING_ALLOWED=NO build
+
+  macos-personal-rc:
+    runs-on: xcode-27
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        run: bash macos/ci/select-xcode.sh
+      - name: Install pinned build-only Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
+      - name: Build native arm64 personal RC
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos/rc-diagnostics
+          bash packaging/macos/build.sh --personal-rc 2>&1 | tee build/macos/rc-diagnostics/build.log
+      - name: Check relocated signed package outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          relocated="$RUNNER_TEMP/ori-personal-rc"
+          mkdir "$relocated"
+          ditto "build/macos/personal-rc/dmg-root/OpenRadioInspector RC.app" "$relocated/OpenRadioInspector RC.app"
+          python tools/release/check_public_tree.py --directory "$relocated/OpenRadioInspector RC.app"
+          python tools/release/smoke_macos_personal_rc.py --app "$relocated/OpenRadioInspector RC.app" --manifest build/macos/personal-rc/dmg-root/manifest.json --report-dir "$RUNNER_TEMP/ori-personal-rc-smoke"
+      - name: Preserve RC artifacts and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: personal-macos-rc-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/macos/personal-rc/packages/*
+            build/macos/rc-diagnostics/*
+            ${{ runner.temp }}/ori-personal-rc-smoke/**
+            ${{ runner.temp }}/native-*-version.txt
+          retention-days: 90
+          if-no-files-found: warn

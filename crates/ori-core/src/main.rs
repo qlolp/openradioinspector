@@ -313,6 +313,21 @@ async fn main() {
     }
 }
 async fn execute() -> Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--build-info")) {
+        if std::env::args_os().len() != 2 {
+            return Err(CoreError::Invalid("--build-info takes no other arguments"));
+        }
+        println!(
+            "{}",
+            serde_json::json!({
+                "schema_version":1, "component":"ori-core", "version":env!("CARGO_PKG_VERSION"),
+                "target_arch":std::env::consts::ARCH, "target_os":std::env::consts::OS,
+                "source_revision":option_env!("ORI_BUILD_SOURCE_SHA"), "sqlite_version":rusqlite::version(),
+                "features":{"serial":cfg!(feature="serial"),"audio":cfg!(feature="audio")}
+            })
+        );
+        return Ok(());
+    }
     if let Some(command) = std::env::args_os().nth(1)
         && matches!(command.to_str(), Some("init-lan" | "pair"))
     {

@@ -16,6 +16,15 @@ async fn execute() -> Result<()> {
         Error::Unsafe("usage: ori-supervisor run CONFIG.json | status DATA_DIR | shutdown DATA_DIR | cutover DATA_DIR CANDIDATE.json [--acknowledge-coverage-gap]".into())
     };
     match args.as_slice() {
+        [operation] if operation == "--build-info" => {
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":1,"component":"ori-supervisor",
+                "version":env!("CARGO_PKG_VERSION"),"target_arch":std::env::consts::ARCH,
+                "target_os":std::env::consts::OS,"source_revision":option_env!("ORI_BUILD_SOURCE_SHA")})
+            );
+            Ok(())
+        }
         [operation] if operation == "macos-agent" => ori_runtime::macos_agent::run().await,
         [operation, configuration] if operation == "run" => {
             let bytes = std::fs::read(configuration)?;

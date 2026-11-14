@@ -15,6 +15,9 @@ final class NativeLocalService: ObservableObject {
     @Published private(set) var status: NativeServiceStatus?
     @Published private(set) var busy = false
     private var generation = 0
+    private var identityChecked = false
+    private var expectedIdentity: String?
+    private let expectedBackendID: @Sendable () async throws -> String?
     private let exchange: @Sendable (String, Duration) async throws -> Data
     private let registration: @MainActor () async throws -> Registration
     private let unregister: @MainActor () async throws -> Void
@@ -30,8 +33,11 @@ final class NativeLocalService: ObservableObject {
              }
          }, unregister: @escaping @MainActor () async throws -> Void = {
              try await SMAppService.agent(plistName: NativeLocalService.plistName).unregister()
+         }, expectedBackendID: @escaping @Sendable () async throws -> String? = {
+             guard await NativeLocalService.isPersonalRC else { return nil }
+             return try await Task.detached { try NativeRCBundle.validateCurrentInstallation() }.value
          }) {
-        self.exchange = exchange; self.registration = registration; self.unregister = unregister
+        self.exchange = exchange; self.registration = registration; self.unregister = unregister; self.expectedBackendID = expectedBackendID
     }
 
     private func begin(clearStatus: Bool = true) -> Int {
@@ -40,6 +46,12 @@ final class NativeLocalService: ObservableObject {
         return generation
     }
     private func current(_ token: Int) -> Bool { token == generation && !Task.isCancelled }
+    private func verifyIdentity(_ reply: NativeServiceReply) async throws {
+        if !identityChecked { expectedIdentity = try await expectedBackendID(); identityChecked = true }
+        guard expectedIdentity == nil || reply.backendID == expectedIdentity else {
+            throw NativeServiceError.differentBuild
+        }
+    }
     private func accept(_ reply: NativeServiceReply) {
         status = reply.readyStatus
         if let status {
@@ -69,6 +81,8 @@ final class NativeLocalService: ObservableObject {
         do {
             let reply = try NativeServiceReply.decode(await exchange("status", .seconds(2)))
             guard current(token) else { return }
+            try await verifyIdentity(reply)
+            guard current(token) else { return }
             accept(reply)
         } catch {
             guard current(token) else { return }
@@ -87,6 +101,7 @@ final class NativeLocalService: ObservableObject {
         let token = begin()
         defer { if token == generation { busy = false } }
         do {
+            if !identityChecked { expectedIdentity = try await expectedBackendID(); identityChecked = true }
             let state = try await registration()
             guard current(token) else { return }
             if state == .approval {
@@ -97,14 +112,23 @@ final class NativeLocalService: ObservableObject {
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(30))
             while true {
-                do { _ = try NativeServiceReply.decode(await exchange("status", .seconds(2))); break }
+                do {
+                    let reply = try NativeServiceReply.decode(await exchange("status", .seconds(2)))
+                    if let expectedIdentity, reply.backendID != expectedIdentity {
+                        throw NativeServiceError.differentBuild
+                    }
+                    break
+                }
                 catch {
+                    if let serviceError = error as? NativeServiceError, case .differentBuild = serviceError { throw error }
                     guard current(token), clock.now < deadline else { throw error }
                     try await Task.sleep(for: .milliseconds(200))
                 }
             }
             guard current(token) else { return }
             let reply = try NativeServiceReply.decode(await exchange("start", .seconds(35)))
+            guard current(token) else { return }
+            try await verifyIdentity(reply)
             guard current(token) else { return }
             accept(reply)
         } catch { fail(error, token: token) }
