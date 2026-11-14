@@ -361,7 +361,7 @@ async fn armed_cutover_requires_ack_and_preserves_opt_in_intent_before_releasing
     assert_eq!(saved["autostart"], true);
     assert_eq!(
         saved["resume_requested"], true,
-        "controlled shutdown must preserve opt-in intent, never public disarm"
+        "controlled shutdown must preserve opt-in intent, never public disarm: {saved}"
     );
     assert_eq!(
         archive
