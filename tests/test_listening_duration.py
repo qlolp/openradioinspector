@@ -105,7 +105,7 @@ class ListeningDurationTests(CompletionSetup, unittest.TestCase):
         from radioinspector.windows.client import PlatformClient
         investigation = self.slow_active()
         server = create_server(host="127.0.0.1", port=0, sessions=self.service)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
         try:
             client = PlatformClient(f"http://127.0.0.1:{server.server_port}")

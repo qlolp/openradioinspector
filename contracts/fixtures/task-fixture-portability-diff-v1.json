@@ -1,0 +1,7 @@
+{
+  "before_sha256": "cd792b1ae4deb85f51e50c2195721c2e7705a29884f7becacf40f2b83f957a27",
+  "after_sha256": "be55970ed205e2dfbdc6e81bb6141f3e0f7a3a43ed5789ba8aa37cf078c43ee6",
+  "reason": "The generator originally scrubbed list values but not its tuple arguments. The preserved before-golden remains unchanged. Current vectors scrub those owned temporary root prefixes; Python authority source hashes and every behavior value remain unchanged.",
+  "authority_source_hashes_equal": true,
+  "case_values_equal_after_only_temporary_prefix_substitution": true
+}

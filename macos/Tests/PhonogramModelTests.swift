@@ -89,6 +89,10 @@ final class PhonogramModelTests: XCTestCase {
         try await waitFor { model.status != nil }
         XCTAssertEqual(model.status?.recording, true)
         XCTAssertNotNil(model.infoText)
+        model.reset()
+        XCTAssertNil(model.status)
+        XCTAssertNil(model.infoText)
+        XCTAssertEqual(deferred.calls.map { $0.0 }, ["start"], "Reset must not stop the Core recorder")
     }
 
     @MainActor func testForgedStatusAndFailureNeverFreeze() async throws {

@@ -23,14 +23,17 @@ import math
 import mimetypes
 import queue
 import re
+import socket
+import sys
 import tempfile
 import threading
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager, nullcontext
 from functools import wraps
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from socketserver import TCPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 import numpy as np
@@ -61,7 +64,10 @@ from ..session_service import (
     SweepNotFoundError,
 )
 from ..session_analytics import analytics_summary
-from ..session_store import ArchiveCapacityExceededError, SQLiteSessionStore
+from ..session_store import ArchiveCapacityExceededError, ArchiveReadBusy, SQLiteSessionStore
+from ..audio_segments import AudioSegmentConflict
+from ..runtime_bridge import RuntimeBridge, RuntimeBridgeError
+from ..writer_ownership import archive_writer_owner
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES, AverageReferenceIncompatibleError
 from ..spectral_mask import MAX_MASK_REQUEST_BYTES, MaskIncompatibleError, strict_json_loads
 from ..sweep_comparison import ComparisonIncompatibleError
@@ -78,12 +84,16 @@ from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
 from ..geoloc import MeasurementPoint, build_coverage_map
 from ..measurements import measure_signal
+from ..field_strength import FieldStrengthUnavailable, MAX_FIELD_REQUEST_BYTES
 from ..occupancy import efficiency_from_store, occupancy_from_store
 from ..panorama import PanoramaLibrary, PanoramaStore
 from ..signals import SignalList
 from ..threshold import ThresholdLine
+from .event_streams import EventStreams, peer_disconnected
 
 STATIC_DIR = Path(__file__).parent / "static"
+MODERN_DIR = Path(__file__).parent / 'modern'
+_REJECTED_BODY_LINGER_SECONDS = 0.25
 
 
 def state_locked(method):
@@ -347,6 +357,63 @@ class Handler(BaseHTTPRequestHandler):
     state: ApplicationState
     sessions: SessionService
     workers: DeviceWorkerManager
+    runtime_bridge = None
+
+    def finish(self) -> None:
+        try:
+            remaining = getattr(self, "_rejected_body_budget", 0)
+            no_read_grace = getattr(self, "_rejected_body_grace", False)
+            self._rejected_body_budget = 0
+            self._rejected_body_grace = False
+            self._unconsumed_post_body = False
+            if remaining:
+                # Only a correctly framed oversize request can set this budget.
+                # Flush its error and send FIN before waiting for upload bytes;
+                # closing immediately with unread input can discard the 413 on
+                # Windows. Neither the advertised size nor JSON is allocated.
+                previous_timeout = self.connection.gettimeout()
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    deadline = time.monotonic() + min(
+                        _REJECTED_BODY_LINGER_SECONDS, REQUEST_BODY_TIMEOUT_SECONDS
+                    )
+                    while remaining:
+                        wait = deadline - time.monotonic()
+                        if wait <= 0:
+                            break
+                        self.connection.settimeout(wait)
+                        block = self.rfile.read1(min(remaining, 65_536))
+                        if not block:
+                            break
+                        remaining -= len(block)
+                except OSError:
+                    pass  # The response is already sent; cleanup is bounded.
+                finally:
+                    try:
+                        self.connection.settimeout(previous_timeout)
+                    except OSError:
+                        pass
+            elif no_read_grace and (
+                self.headers.get_all("Transfer-Encoding")
+                or any(value.strip("0") for value in self.headers.get_all("Content-Length", []))
+            ):
+                # Access/framing refusals must never read the upload. Give the
+                # peer a bounded opportunity to receive the final response and
+                # FIN before closing with unread input (which can cause RST).
+                deadline = time.monotonic() + min(
+                    _REJECTED_BODY_LINGER_SECONDS, REQUEST_BODY_TIMEOUT_SECONDS
+                )
+                try:
+                    self.wfile.flush()
+                    self.connection.shutdown(socket.SHUT_WR)
+                    wait = deadline - time.monotonic()
+                    if wait > 0:
+                        threading.Event().wait(wait)
+                except OSError:
+                    pass
+        finally:
+            super().finish()
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - сигнатура базового класса
         return
@@ -360,6 +427,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        self._rejected_body_grace = status >= 400 and getattr(self, "_unconsumed_post_body", False)
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -421,6 +489,15 @@ class Handler(BaseHTTPRequestHandler):
         return self._read_bounded_analysis_request(MAX_CONTROL_REQUEST_BYTES, allow_empty=True)
 
     def _read_bounded_analysis_request(self, max_bytes: int, *, allow_empty: bool = False) -> dict:
+        raw = self._read_bounded_request_body(max_bytes, allow_empty=allow_empty)
+        if not raw and allow_empty:
+            return {}
+        result = strict_json_loads(raw.decode("utf-8", errors="strict"))
+        if not isinstance(result, dict):
+            raise RequestError("Ожидается объект JSON")
+        return result
+
+    def _read_bounded_request_body(self, max_bytes: int, *, allow_empty: bool = False) -> bytearray:
         """Validate framing before allocation; bound the entire body read in time."""
         lengths = self.headers.get_all("Content-Length", [])
         if (self.headers.get_all("Transfer-Encoding") or len(lengths) > 1
@@ -430,10 +507,14 @@ class Handler(BaseHTTPRequestHandler):
         digits = (lengths[0].lstrip("0") or "0") if lengths else "0"
         maximum = str(max_bytes)
         if len(digits) > len(maximum) or (len(digits) == len(maximum) and digits > maximum):
+            # Framing was validated without converting an unbounded integer.
+            # Since length > max_bytes, this is min(length, max_bytes + 1).
+            self._rejected_body_budget = max_bytes + 1
             raise RequestError(f"Тело запроса превышает {max_bytes} байт", 413)
         length = int(digits)
+        self._unconsumed_post_body = False
         if length == 0 and allow_empty:
-            return {}
+            return bytearray()
         previous_timeout = self.connection.gettimeout()
         deadline = time.monotonic() + REQUEST_BODY_TIMEOUT_SECONDS
         raw = bytearray()
@@ -455,10 +536,7 @@ class Handler(BaseHTTPRequestHandler):
             raise RequestError("Неполное тело запроса") from exc
         finally:
             self.connection.settimeout(previous_timeout)
-        result = strict_json_loads(raw.decode("utf-8", errors="strict"))
-        if not isinstance(result, dict):
-            raise RequestError("Ожидается объект JSON")
-        return result
+        return raw
 
     # -- маршруты ----------------------------------------------------------
 
@@ -507,9 +585,56 @@ class Handler(BaseHTTPRequestHandler):
             self.sessions.audio_stream_unsubscribe(session_id, stream_id, subscription)
 
 
-    def do_GET(self) -> None:  # noqa: N802
+    def _runtime_request(self, method):
+        if not self.path.startswith('/internal/runtime/'):
+            return False
+        bridge = self.runtime_bridge
+        self.close_connection = True
+        if bridge is None:
+            self._send_json({'error':{'code':'runtime_unavailable'}},404)
+            return True
         try:
-            self._get()
+            authorization = self.headers.get_all('Authorization', [])
+            bridge.authorize_control(self.client_address, authorization)
+            payload = None
+            if method == 'POST':
+                if self.headers.get_content_type() != 'application/json':
+                    raise RequestError('Runtime control requires application/json',415)
+                payload = self._read_bounded_analysis_request(4096, allow_empty=False)
+            status, value = bridge.control_response(method, self.path, peer=self.client_address,
+                                                     authorization=authorization, payload=payload)
+            raw = json_dumps(value).encode('utf-8')
+            self.send_response(status)
+            self.send_header('Content-Type','application/json')
+            self.send_header('Content-Length',str(len(raw)))
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Connection','close')
+            self.end_headers()
+            try:
+                self.wfile.write(raw)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                if status == 202:
+                    bridge.response_not_flushed()
+                return True
+            if status == 202:
+                bridge.after_response_flushed()
+        except RuntimeBridgeError as exc:
+            self._send_json({'error':{'code':exc.code}}, exc.status)
+        except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
+            self._send_json({'error':{'code':'invalid_runtime_request'}},getattr(exc,'status',400))
+        return True
+
+    def do_GET(self) -> None:  # noqa: N802
+        if self._runtime_request('GET'):
+            return
+        try:
+            path = urlparse(self.path).path.rstrip('/')
+            capture = path.startswith('/api/v1/sessions/') and path.endswith('/instrument/screen')
+            with self.runtime_bridge.mutation() if capture and self.runtime_bridge is not None else nullcontext():
+                self._get()
+        except RuntimeBridgeError as exc:
+            self._send_api_error(exc.status, exc.code, 'Core is closing; retry after reconnecting')
         except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
             if urlparse(self.path).path.startswith("/api/v1/"):
                 self._send_api_error(400, "invalid_request", str(exc))
@@ -523,6 +648,24 @@ class Handler(BaseHTTPRequestHandler):
 
         if route.startswith("/api/v1/"):
             self._api_v1_get(route, query)
+            return
+
+        if route == '/modern' or route.startswith('/modern/'):
+            relative = unquote(route[len('/modern/'):]) if route.startswith('/modern/') else ''
+            if not relative:
+                path = MODERN_DIR/'index.html'
+                if not path.is_file():
+                    self._send_json({'error':'Modern client assets are not built; the legacy UI is available at /'},503)
+                    return
+            else:
+                if '\\' in relative or '\0' in relative or any(part in ('.','..') for part in relative.split('/')):
+                    self.send_error(404,'Not found')
+                    return
+                path = MODERN_DIR/relative
+            if not path.resolve().is_relative_to(MODERN_DIR.resolve()) or not path.is_file():
+                self.send_error(404,'Not found')
+                return
+            self._send_file(path)
             return
 
         if route in ("/", "/index.html"):
@@ -583,8 +726,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404, "Not found")
 
     def do_POST(self) -> None:  # noqa: N802
+        self._rejected_body_budget = 0
+        self._rejected_body_grace = False
+        self._unconsumed_post_body = True
+        if self._runtime_request('POST'):
+            return
         try:
             self._post()
+        except RuntimeBridgeError as exc:
+            self.close_connection = True
+            self._send_api_error(exc.status, exc.code, 'Core is closing; retry after reconnecting')
         except (ValueError, TypeError, OverflowError, UnicodeError) as exc:
             self.close_connection = True
             status = getattr(exc, "status", 400)
@@ -615,10 +766,8 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-mask-analysis", "sweep-average-comparison", "sweep-three-thresholds",
                     "sweep-average-change-detection", "sweep-context", "sweep-occupancy",
                     "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
-                    "dvb-evaluation", "measurement-map", "sweep-quality",
+                    "dvb-evaluation", "measurement-map", "sweep-quality", "field-strength-rms-v2",
                 )):
-            if "?" in self.path:
-                raise RequestError("Анализ не принимает параметры запроса")
             maximum = {
                 "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
                 "sweep-average-change-detection": MAX_AVERAGE_REQUEST_BYTES,
@@ -629,17 +778,25 @@ class Handler(BaseHTTPRequestHandler):
                 "candidate-frequency-rounding": MAX_ROUNDING_REQUEST_BYTES,
                 "frequency-rounding": MAX_RASTER_REQUEST_BYTES,
                 "frequency-counter": MAX_COUNTER_REQUEST_BYTES,
+                "field-strength-rms-v2": MAX_FIELD_REQUEST_BYTES,
                 "sweep-quality": MAX_QUALITY_REQUEST_BYTES,
                 "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                 "measurement-map": MAX_MAP_REQUEST_BYTES,
             }[parts[4]]
             allow_empty = False
+            if "?" in self.path:
+                # Headers and body can arrive in separate TCP frames. Consume
+                # only a correctly framed, route-bounded body before closing;
+                # unread bytes can otherwise reset the client's error response.
+                # The forbidden query still takes priority over JSON parsing.
+                self._read_bounded_request_body(maximum)
+                raise RequestError("Анализ не принимает параметры запроса")
         elif (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4:] == ["signal-list", "import"]):
             maximum = MAX_IMPORT_REQUEST_BYTES
             allow_empty = False
         elif (parts[:3] == ["api", "v1", "sessions"] and (
-                (len(parts) == 5 and parts[4] in ("sweeps", "observations"))
+                (len(parts) == 5 and parts[4] in ("sweeps", "observations", "audio-segments"))
                 or (len(parts) == 6 and parts[4] in ("sweeps", "observations") and parts[5] == "batch")
                 or (len(parts) == 6 and parts[4:] == ["phonogram", "frames"]))):
             maximum = MAX_MEASUREMENT_REQUEST_BYTES
@@ -647,6 +804,11 @@ class Handler(BaseHTTPRequestHandler):
         elif not route.startswith("/api/v1/"):
             allow_empty = False
         payload = self._read_bounded_analysis_request(maximum, allow_empty=allow_empty)
+
+        with self.runtime_bridge.mutation() if self.runtime_bridge is not None else nullcontext():
+            self._dispatch_post(route, payload)
+
+    def _dispatch_post(self, route, payload):
 
         if route.startswith("/api/v1/"):
             self._api_v1_post(route, payload)
@@ -700,6 +862,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_v1_get(self, route: str, query: dict) -> None:
         try:
+            if route == "/api/v1/openapi.json":
+                from .openapi import document
+                self._send_json(document())
+                return
             from ..monitoring.api import dispatch
             if dispatch(self, "GET", route, query=query):
                 return
@@ -713,6 +879,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if route == "/api/v1/capabilities":
                 capabilities = self.sessions.capabilities()
+                capabilities["features"]["openapi_v1"] = True
                 capabilities["features"].update(self.workers.capabilities())
                 capabilities["features"]["monitoring_projects"] = True
                 capabilities["features"]["monitoring_guard"] = True
@@ -792,8 +959,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(result))
                 return
             if (len(parts) == 7 and parts[:3] == ["api", "v1", "sessions"]
-                    and parts[4:6] == ["investigations", "by-id"]):
-                self._send_json(api_payload(self.sessions.get_investigation(parts[3], parts[6])))
+                    and parts[4] in ("candidates", "investigations") and parts[5] == "by-id"):
+                identifier = unquote(parts[6])
+                result = (self.sessions.get_candidate(parts[3], identifier)
+                          if parts[4] == "candidates"
+                          else self.sessions.get_investigation(parts[3], identifier))
+                self._send_json(api_payload(result))
+                return
+            if (len(parts) == 6 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4] == "streams"):
+                try:
+                    stream = self.sessions.instrument_context(parts[3], parts[5])
+                except SessionNotFoundError:
+                    raise
+                except KeyError as exc:
+                    self._send_api_error(404, "stream_not_found", str(exc.args[0]))
+                    return
+                self._send_json(api_payload(stream))
                 return
             if (
                 len(parts) == 5
@@ -807,6 +989,16 @@ class Handler(BaseHTTPRequestHandler):
                     parts[3], methodology=methodology, limit=limit,
                 )
                 self._send_json(api_payload(result))
+                return
+            if len(parts) == 5 and parts[:3] == ['api','v1','sessions'] and parts[4] == 'sweep-summaries':
+                allowed = {'stream_id','limit','after','start','end','min_hz','max_hz'}
+                if set(query)-allowed or any(len(value) != 1 for value in query.values()):
+                    raise ValueError('Unknown or repeated summary query parameter')
+                values = {key:value[0] for key,value in query.items()}
+                for key in ('limit','min_hz','max_hz'):
+                    if key in values:
+                        values[key] = int(values[key])
+                self._send_json(api_payload(self.sessions.sweep_summaries(parts[3], **values)))
                 return
             if parts[:3] == ["api", "v1", "measurement-catalog"] and len(parts) == 3:
                 self._send_json(api_payload(self.sessions.measurement_catalog()))
@@ -1033,6 +1225,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_payload(self.sessions.get_session(parts[3])))
                 return
             self._send_api_error(404, "not_found", "Маршрут API v1 не найден")
+        except ArchiveReadBusy as exc:
+            self._send_api_error(503, 'archive_read_busy', str(exc))
         except SessionNotFoundError as exc:
             self._send_api_error(404, "session_not_found", str(exc.args[0]))
         except SweepNotFoundError as exc:
@@ -1095,6 +1289,10 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] in ("candidates", "investigations")
             ):
                 parts[5] = unquote(parts[5])
+            if (len(parts) == 5 and parts[:3] == ['api','v1','sessions']
+                    and parts[4] == 'audio-segments'):
+                self._send_json(api_payload(self.sessions.ingest_audio_segment(parts[3], payload)), 201)
+                return
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1140,6 +1338,10 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[4] == "frequency-rounding"
             ):
                 self._send_json(api_payload(self.sessions.frequency_rounding(parts[3], payload)))
+                return
+            if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
+                    and parts[4] == "field-strength-rms-v2"):
+                self._send_json(api_payload(self.sessions.field_strength_rms_v2(parts[3], payload)))
                 return
             if (len(parts) == 5 and parts[:3] == ["api", "v1", "sessions"]
                     and parts[4] == "sweep-quality"):
@@ -1398,6 +1600,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "quality_incompatible", str(exc))
         except CounterIncompatibleError as exc:
             self._send_api_error(409, "counter_incompatible", str(exc))
+        except FieldStrengthUnavailable as exc:
+            self._send_api_error(409, "field_strength_unavailable", str(exc))
         except DvbEvaluationError as exc:
             self._send_api_error(409, "dvb_evaluation_error", str(exc))
         except PhonogramError as exc:
@@ -1416,6 +1620,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_api_error(409, "reference_name_conflict", str(exc))
         except ReferenceLimitReachedError as exc:
             self._send_api_error(409, "reference_limit_reached", str(exc))
+        except AudioSegmentConflict as exc:
+            self._send_api_error(409, 'audio_segment_conflict', str(exc))
         except ArchiveCapacityExceededError as exc:
             self._send_api_error(507, "archive_capacity_exceeded", str(exc))
         except SessionNotFoundError as exc:
@@ -1439,60 +1645,115 @@ class Handler(BaseHTTPRequestHandler):
         """SSE с монотонным id и повторной выдачей после Last-Event-ID."""
         if after < 0:
             raise ValueError("Last-Event-ID должен быть неотрицательным")
-        subscriber_id, events = self.sessions.subscribe(after=after)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.send_header("X-Accel-Buffering", "no")
-        self.end_headers()
+        self.close_connection = True
         try:
-            while True:
+            with self.event_streams.register(self.connection, writer=self.wfile) as stream:
+                if stream is None:
+                    self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
+                    return
+                notifier = self.sessions.watch_commits()
+                stream.bind_wakeup(notifier)
                 try:
-                    event = events.get(timeout=15.0)
-                except queue.Empty:
-                    self.wfile.write(b": keep-alive\n\n")
-                    self.wfile.flush()
-                    continue
-                data = json_dumps(api_payload(event))
-                frame = (
-                    f"id: {event.sequence}\n"
-                    f"event: {event.event_type}\n"
-                    f"data: {data}\n\n"
-                )
-                self.wfile.write(frame.encode("utf-8"))
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
-            self.sessions.unsubscribe(subscriber_id)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Connection", "keep-alive")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.close_connection = True
+                    self.end_headers()
+                    heartbeat = time.monotonic()+15
+                    while not stream.stopped and not self.sessions.event_stream_closed:
+                        if stream.peer_closed():
+                            break
+                        # Clear before querying: the durable cursor covers wakes
+                        # coalesced by a concurrent archive commit.
+                        notifier.clear()
+                        if stream.stopped:
+                            break
+                        try:
+                            event = self.sessions.next_stream_event(after=after)
+                        except ArchiveReadBusy:
+                            event = None
+                        if stream.stopped:
+                            break
+                        if event is None:
+                            if time.monotonic() >= heartbeat:
+                                self.wfile.write(b": keep-alive\n\n")
+                                self.wfile.flush()
+                                heartbeat = time.monotonic()+15
+                            notifier.wait(.25)
+                            continue
+                        data = json_dumps(api_payload(event))
+                        frame = (
+                            f"id: {event.sequence}\n"
+                            f"event: {event.event_type}\n"
+                            f"data: {data}\n\n"
+                        )
+                        if stream.stopped:
+                            break
+                        self.wfile.write(frame.encode("utf-8"))
+                        self.wfile.flush()
+                        after = event.sequence
+                        heartbeat = time.monotonic()+15
+                finally:
+                    self.sessions.unwatch_commits(notifier)
+        except OSError as error:
+            if not peer_disconnected(error):
+                raise
 
     def _stream_events(self) -> None:
         """Потоковая выдача состояния по протоколу Server-Sent Events."""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
-        self.end_headers()
-
-        event = self.state.subscribe()
-        last_version = -1
+        self.close_connection = True
         try:
-            while True:
-                if event.wait(timeout=1.0):
-                    event.clear()
-                if self.state.version != last_version:
-                    last_version = self.state.version
-                    data = json_dumps(self.state.snapshot(include_waterfall=False))
-                    self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-                else:
-                    self.wfile.write(b": keep-alive\n\n")
-                    self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-        finally:
-            self.state.unsubscribe(event)
+            with self.event_streams.register(self.connection, writer=self.wfile) as stream:
+                if stream is None:
+                    self._send_api_error(503, 'event_stream_closed', 'HTTP listener is closing')
+                    return
+                event = self.state.subscribe()
+                stream.bind_wakeup(event)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Connection", "keep-alive")
+                    self.close_connection = True
+                    self.end_headers()
+                    last_version = -1
+                    while not stream.stopped:
+                        if stream.peer_closed():
+                            break
+                        if event.wait(timeout=1.0):
+                            event.clear()
+                        if stream.stopped:
+                            break
+                        if self.state.version != last_version:
+                            last_version = self.state.version
+                            data = json_dumps(self.state.snapshot(include_waterfall=False))
+                            frame = f"data: {data}\n\n".encode("utf-8")
+                        else:
+                            frame = b": keep-alive\n\n"
+                        if stream.stopped:
+                            break
+                        self.wfile.write(frame)
+                        self.wfile.flush()
+                finally:
+                    self.state.unsubscribe(event)
+        except OSError as error:
+            if not peer_disconnected(error):
+                raise
+
+
+@contextmanager
+def _startup_cleanup():
+    cleanup = ExitStack()
+    try:
+        yield cleanup
+    finally:
+        # A failed constructor/bind is not evidence that resource closure
+        # failed. Start unwinding without that original exception so the last
+        # writer-owner callback sees only errors from the actual closers.
+        # A closer failure still reaches the owner and retains its lease.
+        cleanup.close()
 
 
 def create_server(
@@ -1515,7 +1776,31 @@ def create_server(
         raise ValueError("Передайте либо sessions, либо session_database, но не оба")
     if archive_max_bytes is not None and not session_database:
         raise ValueError("archive_max_bytes требует session_database")
-    with ExitStack() as cleanup:
+    with _startup_cleanup() as cleanup:
+        archive_owner = None
+        bridge = RuntimeBridge.from_environment(session_database)
+        if bridge is not None and sessions is not None:
+            raise RuntimeBridgeError(500, 'runtime_requires_owned_archive')
+        if bridge is not None:
+            owner = bridge
+        elif sessions is None:
+            archive_owner = archive_writer_owner(session_database)
+            if archive_owner is not None:
+                session_database = str(archive_owner.database_path)
+            owner = archive_owner
+        else:
+            owner = None
+        if owner is not None:
+            owner.__enter__()
+            def finish_writer_owner(error_type, error, traceback):
+                if error_type is None:
+                    # Every CURRENT resource closer succeeded. This server has
+                    # the proof needed after a previous pre-cleanup I/O refusal.
+                    owner.release_after_archive_closed()
+                else:
+                    owner.__exit__(error_type, error, traceback)
+                return False
+            cleanup.push(finish_writer_owner)
         state = ApplicationState(database=database, library=library)
         cleanup.callback(state.close)
         if sessions is not None:
@@ -1526,6 +1811,10 @@ def create_server(
             session_service = SessionService(store=store)
         else:
             session_service = SessionService()
+        if sessions is None:
+            # Keep the raw-store callback above for a failing SessionService
+            # constructor. This callback also closes its event stream flag.
+            cleanup.callback(session_service.close)
         if workers is not None and workers.sessions is not session_service:
             raise ValueError("DeviceWorkerManager должен использовать тот же SessionService")
         worker_manager = workers or DeviceWorkerManager(session_service)
@@ -1569,6 +1858,7 @@ def create_server(
                 book = task_book
             control_scheduler = TaskScheduler(book)
             cleanup.callback(control_scheduler.close)
+        event_streams = EventStreams()
         handler = type(
             "BoundHandler",
             (Handler,),
@@ -1582,10 +1872,13 @@ def create_server(
                 "automatic_detection": detection_scheduler,
                 "automatic_completion": completion_scheduler,
                 "control_scheduler": control_scheduler,
+                "runtime_bridge": bridge,
+                "event_streams": event_streams,
             },
         )
         httpd = ThreadingHTTPServer((host, port), handler)
         cleanup.callback(httpd.server_close)
+        cleanup.callback(event_streams.close)
         httpd.daemon_threads = True
         httpd.session_service = session_service
         httpd.worker_manager = worker_manager
@@ -1595,26 +1888,63 @@ def create_server(
         httpd.automatic_detection = detection_scheduler
         httpd.automatic_completion = completion_scheduler
         httpd.control_scheduler = control_scheduler
+        httpd.runtime_bridge = bridge
+        httpd.archive_owner = archive_owner
+        httpd.event_streams = event_streams
+        if bridge is not None:
+            bridge.attach(httpd, monitoring)
         resources = cleanup.pop_all()
+        close_lock = threading.RLock()
+        resources_closed = False
+        resource_cleanup_failed = False
         # Keep the original socket close inside ExitStack; the public close also
         # owns the resources constructed here, including private task storage.
         def close_owned_resources():
-            monitoring.close()
-            if task_scheduler is None:
-                control_scheduler.close()
-            if automatic_completion is None:
-                completion_scheduler.close()
-            if automatic_detection is None:
-                detection_scheduler.close()
-            if automatic_handoff is None:
-                automatic_scheduler.close()
-            instruments.close()
-            if workers is None:
-                worker_manager.close()
-            if worker_manager.active_count or worker_manager.pending_start_count:
-                raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
-            resources.close()
-        httpd.resource_cleanup = resources
+            nonlocal resources_closed, resource_cleanup_failed
+            with close_lock:
+                if resources_closed:
+                    return
+                if resource_cleanup_failed:
+                    # ExitStack consumes callbacks even when one fails. An
+                    # empty second pass cannot prove that SQLite really closed.
+                    raise RuntimeError('Archive resource cleanup failed; explicit closure proof is required')
+                close_current_resources()
+
+        def close_current_resources():
+            nonlocal resources_closed, resource_cleanup_failed
+            stack_started = False
+            try:
+                # No archive/state close occurs until this listener's admitted
+                # SSE readers and encoders have actually left their scopes.
+                event_streams.close()
+                monitoring.close()
+                if task_scheduler is None:
+                    control_scheduler.close()
+                if automatic_completion is None:
+                    completion_scheduler.close()
+                if automatic_detection is None:
+                    detection_scheduler.close()
+                if automatic_handoff is None:
+                    automatic_scheduler.close()
+                instruments.close()
+                if workers is None:
+                    worker_manager.close()
+                if worker_manager.active_count or worker_manager.pending_start_count:
+                    raise RuntimeError("Приборный I/O ещё выполняется; архив не закрыт")
+                stack_started = True
+                resources.close()
+                resources_closed = True
+            except BaseException:
+                if stack_started:
+                    resource_cleanup_failed = True
+                if bridge is not None:
+                    bridge.__exit__(*sys.exc_info())
+                if archive_owner is not None:
+                    archive_owner.__exit__(*sys.exc_info())
+                raise
+        # Preserve the existing .close entrypoint without exposing an unguarded
+        # one-shot ExitStack path around the drain/proof checks.
+        httpd.resource_cleanup = SimpleNamespace(close=close_owned_resources)
         httpd.server_close = close_owned_resources
         monitoring.start()
         return httpd
@@ -1651,6 +1981,7 @@ def serve(
     except KeyboardInterrupt:
         print("\nОстановлено")
     finally:
+        httpd.monitoring.close()
         httpd.automatic_completion.close()
         httpd.automatic_detection.close()
         httpd.automatic_handoff.close()

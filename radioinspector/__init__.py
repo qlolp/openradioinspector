@@ -32,6 +32,7 @@ from .measurements import (
     bandwidth_at_level,
     center_frequency_centroid,
     field_strength,
+    field_strength_rms_v2,
     measure_signal,
     occupied_bandwidth_beta2,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "center_frequency_centroid",
     "detect_interference",
     "field_strength",
+    "field_strength_rms_v2",
     "measure_signal",
     "occupancy_from_store",
     "occupied_bandwidth_beta2",

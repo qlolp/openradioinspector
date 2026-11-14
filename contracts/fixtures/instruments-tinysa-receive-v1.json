@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "evidence": "authored_synthetic_transcript",
+  "hardware_validation": "not_run",
+  "receive_profile": "tinysa-ultra-zs405-receive-v1",
+  "config": {
+    "start_hz": 100000000,
+    "stop_hz": 101000000,
+    "points": 3,
+    "rbw_hz": 10000
+  },
+  "transcript": [
+    {
+      "write_ascii": "info\r",
+      "read_ascii": "info\r\ntinySA Ultra ZS405\r\nch> "
+    },
+    {
+      "write_ascii": "version\r",
+      "read_ascii": "version\r\ntinySA4_v1.4-235-gea71dfd\r\nHW Version:V0.4.5.1\r\nch> "
+    },
+    {
+      "write_ascii": "deviceid\r",
+      "read_ascii": "deviceid\r\nsynthetic-only\r\nch> "
+    },
+    {
+      "write_ascii": "output off\r",
+      "read_ascii": "output off\r\nch> "
+    },
+    {
+      "write_ascii": "mode input\r",
+      "read_ascii": "mode input\r\nch> "
+    },
+    {
+      "write_ascii": "lna off\r",
+      "read_ascii": "lna off\r\nch> "
+    },
+    {
+      "write_ascii": "attenuate auto\r",
+      "read_ascii": "attenuate auto\r\nch> "
+    },
+    {
+      "write_ascii": "rbw 10\r",
+      "read_ascii": "rbw 10\r\nch> "
+    },
+    {
+      "write_ascii": "calc off\r",
+      "read_ascii": "calc off\r\nch> "
+    },
+    {
+      "write_ascii": "scan 100M 101M 3 3\r",
+      "read_ascii": "scan 100M 101M 3 3\r\n100000000 -90 0\r\n100500000 -42.50000000000001 0\r\n101000000 -80 0\r\nch> "
+    }
+  ],
+  "expected": {
+    "kind": "raw_spectrum",
+    "frequencies_hz": [
+      100000000,
+      100500000,
+      101000000
+    ],
+    "levels": [
+      -90.0,
+      -42.50000000000001,
+      -80.0
+    ],
+    "level_unit": "dBm"
+  }
+}

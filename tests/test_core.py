@@ -56,7 +56,7 @@ class TestUnits(unittest.TestCase):
         # Увеличение напряжения в 10 раз соответствует +20 дБ.
         self.assertAlmostEqual(convert(20.0, "dBuV", "uV"), 10.0, places=6)
         self.assertAlmostEqual(convert(40.0, "dBuV", "uV"), 100.0, places=6)
-        self.assertAlmostEqual(convert(0.0, "dBmV", "V"), 1.0, places=9)
+        self.assertAlmostEqual(convert(0.0, "dBmV", "V"), .001, places=9)
 
     def test_cyrillic_aliases(self):
         self.assertEqual(normalize_unit("дБмкВ"), "dBuV")

@@ -1,0 +1,375 @@
+{
+  "oracle": "Original radioinspector.automatic_detection.detect_regions used by AutomaticCandidateDetector.run_once; synthetic owned Sweep inputs, no devices or archive",
+  "oracle_source_sha256": "140639faf39d26f730afc01831d9985937b2fd1f1ce249b1435235dea76e4020",
+  "cases": [
+    {
+      "name": "original_two_regions",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          100000000,
+          100100000,
+          100200000,
+          100300000,
+          100400000,
+          100500000,
+          100600000
+        ],
+        "levels": [
+          -90.0,
+          -55.0,
+          -45.0,
+          -80.0,
+          -50.0,
+          -48.0,
+          -90.0
+        ]
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 10,
+      "result": [
+        {
+          "center_frequency_hz": 100200000,
+          "bandwidth_hz": 100000,
+          "peak_level": -45.0,
+          "score": 15.0
+        },
+        {
+          "center_frequency_hz": 100500000,
+          "bandwidth_hz": 100000,
+          "peak_level": -48.0,
+          "score": 12.0
+        }
+      ]
+    },
+    {
+      "name": "stable_equal_peaks_and_maximum",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          100,
+          110,
+          120,
+          130,
+          140,
+          150,
+          160,
+          170
+        ],
+        "levels": [
+          -60.0,
+          -40.0,
+          -40.0,
+          -90.0,
+          -40.0,
+          -90.0,
+          -40.0,
+          -90.0
+        ]
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 2,
+      "result": [
+        {
+          "center_frequency_hz": 110,
+          "bandwidth_hz": 20,
+          "peak_level": -40.0,
+          "score": 20.0
+        },
+        {
+          "center_frequency_hz": 140,
+          "bandwidth_hz": 10,
+          "peak_level": -40.0,
+          "score": 20.0
+        }
+      ]
+    },
+    {
+      "name": "negative_zero_and_subnormal",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          100,
+          110,
+          120,
+          130
+        ],
+        "levels": [
+          -0.0,
+          5e-324,
+          -90.0,
+          -0.0
+        ]
+      },
+      "threshold_dbm": -0.0,
+      "maximum": 100,
+      "result": [
+        {
+          "center_frequency_hz": 110,
+          "bandwidth_hz": 10,
+          "peak_level": 5e-324,
+          "score": 5e-324
+        },
+        {
+          "center_frequency_hz": 130,
+          "bandwidth_hz": 10,
+          "peak_level": -0.0,
+          "score": 0.0
+        }
+      ]
+    },
+    {
+      "name": "integer_hz_above_f64_precision",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          9007199254740993
+        ],
+        "levels": [
+          -0.0
+        ]
+      },
+      "threshold_dbm": 0.0,
+      "maximum": 1,
+      "result": [
+        {
+          "center_frequency_hz": 9007199254740993,
+          "bandwidth_hz": 1,
+          "peak_level": -0.0,
+          "score": -0.0
+        }
+      ]
+    },
+    {
+      "name": "duplicate_frequency_local_fallback",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          100,
+          100,
+          100,
+          200
+        ],
+        "levels": [
+          -90.0,
+          -30.0,
+          -90.0,
+          -50.0
+        ]
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 10,
+      "result": [
+        {
+          "center_frequency_hz": 100,
+          "bandwidth_hz": 1,
+          "peak_level": -30.0,
+          "score": 30.0
+        },
+        {
+          "center_frequency_hz": 200,
+          "bandwidth_hz": 100,
+          "peak_level": -50.0,
+          "score": 10.0
+        }
+      ]
+    },
+    {
+      "name": "no_regions",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          1,
+          3,
+          7
+        ],
+        "levels": [
+          -100.0,
+          -90.0,
+          -80.0
+        ]
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 1,
+      "result": []
+    },
+    {
+      "name": "irregular_grid_minimum_neighbour",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          1,
+          6,
+          20
+        ],
+        "levels": [
+          -90.0,
+          -30.0,
+          -90.0
+        ]
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 1,
+      "result": [
+        {
+          "center_frequency_hz": 6,
+          "bandwidth_hz": 5,
+          "peak_level": -30.0,
+          "score": 30.0
+        }
+      ]
+    },
+    {
+      "name": "threshold_includes_boundary",
+      "sweep": {
+        "id": "sweep-é-é-😀",
+        "session_id": "session-é-😀",
+        "stream_id": "spectrum-é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.223457Z"
+        },
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "é": -0.0,
+          "é": 1.0000000000000002,
+          "opaque": {
+            "unit": "原始"
+          }
+        },
+        "frequencies_hz": [
+          0,
+          1,
+          2
+        ],
+        "levels": [
+          -300.0,
+          -301.0,
+          100.0
+        ]
+      },
+      "threshold_dbm": -300.0,
+      "maximum": 100,
+      "result": [
+        {
+          "center_frequency_hz": 2,
+          "bandwidth_hz": 1,
+          "peak_level": 100.0,
+          "score": 400.0
+        },
+        {
+          "center_frequency_hz": 0,
+          "bandwidth_hz": 1,
+          "peak_level": -300.0,
+          "score": 0.0
+        }
+      ]
+    }
+  ]
+}

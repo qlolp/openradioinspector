@@ -20,7 +20,7 @@ public func normalizedSweepReferenceName(_ text: String) throws -> String {
     return name
 }
 
-public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
+public struct PlatformSweepReference: Decodable, Equatable, Identifiable, Sendable {
     public let id: String
     public let sessionId: String
     public let streamId: String
@@ -31,7 +31,7 @@ public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
     public let levelUnit: String
     public let points: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case id, sessionId, streamId, sweepId, name, createdAt, interval, levelUnit, points
     }
 
@@ -56,7 +56,7 @@ public struct PlatformSweepReference: Decodable, Equatable, Identifiable {
     }
 }
 
-public struct PlatformSweepReferenceCatalog: Decodable, Equatable {
+public struct PlatformSweepReferenceCatalog: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String?
     public let storageMode: String
@@ -64,7 +64,7 @@ public struct PlatformSweepReferenceCatalog: Decodable, Equatable {
     public let limit: Int
     public let items: [PlatformSweepReference]
 
-    private enum CodingKeys: String, CodingKey { case sessionId, streamId, storageMode, persistent, limit, items }
+    private enum CodingKeys: String, CodingKey, Sendable { case sessionId, streamId, storageMode, persistent, limit, items }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try values.decode(String.self, forKey: .sessionId)
@@ -81,8 +81,8 @@ public struct PlatformSweepReferenceCatalog: Decodable, Equatable {
               streamId == nil || !streamId!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               ["sqlite", "memory"].contains(storageMode), (storageMode == "sqlite" || !persistent),
               limit == 100, items.count <= limit,
-              Set(items.map(\.id)).count == items.count, Set(items.map(\.name)).count == items.count,
-              items.allSatisfy({ $0.sessionId == sessionId && (streamId == nil || $0.streamId == streamId) }) else {
+              Set(items.map(\.exactID)).count == items.count, Set(items.map(\.name)).count == items.count,
+              items.allSatisfy({ PlatformExactID.same($0.sessionId, sessionId) && (streamId == nil || PlatformExactID.same($0.streamId, streamId)) }) else {
             throw DecodingError.dataCorruptedError(forKey: .items, in: values, debugDescription: "Некорректный каталог опорных свипов")
         }
     }
@@ -109,7 +109,7 @@ extension PlatformClient {
             query: streamID.map { [URLQueryItem(name: "stream_id", value: $0)] } ?? [], expectedStatuses: [200]
         )
         try Task.checkCancellation()
-        guard catalog.sessionId == sessionID, catalog.streamId == streamID else {
+        guard PlatformExactID.same(catalog.sessionId, sessionID), PlatformExactID.same(catalog.streamId, streamID) else {
             throw PlatformError.invalidResponse("Сервер вернул каталог другого сеанса или потока")
         }
         return catalog
@@ -117,7 +117,7 @@ extension PlatformClient {
 
     /// Never automatically retries a write. A canceled/failed transport can have committed on the server.
     public func saveSweepReference(sessionID: String, sweepID: String, name: String) async throws -> PlatformSweepReference {
-        struct Body: Encodable { let name: String; let sweepId: String }
+        struct Body: Encodable, Sendable { let name: String; let sweepId: String }
         guard [sessionID, sweepID].allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
             throw PlatformError.invalidCommand("Нужны ID сеанса и архивного свипа")
         }
@@ -127,7 +127,7 @@ extension PlatformClient {
             "/sessions/\(Self.segment(sessionID))/sweep-references", body: Body(name: normalized, sweepId: sweepID), expectedStatuses: [200, 201]
         )
         try Task.checkCancellation()
-        guard record.sessionId == sessionID, record.sweepId == sweepID, record.name == normalized else {
+        guard PlatformExactID.same(record.sessionId, sessionID), PlatformExactID.same(record.sweepId, sweepID), record.name == normalized else {
             throw PlatformError.invalidResponse("Сервер вернул другой сохранённый опорный свип")
         }
         return record

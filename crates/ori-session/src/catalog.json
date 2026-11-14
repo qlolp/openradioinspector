@@ -1,0 +1,140 @@
+[
+  {
+    "methodology": "bandwidth_at_level",
+    "title": "Ширина полосы по уровню −N дБ",
+    "original_table": "MEAS_B2_30DB_RESULT",
+    "unit": "Hz",
+    "fields": [
+      "bandwidth_hz",
+      "level_db"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "beta2_bandwidth",
+    "title": "Ширина занимаемых частот методом β/2",
+    "original_table": "MEAS_B2_RESULT",
+    "unit": "Hz",
+    "fields": [
+      "bandwidth_hz",
+      "lower_edge_hz",
+      "upper_edge_hz",
+      "center_hz"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "complex_center_frequency",
+    "title": "Оценка центральной частоты",
+    "original_table": "MEAS_ESTIMATE_RESULTFC",
+    "unit": "Hz",
+    "fields": [
+      "center_frequency_hz"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "control_bandwidth",
+    "title": "Контрольная ширина полосы и сверка с нормой",
+    "original_table": "MEAS_N1902_RESULTCBW",
+    "unit": "Hz",
+    "fields": [
+      "control_bandwidth_hz",
+      "norm_hz"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "coordinates",
+    "title": "Координаты точки измерения",
+    "original_table": "MEAS_LATLONG_LONGITUDE",
+    "unit": "deg",
+    "fields": [
+      "latitude_deg",
+      "longitude_deg"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "dvb_t_parameters",
+    "title": "Параметры DVB-T",
+    "original_table": "MEAS_DVB_RESULTCODE",
+    "unit": "mixed",
+    "fields": [
+      "mer_db",
+      "ber_after_viterbi",
+      "ber_after_rs",
+      "guard_interval_ratio",
+      "code_rate_ratio"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "frequency_counter",
+    "title": "Встроенный частотомер",
+    "original_table": "MEAS_COUNTER_FC_RESULTCODE",
+    "unit": "Hz",
+    "fields": [
+      "measured_frequency_hz",
+      "resolution_hz",
+      "uncertainty_hz"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "power_over_threshold",
+    "title": "Мощность сигнала над порогом",
+    "original_table": "MEAS_POWER_RESULT",
+    "unit": "W",
+    "fields": [
+      "power_w"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  },
+  {
+    "methodology": "signal_to_noise",
+    "title": "Отношение сигнал/шум",
+    "original_table": "MEAS_B2_RESULT_SN",
+    "unit": "dB",
+    "fields": [
+      "snr_db"
+    ],
+    "result_codes": [
+      "norm",
+      "not_norm",
+      "not_measured"
+    ]
+  }
+]

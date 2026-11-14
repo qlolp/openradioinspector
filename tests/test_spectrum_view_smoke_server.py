@@ -9,7 +9,7 @@ from tests.spectrum_view_smoke_server import assert_no_workers, create_fixture
 class SpectrumFixtureTests(unittest.TestCase):
     def test_reads_and_fail_closed_mutations(self):
         server, _service = create_fixture()
-        thread = threading.Thread(target=server.serve_forever)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
         thread.start()
         try:
             for method, path, expected in [
@@ -41,7 +41,7 @@ class SpectrumFixtureTests(unittest.TestCase):
     def test_complete_platform_refresh_reads(self):
         import json
         server, _service = create_fixture()
-        thread = threading.Thread(target=server.serve_forever)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
         thread.start()
 
         def get(path):
@@ -113,7 +113,7 @@ class SpectrumFixtureTests(unittest.TestCase):
                 accepted.set()
 
         server.RequestHandlerClass = ObservedHandler
-        serving = threading.Thread(target=server.serve_forever)
+        serving = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
         serving.start()
         connection = None
         closing = None

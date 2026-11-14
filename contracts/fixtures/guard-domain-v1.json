@@ -1,0 +1,2804 @@
+{
+  "allowed": {
+    "comment": "Original units",
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "end_hz": 100070000,
+    "id": "00000000000000000000000000000002",
+    "name": "Known carrier",
+    "project_id": "00000000000000000000000000000001",
+    "start_hz": 100060000,
+    "watch_changes": true
+  },
+  "baseline": {
+    "confirmed": true,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "detector_version": "robust-city-v1",
+    "ended_at": "2026-11-11T12:01:17.123456+00:00",
+    "fingerprint": "51a038f9c00dc981633dc565f653efeaf18e01b5f9c90e3f58648da6e5c034e7",
+    "frequencies_hz": [
+      100000000,
+      100010000,
+      100020000,
+      100030000,
+      100040000,
+      100050000,
+      100060000,
+      100070000,
+      100080000
+    ],
+    "id": "00000000000000000000000000000003",
+    "location": "Roof",
+    "mad_db": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "name": "Quiet",
+    "p50_dbm": [
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0
+    ],
+    "p95_dbm": [
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0,
+      -100.0
+    ],
+    "preparation": {
+      "antenna_notes": "RX fixture",
+      "confirmed_at": "2026-11-11T13:00:00.123456Z",
+      "location_confirmed": true,
+      "receive_path_confirmed": true
+    },
+    "project_id": "00000000000000000000000000000001",
+    "sample_strategy": "uniform_window_plus_latest_twenty",
+    "source_refs": [
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+000"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+001"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+002"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+003"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+004"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+005"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+006"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+007"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+008"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+009"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+010"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+011"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+012"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+013"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+014"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+015"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+016"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+017"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+018"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+019"
+      }
+    ],
+    "started_at": "2026-11-11T12:00:00.123456+00:00",
+    "sweep_period_seconds": 4.0
+  },
+  "clock": "2026-11-11T13:00:00.123456Z",
+  "comparison": {
+    "baseline_id": "00000000000000000000000000000003",
+    "compatible": true,
+    "detector_version": "robust-city-v1",
+    "display_only": true,
+    "items": [
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100000000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100010000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100020000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100030000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -92.0,
+        "delta_db": 8.0,
+        "frequency_hz": 100040000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100050000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100060000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100070000
+      },
+      {
+        "baseline_p50_dbm": -100.0,
+        "baseline_p95_dbm": -100.0,
+        "current_dbm": -100.0,
+        "delta_db": 0.0,
+        "frequency_hz": 100080000
+      }
+    ],
+    "reason": null,
+    "sweep_id": "sweep-α/%+042"
+  },
+  "created": {
+    "active_session_id": "guard-сессия/%+?",
+    "analyzer_stream_id": "spectrum/one",
+    "autostart": false,
+    "baseline_id": null,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "id": "00000000000000000000000000000001",
+    "name": "Room α",
+    "parameters": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "profile": {
+      "analyzer": {
+        "capabilities": [
+          "sweep",
+          "waterfall"
+        ],
+        "device": "tinySA Ultra",
+        "firmware": null,
+        "id": "spectrum/one",
+        "label": "",
+        "level_unit": "dBm",
+        "model": null,
+        "port": "sim://tinysa",
+        "role": "spectrum_analyzer",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "tinysa-sim",
+          "period_s": 0.01,
+          "points": 9,
+          "start_hz": 100000000,
+          "stop_hz": 100080000
+        },
+        "state": "disconnected"
+      },
+      "receiver": {
+        "capabilities": [
+          "tune",
+          "audio"
+        ],
+        "device": "AR-DV1",
+        "firmware": null,
+        "id": "receiver+one",
+        "label": "",
+        "level_unit": "s_meter_count",
+        "model": null,
+        "port": "sim://ardv1",
+        "role": "receiver",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "ardv1-sim",
+          "frequency_hz": 145500000,
+          "mode": "FM",
+          "period_s": 0.01
+        },
+        "state": "disconnected"
+      }
+    },
+    "project_id": "00000000000000000000000000000001",
+    "receiver_stream_id": "receiver+one",
+    "session_ids": [
+      "guard-сессия/%+?"
+    ],
+    "site": "Cité+%/?",
+    "state": "draft"
+  },
+  "first_analysis": {
+    "cursor": "sweep-α/%+022",
+    "event_ids": [
+      "00000000000000000000000000000004"
+    ],
+    "events_updated": 1,
+    "processed_sweeps": 3,
+    "project_id": "00000000000000000000000000000001",
+    "quality_issues": 0
+  },
+  "first_event": {
+    "baseline_id": "00000000000000000000000000000003",
+    "center_frequency_hz": 100040000,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "detector_parameters": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "detector_version": "robust-city-v1",
+    "disposition": "unreviewed",
+    "end_frequency_hz": 100040000,
+    "first_bin": 4,
+    "first_seen": "2026-11-11T12:01:20.123456+00:00",
+    "id": "00000000000000000000000000000004",
+    "kind": "persistent",
+    "last_bin": 4,
+    "last_seen": "2026-11-11T12:01:29.123456Z",
+    "peak_excess_db": 8.0,
+    "peak_level": -92.0,
+    "project_id": "00000000000000000000000000000001",
+    "quiet_sweeps": 0,
+    "run_session_id": "guard-сессия/%+?",
+    "source_count": 3,
+    "source_refs": [
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+020"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+021"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+022"
+      }
+    ],
+    "start_frequency_hz": 100040000,
+    "state": "open"
+  },
+  "fixture_version": 1,
+  "gap_analysis": {
+    "cursor": "sweep-α/%+042",
+    "event_ids": [
+      "00000000000000000000000000000006"
+    ],
+    "events_updated": 1,
+    "processed_sweeps": 3,
+    "project_id": "00000000000000000000000000000001",
+    "quality_issues": 1
+  },
+  "hardware_validation": "not_run",
+  "history": {
+    "items": [
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+042",
+        "interval": {
+          "ended_at": "2026-11-11T12:02:49.123456Z",
+          "started_at": "2026-11-11T12:02:48.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -92.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      },
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+041",
+        "interval": {
+          "ended_at": "2026-11-11T12:02:45.123456Z",
+          "started_at": "2026-11-11T12:02:44.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -92.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      },
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+040",
+        "interval": {
+          "ended_at": "2026-11-11T12:02:41.123456Z",
+          "started_at": "2026-11-11T12:02:40.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -92.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      }
+    ],
+    "next_cursor": "WyIyMDI2LTExLTExVDEyOjAyOjQwLjEyMzQ1NloiLCAic3dlZXAtXHUwM2IxLyUrMDQwIl0="
+  },
+  "history_tail": {
+    "items": [
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+027",
+        "interval": {
+          "ended_at": "2026-11-11T12:01:49.123456Z",
+          "started_at": "2026-11-11T12:01:48.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      },
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+026",
+        "interval": {
+          "ended_at": "2026-11-11T12:01:45.123456Z",
+          "started_at": "2026-11-11T12:01:44.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      },
+      {
+        "display_only": true,
+        "frequencies_hz": [
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000
+        ],
+        "id": "sweep-α/%+025",
+        "interval": {
+          "ended_at": "2026-11-11T12:01:41.123456Z",
+          "started_at": "2026-11-11T12:01:40.123456Z"
+        },
+        "level_unit": "dBm",
+        "levels": [
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0
+        ],
+        "original_point_count": 9,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "synthetic",
+          "rbw_hz": 10000
+        },
+        "settings_available_in_original": true,
+        "stream_id": "spectrum/one"
+      }
+    ],
+    "next_cursor": "WyIyMDI2LTExLTExVDEyOjAxOjQwLjEyMzQ1NloiLCAic3dlZXAtXHUwM2IxLyUrMDI1Il0="
+  },
+  "preparation": {
+    "active_session_id": "guard-сессия/%+?",
+    "analyzer_stream_id": "spectrum/one",
+    "autostart": false,
+    "baseline_id": null,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "id": "00000000000000000000000000000001",
+    "name": "Room α",
+    "parameters": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "preparation": {
+      "antenna_notes": "RX fixture",
+      "confirmed_at": "2026-11-11T13:00:00.123456Z",
+      "location_confirmed": true,
+      "receive_path_confirmed": true
+    },
+    "profile": {
+      "analyzer": {
+        "capabilities": [
+          "sweep",
+          "waterfall"
+        ],
+        "device": "tinySA Ultra",
+        "firmware": null,
+        "id": "spectrum/one",
+        "label": "",
+        "level_unit": "dBm",
+        "model": null,
+        "port": "sim://tinysa",
+        "role": "spectrum_analyzer",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "tinysa-sim",
+          "period_s": 0.01,
+          "points": 9,
+          "start_hz": 100000000,
+          "stop_hz": 100080000
+        },
+        "state": "disconnected"
+      },
+      "receiver": {
+        "capabilities": [
+          "tune",
+          "audio"
+        ],
+        "device": "AR-DV1",
+        "firmware": null,
+        "id": "receiver+one",
+        "label": "",
+        "level_unit": "s_meter_count",
+        "model": null,
+        "port": "sim://ardv1",
+        "role": "receiver",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "ardv1-sim",
+          "frequency_hz": 145500000,
+          "mode": "FM",
+          "period_s": 0.01
+        },
+        "state": "disconnected"
+      }
+    },
+    "project_id": "00000000000000000000000000000001",
+    "receiver_stream_id": "receiver+one",
+    "session_ids": [
+      "guard-сессия/%+?"
+    ],
+    "site": "Cité+%/?",
+    "state": "draft"
+  },
+  "prepared_project": {
+    "active_session_id": "guard-сессия/%+?",
+    "analyzer_stream_id": "spectrum/one",
+    "autostart": false,
+    "baseline_id": "00000000000000000000000000000003",
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "detector_cursor": "sweep-α/%+019",
+    "detector_rowid": 20,
+    "detector_state": null,
+    "id": "00000000000000000000000000000001",
+    "name": "Room α",
+    "parameters": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "preparation": {
+      "antenna_notes": "RX fixture",
+      "confirmed_at": "2026-11-11T13:00:00.123456Z",
+      "location_confirmed": true,
+      "receive_path_confirmed": true
+    },
+    "profile": {
+      "analyzer": {
+        "capabilities": [
+          "sweep",
+          "waterfall"
+        ],
+        "device": "tinySA Ultra",
+        "firmware": null,
+        "id": "spectrum/one",
+        "label": "",
+        "level_unit": "dBm",
+        "model": null,
+        "port": "sim://tinysa",
+        "role": "spectrum_analyzer",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "tinysa-sim",
+          "period_s": 0.01,
+          "points": 9,
+          "start_hz": 100000000,
+          "stop_hz": 100080000
+        },
+        "state": "disconnected"
+      },
+      "receiver": {
+        "capabilities": [
+          "tune",
+          "audio"
+        ],
+        "device": "AR-DV1",
+        "firmware": null,
+        "id": "receiver+one",
+        "label": "",
+        "level_unit": "s_meter_count",
+        "model": null,
+        "port": "sim://ardv1",
+        "role": "receiver",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "ardv1-sim",
+          "frequency_hz": 145500000,
+          "mode": "FM",
+          "period_s": 0.01
+        },
+        "state": "disconnected"
+      }
+    },
+    "project_id": "00000000000000000000000000000001",
+    "receiver_stream_id": "receiver+one",
+    "session_ids": [
+      "guard-сессия/%+?"
+    ],
+    "site": "Cité+%/?",
+    "state": "ready"
+  },
+  "quiet_analysis": {
+    "cursor": "sweep-α/%+027",
+    "event_ids": [],
+    "events_updated": 0,
+    "processed_sweeps": 5,
+    "project_id": "00000000000000000000000000000001",
+    "quality_issues": 0
+  },
+  "records": {
+    "allowed": [
+      {
+        "comment": "Original units",
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "end_hz": 100070000,
+        "id": "00000000000000000000000000000002",
+        "name": "Known carrier",
+        "project_id": "00000000000000000000000000000001",
+        "start_hz": 100060000,
+        "watch_changes": true
+      }
+    ],
+    "baseline": [
+      {
+        "confirmed": true,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_version": "robust-city-v1",
+        "ended_at": "2026-11-11T12:01:17.123456+00:00",
+        "fingerprint": "51a038f9c00dc981633dc565f653efeaf18e01b5f9c90e3f58648da6e5c034e7",
+        "frequencies_hz": [
+          100000000,
+          100010000,
+          100020000,
+          100030000,
+          100040000,
+          100050000,
+          100060000,
+          100070000,
+          100080000
+        ],
+        "id": "00000000000000000000000000000003",
+        "location": "Roof",
+        "mad_db": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "name": "Quiet",
+        "p50_dbm": [
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0
+        ],
+        "p95_dbm": [
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0,
+          -100.0
+        ],
+        "preparation": {
+          "antenna_notes": "RX fixture",
+          "confirmed_at": "2026-11-11T13:00:00.123456Z",
+          "location_confirmed": true,
+          "receive_path_confirmed": true
+        },
+        "project_id": "00000000000000000000000000000001",
+        "sample_strategy": "uniform_window_plus_latest_twenty",
+        "source_refs": [
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+000"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+001"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+002"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+003"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+004"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+005"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+006"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+007"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+008"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+009"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+010"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+011"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+012"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+013"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+014"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+015"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+016"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+017"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+018"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+019"
+          }
+        ],
+        "started_at": "2026-11-11T12:00:00.123456+00:00",
+        "sweep_period_seconds": 4.0
+      }
+    ],
+    "event": [
+      {
+        "baseline_id": "00000000000000000000000000000003",
+        "center_frequency_hz": 100040000,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "detector_version": "robust-city-v1",
+        "disposition": "false_positive",
+        "end_frequency_hz": 100040000,
+        "first_bin": 4,
+        "first_seen": "2026-11-11T12:01:20.123456+00:00",
+        "id": "00000000000000000000000000000004",
+        "kind": "persistent",
+        "last_bin": 4,
+        "last_seen": "2026-11-11T12:01:29.123456Z",
+        "operator_comment": "Known fixture",
+        "peak_excess_db": 8.0,
+        "peak_level": -92.0,
+        "project_id": "00000000000000000000000000000001",
+        "quiet_sweeps": 5,
+        "run_session_id": "guard-сессия/%+?",
+        "source_count": 3,
+        "source_refs": [
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+020"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+021"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+022"
+          }
+        ],
+        "start_frequency_hz": 100040000,
+        "state": "closed"
+      },
+      {
+        "baseline_id": "00000000000000000000000000000003",
+        "center_frequency_hz": 100040000,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "detector_version": "robust-city-v1",
+        "disposition": "unreviewed",
+        "end_frequency_hz": 100040000,
+        "first_bin": 4,
+        "first_seen": "2026-11-11T12:02:40.123456+00:00",
+        "id": "00000000000000000000000000000006",
+        "kind": "persistent",
+        "last_bin": 4,
+        "last_seen": "2026-11-11T12:02:49.123456Z",
+        "peak_excess_db": 8.0,
+        "peak_level": -92.0,
+        "project_id": "00000000000000000000000000000001",
+        "quiet_sweeps": 0,
+        "run_session_id": "guard-сессия/%+?",
+        "source_count": 3,
+        "source_refs": [
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+040"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+041"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+042"
+          }
+        ],
+        "start_frequency_hz": 100040000,
+        "state": "open"
+      }
+    ],
+    "event-source": [
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000004",
+        "id": "00000000000000000000000000000004.sweep-α/%+020",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+020"
+      },
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000004",
+        "id": "00000000000000000000000000000004.sweep-α/%+021",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+021"
+      },
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000004",
+        "id": "00000000000000000000000000000004.sweep-α/%+022",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+022"
+      },
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000006",
+        "id": "00000000000000000000000000000006.sweep-α/%+040",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+040"
+      },
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000006",
+        "id": "00000000000000000000000000000006.sweep-α/%+041",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+041"
+      },
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "event_id": "00000000000000000000000000000006",
+        "id": "00000000000000000000000000000006.sweep-α/%+042",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+042"
+      }
+    ],
+    "project": [
+      {
+        "active_session_id": "guard-сессия/%+?",
+        "analyzer_stream_id": "spectrum/one",
+        "autostart": false,
+        "baseline_id": "00000000000000000000000000000003",
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_cursor": "sweep-α/%+042",
+        "detector_rowid": 31,
+        "detector_state": {
+          "active": [],
+          "last_started_at": "2026-11-11T12:02:48.123456Z",
+          "offsets": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "recent_sources": [
+            {
+              "session_id": "guard-сессия/%+?",
+              "started_at": "2026-11-11T12:02:40.123456+00:00",
+              "stream_id": "spectrum/one",
+              "sweep_id": "sweep-α/%+040"
+            },
+            {
+              "session_id": "guard-сессия/%+?",
+              "started_at": "2026-11-11T12:02:44.123456+00:00",
+              "stream_id": "spectrum/one",
+              "sweep_id": "sweep-α/%+041"
+            },
+            {
+              "session_id": "guard-сессия/%+?",
+              "started_at": "2026-11-11T12:02:48.123456+00:00",
+              "stream_id": "spectrum/one",
+              "sweep_id": "sweep-α/%+042"
+            }
+          ],
+          "window": [
+            [
+              false,
+              false,
+              false,
+              false,
+              true,
+              false,
+              false,
+              false,
+              false
+            ],
+            [
+              false,
+              false,
+              false,
+              false,
+              true,
+              false,
+              false,
+              false,
+              false
+            ],
+            [
+              false,
+              false,
+              false,
+              false,
+              true,
+              false,
+              false,
+              false,
+              false
+            ]
+          ]
+        },
+        "id": "00000000000000000000000000000001",
+        "name": "Room α",
+        "parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "preparation": {
+          "antenna_notes": "RX fixture",
+          "confirmed_at": "2026-11-11T13:00:00.123456Z",
+          "location_confirmed": true,
+          "receive_path_confirmed": true
+        },
+        "profile": {
+          "analyzer": {
+            "capabilities": [
+              "sweep",
+              "waterfall"
+            ],
+            "device": "tinySA Ultra",
+            "firmware": null,
+            "id": "spectrum/one",
+            "label": "",
+            "level_unit": "dBm",
+            "model": null,
+            "port": "sim://tinysa",
+            "role": "spectrum_analyzer",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "tinysa-sim",
+              "period_s": 0.01,
+              "points": 9,
+              "start_hz": 100000000,
+              "stop_hz": 100080000
+            },
+            "state": "disconnected"
+          },
+          "receiver": {
+            "capabilities": [
+              "tune",
+              "audio"
+            ],
+            "device": "AR-DV1",
+            "firmware": null,
+            "id": "receiver+one",
+            "label": "",
+            "level_unit": "s_meter_count",
+            "model": null,
+            "port": "sim://ardv1",
+            "role": "receiver",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "ardv1-sim",
+              "frequency_hz": 145500000,
+              "mode": "FM",
+              "period_s": 0.01
+            },
+            "state": "disconnected"
+          }
+        },
+        "project_id": "00000000000000000000000000000001",
+        "receiver_stream_id": "receiver+one",
+        "session_ids": [
+          "guard-сессия/%+?"
+        ],
+        "site": "Cité+%/?",
+        "state": "ready"
+      }
+    ],
+    "quality": [
+      {
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "gap_seconds": 52.0,
+        "id": "00000000000000000000000000000005",
+        "kind": "data_gap",
+        "previous_started_at": "2026-11-11T12:01:48.123456Z",
+        "project_id": "00000000000000000000000000000001",
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+040"
+      }
+    ]
+  },
+  "replay_analysis": {
+    "cursor": "sweep-α/%+042",
+    "event_ids": [],
+    "events_updated": 0,
+    "processed_sweeps": 0,
+    "project_id": "00000000000000000000000000000001",
+    "quality_issues": 0
+  },
+  "reviewed_event": {
+    "baseline_id": "00000000000000000000000000000003",
+    "center_frequency_hz": 100040000,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "detector_parameters": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "detector_version": "robust-city-v1",
+    "disposition": "false_positive",
+    "end_frequency_hz": 100040000,
+    "first_bin": 4,
+    "first_seen": "2026-11-11T12:01:20.123456+00:00",
+    "id": "00000000000000000000000000000004",
+    "kind": "persistent",
+    "last_bin": 4,
+    "last_seen": "2026-11-11T12:01:29.123456Z",
+    "operator_comment": "Known fixture",
+    "peak_excess_db": 8.0,
+    "peak_level": -92.0,
+    "project_id": "00000000000000000000000000000001",
+    "quiet_sweeps": 0,
+    "run_session_id": "guard-сессия/%+?",
+    "source_count": 3,
+    "source_refs": [
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+020"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+021"
+      },
+      {
+        "session_id": "guard-сессия/%+?",
+        "stream_id": "spectrum/one",
+        "sweep_id": "sweep-α/%+022"
+      }
+    ],
+    "start_frequency_hz": 100040000,
+    "state": "open"
+  },
+  "session": {
+    "contract_version": 1,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "ended_at": null,
+    "id": "guard-сессия/%+?",
+    "metadata": {},
+    "name": "Synthetic guard session",
+    "started_at": null,
+    "state": "draft",
+    "streams": [
+      {
+        "capabilities": [
+          "sweep",
+          "waterfall"
+        ],
+        "device": "tinySA Ultra",
+        "firmware": null,
+        "id": "spectrum/one",
+        "label": "",
+        "level_unit": "dBm",
+        "model": null,
+        "port": "sim://tinysa",
+        "role": "spectrum_analyzer",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "tinysa-sim",
+          "period_s": 0.01,
+          "points": 9,
+          "start_hz": 100000000,
+          "stop_hz": 100080000
+        },
+        "state": "disconnected"
+      },
+      {
+        "capabilities": [
+          "tune",
+          "audio"
+        ],
+        "device": "AR-DV1",
+        "firmware": null,
+        "id": "receiver+one",
+        "label": "",
+        "level_unit": "s_meter_count",
+        "model": null,
+        "port": "sim://ardv1",
+        "role": "receiver",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "ardv1-sim",
+          "frequency_hz": 145500000,
+          "mode": "FM",
+          "period_s": 0.01
+        },
+        "state": "disconnected"
+      }
+    ]
+  },
+  "sweeps": [
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+000",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:01.123456Z",
+        "started_at": "2026-11-11T12:00:00.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 0
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+001",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:05.123456Z",
+        "started_at": "2026-11-11T12:00:04.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 1
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+002",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:09.123456Z",
+        "started_at": "2026-11-11T12:00:08.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 2
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+003",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:13.123456Z",
+        "started_at": "2026-11-11T12:00:12.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 3
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+004",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:17.123456Z",
+        "started_at": "2026-11-11T12:00:16.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 4
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+005",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:21.123456Z",
+        "started_at": "2026-11-11T12:00:20.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 5
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+006",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:25.123456Z",
+        "started_at": "2026-11-11T12:00:24.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 6
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+007",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:29.123456Z",
+        "started_at": "2026-11-11T12:00:28.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 7
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+008",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:33.123456Z",
+        "started_at": "2026-11-11T12:00:32.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 8
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+009",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:37.123456Z",
+        "started_at": "2026-11-11T12:00:36.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 9
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+010",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:41.123456Z",
+        "started_at": "2026-11-11T12:00:40.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 10
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+011",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:45.123456Z",
+        "started_at": "2026-11-11T12:00:44.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 11
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+012",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:49.123456Z",
+        "started_at": "2026-11-11T12:00:48.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 12
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+013",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:53.123456Z",
+        "started_at": "2026-11-11T12:00:52.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 13
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+014",
+      "interval": {
+        "ended_at": "2026-11-11T12:00:57.123456Z",
+        "started_at": "2026-11-11T12:00:56.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 14
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+015",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:01.123456Z",
+        "started_at": "2026-11-11T12:01:00.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 15
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+016",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:05.123456Z",
+        "started_at": "2026-11-11T12:01:04.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 16
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+017",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:09.123456Z",
+        "started_at": "2026-11-11T12:01:08.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 17
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+018",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:13.123456Z",
+        "started_at": "2026-11-11T12:01:12.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 18
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+019",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:17.123456Z",
+        "started_at": "2026-11-11T12:01:16.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 19
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+020",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:21.123456Z",
+        "started_at": "2026-11-11T12:01:20.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 20
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+021",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:25.123456Z",
+        "started_at": "2026-11-11T12:01:24.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 21
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+022",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:29.123456Z",
+        "started_at": "2026-11-11T12:01:28.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 22
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+023",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:33.123456Z",
+        "started_at": "2026-11-11T12:01:32.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 23
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+024",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:37.123456Z",
+        "started_at": "2026-11-11T12:01:36.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 24
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+025",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:41.123456Z",
+        "started_at": "2026-11-11T12:01:40.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 25
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+026",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:45.123456Z",
+        "started_at": "2026-11-11T12:01:44.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 26
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+027",
+      "interval": {
+        "ended_at": "2026-11-11T12:01:49.123456Z",
+        "started_at": "2026-11-11T12:01:48.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 27
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+040",
+      "interval": {
+        "ended_at": "2026-11-11T12:02:41.123456Z",
+        "started_at": "2026-11-11T12:02:40.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 40
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+041",
+      "interval": {
+        "ended_at": "2026-11-11T12:02:45.123456Z",
+        "started_at": "2026-11-11T12:02:44.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 41
+      },
+      "stream_id": "spectrum/one"
+    },
+    {
+      "frequencies_hz": [
+        100000000,
+        100010000,
+        100020000,
+        100030000,
+        100040000,
+        100050000,
+        100060000,
+        100070000,
+        100080000
+      ],
+      "id": "sweep-α/%+042",
+      "interval": {
+        "ended_at": "2026-11-11T12:02:49.123456Z",
+        "started_at": "2026-11-11T12:02:48.123456Z"
+      },
+      "level_unit": "dBm",
+      "levels": [
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -92.0,
+        -100.0,
+        -100.0,
+        -100.0,
+        -100.0
+      ],
+      "session_id": "guard-сессия/%+?",
+      "settings": {
+        "adapter": "synthetic",
+        "operator_metadata": {
+          "é": "distinct",
+          "huge": 1208925819614629174706176,
+          "negative_zero": -0.0,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": "raw"
+        },
+        "rbw_hz": 10000,
+        "sequence": 42
+      },
+      "stream_id": "spectrum/one"
+    }
+  ],
+  "synthetic": true
+}

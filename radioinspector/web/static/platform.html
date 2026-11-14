@@ -21,6 +21,7 @@
   <script src="/static/frequency-raster.js" defer></script>
   <script src="/static/measurement-results.js" defer></script>
   <script src="/static/frequency-counter.js" defer></script>
+  <script src="/static/field-strength.js" defer></script>
   <script src="/static/dvb-evaluation.js" defer></script>
   <script src="/static/phonogram.js" defer></script>
   <script src="/static/signal-list.js" defer></script>
@@ -457,6 +458,16 @@
           <p id="threshold-summary"></p>
           <canvas id="threshold-canvas" width="960" height="280" role="img" aria-label="Исходный свип и адаптивный порог, dBm" hidden></canvas>
           <ol id="threshold-regions" aria-label="Области превышения порога"></ol>
+        </section>
+        <section class="mask-panel" aria-labelledby="field-heading">
+          <h3 id="field-heading">Узкополосная RMS-эквивалентная оценка поля</h3>
+          <p>Нужен калибровочный профиль выбранного тракта и совместимые исходные RMS/CW/RBW настройки. Без них расчёт недоступен. Старый скаляр field_strength — некалиброванная оценка уровня, не физическое поле.</p>
+          <label for="field-sweep">Архивный свип</label><select id="field-sweep"></select>
+          <label for="field-frequency">Частота исходного бина, целые Гц</label><input id="field-frequency" type="text" inputmode="numeric">
+          <label for="field-profile">Профиль калибровки JSON · до 64 КиБ</label>
+          <textarea id="field-profile" rows="10" spellcheck="false"></textarea>
+          <div class="form-actions"><button id="field-run" type="button" disabled>Оценить поле</button><button id="field-clear" type="button">Очистить</button></div>
+          <p id="field-status" role="status" aria-live="polite"></p><pre id="field-result"></pre>
         </section>
         <section class="mask-panel" aria-labelledby="mask-heading">
           <h3 id="mask-heading">Табличная спектральная маска · dBm</h3>

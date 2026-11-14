@@ -335,18 +335,22 @@ class AverageHTTPTests(unittest.TestCase):
         service = SessionService(store=SQLiteSessionStore(path))
         self.session = create_session(service)
         stream = self.session.streams[0].id
-        for number, level in enumerate((-100, -90, -80)):
-            service.ingest_sweep(measurement(self.session.id, stream, number, levels=[level] * 4))
-        service.ingest_sweep(measurement(self.session.id, stream, 3, settings={}))
-        service.ingest_sweep(measurement(self.session.id, stream, 4, id=" encoded/+ sweep "))
+        service.ingest_sweeps([
+            *(measurement(self.session.id, stream, number, levels=[level] * 4)
+              for number, level in enumerate((-100, -90, -80))),
+            measurement(self.session.id, stream, 3, settings={}),
+            measurement(self.session.id, stream, 4, id=" encoded/+ sweep "),
+        ])
         second = create_session(service)
-        service.ingest_sweep(measurement(second.id, second.streams[0].id, 5))
-        for number, level in ((6, -sys.float_info.max), (7, -sys.float_info.max), (8, sys.float_info.max)):
-            service.ingest_sweep(measurement(self.session.id, stream, number, levels=[level] * 4))
+        service.ingest_sweeps([
+            measurement(second.id, second.streams[0].id, 5),
+            *(measurement(self.session.id, stream, number, levels=[level] * 4)
+              for number, level in ((6, -sys.float_info.max), (7, -sys.float_info.max), (8, sys.float_info.max))),
+        ])
         size = service.archive_capacity()["database_bytes"]
         service.close()
         self.server = create_server(host="127.0.0.1", port=0, session_database=path, archive_max_bytes=size)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop_server)
         self.root = f"/api/v1/sessions/{self.session.id}/sweep-average-comparison"
@@ -360,11 +364,12 @@ class AverageHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, payload=None, *, raw=None, path=None, method="POST"):
-        if raw is None:
+        if raw is None and method == "POST":
             raw = json.dumps(request_body() if payload is None else payload).encode()
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         try:
-            connection.request(method, path or self.root, body=raw, headers={"Content-Type": "application/json"})
+            connection.request(method, path or self.root, body=raw,
+                               headers={"Content-Type": "application/json"} if raw is not None else {})
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:

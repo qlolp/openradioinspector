@@ -133,7 +133,7 @@ class MonitoringProjectTests(unittest.TestCase):
 
     def test_http_contract_and_old_api_survive(self):
         server = create_server(host='127.0.0.1', port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); thread.start()
         try:
             session = server.session_service.create_session(simulated_session_payload())
             connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)

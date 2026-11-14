@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from .contracts import ReceiverObservation, Sweep
+from .observation_precision import check_extension, decode_level
 
 
 def _batch_size(value: int) -> int:
@@ -48,7 +49,7 @@ def _observation(row: sqlite3.Row) -> ReceiverObservation:
             },
             "frequency_hz": row["frequency_hz"],
             "mode": row["mode"],
-            "level": row["level"],
+            "level": decode_level(row["level"], row["level_bits_le"]),
             "level_unit": row["level_unit"],
             "squelch_open": (
                 None if row["squelch_open"] is None else bool(row["squelch_open"])
@@ -92,6 +93,8 @@ class SQLiteArchiveSnapshot:
         stream_id: Optional[str],
     ) -> None:
         self._connection = connection
+        check_extension(connection)
+        self._level_bits = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ori_observation_level_bits'").fetchone() is not None
         self._clause, self._parameters = self._filters(session_id, stream_id)
         self.sweep_count = self._count("sweeps")
         self.observation_count = self._count("observations")
@@ -117,12 +120,18 @@ class SQLiteArchiveSnapshot:
         size = _batch_size(batch_size)
         if table not in ("sweeps", "observations"):
             raise ValueError("Неизвестная таблица архива")
+        projection, source = '*', table
+        if table == 'observations':
+            projection = 'source.*, precision.level_bits_le' if self._level_bits else 'source.*, NULL AS level_bits_le'
+            source = '(SELECT * FROM observations WHERE ' + self._clause + ') AS source'
+            if self._level_bits:
+                source += ' LEFT JOIN ori_observation_level_bits AS precision ON precision.observation_id=source.id'
         cursor = self._connection.execute(
             f"""
-            SELECT *, CASE WHEN instr(started_at, '.') = 0
+            SELECT {projection}, CASE WHEN instr(started_at, '.') = 0
                 THEN replace(started_at, 'Z', '.000000Z')
                 ELSE started_at END AS sort_started_at
-            FROM {table} WHERE {self._clause}
+            FROM {source} {'' if table == 'observations' else 'WHERE ' + self._clause}
             ORDER BY sort_started_at, id
             """,
             self._parameters,

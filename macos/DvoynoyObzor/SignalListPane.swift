@@ -47,7 +47,7 @@ final class SignalListModel: ObservableObject {
     func reset() { configure(client: nil, scope: nil) }
     func clearResult() {
         revision += 1; request?.cancel(); timeout?.cancel(); request = nil; timeout = nil
-        pending = false; errorText = nil
+        pending = false; errorText = nil; infoText = nil
         // Editing the draft invalidates any frozen exchange result, as elsewhere.
         lastExport = nil; lastImport = nil
     }

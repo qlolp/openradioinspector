@@ -1,0 +1,144 @@
+name: Modern core and shared clients
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  modern:
+    name: modern-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest, ubuntu-24.04-arm]
+        include:
+          - os: ubuntu-latest
+            core_python: "3.12.14"
+          - os: windows-latest
+            core_python: "3.12.10"
+          - os: macos-latest
+            core_python: "3.12.10"
+          - os: ubuntu-24.04-arm
+            core_python: "3.12.14"
+    # The native workflow owns this Xcode/Swift selection; reuse its verified inventory.
+    runs-on: ${{ matrix.os == 'macos-latest' && 'xcode-27' || matrix.os }}
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      CARGO_BUILD_JOBS: "2"
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: core-python
+        with:
+          python-version: ${{ matrix.core_python }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: research-python
+        with:
+          python-version: "3.15.1"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26.13.0"
+      - name: Select verified Swift 6.4.2 toolchain
+        if: runner.os == 'macOS'
+        run: bash macos/ci/select-xcode.sh
+      - name: Prepare pinned Rust toolchain and locked dependencies
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.99.1
+          cargo fetch --locked
+      - name: Prepare Linux native audio build headers
+        if: runner.os == 'Linux'
+        run: |
+          if ! (command -v pkg-config >/dev/null 2>&1 && pkg-config --exists alsa); then
+            sudo apt-get update
+            sudo apt-get install -y pkg-config libasound2-dev
+          fi
+          command -v pkg-config
+          pkg-config --exists alsa
+      - name: Prepare hashed core dependencies
+        env:
+          CORE_PYTHON: ${{ steps.core-python.outputs.python-path }}
+        run: '"$CORE_PYTHON" -m pip install --require-hashes -r requirements/core.lock'
+      - name: Prepare isolated hashed research environment
+        env:
+          RESEARCH_BASE_PYTHON: ${{ steps.research-python.outputs.python-path }}
+        run: |
+          "$RESEARCH_BASE_PYTHON" - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          prefix=Path(os.environ['RUNNER_TEMP'])/'ori-research'
+          subprocess.run([sys.executable,'-m','venv',str(prefix)],check=True)
+          python=prefix/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
+          for lock in ('research/requirements.lock','research/build-requirements.lock'):
+              subprocess.run([str(python),'-m','pip','install','--require-hashes','-r',lock],check=True)
+          subprocess.run([str(python),'-m','pip','install','--no-deps','--no-build-isolation','./research'],check=True)
+          # Point-analysis RPC uses the installed library under Python -I.
+          subprocess.run([str(python),'-m','pip','install','--no-index','--no-deps','--no-build-isolation','.'],check=True)
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as output:
+              print('ORI_RESEARCH_PYTHON='+str(python),file=output)
+          PY
+      - name: Prepare locked TypeScript dependencies
+        run: |
+          npm ci --prefix contracts/generated/typescript --ignore-scripts --no-audit --no-fund
+          npm ci --prefix clients/web --ignore-scripts --no-audit --no-fund
+      - name: Build offline UI before compiling embedded Rust resources
+        env:
+          CORE_PYTHON: ${{ steps.core-python.outputs.python-path }}
+        run: |
+          npm --prefix clients/web run build
+          "$CORE_PYTHON" tools/build_modern_web.py
+      - name: Prepare owned Chromium for the real-Core client gate
+        working-directory: clients/web
+        run: |
+          npx --no-install playwright install --with-deps chromium
+          node --input-type=module - <<'JS'
+          import { chromium } from '@playwright/test';
+          import { appendFileSync, statSync } from 'node:fs';
+          const executable = chromium.executablePath();
+          if (!statSync(executable).isFile()) throw Error('Prepared Playwright Chromium is unavailable');
+          appendFileSync(process.env.GITHUB_ENV, 'CHROMIUM_PATH=' + executable + '\n');
+          JS
+      - name: Run owned modernization release checks
+        env:
+          CORE_PYTHON: ${{ steps.core-python.outputs.python-path }}
+        run: |
+          args=()
+          if [[ "$RUNNER_OS" == "macOS" ]]; then args+=(--swift); fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then args+=(--windows-llvm); fi
+          "$CORE_PYTHON" -m tests.run_release_checks --modern --research-python "$ORI_RESEARCH_PYTHON" "${args[@]}" --command-timeout 1200 --report-dir release-reports/modern
+      - name: Record setup failures as diagnostics too
+        if: always()
+        env:
+          MODERN_JOB_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p release-reports/modern
+          printf 'job_status=%s\n' "$MODERN_JOB_STATUS" > release-reports/modern/ci-status.log
+      - name: Preserve modernization diagnostics on every outcome
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: modern-diagnostics-${{ matrix.os }}-attempt-${{ github.run_attempt }}
+          path: release-reports/modern/
+          if-no-files-found: error
+          retention-days: 14

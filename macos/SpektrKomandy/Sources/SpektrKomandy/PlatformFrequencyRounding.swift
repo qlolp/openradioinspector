@@ -2,10 +2,10 @@ import Foundation
 import CoreFoundation
 
 /// Portable, explicitly non-normative grid profile. Calculations below validate core responses only.
-public struct PlatformFrequencyRoundingProfile: Codable, Equatable {
+public struct PlatformFrequencyRoundingProfile: Codable, Equatable, Sendable {
     public static let maximumBytes = 65_536
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
-    public struct Rule: Codable, Equatable {
+    public struct Rule: Codable, Equatable, Sendable {
         public let startFrequencyHz: Int64
         public let endFrequencyHz: Int64
         public let stepHz: Int64
@@ -32,7 +32,7 @@ public struct PlatformFrequencyRoundingProfile: Codable, Equatable {
     public let method: String
     public let tieBreak: String
     public let rules: [Rule]
-    private enum CodingKeys: String, CodingKey { case format, formatVersion, name, frequencyUnit, method, tieBreak, rules }
+    private enum CodingKeys: String, CodingKey, Sendable { case format, formatVersion, name, frequencyUnit, method, tieBreak, rules }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         format = try c.decode(String.self, forKey: .format)
@@ -79,7 +79,7 @@ public struct PlatformFrequencyRoundingProfile: Codable, Equatable {
     }
 }
 
-private struct RoundingRawKey: CodingKey {
+private struct RoundingRawKey: CodingKey, Sendable {
     let stringValue: String
     var intValue: Int? { nil }
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -91,18 +91,18 @@ private func roundingExactKeys(_ decoder: Decoder, _ expected: Set<String>) thro
         throw PlatformError.invalidResponse("Некорректные исходные поля JSON округления")
     }
 }
-private struct RoundingRawProfile: Decodable {
+private struct RoundingRawProfile: Decodable, Sendable {
     let name: String
     let format: String
     let frequencyUnit: String
     let method: String
     let tieBreak: String
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case name, format, method, rules
         case frequencyUnit = "frequency_unit"
         case tieBreak = "tie_break"
     }
-    private struct Rule: Decodable {
+    private struct Rule: Decodable, Sendable {
         init(from decoder: Decoder) throws {
             try roundingExactKeys(decoder, ["start_frequency_hz", "end_frequency_hz", "step_hz", "origin_frequency_hz", "max_offset_hz"])
         }
@@ -119,13 +119,13 @@ private struct RoundingRawProfile: Decodable {
     }
 }
 
-private struct RoundingRawEnvelope: Decodable {
-    private enum CodingKeys: String, CodingKey { case data }
-    private struct Payload: Decodable {
-        private enum CodingKeys: String, CodingKey { case candidate, profile, result }
-        private struct Candidate: Decodable {
-            private enum CodingKeys: String, CodingKey { case interval }
-            private struct Interval: Decodable {
+private struct RoundingRawEnvelope: Decodable, Sendable {
+    private enum CodingKeys: String, CodingKey, Sendable { case data }
+    private struct Payload: Decodable, Sendable {
+        private enum CodingKeys: String, CodingKey, Sendable { case candidate, profile, result }
+        private struct Candidate: Decodable, Sendable {
+            private enum CodingKeys: String, CodingKey, Sendable { case interval }
+            private struct Interval: Decodable, Sendable {
                 init(from decoder: Decoder) throws {
                     try roundingExactKeys(decoder, ["started_at", "ended_at"])
                 }
@@ -136,7 +136,7 @@ private struct RoundingRawEnvelope: Decodable {
                 _ = try c.decode(Interval.self, forKey: .interval)
             }
         }
-        private struct Result: Decodable {
+        private struct Result: Decodable, Sendable {
             init(from decoder: Decoder) throws {
                 try roundingExactKeys(decoder, ["status", "rule_index", "nearest_frequency_hz", "offset_hz", "rounded_frequency_hz"])
             }
@@ -173,7 +173,7 @@ private func roundingScopeID(_ id: String) -> Bool {
 private func roundingCandidateID(_ id: String) -> Bool { roundingScopeID(id) && id.unicodeScalars.count <= 128 }
 
 /// Immutable frequency provenance, deliberately excluding candidate state, observations and levels.
-public struct PlatformRoundingCandidate: Decodable, Equatable {
+public struct PlatformRoundingCandidate: Decodable, Equatable, Sendable {
     public let id: String
     public let sourceStreamId: String
     public let interval: PlatformInterval
@@ -200,8 +200,8 @@ public struct PlatformRoundingCandidate: Decodable, Equatable {
     }
 }
 
-public struct PlatformCandidateFrequencyRounding: Decodable, Equatable {
-    public struct Result: Decodable, Equatable {
+public struct PlatformCandidateFrequencyRounding: Decodable, Equatable, Sendable {
+    public struct Result: Decodable, Equatable, Sendable {
         public let status: String
         public let ruleIndex: Int?
         public let nearestFrequencyHz: Int64?
@@ -215,7 +215,7 @@ public struct PlatformCandidateFrequencyRounding: Decodable, Equatable {
     public let method: String
     public let tieBreak: String
     public let result: Result
-    private enum CodingKeys: String, CodingKey { case sessionId, candidate, profile, frequencyUnit, method, tieBreak, result }
+    private enum CodingKeys: String, CodingKey, Sendable { case sessionId, candidate, profile, frequencyUnit, method, tieBreak, result }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sessionId = try c.decode(String.self, forKey: .sessionId)
@@ -276,7 +276,7 @@ private func roundingProfileShape(_ object: [String: Any]) throws {
 
 extension PlatformClient {
     public func candidateFrequencyRounding(sessionID: String, candidateID: String, profileJSON: String) async throws -> PlatformCandidateFrequencyRounding {
-        struct Body: Encodable { let candidateId: String; let profileJson: String }
+        struct Body: Encodable, Sendable { let candidateId: String; let profileJson: String }
         guard roundingScopeID(sessionID), roundingCandidateID(candidateID), profileJSON.utf8.count <= PlatformFrequencyRoundingProfile.maximumBytes else {
             throw PlatformError.invalidCommand("Нужны сеанс, ID кандидата до 128 символов и профиль до 65 536 байт UTF-8")
         }

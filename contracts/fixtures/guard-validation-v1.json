@@ -1,0 +1,2384 @@
+{
+  "cases": [
+    {
+      "case_id": "000-project",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "project",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "001-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "create_baseline",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "002-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "003-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true,
+        "location": "Roof",
+        "name": "Quiet"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "004-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "disposition": "authorized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "005-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "add_allowed",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "006-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "007-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "confirm": true,
+        "location": "Roof",
+        "name": "Quiet"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "008-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "disposition": "authorized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "009-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "010-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "011-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "confirm": true,
+        "location": "Roof",
+        "name": "Quiet"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "012-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "disposition": "authorized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "013-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "014-review_event",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "015-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Неизвестный операторский вердикт"
+          }
+        },
+        "status": 400
+      },
+      "operation": "review_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "016-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "disposition": "invalid"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "017-review_event",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "disposition": "invalid"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "018-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Неизвестный операторский вердикт"
+          }
+        },
+        "status": 400
+      },
+      "operation": "review_event",
+      "payload": {
+        "disposition": "invalid"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "019-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "020-review_event",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "review_event",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "021-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Неизвестный операторский вердикт"
+          }
+        },
+        "status": 400
+      },
+      "operation": "review_event",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "022-get_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "get_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "023-get_event",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "get_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "024-get_event",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "get_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "025-get_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "data": {
+            "baseline_id": "00000000000000000000000000000003",
+            "center_frequency_hz": 100040000,
+            "created_at": "2026-11-11T13:00:00.123456Z",
+            "detector_parameters": {
+              "confirmations": 3,
+              "dwell_seconds": 10.0,
+              "hysteresis_db": 3.0,
+              "impulse_db": 12.0,
+              "margin_db": 6.0,
+              "window_sweeps": 5
+            },
+            "detector_version": "robust-city-v1",
+            "disposition": "unreviewed",
+            "end_frequency_hz": 100040000,
+            "first_bin": 4,
+            "first_seen": "2026-11-11T12:01:20.123456+00:00",
+            "id": "event-é/%+?\"",
+            "kind": "persistent",
+            "last_bin": 4,
+            "last_seen": "2026-11-11T12:01:29.123456Z",
+            "opaque": {
+              "é": -1.0000000000000002,
+              "large": 1208925819614629174706176,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": -0.0
+            },
+            "operator_comment": "",
+            "peak_excess_db": 8.0,
+            "peak_level": -92.0,
+            "project_id": "project-é/%+?\"",
+            "quiet_sweeps": 0,
+            "run_session_id": "guard-сессия/%+?",
+            "source_count": 3,
+            "source_refs": [
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+020"
+              },
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+021"
+              },
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+022"
+              }
+            ],
+            "start_frequency_hz": 100040000,
+            "state": "open"
+          }
+        },
+        "status": 200
+      },
+      "operation": "get_event",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "026-event_sources",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_sources",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "027-event_sources",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_sources",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "028-event_sources",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_sources",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "029-event_sources",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "data": {
+            "items": [],
+            "next_cursor": null
+          }
+        },
+        "status": 200
+      },
+      "operation": "event_sources",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "030-event_sources",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_sources",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "031-event_audio",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_audio",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "032-event_audio",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_audio",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "033-event_audio",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_audio",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "034-event_audio",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Для события нет аудиозаписи'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_audio",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "035-event_audio",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Событие другого проекта'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "event_audio",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "036-history_original",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "history_original",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "037-history_original",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Свип другого проекта/отсутствует'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "history_original",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "038-history_original",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Свип другого проекта/отсутствует'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "history_original",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "039-acknowledge_alert",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "acknowledge_alert",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "040-acknowledge_alert",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Тревога другого проекта/отсутствует'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "acknowledge_alert",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "041-acknowledge_alert",
+      "catalog_full": false,
+      "event_id": "other-event/%+?",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Тревога другого проекта/отсутствует'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "acknowledge_alert",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "042-acknowledge_alert",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Подтверждение принимает пустой объект"
+          }
+        },
+        "status": 400
+      },
+      "operation": "acknowledge_alert",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "043-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Подтвердите пригодность эталона обычной обстановки"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "044-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Название эталона: требуется непустая строка до 200 символов"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "045-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Название эталона: требуется непустая строка до 200 символов"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true,
+        "location": "",
+        "name": ""
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "046-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Место: требуется непустая строка до 200 символов"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true,
+        "location": "",
+        "name": "Quiet"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "047-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Подтвердите пригодность эталона обычной обстановки"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true,
+        "extra": 1
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "048-create_baseline",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Снимите проект с охраны перед заменой эталона"
+          }
+        },
+        "status": 400
+      },
+      "operation": "create_baseline",
+      "payload": {
+        "confirm": true,
+        "location": "",
+        "name": ""
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "armed",
+      "unchanged": true
+    },
+    {
+      "case_id": "049-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "050-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Неизвестное поле разрешённого сигнала"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "051-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "Rule",
+        "start_hz": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "052-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "Rule",
+        "start_hz": 1.0
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "053-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "Rule",
+        "start_hz": -1
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "054-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "Rule",
+        "start_hz": 3
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "055-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Требуется допустимый диапазон в целых Гц"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 20000000001,
+        "name": "Rule",
+        "start_hz": 0
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "056-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "watch_changes должен быть boolean"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "Rule",
+        "start_hz": 1,
+        "watch_changes": 1
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "057-add_allowed",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Название: требуется непустая строка до 200 символов"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "",
+        "start_hz": 1
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "058-save_preparation",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны антенна, подтверждения тракта и места"
+          }
+        },
+        "status": 400
+      },
+      "operation": "save_preparation",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "059-manual_acquire",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Выберите роль analyzer/receiver"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_acquire",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "060-manual_renew",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужен только token"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_renew",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "061-manual_return",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужен только token"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_return",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "062-manual_tune",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token, frequency_hz и mode"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_tune",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "063-search_start",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token, event_id и span_hz"
+          }
+        },
+        "status": 400
+      },
+      "operation": "search_start",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "064-search_mark",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token и label"
+          }
+        },
+        "status": 400
+      },
+      "operation": "search_mark",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "065-manual_acquire",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Нужна работающая охрана"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_acquire",
+      "payload": {
+        "role": "receiver"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "066-manual_renew",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_renew",
+      "payload": {
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "067-manual_return",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_return",
+      "payload": {
+        "token": null
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "068-manual_tune",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_tune",
+      "payload": {
+        "frequency_hz": "invalid",
+        "mode": "TETRA",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "069-search_start",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "search_start",
+      "payload": {
+        "event_id": "event-é/%+?\"",
+        "span_hz": "invalid",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "070-search_mark",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "search_mark",
+      "payload": {
+        "label": "",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "071-save_preparation",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны антенна, подтверждения тракта и места"
+          }
+        },
+        "status": 400
+      },
+      "operation": "save_preparation",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "072-manual_acquire",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Выберите роль analyzer/receiver"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_acquire",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "073-manual_renew",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужен только token"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_renew",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "074-manual_return",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужен только token"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_return",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "075-manual_tune",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token, frequency_hz и mode"
+          }
+        },
+        "status": 400
+      },
+      "operation": "manual_tune",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "076-search_start",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token, event_id и span_hz"
+          }
+        },
+        "status": 400
+      },
+      "operation": "search_start",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "077-search_mark",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Нужны token и label"
+          }
+        },
+        "status": 400
+      },
+      "operation": "search_mark",
+      "payload": {},
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "078-manual_acquire",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Нужна работающая охрана"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_acquire",
+      "payload": {
+        "role": "receiver"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "079-manual_renew",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_renew",
+      "payload": {
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "080-manual_return",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_return",
+      "payload": {
+        "token": null
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "081-manual_tune",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "manual_tune",
+      "payload": {
+        "frequency_hz": "invalid",
+        "mode": "TETRA",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "082-search_start",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "search_start",
+      "payload": {
+        "event_id": "event-é/%+?\"",
+        "span_hz": "invalid",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "083-search_mark",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_conflict",
+            "message": "Охрана не активна; снимите её для сброса владения"
+          }
+        },
+        "status": 409
+      },
+      "operation": "search_mark",
+      "payload": {
+        "label": "",
+        "token": "opaque-unrecognized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "084-save_preparation",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Антенна/тракт: требуется непустая строка до 1000 символов"
+          }
+        },
+        "status": 400
+      },
+      "operation": "save_preparation",
+      "payload": {
+        "antenna_notes": "",
+        "location_confirmed": false,
+        "receive_path_confirmed": 1
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "085-save_preparation",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "monitoring_not_found",
+            "message": "'Запись наблюдения не найдена'"
+          }
+        },
+        "status": 404
+      },
+      "operation": "save_preparation",
+      "payload": {
+        "antenna_notes": "RX",
+        "location_confirmed": true,
+        "receive_path_confirmed": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "086-review_event",
+      "catalog_full": false,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "data": {
+            "baseline_id": "00000000000000000000000000000003",
+            "center_frequency_hz": 100040000,
+            "created_at": "2026-11-11T13:00:00.123456Z",
+            "detector_parameters": {
+              "confirmations": 3,
+              "dwell_seconds": 10.0,
+              "hysteresis_db": 3.0,
+              "impulse_db": 12.0,
+              "margin_db": 6.0,
+              "window_sweeps": 5
+            },
+            "detector_version": "robust-city-v1",
+            "disposition": "authorized",
+            "end_frequency_hz": 100040000,
+            "first_bin": 4,
+            "first_seen": "2026-11-11T12:01:20.123456+00:00",
+            "id": "event-é/%+?\"",
+            "kind": "persistent",
+            "last_bin": 4,
+            "last_seen": "2026-11-11T12:01:29.123456Z",
+            "opaque": {
+              "é": -1.0000000000000002,
+              "large": 1208925819614629174706176,
+              "reserved": {
+                "$serde_json::private::Number": "source"
+              },
+              "é": -0.0
+            },
+            "operator_comment": "{'é': 1208925819614629174706176, 'é': -0.0}",
+            "peak_excess_db": 8.0,
+            "peak_level": -92.0,
+            "project_id": "project-é/%+?\"",
+            "quiet_sweeps": 0,
+            "run_session_id": "guard-сессия/%+?",
+            "source_count": 3,
+            "source_refs": [
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+020"
+              },
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+021"
+              },
+              {
+                "session_id": "guard-сессия/%+?",
+                "stream_id": "spectrum/one",
+                "sweep_id": "sweep-α/%+022"
+              }
+            ],
+            "start_frequency_hz": 100040000,
+            "state": "open"
+          }
+        },
+        "status": 200
+      },
+      "operation": "review_event",
+      "payload": {
+        "comment": {
+          "é": 1208925819614629174706176,
+          "é": -0.0
+        },
+        "disposition": "authorized"
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": false
+    },
+    {
+      "case_id": "087-add_allowed",
+      "catalog_full": true,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Предел каталога: 1000 правил"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "end_hz": 2,
+        "name": "",
+        "start_hz": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    },
+    {
+      "case_id": "088-add_allowed",
+      "catalog_full": true,
+      "event_id": "event-é/%+?\"",
+      "expected": {
+        "body": {
+          "contract": "openradioinspector-platform",
+          "contract_version": 1,
+          "error": {
+            "code": "invalid_monitoring_request",
+            "message": "Неизвестное поле разрешённого сигнала"
+          }
+        },
+        "status": 400
+      },
+      "operation": "add_allowed",
+      "payload": {
+        "unexpected": true
+      },
+      "project_id": "project-é/%+?\"",
+      "project_state": "draft",
+      "unchanged": true
+    }
+  ],
+  "fixture_version": 1,
+  "hardware_validation": "not_run",
+  "records": {
+    "event": [
+      {
+        "baseline_id": "00000000000000000000000000000003",
+        "center_frequency_hz": 100040000,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "detector_version": "robust-city-v1",
+        "disposition": "unreviewed",
+        "end_frequency_hz": 100040000,
+        "first_bin": 4,
+        "first_seen": "2026-11-11T12:01:20.123456+00:00",
+        "id": "event-é/%+?\"",
+        "kind": "persistent",
+        "last_bin": 4,
+        "last_seen": "2026-11-11T12:01:29.123456Z",
+        "opaque": {
+          "é": -1.0000000000000002,
+          "large": 1208925819614629174706176,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": -0.0
+        },
+        "operator_comment": "",
+        "peak_excess_db": 8.0,
+        "peak_level": -92.0,
+        "project_id": "project-é/%+?\"",
+        "quiet_sweeps": 0,
+        "run_session_id": "guard-сессия/%+?",
+        "source_count": 3,
+        "source_refs": [
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+020"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+021"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+022"
+          }
+        ],
+        "start_frequency_hz": 100040000,
+        "state": "open"
+      },
+      {
+        "baseline_id": "00000000000000000000000000000003",
+        "center_frequency_hz": 100040000,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "detector_parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "detector_version": "robust-city-v1",
+        "disposition": "unreviewed",
+        "end_frequency_hz": 100040000,
+        "first_bin": 4,
+        "first_seen": "2026-11-11T12:01:20.123456+00:00",
+        "id": "other-event/%+?",
+        "kind": "persistent",
+        "last_bin": 4,
+        "last_seen": "2026-11-11T12:01:29.123456Z",
+        "opaque": {
+          "é": -1.0000000000000002,
+          "large": 1208925819614629174706176,
+          "reserved": {
+            "$serde_json::private::Number": "source"
+          },
+          "é": -0.0
+        },
+        "operator_comment": "",
+        "peak_excess_db": 8.0,
+        "peak_level": -92.0,
+        "project_id": "other-project/%+?",
+        "quiet_sweeps": 0,
+        "run_session_id": "guard-сессия/%+?",
+        "source_count": 3,
+        "source_refs": [
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+020"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+021"
+          },
+          {
+            "session_id": "guard-сессия/%+?",
+            "stream_id": "spectrum/one",
+            "sweep_id": "sweep-α/%+022"
+          }
+        ],
+        "start_frequency_hz": 100040000,
+        "state": "open"
+      }
+    ],
+    "project": [
+      {
+        "active_session_id": "guard-сессия/%+?",
+        "analyzer_stream_id": "spectrum/one",
+        "autostart": false,
+        "baseline_id": null,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "id": "project-é/%+?\"",
+        "name": "Room α",
+        "parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "profile": {
+          "analyzer": {
+            "capabilities": [
+              "sweep",
+              "waterfall"
+            ],
+            "device": "tinySA Ultra",
+            "firmware": null,
+            "id": "spectrum/one",
+            "label": "",
+            "level_unit": "dBm",
+            "model": null,
+            "port": "sim://tinysa",
+            "role": "spectrum_analyzer",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "tinysa-sim",
+              "period_s": 0.01,
+              "points": 9,
+              "start_hz": 100000000,
+              "stop_hz": 100080000
+            },
+            "state": "disconnected"
+          },
+          "receiver": {
+            "capabilities": [
+              "tune",
+              "audio"
+            ],
+            "device": "AR-DV1",
+            "firmware": null,
+            "id": "receiver+one",
+            "label": "",
+            "level_unit": "s_meter_count",
+            "model": null,
+            "port": "sim://ardv1",
+            "role": "receiver",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "ardv1-sim",
+              "frequency_hz": 145500000,
+              "mode": "FM",
+              "period_s": 0.01
+            },
+            "state": "disconnected"
+          }
+        },
+        "project_id": "project-é/%+?\"",
+        "receiver_stream_id": "receiver+one",
+        "session_ids": [
+          "guard-сессия/%+?"
+        ],
+        "site": "Cité+%/?",
+        "state": "draft"
+      },
+      {
+        "active_session_id": "guard-сессия/%+?",
+        "analyzer_stream_id": "spectrum/one",
+        "autostart": false,
+        "baseline_id": null,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "id": "other-project/%+?",
+        "name": "Room α",
+        "parameters": {
+          "confirmations": 3,
+          "dwell_seconds": 10.0,
+          "hysteresis_db": 3.0,
+          "impulse_db": 12.0,
+          "margin_db": 6.0,
+          "window_sweeps": 5
+        },
+        "profile": {
+          "analyzer": {
+            "capabilities": [
+              "sweep",
+              "waterfall"
+            ],
+            "device": "tinySA Ultra",
+            "firmware": null,
+            "id": "spectrum/one",
+            "label": "",
+            "level_unit": "dBm",
+            "model": null,
+            "port": "sim://tinysa",
+            "role": "spectrum_analyzer",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "tinysa-sim",
+              "period_s": 0.01,
+              "points": 9,
+              "start_hz": 100000000,
+              "stop_hz": 100080000
+            },
+            "state": "disconnected"
+          },
+          "receiver": {
+            "capabilities": [
+              "tune",
+              "audio"
+            ],
+            "device": "AR-DV1",
+            "firmware": null,
+            "id": "receiver+one",
+            "label": "",
+            "level_unit": "s_meter_count",
+            "model": null,
+            "port": "sim://ardv1",
+            "role": "receiver",
+            "serial_number": null,
+            "session_id": "guard-сессия/%+?",
+            "settings": {
+              "adapter": "ardv1-sim",
+              "frequency_hz": 145500000,
+              "mode": "FM",
+              "period_s": 0.01
+            },
+            "state": "disconnected"
+          }
+        },
+        "project_id": "other-project/%+?",
+        "receiver_stream_id": "receiver+one",
+        "session_ids": [
+          "guard-сессия/%+?"
+        ],
+        "site": "Cité+%/?",
+        "state": "draft"
+      }
+    ]
+  },
+  "synthetic": true
+}

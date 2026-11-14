@@ -29,6 +29,7 @@ public enum MonitoringValue: Codable, Equatable, Sendable {
         }
     }
     public subscript(_ key: String) -> MonitoringValue { if case .object(let x) = self { return x[key] ?? .null }; return .null }
+    public var exactID: PlatformExactID { PlatformExactID(self["id"].text) }
     public var text: String { if case .string(let x) = self { return x }; return "" }
     public var items: [MonitoringValue] { if case .array(let x) = self { return x }; return [] }
     public var bool: Bool? { if case .boolean(let x) = self { return x }; return nil }
@@ -70,19 +71,19 @@ public struct MonitoringProjectPageState: Sendable {
         cursors.indices.contains(page) ? cursors[page] : nil
     }
     public mutating func select(_ id: String) {
-        guard id.isEmpty || items.contains(where: { $0["id"].text == id }) else { return }
+        guard id.isEmpty || items.contains(where: { PlatformExactID.same($0["id"].text, id) }) else { return }
         selectedID = id
     }
     public mutating func apply(_ result: MonitoringValue, page: Int) {
         guard cursors.indices.contains(page) else { return }
-        let selection = items.first { $0["id"].text == selectedID }
+        let selection = items.first { PlatformExactID.same($0["id"].text, selectedID) }
         pageIndex = page
         cursors = Array(cursors.prefix(page + 1))
         nextCursor = result["next_cursor"].text
         if !nextCursor.isEmpty { cursors.append(nextCursor) }
         pageItems = Array(result["items"].items.prefix(200))
         items = pageItems
-        if let selection, !items.contains(where: { $0["id"].text == selectedID }) {
+        if let selection, !items.contains(where: { PlatformExactID.same($0["id"].text, selectedID) }) {
             items.insert(selection, at: 0)
         }
         if !loaded && selectedID.isEmpty { selectedID = items.first?["id"].text ?? "" }
@@ -91,7 +92,7 @@ public struct MonitoringProjectPageState: Sendable {
     public mutating func created(_ project: MonitoringValue) {
         guard !project["id"].text.isEmpty else { return }
         selectedID = project["id"].text
-        items = pageItems.filter { $0["id"].text != selectedID }
+        items = pageItems.filter { !PlatformExactID.same($0["id"].text, selectedID) }
         items.insert(project, at: 0)
         loaded = true
     }
@@ -170,14 +171,14 @@ public struct MonitoringHistoryRow: Equatable, Sendable, Identifiable {
 /// A bounded latest-page snapshot; historical page navigation never feeds this state.
 public struct MonitoringAlertSoundState: Sendable {
     private var initialized = false
-    private var seen: Set<String> = []
+    private var seen: Set<PlatformExactID> = []
     public init() {}
     public mutating func observe(_ items: [MonitoringValue], enabled: Bool) -> Bool {
         let latest = Array(items.prefix(100))
         let shouldSound = initialized && enabled && latest.contains {
-            !$0["id"].text.isEmpty && !seen.contains($0["id"].text) && $0["acknowledged_at"] == .null
+            !$0["id"].text.isEmpty && !seen.contains(PlatformExactID($0["id"].text)) && $0["acknowledged_at"] == .null
         }
-        seen = Set(latest.map { $0["id"].text }.filter { !$0.isEmpty })
+        seen = Set(latest.map { $0["id"].text }.filter { !$0.isEmpty }.map { PlatformExactID($0) })
         initialized = true
         return shouldSound
     }
@@ -185,12 +186,13 @@ public struct MonitoringAlertSoundState: Sendable {
 
 /// Follow a changed project session once; later manual archive browsing remains selected.
 public struct MonitoringProjectSessionFollowState: Sendable {
-    private var followed: [String: [String: String]] = [:]
+    private var followed: [PlatformExactID: [PlatformExactID: PlatformExactID]] = [:]
     public init() {}
     public mutating func sessionToFollow(endpoint: String, projectID: String, activeSessionID: String) -> String? {
+        let endpointKey = PlatformExactID(endpoint), projectKey = PlatformExactID(projectID), sessionKey = PlatformExactID(activeSessionID)
         guard !endpoint.isEmpty, !projectID.isEmpty, !activeSessionID.isEmpty,
-              followed[endpoint]?[projectID] != activeSessionID else { return nil }
-        followed[endpoint, default: [:]][projectID] = activeSessionID
+              followed[endpointKey]?[projectKey] != sessionKey else { return nil }
+        followed[endpointKey, default: [:]][projectKey] = sessionKey
         return activeSessionID
     }
 }
@@ -251,6 +253,8 @@ extension PlatformClient {
         return try await get("/monitoring-projects" + path)
     }
 
+    public func coreCapabilities() async throws -> MonitoringValue { try await get("/capabilities") }
+
     public func monitoringProject(
         _ projectID: String, resource: String = "", body: [String: MonitoringValue]? = nil
     ) async throws -> MonitoringValue {
@@ -299,7 +303,7 @@ extension PlatformClient {
         guard !projectID.isEmpty, !sweepID.isEmpty else { throw PlatformError.invalidCommand("Выберите свип проекта") }
         let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/history/\(Self.segment(sweepID))" + (comparison ? "/comparison" : ""))
         if comparison {
-            guard result["sweep_id"].text == sweepID, result["compatible"].bool != nil,
+            guard PlatformExactID.same(result["sweep_id"].text, sweepID), result["compatible"].bool != nil,
                   result["display_only"].bool == true, result["items"].items.count <= 320 else {
                 throw PlatformError.invalidResponse("Некорректное сравнение с эталоном")
             }
@@ -310,7 +314,7 @@ extension PlatformClient {
                 }
             }
         } else {
-            guard try MonitoringHistoryRow(result, raw: true).id == sweepID else {
+            guard PlatformExactID.same(try MonitoringHistoryRow(result, raw: true).id, sweepID) else {
                 throw PlatformError.invalidResponse("Ядро вернуло другой свип")
             }
         }

@@ -1,7 +1,10 @@
 """Synthetic Tk coverage for the thin monitoring receiver workspace."""
 import io
+import json
+import sys
 import tempfile
 import threading
+import time
 import unittest
 import wave
 from unittest.mock import Mock
@@ -17,6 +20,112 @@ PROJECTS = {'items': [dict(id='p1', name='Room', site='Office', state='ready'),
 EVENT = dict(id='e1', project_id='p1', kind='new_signal', center_frequency_hz=100000000,
              last_seen='2026-11-10T12:00:00Z', state='open', disposition='unreviewed',
              analysis=dict(state='observed', audio=dict(session_id='s', stream_id='r', id='wav1')))
+
+
+class _ViewportDiagnostics:
+    """Passive bounded evidence; never pumps events or suppresses body errors."""
+    def __init__(self, root, targets, *, stream=None):
+        self.root, self.targets = root, targets
+        self.stream = sys.stderr if stream is None else stream
+        self.started = time.monotonic()
+        self.timer_ids, self.observer_ids = [], []
+        self.observer_lines = {}
+        self.active = True
+        self.counts = {name: dict(count=0, width=None, height=None) for name in targets}
+
+    def _write(self, record):
+        try:
+            text = json.dumps(record, ensure_ascii=True, sort_keys=True)
+            if len(text) > 8192:
+                text = json.dumps(dict(phase=record['phase'], diagnostic_error='record_budget'))
+            print(text, file=self.stream, flush=True)
+        except Exception:
+            # A broken diagnostic sink cannot replace an original assertion.
+            pass
+
+    def _error(self, phase, error):
+        self._write(dict(phase=phase, diagnostic_error=type(error).__name__[:64]))
+
+    def phase(self, phase):
+        try:
+            pending = self.root.tk.splitlist(self.root.tk.call('after', 'info'))
+            timers = []
+            for identifier in pending[:16]:
+                info = self.root.tk.call('after', 'info', identifier)
+                timers.append(dict(id=str(identifier)[:128], kind=str(info[1])[:16]))
+            windows = {name: dict(width=widget.winfo_width(), height=widget.winfo_height(),
+                                 requested_width=widget.winfo_reqwidth(),
+                                 requested_height=widget.winfo_reqheight(),
+                                 mapped=bool(widget.winfo_ismapped()))
+                       for name, widget in self.targets.items()}
+            self._write(dict(phase=phase, elapsed_seconds=round(time.monotonic()-self.started, 6),
+                             tk_patchlevel=str(self.root.tk.call('package', 'provide', 'Tk'))[:64],
+                             tcl_patchlevel=str(self.root.tk.call('info', 'patchlevel'))[:64],
+                             windowing_system=str(self.root.tk.call('tk', 'windowingsystem'))[:16],
+                             geometry=self.root.geometry()[:128], state=self.root.state()[:32],
+                             windows=windows, configure=self.counts,
+                             pending_after_count=len(pending), pending_after=timers))
+        except Exception as error:
+            self._error(phase, error)
+
+    def __enter__(self):
+        for name, widget in self.targets.items():
+            def observed(event=None, name=name, widget=widget):
+                # Toplevel bindtags also see descendant events. Count only the
+                # named window, rather than misreporting child geometry as root.
+                if not self.active or (event is not None and getattr(event, 'widget', None) is not widget):
+                    return
+                record = self.counts[name]
+                record['count'] = min(record['count'] + 1, 1_000_000_000)
+                for dimension in ('width', 'height'):
+                    value = getattr(event, dimension, None)
+                    if type(value) is int:
+                        record[dimension] = value
+            try:
+                identifier = widget.bind('<Configure>', observed, add='+')
+                self.observer_ids.append((widget, identifier))
+                script = str(widget.tk.call('bind', widget._w, '<Configure>'))
+                lines = [line for line in script.splitlines(keepends=True)
+                         if line.startswith('if {"[' + identifier + ' ')]
+                if len(lines) != 1 or script.count(identifier) != 1:
+                    raise ValueError('Unexpected owned binding representation')
+                self.observer_lines[identifier] = lines[0]
+            except Exception as error:
+                self._error('bind-' + name, error)
+        for delay in (30000, 60000):
+            try:
+                self.timer_ids.append(self.root.after(delay, lambda delay=delay: self.phase(f'after-{delay}ms')))
+            except Exception as error:
+                self._error('schedule', error)
+        self.phase('installed')
+        return self
+
+    def __exit__(self, _kind, _error, _traceback):
+        self.active = False
+        for identifier in self.timer_ids:
+            try:
+                self.root.after_cancel(identifier)
+            except Exception as error:
+                self._error('cancel-owned-timer', error)
+        for widget, identifier in self.observer_ids:
+            try:
+                # Python 3.10 unbind(sequence, funcid) clears every callback.
+                # Read CURRENT Tcl state on the same UI thread so callbacks
+                # registered after ours survive, in their original byte order.
+                script = str(widget.tk.call('bind', widget._w, '<Configure>'))
+                owned_line = self.observer_lines.get(identifier)
+                lines = script.splitlines(keepends=True)
+                if (owned_line is None or lines.count(owned_line) != 1
+                        or script.count(identifier) != 1):
+                    raise ValueError('Owned binding changed unexpectedly')
+                widget.tk.call('bind', widget._w, '<Configure>',
+                               ''.join(line for line in lines if line != owned_line))
+                widget.deletecommand(identifier)
+            except Exception as error:
+                # Preserve unknown scripts and their commands until the test's
+                # root is destroyed. Our inactive observer becomes a no-op.
+                self._error('remove-owned-observer', error)
+        return False
 
 
 class Client:
@@ -403,13 +512,111 @@ class MonitoringTkTests(unittest.TestCase):
 
 
     def test_small_viewport_can_scroll_to_history_charts(self):
-        self.panel.notebook.pack(fill='both', expand=True)
-        self.panel.workspace.select(self.panel.history_page)
-        self.root.geometry('1040x300'); self.root.deiconify(); self.root.update()
-        self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
-        self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
-        self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
-        self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+        targets = dict(root=self.root, scroll=self.panel.scroll_canvas, content=self.panel.content,
+                       history=self.panel.history_page, waterfall=self.panel.waterfall_canvas)
+        with _ViewportDiagnostics(self.root, targets) as diagnostic:
+            self.panel.notebook.pack(fill='both', expand=True)
+            self.panel.workspace.select(self.panel.history_page)
+            self.root.geometry('1040x300')
+            diagnostic.phase('before-deiconify')
+            self.root.deiconify()
+            diagnostic.phase('after-deiconify')
+            diagnostic.phase('before-update')
+            self.root.update()
+            diagnostic.phase('after-update')
+            self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
+            self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
+            self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
+            self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+
+    def test_viewport_diagnostics_remove_only_their_own_callbacks(self):
+        probe = self.app.ttk.Frame(self.root)
+        probe.winfo_id()
+        original_calls = []
+        original_binding = probe.bind('<Configure>', lambda *_: original_calls.append('original'))
+        original_script = probe.bind('<Configure>')
+        original_timer = self.root.after(90000, lambda: original_calls.append('timer'))
+        existing_timers = set(self.root.tk.call('after', 'info'))
+        output = io.StringIO()
+        try:
+            with self.assertRaisesRegex(AssertionError, 'original body assertion'):
+                with _ViewportDiagnostics(self.root, {'probe': probe}, stream=output) as diagnostic:
+                    owned_timers = set(diagnostic.timer_ids)
+                    owned_observers = list(diagnostic.observer_ids)
+                    self.assertEqual(len(owned_timers), 2)
+                    self.assertEqual(set(self.root.tk.call('after', 'info')),
+                                     existing_timers | owned_timers)
+                    self.assertIn(original_script, probe.bind('<Configure>'))
+                    self.assertEqual(len(owned_observers), 1)
+                    later_binding = probe.bind('<Configure>',
+                                               lambda *_: original_calls.append('later'), add='+')
+                    latest_script = probe.bind('<Configure>')
+                    owned_lines = [line for line in latest_script.splitlines(keepends=True)
+                                   if line.startswith('if {"[' + owned_observers[0][1] + ' ')]
+                    self.assertEqual(len(owned_lines), 1)
+                    expected_current_others = latest_script.replace(owned_lines[0], '', 1)
+                    # Real event dispatch verifies both other handlers' order.
+                    probe.event_generate('<Configure>', width=37, height=29, when='now')
+                    diagnostic.phase('helper-test')
+                    self.assertEqual(diagnostic.counts['probe']['count'], 1)
+                    self.assertEqual(original_calls, ['original', 'later'])
+                    raise AssertionError('original body assertion')
+            self.assertEqual(probe.bind('<Configure>'), expected_current_others)
+            self.assertEqual(set(self.root.tk.call('after', 'info')), existing_timers)
+            for _widget, identifier in owned_observers:
+                self.assertFalse(self.root.tk.call('info', 'commands', identifier))
+            self.assertTrue(self.root.tk.call('info', 'commands', original_binding))
+            self.assertTrue(self.root.tk.call('info', 'commands', later_binding))
+            probe.event_generate('<Configure>', width=41, height=31, when='now')
+            self.assertEqual(original_calls, ['original', 'later', 'original', 'later'])
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            record = next(item for item in records if item['phase'] == 'helper-test')
+            self.assertEqual(record['configure']['probe']['count'], 1)
+            self.assertTrue(record['tk_patchlevel'])
+            self.assertIn(record['windowing_system'], ('x11', 'aqua', 'win32'))
+            self.assertLess(len(output.getvalue()), 8192)
+            print(output.getvalue(), file=sys.stderr, end='', flush=True)
+            print(json.dumps(dict(phase='helper-ownership',
+                                  original_callback_calls=len(original_calls),
+                                  original_handler_lines_preserved=True,
+                                  later_handler_preserved=True,
+                                  original_timer=original_timer,
+                                  owned_timer_ids=sorted(owned_timers),
+                                  remaining_after_ids=sorted(existing_timers),
+                                  owned_observer_commands_removed=True,
+                                  original_assertion_propagated=True)),
+                  file=sys.stderr, flush=True)
+        finally:
+            self.root.after_cancel(original_timer)
+            probe.destroy()
+
+    def test_viewport_diagnostics_preserve_unexpected_current_binding(self):
+        probe = self.app.ttk.Frame(self.root)
+        probe.winfo_id()
+        calls = []
+        probe.bind('<Configure>', lambda *_: calls.append('original'))
+        output = io.StringIO()
+        existing_timers = set(self.root.tk.call('after', 'info'))
+        try:
+            with _ViewportDiagnostics(self.root, {'probe': probe}, stream=output) as diagnostic:
+                identifier = diagnostic.observer_ids[0][1]
+                later = probe.bind('<Configure>', lambda *_: calls.append('later'), add='+')
+                script = str(probe.tk.call('bind', probe._w, '<Configure>'))
+                # Another reference makes deletion of this Tcl command unsafe.
+                unexpected = script + diagnostic.observer_lines[identifier]
+                probe.tk.call('bind', probe._w, '<Configure>', unexpected)
+            self.assertEqual(probe.bind('<Configure>'), unexpected)
+            self.assertEqual(set(self.root.tk.call('after', 'info')), existing_timers)
+            self.assertTrue(probe.tk.call('info', 'commands', identifier))
+            self.assertTrue(probe.tk.call('info', 'commands', later))
+            probe.event_generate('<Configure>', width=41, height=31, when='now')
+            self.assertEqual(calls, ['original', 'later'])
+            self.assertEqual(diagnostic.counts['probe']['count'], 0)
+            records = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([item for item in records if item['phase'] == 'remove-owned-observer'],
+                             [dict(phase='remove-owned-observer', diagnostic_error='ValueError')])
+        finally:
+            probe.destroy()
 
 
     def test_settings_are_explicit_and_secret_is_not_rendered(self):
@@ -780,7 +987,7 @@ class MonitoringClientQueryTests(unittest.TestCase):
         from radioinspector.windows.monitoring import _download
         from tests.test_device_workers import simulated_session_payload
         server = create_server(host='127.0.0.1', port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); thread.start()
         try:
             session = server.session_service.create_session(simulated_session_payload())
             project = server.monitoring.create(dict(name='Audio', site='Fixture', session_id=session.id))

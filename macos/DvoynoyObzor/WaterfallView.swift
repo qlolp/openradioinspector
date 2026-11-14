@@ -39,6 +39,13 @@ enum WaterfallBitmap {
     }
 }
 
+/// CGImage is immutable after construction; this wrapper safely transfers its ownership.
+private final class WaterfallImageResult: @unchecked Sendable {
+    let image: CGImage?
+    init(_ image: CGImage?) { self.image = image }
+}
+
+@MainActor
 struct WaterfallView: View {
     var history: WaterfallHistory
     var revision: Int
@@ -47,29 +54,31 @@ struct WaterfallView: View {
 
     @State private var image: CGImage?
     @State private var scale = WaterfallScale(low: 0, high: 1)
+    @State private var texture = PlatformWaterfallTexture()
+    @State private var frame: NativeWaterfallFrame?
+    @State private var generation = 0
+    private struct Refresh: Equatable { let revision: Int; let scale: PlatformSpectrumScale? }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .interpolation(.none)
+            if let frame, NativeMetalResources.shared != nil {
+                NativeMetalPlot(mesh: nil, waterfall: frame)
                     .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
-                    .background(Color.primary.opacity(0.04))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
+                legend
+            } else if let image {
+                Image(decorative: image, scale: 1).resizable().interpolation(.none)
+                    .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
+                    .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
                 legend
             } else {
                 Text("Водопад появится после первого законченного свипа")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 150)
-                    .background(Color.primary.opacity(0.04))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
-        .onAppear(perform: rebuild)
-        .onChange(of: revision) { _, _ in rebuild() }
-        .onChange(of: displayScale) { _, _ in rebuild() }
+        .task(id: Refresh(revision: revision, scale: displayScale)) { await rebuild() }
     }
 
     private var legend: some View {
@@ -94,13 +103,24 @@ struct WaterfallView: View {
             .clipShape(RoundedRectangle(cornerRadius: 2))
     }
 
-    private func rebuild() {
-        guard let auto = WaterfallScale.auto(rows: history.rows) else {
-            image = nil
-            return
+    private func rebuild() async {
+        let source = history, previous = texture, bounds = displayScale
+        let metal = NativeMetalResources.shared != nil
+        let work = Task.detached(priority: .userInitiated) { () -> (PlatformWaterfallTexture, PlatformWaterfallTexture.Update, WaterfallScale, WaterfallImageResult)? in
+            guard !Task.isCancelled, let auto = WaterfallScale.auto(rows: source.rows),
+                  let display = bounds ?? PlatformSpectrumScale(lower: auto.low, upper: auto.high) else { return nil }
+            var next = previous
+            guard let update = try? next.update(source, scale: display), !Task.isCancelled else { return nil }
+            let scale = WaterfallScale(low: display.lower, high: display.upper)
+            let bitmap = metal ? nil : WaterfallBitmap.makeImage(rows: source.rows, scale: scale, displayScale: display)
+            return (next, update, scale, WaterfallImageResult(bitmap))
         }
-        scale = displayScale.map { WaterfallScale(low: $0.lower, high: $0.upper) } ?? auto
-        image = WaterfallBitmap.makeImage(rows: history.rows, scale: scale, displayScale: displayScale)
+        let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+        guard !Task.isCancelled else { return }
+        guard let (next, update, scale, bitmap) = result else { frame = nil; image = nil; texture = PlatformWaterfallTexture(); return }
+        let previousGeneration = generation; generation += 1
+        texture = next; self.scale = scale; image = bitmap.image
+        frame = NativeWaterfallFrame(texture: next, update: update, previousGeneration: previousGeneration, generation: generation)
     }
 
     private func format(_ value: Double) -> String {

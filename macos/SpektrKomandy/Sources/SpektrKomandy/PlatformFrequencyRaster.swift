@@ -1,6 +1,6 @@
 import Foundation
 
-private struct RasterKey: CodingKey {
+private struct RasterKey: CodingKey, Sendable {
     let stringValue: String
     let intValue: Int? = nil
     init?(stringValue: String) { self.stringValue = stringValue }
@@ -15,17 +15,17 @@ private func rasterExactKeys(_ decoder: Decoder, _ expected: Set<String>) throws
 }
 
 /// Portable artifact only: a channel grid per frequency range. No calibration or normative claim.
-public struct PlatformFrequencyRaster: Codable, Equatable {
+public struct PlatformFrequencyRaster: Codable, Equatable, Sendable {
     public static let maximumBytes = 65_536
     public static let maximumFrequencyHz: Int64 = 9_007_199_254_740_991
     public static let maximumEntries = 64
     public static let maximumCandidates = 256
-    public struct Entry: Codable, Equatable {
+    public struct Entry: Codable, Equatable, Sendable {
         public let name: String
         public let startHz: Int64
         public let stopHz: Int64
         public let gridStepHz: Int64
-        private enum CodingKeys: String, CodingKey { case name, startHz, stopHz, gridStepHz }
+        private enum CodingKeys: String, CodingKey, Sendable { case name, startHz, stopHz, gridStepHz }
         public init(name: String, startHz: Int64, stopHz: Int64, gridStepHz: Int64) {
             self.name = name; self.startHz = startHz; self.stopHz = stopHz; self.gridStepHz = gridStepHz
         }
@@ -48,7 +48,7 @@ public struct PlatformFrequencyRaster: Codable, Equatable {
     public let name: String
     public let frequencyUnit: String
     public let entries: [Entry]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case format, formatVersion, name, frequencyUnit, entries
     }
     public init(name: String, entries: [Entry]) {
@@ -117,7 +117,7 @@ public struct PlatformFrequencyRaster: Codable, Equatable {
 }
 
 /// One rounded candidate frequency; the archived source frequency is echoed, never changed.
-public struct PlatformFrequencyRoundingItem: Decodable, Equatable {
+public struct PlatformFrequencyRoundingItem: Decodable, Equatable, Sendable {
     public let candidateId: String
     public let frequencyHz: Int64
     public let matched: Bool
@@ -128,7 +128,7 @@ public struct PlatformFrequencyRoundingItem: Decodable, Equatable {
 }
 
 /// Read-only derived rounding; candidates in the archive are never rewritten.
-public struct PlatformFrequencyRounding: Decodable, Equatable {
+public struct PlatformFrequencyRounding: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let order: String
     public let table: PlatformFrequencyRaster
@@ -136,7 +136,7 @@ public struct PlatformFrequencyRounding: Decodable, Equatable {
     public let matchedCount: Int
     public let unmatchedCount: Int
     public let items: [PlatformFrequencyRoundingItem]
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, order, table, count, matchedCount, unmatchedCount, items
     }
     public init(from decoder: Decoder) throws {
@@ -192,7 +192,7 @@ public struct PlatformFrequencyRounding: Decodable, Equatable {
 extension PlatformClient {
     /// POST is explicitly read-only: no candidate, event or measurement is written.
     public func frequencyRounding(sessionID: String, candidateIDs: [String], tableJSON: String) async throws -> PlatformFrequencyRounding {
-        struct Body: Encodable { let tableJson: String; let candidateIds: [String] }
+        struct Body: Encodable, Sendable { let tableJson: String; let candidateIds: [String] }
         guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PlatformError.invalidCommand("Нужен ID сеанса")
         }

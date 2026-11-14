@@ -1,0 +1,2898 @@
+{
+  "backends": [
+    "rust-candidate"
+  ],
+  "baseline_support": {
+    "get_api_v1_capabilities": {
+      "capabilities": [],
+      "features": []
+    },
+    "get_api_v1_events": {
+      "capabilities": [],
+      "features": [
+        "event_stream"
+      ]
+    },
+    "get_api_v1_events_history": {
+      "capabilities": [],
+      "features": [
+        "session_event_history"
+      ]
+    },
+    "get_api_v1_health": {
+      "capabilities": [],
+      "features": []
+    },
+    "get_api_v1_measurement_catalog": {
+      "capabilities": [],
+      "features": [
+        "measurement_results"
+      ]
+    },
+    "get_api_v1_monitoring_projects": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_audio_inputs": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_alerts": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_allowed": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_baselines": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_baselines_baseline_id": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_events": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_events_event_id": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_events_event_id_audio": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_events_event_id_sources": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_history": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_history_sweep_id": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_preflight": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_search_status": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_settings": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_status": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_monitoring_projects_project_id_storage": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "get_api_v1_sessions": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
+    "get_api_v1_sessions_id": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
+    "get_api_v1_sessions_id_analytics_summary": {
+      "capabilities": [],
+      "features": [
+        "session_analytics"
+      ]
+    },
+    "get_api_v1_sessions_id_archive_export": {
+      "capabilities": [],
+      "features": [
+        "session_archive_export"
+      ]
+    },
+    "get_api_v1_sessions_id_archive_export_ndjson": {
+      "capabilities": [],
+      "features": [
+        "session_archive_export"
+      ]
+    },
+    "get_api_v1_sessions_id_candidates": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_candidates_by_id_candidate_id": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_candidates_candidate_id": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_investigations": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_investigations_by_id_investigation_id": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_investigations_investigation_id": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_investigations_next": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "get_api_v1_sessions_id_measurement_results": {
+      "capabilities": [],
+      "features": [
+        "measurement_results"
+      ]
+    },
+    "get_api_v1_sessions_id_observations": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
+    "get_api_v1_sessions_id_signal_list_export": {
+      "capabilities": [],
+      "features": [
+        "signal_list_exchange"
+      ]
+    },
+    "get_api_v1_sessions_id_sweep_comparison": {
+      "capabilities": [],
+      "features": [
+        "sweep_comparison"
+      ]
+    },
+    "get_api_v1_sessions_id_sweep_references": {
+      "capabilities": [],
+      "features": [
+        "named_sweep_references"
+      ]
+    },
+    "get_api_v1_sessions_id_sweep_summaries": {
+      "capabilities": [],
+      "features": [
+        "sweep_summaries"
+      ]
+    },
+    "get_api_v1_sessions_id_sweep_threshold": {
+      "capabilities": [],
+      "features": [
+        "adaptive_sweep_threshold"
+      ]
+    },
+    "get_api_v1_sessions_id_sweeps": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
+    "get_api_v1_sessions_id_workers": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "get_api_v1_task_scheduler": {
+      "capabilities": [],
+      "features": [
+        "control_task_planning"
+      ]
+    },
+    "get_api_v1_task_scheduler_tasks": {
+      "capabilities": [],
+      "features": [
+        "control_task_planning"
+      ]
+    },
+    "get_api_v1_workers": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_monitoring_projects": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_alerts_alert_id_ack": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_allowed": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_analyze": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_arm": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_baselines": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_configure": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_disarm": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_events_event_id_review": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_manual_acquire": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_manual_renew": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_manual_return": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_manual_tune": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_preparation": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_preparation_start": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_preparation_stop": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_search_mark": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_search_start": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_monitoring_projects_project_id_settings": {
+      "capabilities": [],
+      "features": [
+        "monitoring_projects"
+      ]
+    },
+    "post_api_v1_sessions": {
+      "capabilities": [],
+      "features": [
+        "sessions"
+      ]
+    },
+    "post_api_v1_sessions_id_audio_segments": {
+      "capabilities": [],
+      "features": [
+        "audio_segment_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_candidate_frequency_rounding": {
+      "capabilities": [],
+      "features": [
+        "candidate_frequency_rounding"
+      ]
+    },
+    "post_api_v1_sessions_id_candidates": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_candidates_candidate_id_dismiss": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_candidates_candidate_id_investigations": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_dvb_evaluation": {
+      "capabilities": [],
+      "features": [
+        "dvb_t_evaluation"
+      ]
+    },
+    "post_api_v1_sessions_id_frequency_counter": {
+      "capabilities": [],
+      "features": [
+        "frequency_counter"
+      ]
+    },
+    "post_api_v1_sessions_id_field_strength_rms_v2": {
+      "capabilities": [],
+      "features": [
+        "field_strength_rms_v2"
+      ]
+    },
+    "post_api_v1_sessions_id_frequency_rounding": {
+      "capabilities": [],
+      "features": [
+        "frequency_raster_rounding"
+      ]
+    },
+    "post_api_v1_sessions_id_investigations_investigation_id_cancel": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_investigations_investigation_id_complete": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_investigations_investigation_id_fail": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_investigations_investigation_id_start": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_investigations_start_next": {
+      "capabilities": [],
+      "features": [
+        "candidate_investigations"
+      ]
+    },
+    "post_api_v1_sessions_id_measurement_map": {
+      "capabilities": [],
+      "features": [
+        "measurement_map"
+      ]
+    },
+    "post_api_v1_sessions_id_measurement_results": {
+      "capabilities": [],
+      "features": [
+        "measurement_results"
+      ]
+    },
+    "post_api_v1_sessions_id_observations": {
+      "capabilities": [],
+      "features": [
+        "measurement_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_observations_batch": {
+      "capabilities": [],
+      "features": [
+        "measurement_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_signal_list_import": {
+      "capabilities": [],
+      "features": [
+        "signal_list_exchange"
+      ]
+    },
+    "post_api_v1_sessions_id_streams_stream_id_start": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_sessions_id_streams_stream_id_stop": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_sessions_id_streams_stream_id_tune": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_average_change_detection": {
+      "capabilities": [],
+      "features": [
+        "averaged_sweep_change_detection"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_average_comparison": {
+      "capabilities": [],
+      "features": [
+        "averaged_sweep_reference"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_context": {
+      "capabilities": [],
+      "features": [
+        "sweep_context"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_mask_analysis": {
+      "capabilities": [],
+      "features": [
+        "spectral_mask_analysis"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_occupancy": {
+      "capabilities": [],
+      "features": [
+        "sweep_occupancy"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_quality": {
+      "capabilities": [],
+      "features": [
+        "sweep_quality"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_references": {
+      "capabilities": [],
+      "features": [
+        "named_sweep_references"
+      ]
+    },
+    "post_api_v1_sessions_id_sweep_three_thresholds": {
+      "capabilities": [],
+      "features": [
+        "three_sweep_thresholds"
+      ]
+    },
+    "post_api_v1_sessions_id_sweeps": {
+      "capabilities": [],
+      "features": [
+        "measurement_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_sweeps_batch": {
+      "capabilities": [],
+      "features": [
+        "measurement_ingest"
+      ]
+    },
+    "post_api_v1_sessions_id_workers_start": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_sessions_id_workers_stop": {
+      "capabilities": [],
+      "features": [
+        "independent_worker_commands"
+      ]
+    },
+    "post_api_v1_task_scheduler": {
+      "capabilities": [],
+      "features": [
+        "control_task_planning"
+      ],
+      "request_features": [
+        {
+          "equals": true,
+          "feature": "control_task_scheduler",
+          "field": "enabled"
+        }
+      ]
+    },
+    "post_api_v1_task_scheduler_tasks": {
+      "capabilities": [],
+      "features": [
+        "control_task_planning"
+      ]
+    },
+    "post_api_v1_task_scheduler_tasks_name_cancel": {
+      "capabilities": [],
+      "features": [
+        "control_task_planning"
+      ]
+    }
+  },
+  "components": {
+    "schemas": {
+      "BrowserPairing": {
+        "additionalProperties": false,
+        "properties": {
+          "credential": {
+            "enum": [
+              "browser_cookie"
+            ],
+            "type": "string"
+          },
+          "paired": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paired",
+          "credential"
+        ],
+        "type": "object"
+      },
+      "CredentialRevocation": {
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "type": "object"
+      },
+      "CredentialRevocationEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/CredentialRevocation"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryCancelResult": {
+        "additionalProperties": true,
+        "properties": {
+          "cancelled": {
+            "const": true,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancelled"
+        ],
+        "type": "object"
+      },
+      "HistoryCancelResultEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HistoryCancelResult"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryEnforcement": {
+        "additionalProperties": true,
+        "description": "Actual worker containment capabilities. A true cooperative pacing feature is not proof of physical I/O enforcement. Preserve unknown capability metadata.",
+        "properties": {
+          "hard_cache_quota": {
+            "type": "boolean"
+          },
+          "hard_io": {
+            "type": "boolean"
+          },
+          "hard_memory": {
+            "type": "boolean"
+          },
+          "hard_temp_quota": {
+            "type": "boolean"
+          },
+          "process_tree_termination": {
+            "type": "boolean"
+          },
+          "sampled_rss": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "process_tree_termination",
+          "hard_memory",
+          "hard_io",
+          "hard_cache_quota",
+          "hard_temp_quota",
+          "sampled_rss"
+        ],
+        "type": "object"
+      },
+      "HistoryFilters": {
+        "additionalProperties": false,
+        "description": "Immutable source scope. UTC microseconds are exact signed int64; start is inclusive, end is exclusive. If both times are set start must precede end; frequency bounds are inclusive and ordered. Omit optional fields to use the full selected dimension.",
+        "properties": {
+          "ended_at_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_frequency_hz": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "min_frequency_hz": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "session_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": [
+              "string",
+              "null"
+            ],
+            "x-ori-max-utf8-bytes": 1024
+          },
+          "started_at_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stream_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": [
+              "string",
+              "null"
+            ],
+            "x-ori-max-utf8-bytes": 1024
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "HistoryJob": {
+        "additionalProperties": true,
+        "description": "Job status. Nullable fields are always present, including the full unsigned64 source boundary. Successful job identities and cursors address a sealed derived source, not a full archive backup.",
+        "properties": {
+          "enforcement": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryEnforcement"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryJobFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^[a-f0-9]{32}$",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "export",
+              "summary",
+              "occupancy"
+            ],
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "snapshot",
+              "running",
+              "completed",
+              "cancelled",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "result_available": {
+            "type": "boolean"
+          },
+          "source_boundary": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "phase",
+          "source_boundary",
+          "source_sha256",
+          "result_available",
+          "enforcement",
+          "failure"
+        ],
+        "type": "object"
+      },
+      "HistoryJobEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HistoryJob"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryJobFailure": {
+        "additionalProperties": true,
+        "properties": {
+          "code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string",
+            "x-ori-max-utf8-bytes": 128
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "retryable"
+        ],
+        "type": "object"
+      },
+      "HistoryJobList": {
+        "additionalProperties": true,
+        "description": "At most one active job and 32 retained completed jobs; configured retention may be smaller.",
+        "properties": {
+          "count": {
+            "format": "uint64",
+            "maximum": 33,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryJob"
+            },
+            "maxItems": 33,
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "items"
+        ],
+        "type": "object"
+      },
+      "HistoryJobListEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HistoryJobList"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryJobResult": {
+        "additionalProperties": true,
+        "description": "Derived output only. data retains operation-specific rows, opaque next_cursor and cache metadata; metrics and unknown nested JSON keys remain exact and open. Source measurements remain in the canonical archive.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "enforcement": {
+            "$ref": "#/components/schemas/HistoryEnforcement"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "data",
+          "metrics",
+          "enforcement"
+        ],
+        "type": "object"
+      },
+      "HistoryJobResultEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HistoryJobResult"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryMeasurementCursor": {
+        "additionalProperties": false,
+        "description": "Exact original source ID and UTC timestamp; ordering uses exact UTF-8 ID bytes on a timestamp tie.",
+        "properties": {
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_at",
+          "id"
+        ],
+        "type": "object"
+      },
+      "HistoryPageRequest": {
+        "additionalProperties": false,
+        "description": "Only an optional opaque result cursor is accepted. Omission/null selects the first page on the same sealed source; a nonnull cursor must belong to that original query.",
+        "properties": {
+          "cursor": {
+            "maxLength": 4096,
+            "type": [
+              "string",
+              "null"
+            ],
+            "x-ori-max-utf8-bytes": 4096
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "HistoryRequest": {
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "else": {
+              "properties": {
+                "threshold": {
+                  "type": "null"
+                }
+              }
+            },
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "occupancy"
+                }
+              },
+              "required": [
+                "operation"
+              ]
+            },
+            "then": {
+              "properties": {
+                "threshold": {
+                  "$ref": "#/components/schemas/HistoryThreshold"
+                }
+              },
+              "required": [
+                "threshold"
+              ]
+            }
+          }
+        ],
+        "description": "Typed derived job only: no SQL, executable, filesystem path or resource-policy fields. Filters default to empty and page_size defaults to 100. Occupancy requires a nonnull threshold; export and summary accept only absent/null threshold.",
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/HistoryFilters"
+          },
+          "operation": {
+            "enum": [
+              "export",
+              "summary",
+              "occupancy"
+            ],
+            "type": "string"
+          },
+          "page_size": {
+            "format": "uint64",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryThreshold"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "type": "object"
+      },
+      "HistoryThreshold": {
+        "additionalProperties": false,
+        "description": "Finite float64 in its original raw unit. No S-meter calibration conversion is implied.",
+        "properties": {
+          "unit": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string",
+            "x-ori-max-utf8-bytes": 128
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportCell": {
+        "additionalProperties": true,
+        "description": "Original source frequency, float64 level and point index of the FIRST maximum in this display bucket; preserve raw level unit from the parent row and the sign of zero.",
+        "properties": {
+          "bucket": {
+            "format": "uint64",
+            "maximum": 1023,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "frequency_hz": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "level": {
+            "format": "double",
+            "type": "number"
+          },
+          "point_index": {
+            "format": "uint64",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "bucket",
+          "frequency_hz",
+          "level",
+          "point_index"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportCursor": {
+        "additionalProperties": false,
+        "description": "Immutable viewport boundary and query identity, including the original measurement cursor. Never substitute the latest boundary when replaying.",
+        "properties": {
+          "after": {
+            "$ref": "#/components/schemas/HistoryMeasurementCursor"
+          },
+          "boundary": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query_key": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boundary",
+          "query_key",
+          "after"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportPage": {
+        "additionalProperties": true,
+        "description": "Derived bounded waterfall page, never a replacement for canonical raw arrays. Paging is frozen to its source boundary/query identity; maximum encoded result is 2 MiB.",
+        "properties": {
+          "boundary": {
+            "format": "uint64",
+            "maximum": 18446744073709551615,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cache_key": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "derived": {
+            "const": true,
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryViewportCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quality": {
+            "$ref": "#/components/schemas/HistoryViewportQuality"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryViewportRow"
+            },
+            "maxItems": 100,
+            "type": "array"
+          }
+        },
+        "required": [
+          "derived",
+          "boundary",
+          "cache_key",
+          "rows",
+          "quality",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportPageEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/HistoryViewportPage"
+              }
+            }
+          }
+        ]
+      },
+      "HistoryViewportQuality": {
+        "additionalProperties": true,
+        "properties": {
+          "frequency_gaps": {
+            "type": "boolean"
+          },
+          "heterogeneous": {
+            "type": "boolean"
+          },
+          "incomplete_settings": {
+            "type": "boolean"
+          },
+          "paged": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "incomplete_settings",
+          "heterogeneous",
+          "frequency_gaps",
+          "paged"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportQuery": {
+        "additionalProperties": false,
+        "description": "Bounded display projection: columns*rows must not exceed 32768. Frequency bounds are nonnegative signed64 integer Hz and ordered; UTC microsecond time bounds are half-open and ordered. Omit null time parameters from the HTTP query. Calendar/filter validation can reject unrepresentable timestamps even though codecs preserve every int64 value.",
+        "properties": {
+          "columns": {
+            "format": "uint64",
+            "maximum": 1024,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryViewportCursor"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_frequency_hz": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_frequency_hz": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rows": {
+            "format": "uint64",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "session_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string",
+            "x-ori-max-utf8-bytes": 1024
+          },
+          "start_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "stream_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+            "type": "string",
+            "x-ori-max-utf8-bytes": 1024
+          }
+        },
+        "required": [
+          "session_id",
+          "stream_id",
+          "min_frequency_hz",
+          "max_frequency_hz",
+          "columns",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "HistoryViewportRow": {
+        "additionalProperties": true,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryViewportCell"
+            },
+            "maxItems": 1024,
+            "type": "array"
+          },
+          "ended_at_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          },
+          "level_unit": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "measurement_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "settings_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at_us": {
+            "format": "int64",
+            "maximum": 9223372036854775807,
+            "minimum": -9223372036854775808,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "measurement_id",
+          "started_at_us",
+          "ended_at_us",
+          "level_unit",
+          "settings_sha256",
+          "cells"
+        ],
+        "type": "object"
+      },
+      "MeasurementWebSocket": {
+        "properties": {
+          "encoding": {
+            "enum": [
+              "protobuf"
+            ],
+            "type": "string"
+          },
+          "max_frame_bytes": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "subprotocol": {
+            "enum": [
+              "ori.measurements.v1.protobuf"
+            ],
+            "type": "string"
+          },
+          "transport": {
+            "enum": [
+              "websocket"
+            ],
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "maximum": 1,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "transport",
+          "encoding",
+          "path",
+          "subprotocol",
+          "max_frame_bytes"
+        ],
+        "type": "object"
+      },
+      "NativePairing": {
+        "additionalProperties": false,
+        "properties": {
+          "credential": {
+            "enum": [
+              "bearer"
+            ],
+            "type": "string"
+          },
+          "paired": {
+            "const": true,
+            "type": "boolean"
+          },
+          "token": {
+            "readOnly": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "paired",
+          "credential",
+          "token"
+        ],
+        "type": "object"
+      },
+      "PairingEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/BrowserPairing"
+                  },
+                  {
+                    "$ref": "#/components/schemas/NativePairing"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "PairingInput": {
+        "additionalProperties": false,
+        "properties": {
+          "client": {
+            "enum": [
+              "browser",
+              "native"
+            ],
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string",
+            "x-ori-max-utf8-bytes": 128
+          },
+          "pairing_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pairing_code",
+          "label"
+        ],
+        "type": "object"
+      },
+      "SecurityStatus": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "legacy_loopback",
+              "lan_tls"
+            ],
+            "type": "string"
+          },
+          "pairing_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "pairing_required"
+        ],
+        "type": "object"
+      },
+      "SecurityStatusEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SecurityStatus"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "securitySchemes": {
+      "browserSession": {
+        "in": "cookie",
+        "name": "ori_session",
+        "type": "apiKey"
+      },
+      "nativeBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "description": "Reviewed additive candidate resources and explicit baseline support requirements. Python baseline remains unchanged. Task planning does not enable execution; audio input enumeration is not remote streaming or hardware validation.",
+  "extension": "openradioinspector-runtime",
+  "extension_version": 1,
+  "paths": {
+    "/api/v1/events/ws": {
+      "get": {
+        "description": "One committed binary event in flight. Required subprotocol ori.measurements.v1.protobuf; after is the last applied exact unsigned64 decimal. Client acknowledges an applied frame with canonical positive decimal TEXT equal to its sequence, within30s. Ping/Pong never advances cursor. Disconnect replays from client's last applied cursor.",
+        "operationId": "get_api_v1_events_ws",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": {
+              "default": "0",
+              "pattern": "^(0|[1-9][0-9]{0,19})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Authenticated measurement WebSocket"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Malformed cursor, handshake or missing required subprotocol"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid/revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host/Origin/transport"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Shared SSE/WS subscriber limit"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-applied-ack-deadline-seconds": 30,
+        "x-max-frame-bytes": 16842752,
+        "x-ori-support": {
+          "capabilities": [
+            "ori.measurements.v1.protobuf"
+          ],
+          "features": []
+        },
+        "x-websocket-subprotocol": "ori.measurements.v1.protobuf"
+      }
+    },
+    "/api/v1/history/jobs": {
+      "get": {
+        "description": "List bounded active and retained derived jobs. Accepts no query parameters.",
+        "operationId": "get_api_v1_history_jobs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryJobListEnvelope"
+                }
+              }
+            },
+            "description": "List bounded active and retained derived jobs. Accepts no query parameters."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      },
+      "post": {
+        "description": "Submit one immutable scoped derived source job. The global heavy admission precedes source selection; a missing worker returns 503. Accepts no query parameters.",
+        "operationId": "post_api_v1_history_jobs",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryJobEnvelope"
+                }
+              }
+            },
+            "description": "Submit one immutable scoped derived source job. The global heavy admission precedes source selection; a missing worker returns 503. Accepts no query parameters."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-max-request-bytes": 65536,
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/jobs/{id}": {
+      "get": {
+        "description": "Read retained derived job status. Accepts no query parameters.",
+        "operationId": "get_api_v1_history_jobs_id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[a-f0-9]{32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryJobEnvelope"
+                }
+              }
+            },
+            "description": "Read retained derived job status. Accepts no query parameters."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/jobs/{id}/cancel": {
+      "post": {
+        "description": "Request owned job cancellation. The body must be an empty object; cleanup retains admission through actual JOIN. Accepts no query parameters.",
+        "operationId": "post_api_v1_history_jobs_id_cancel",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[a-f0-9]{32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCancelResultEnvelope"
+                }
+              }
+            },
+            "description": "Request owned job cancellation. The body must be an empty object; cleanup retains admission through actual JOIN. Accepts no query parameters."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-max-request-bytes": 65536,
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/jobs/{id}/exports/{table}": {
+      "get": {
+        "description": "Stream one fixed sealed Parquet table. This is derived data; it is not a full canonical backup. The reader retains ownership until actual completion. Accepts no query parameters.",
+        "operationId": "get_api_v1_history_jobs_id_exports_table",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[a-f0-9]{32}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "enum": [
+                "streams",
+                "sweeps",
+                "sweep_points",
+                "observations"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.apache.parquet": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Stream one fixed sealed Parquet table. This is derived data; it is not a full canonical backup. The reader retains ownership until actual completion. Accepts no query parameters.",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "schema": {
+                  "format": "uint64",
+                  "maximum": 18446744073709551615,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "X-Content-SHA256": {
+                "schema": {
+                  "pattern": "^[a-f0-9]{64}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/jobs/{id}/pages": {
+      "post": {
+        "description": "Submit the next derived result page against the same original sealed source and request. The supplied cursor is opaque; never query the mutable live database.",
+        "operationId": "post_api_v1_history_jobs_id_pages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[a-f0-9]{32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryPageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryJobEnvelope"
+                }
+              }
+            },
+            "description": "Submit the next derived result page against the same original sealed source and request. The supplied cursor is opaque; never query the mutable live database."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-max-request-bytes": 65536,
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/jobs/{id}/result": {
+      "get": {
+        "description": "Read an available bounded derived result. A still-running job is history_busy 503. Accepts no query parameters.",
+        "operationId": "get_api_v1_history_jobs_id_result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 32,
+              "pattern": "^[a-f0-9]{32}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryJobResultEnvelope"
+                }
+              }
+            },
+            "description": "Read an available bounded derived result. A still-running job is history_busy 503. Accepts no query parameters."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_jobs"
+          ]
+        }
+      }
+    },
+    "/api/v1/history/waterfall": {
+      "get": {
+        "description": "Build or replay a bounded derived display projection without changing raw source arrays. The original unit, exact first-max point, signed zero and immutable query boundary are retained.",
+        "operationId": "get_api_v1_history_waterfall",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+              "type": "string",
+              "x-ori-max-utf8-bytes": 1024
+            }
+          },
+          {
+            "in": "query",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$",
+              "type": "string",
+              "x-ori-max-utf8-bytes": 1024
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_frequency_hz",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_frequency_hz",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "columns",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 1024,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rows",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_us",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_us",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "maximum": 9223372036854775807,
+              "minimum": -9223372036854775808,
+              "type": "integer"
+            }
+          },
+          {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HistoryViewportCursor"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "JSON-encoded structured cursor or null, at most 4096 UTF-8 bytes; percent-encode this JSON as one query value. It is not a deepObject or opaque job-page cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryViewportPageEnvelope"
+                }
+              }
+            },
+            "description": "Build or replay a bounded derived display projection without changing raw source arrays. The original unit, exact first-max point, signed zero and immutable query boundary are retained."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "invalid_request: malformed typed input, query/cursor, scope, time, unit or bounds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or revoked credential"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Untrusted Host, Origin or transport"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_not_found: unknown retained job or source scope"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_resource_limit: selected source, derived result or cache budget exceeded"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_failed: trusted worker or derived source failure"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "history_worker_unavailable, runtime_quiescing, history_busy, acquisition_pressure, history_cancelled, history_closed or history_unsafe_storage; worker absence is explicit and never a synthetic result"
+          }
+        },
+        "x-ori-support": {
+          "capabilities": [],
+          "features": [
+            "derived_history_viewport"
+          ]
+        }
+      }
+    },
+    "/api/v1/security/browser-session": {
+      "post": {
+        "description": "Valid Bearer only; cookie credentials and mixed credentials are refused. Installs the same hashed credential in an embedded browser; never returns token JSON.",
+        "operationId": "post_api_v1_security_browser_session",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/BrowserPairing"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Browser-cookie envelope plus Secure HttpOnly SameSite=Strict Path=/api Set-Cookie",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          }
+        ],
+        "x-max-request-bytes": 4096,
+        "x-ori-support": {
+          "capabilities": [
+            "lan_tls"
+          ],
+          "features": []
+        }
+      }
+    },
+    "/api/v1/security/credentials/current": {
+      "delete": {
+        "operationId": "delete_api_v1_security_credentials_current",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialRevocationEnvelope"
+                }
+              }
+            },
+            "description": "Current device credential revoked; cookie expired and active SSE closed"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-max-request-bytes": 4096,
+        "x-ori-support": {
+          "capabilities": [
+            "lan_tls"
+          ],
+          "features": []
+        }
+      }
+    },
+    "/api/v1/security/credentials/current/revoke": {
+      "post": {
+        "operationId": "post_api_v1_security_credentials_current_revoke",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialRevocationEnvelope"
+                }
+              }
+            },
+            "description": "Current device credential revoked; cookie expired and active SSE closed"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-max-request-bytes": 4096,
+        "x-ori-support": {
+          "capabilities": [
+            "lan_tls"
+          ],
+          "features": []
+        }
+      }
+    },
+    "/api/v1/security/pair": {
+      "post": {
+        "description": "Requires actual trusted TLS and an owner-opened single-use pairing window. Browser clients require trusted Origin. Sets Secure HttpOnly SameSite=Strict Path=/api session cookie; native response additionally returns the token once.",
+        "operationId": "post_api_v1_security_pair",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingEnvelope"
+                }
+              }
+            },
+            "description": "Paired browser cookie, or explicit native Bearer credential",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid or ambiguous request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Incorrect pairing code"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Loopback mode requires no pairing"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Window absent, expired, exhausted or already used"
+          }
+        },
+        "security": [],
+        "x-max-request-bytes": 4096,
+        "x-ori-support": {
+          "capabilities": [
+            "lan_tls"
+          ],
+          "features": []
+        }
+      }
+    },
+    "/api/v1/security/status": {
+      "get": {
+        "operationId": "get_api_v1_security_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityStatusEnvelope"
+                }
+              }
+            },
+            "description": "Bounded public security mode; no credentials or pairing code"
+          }
+        },
+        "security": [],
+        "x-ori-support": {
+          "capabilities": [],
+          "features": []
+        }
+      }
+    }
+  }
+}

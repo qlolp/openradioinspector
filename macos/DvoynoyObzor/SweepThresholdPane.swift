@@ -39,7 +39,7 @@ final class SweepThresholdModel: ObservableObject {
         self.client = client
         self.scope = scope
         self.source = source.flatMap { sweep in
-            guard sweep.sessionId == scope?.session, sweep.streamId == scope?.stream,
+            guard PlatformExactID.same(sweep.sessionId, scope?.session), PlatformExactID.same(sweep.streamId, scope?.stream),
                   sweep.levelUnit == "dBm" else { return nil }
             return sweep
         }
@@ -73,7 +73,7 @@ final class SweepThresholdModel: ObservableObject {
             do {
                 let value = try await fetch(client, scope.session, source.id, window, margin)
                 guard let self, !Task.isCancelled, self.matches(scope, client, currentRevision) else { return }
-                guard value.streamId == scope.stream else {
+                guard PlatformExactID.same(value.streamId, scope.stream) else {
                     throw PlatformError.invalidResponse("Сервер вернул порог другого потока")
                 }
                 self.result = value

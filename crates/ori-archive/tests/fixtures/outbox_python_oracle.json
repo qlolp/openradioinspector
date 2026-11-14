@@ -1,0 +1,167 @@
+{
+  "synthetic": true,
+  "hardware_validation": "not_run",
+  "now": "2026-11-11T00:00:00.123456Z",
+  "project": {
+    "id": "project",
+    "project_id": "project",
+    "created_at": "2026-11-11T00:00:00.123456Z",
+    "session_ids": [],
+    "webhook_enabled": true
+  },
+  "url": "https://synthetic.invalid/notify",
+  "secret": "public-synthetic-outbox-key",
+  "identifier": "36e1eac4eb495936a27009c60c99db2b",
+  "duplicate_identifier": "36e1eac4eb495936a27009c60c99db2b",
+  "original": {
+    "id": "36e1eac4eb495936a27009c60c99db2b",
+    "project_id": "project",
+    "created_at": "2026-11-11T00:00:00.123456Z",
+    "payload": {
+      "event_id": null,
+      "kind": "new_signal",
+      "message": "Fixture π",
+      "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+      "occurred_at": "2026-11-11T00:00:00.123456Z",
+      "project_id": "project",
+      "severity": "warning"
+    },
+    "state": "pending",
+    "attempts": 0,
+    "next_at": "2026-11-11T00:00:00.123456Z",
+    "error": null,
+    "lease_until": null,
+    "acknowledged_at": null,
+    "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+  },
+  "first_delivery": true,
+  "retry": {
+    "id": "36e1eac4eb495936a27009c60c99db2b",
+    "project_id": "project",
+    "created_at": "2026-11-11T00:00:00.123456Z",
+    "payload": {
+      "event_id": null,
+      "kind": "new_signal",
+      "message": "Fixture π",
+      "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+      "occurred_at": "2026-11-11T00:00:00.123456Z",
+      "project_id": "project",
+      "severity": "warning"
+    },
+    "state": "pending",
+    "attempts": 1,
+    "next_at": "2026-11-11T00:00:10.123456Z",
+    "error": "network_error",
+    "lease_until": null,
+    "acknowledged_at": null,
+    "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+  },
+  "early_delivery": false,
+  "second_delivery": true,
+  "sent": {
+    "id": "36e1eac4eb495936a27009c60c99db2b",
+    "project_id": "project",
+    "created_at": "2026-11-11T00:00:00.123456Z",
+    "payload": {
+      "event_id": null,
+      "kind": "new_signal",
+      "message": "Fixture π",
+      "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+      "occurred_at": "2026-11-11T00:00:00.123456Z",
+      "project_id": "project",
+      "severity": "warning"
+    },
+    "state": "sent",
+    "attempts": 2,
+    "next_at": null,
+    "error": null,
+    "lease_until": null,
+    "acknowledged_at": null,
+    "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+  },
+  "acknowledged": {
+    "id": "36e1eac4eb495936a27009c60c99db2b",
+    "project_id": "project",
+    "created_at": "2026-11-11T00:00:00.123456Z",
+    "payload": {
+      "event_id": null,
+      "kind": "new_signal",
+      "message": "Fixture π",
+      "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+      "occurred_at": "2026-11-11T00:00:00.123456Z",
+      "project_id": "project",
+      "severity": "warning"
+    },
+    "state": "sent",
+    "attempts": 2,
+    "next_at": null,
+    "error": null,
+    "lease_until": null,
+    "acknowledged_at": "2026-11-11T00:00:50.123456Z",
+    "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+  },
+  "transport": [
+    {
+      "claim": {
+        "id": "36e1eac4eb495936a27009c60c99db2b",
+        "project_id": "project",
+        "created_at": "2026-11-11T00:00:00.123456Z",
+        "payload": {
+          "event_id": null,
+          "kind": "new_signal",
+          "message": "Fixture π",
+          "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+          "occurred_at": "2026-11-11T00:00:00.123456Z",
+          "project_id": "project",
+          "severity": "warning"
+        },
+        "state": "delivering",
+        "attempts": 1,
+        "next_at": "2026-11-11T00:00:00.123456Z",
+        "error": null,
+        "lease_until": "2026-11-11T00:00:30.123456Z",
+        "acknowledged_at": null,
+        "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+      },
+      "url": "https://synthetic.invalid/notify",
+      "body": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}",
+      "headers": {
+        "Content-type": "application/json",
+        "X-openradioinspector-notification-id": "36e1eac4eb495936a27009c60c99db2b",
+        "X-openradioinspector-signature": "sha256=978e657071fea04e41cb442194962200c3b389b76fe805fcd090fd12656c0adf"
+      },
+      "timeout": 3
+    },
+    {
+      "claim": {
+        "id": "36e1eac4eb495936a27009c60c99db2b",
+        "project_id": "project",
+        "created_at": "2026-11-11T00:00:00.123456Z",
+        "payload": {
+          "event_id": null,
+          "kind": "new_signal",
+          "message": "Fixture π",
+          "notification_id": "36e1eac4eb495936a27009c60c99db2b",
+          "occurred_at": "2026-11-11T00:00:00.123456Z",
+          "project_id": "project",
+          "severity": "warning"
+        },
+        "state": "delivering",
+        "attempts": 2,
+        "next_at": "2026-11-11T00:00:10.123456Z",
+        "error": "network_error",
+        "lease_until": "2026-11-11T00:00:40.123456Z",
+        "acknowledged_at": null,
+        "payload_json": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}"
+      },
+      "url": "https://synthetic.invalid/notify",
+      "body": "{\"event_id\":null,\"kind\":\"new_signal\",\"message\":\"Fixture π\",\"notification_id\":\"36e1eac4eb495936a27009c60c99db2b\",\"occurred_at\":\"2026-11-11T00:00:00.123456Z\",\"project_id\":\"project\",\"severity\":\"warning\"}",
+      "headers": {
+        "Content-type": "application/json",
+        "X-openradioinspector-notification-id": "36e1eac4eb495936a27009c60c99db2b",
+        "X-openradioinspector-signature": "sha256=978e657071fea04e41cb442194962200c3b389b76fe805fcd090fd12656c0adf"
+      },
+      "timeout": 3
+    }
+  ]
+}

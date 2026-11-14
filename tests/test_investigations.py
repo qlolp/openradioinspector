@@ -629,7 +629,7 @@ class PersistentInvestigationTests(unittest.TestCase):
 class InvestigationHttpApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.server = create_server(host="127.0.0.1", port=0)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.host, self.port = self.server.server_address
 

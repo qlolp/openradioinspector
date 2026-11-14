@@ -49,6 +49,7 @@ from .sweep_quality import calculate_sweep_quality, validate_quality_request
 from .frequency_counter import (
     calculate_frequency_counter, validate_counter_request,
 )
+from .field_strength import field_strength_rms_v2, validate_field_request
 from .dvb_parameters import evaluate_dvb_parameters
 from .phonogram import PhonogramError, PhonogramRecorder
 from .signal_list import (
@@ -149,6 +150,10 @@ class SessionService:
         self._phonograms: dict[tuple[str, str], tuple[PhonogramRecorder, Any]] = {}
         self._audio_hub = AudioStreamHub()
         self._subscribers: dict[int, queue.Queue[SessionEvent]] = {}
+        # HTTP streams retain only a wakeup flag per client. Committed event
+        # payloads come from the archive, without per-client copies on ingest.
+        self._stream_notifiers: set[threading.Event] = set()
+        self._event_stream_closed = threading.Event()
         self._sequence = 0
         self._subscriber_sequence = 0
         self._lock = threading.RLock()
@@ -212,6 +217,8 @@ class SessionService:
                 "session_recovery": persistent,
                 "measurement_ingest": True,
                 "measurement_archive": True,
+                "sweep_summaries": True,
+                "audio_segment_ingest": True,
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
                 "three_sweep_thresholds": True,
@@ -225,6 +232,7 @@ class SessionService:
                 "measurement_results": True,
                 "measurement_methodology_catalog": True,
                 "frequency_counter": True,
+                "field_strength_rms_v2": True,
                 "sweep_quality": True,
                 "dvb_t_evaluation": True,
                 "phonogram_pre_history": True,
@@ -728,6 +736,15 @@ class SessionService:
                 high_level_dbm=request["high_level_dbm"],
             )
 
+    def field_strength_rms_v2(self, session_id: str, payload: dict) -> dict[str, Any]:
+        """Read-only, calibrated narrowband CW estimate of one archived bin."""
+        request = validate_field_request(payload)
+        with self._lock:
+            self._get_locked(session_id)
+            sweep = self._get_sweep_locked(session_id, request['sweep_id'])
+            return field_strength_rms_v2(sweep, request['calibration'],
+                                         frequency_hz=request['frequency_hz'])
+
     def frequency_counter(self, session_id: str, payload: dict) -> dict[str, Any]:
         """Measure the peak frequency of one archived sweep, without writes."""
         request = validate_counter_request(payload)
@@ -1055,6 +1072,18 @@ class SessionService:
             items = self._ingestion.get((session_id, stream_id), [])
             start = bisect_right(items, after, key=lambda item: item[0])
             return copy.deepcopy(items[start:start + limit])
+
+    def sweep_summaries(self, session_id, **query):
+        from .sweep_summaries import query_parameters, sqlite_page, memory_page
+        filters, digest, cursor = query_parameters(session_id, **query)
+        limit = query.get('limit', 100)
+        with self._lock:
+            self._validate_stream_query_locked(session_id, filters['stream_id'])
+            if self._store is None:
+                return memory_page(self._ingestion.get((session_id, None), []), filters, digest, cursor, limit)
+        # Source rows are immutable; the independent read transaction fixes the
+        # ingestion watermark without holding the application's writer lock.
+        return sqlite_page(self._store, filters, digest, cursor, limit)
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100
@@ -1662,6 +1691,36 @@ class SessionService:
         with self._lock:
             self._subscribers.pop(subscriber_id, None)
 
+    def watch_commits(self) -> threading.Event:
+        """Register before reading history so a concurrent commit cannot be lost."""
+        notifier = threading.Event()
+        with self._lock:
+            self._stream_notifiers.add(notifier)
+        return notifier
+
+    def unwatch_commits(self, notifier: threading.Event) -> None:
+        with self._lock:
+            self._stream_notifiers.discard(notifier)
+
+    @property
+    def event_stream_closed(self) -> bool:
+        return self._event_stream_closed.is_set()
+
+    def next_stream_event(self, *, after: int) -> Optional[SessionEvent]:
+        """One source event at a time; persistent replay uses a short WAL reader."""
+        if after < 0:
+            raise ValueError("after должен быть неотрицательным")
+        if self._event_stream_closed.is_set():
+            return None
+        if self._store is not None and self._store.persistent:
+            return self._store.next_stream_event(after=after)
+        with self._lock:
+            if self._event_stream_closed.is_set():
+                return None
+            if self._store is not None:
+                return self._store.next_stream_event(after=after)
+            return next((copy.deepcopy(event) for event in self._events if event.sequence > after),None)
+
     def instrument_context(self, session_id, stream_id):
         session=self.get_session(session_id)
         stream=next((item for item in session.streams if item.id==stream_id),None)
@@ -1680,6 +1739,32 @@ class SessionService:
                 self._instrument_artifacts[item['id']]=item
                 self._instrument_artifact_bytes+=item['size_bytes']
         return summary(item)
+
+    def ingest_audio_segment(self, session_id, payload):
+        from .audio_segments import make_audio_segment, AudioSegmentConflict
+        from .tinysa.artifacts import summary
+        item = make_audio_segment(session_id, payload)
+        with self._lock:
+            stream = self.instrument_context(session_id, item['stream_id'])
+            if stream.role != DeviceRole.RECEIVER:
+                raise ValueError('Audio segment must belong to a receiver stream')
+            result = summary(item)
+            event = self._make_event_locked('audio_segment.received', session_id=session_id,
+                                            payload={'artifact':result})
+            if self._store is not None:
+                try:
+                    self._store.save_instrument_artifact(item, event=event)
+                except sqlite3.IntegrityError as exc:
+                    raise AudioSegmentConflict('Audio segment ID already exists or violates archive ownership') from exc
+            else:
+                if item['id'] in self._instrument_artifacts:
+                    raise AudioSegmentConflict('Audio segment ID already exists')
+                if len(self._instrument_artifacts) >= 64 or self._instrument_artifact_bytes+item['size_bytes'] > 32*1024*1024:
+                    raise ValueError('Memory artifact archive full; use SQLite or export existing artifacts')
+                self._instrument_artifacts[item['id']] = item
+                self._instrument_artifact_bytes += item['size_bytes']
+            self._publish_event_locked(event)
+            return copy.deepcopy(result)
 
     def get_instrument_artifact(self,session_id,stream_id,artifact_id):
         self.instrument_context(session_id,stream_id)
@@ -1701,6 +1786,9 @@ class SessionService:
 
     def close(self) -> None:
         with self._lock:
+            self._event_stream_closed.set()
+            for notifier in self._stream_notifiers:
+                notifier.set()
             if self._store is not None:
                 self._store.close()
 
@@ -1778,6 +1866,8 @@ class SessionService:
         """Обновляет replay и подписчиков только после успешного commit архива."""
         self._sequence = event.sequence
         self._events.append(event)
+        for notifier in self._stream_notifiers:
+            notifier.set()
         if event.event_type.startswith(("session.", "candidate.", "investigation.", "device.")):
             self._trim_registry_cache_locked()
         for subscriber in self._subscribers.values():

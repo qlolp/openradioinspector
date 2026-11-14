@@ -2,13 +2,13 @@ import Foundation
 import CoreFoundation
 
 /// Source provenance is preserved independently from the core's derived mean-power levels.
-public struct PlatformAverageSource: Decodable, Equatable {
+public struct PlatformAverageSource: Decodable, Equatable, Sendable {
     public let id: String
     public let interval: PlatformInterval
     public let settings: [String: PlatformComparisonSetting]
 }
 
-public struct PlatformAveragedReference: Decodable, Equatable {
+public struct PlatformAveragedReference: Decodable, Equatable, Sendable {
     public let method: String
     public let count: Int
     public let sourceIds: [String]
@@ -18,7 +18,7 @@ public struct PlatformAveragedReference: Decodable, Equatable {
     public let levelUnit: String
 }
 
-public struct PlatformSweepAverageComparison: Decodable, Equatable {
+public struct PlatformSweepAverageComparison: Decodable, Equatable, Sendable {
     public let sessionId: String
     public let streamId: String
     public let frequenciesHz: [Int64]
@@ -30,7 +30,7 @@ public struct PlatformSweepAverageComparison: Decodable, Equatable {
     public let minChange: PlatformComparisonExtremum
     public let points: Int
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, Sendable {
         case sessionId, streamId, frequenciesHz, reference, target, deltaLevels, deltaUnit, maxIncrease, minChange, points
     }
     public init(from decoder: Decoder) throws {
@@ -114,7 +114,7 @@ public struct PlatformSweepAverageComparison: Decodable, Equatable {
     }
 }
 
-public struct PlatformSweepChangeRegion: Decodable, Equatable {
+public struct PlatformSweepChangeRegion: Decodable, Equatable, Sendable {
     public let startIndex: Int
     public let endIndex: Int
     public let startFrequencyHz: Int64
@@ -125,14 +125,14 @@ public struct PlatformSweepChangeRegion: Decodable, Equatable {
     public let binCount: Int
 }
 
-public struct PlatformSweepChangeDetection: Decodable, Equatable {
+public struct PlatformSweepChangeDetection: Decodable, Equatable, Sendable {
     public let minimumIncreaseDb: Double
     public let minimumBins: Int
     public let regions: [PlatformSweepChangeRegion]
     public let count: Int
 }
 
-public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
+public struct PlatformSweepAverageChangeDetection: Decodable, Equatable, Sendable {
     public let comparison: PlatformSweepAverageComparison
     public let detection: PlatformSweepChangeDetection
     private var exportPayload: Data?
@@ -144,7 +144,7 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
     /// Retain the validated wire payload. Decoding settings into Double is never an export path.
     public static func validatedResponse(_ bytes: Data) throws -> Self {
         try averageResponseShape(bytes, detection: true)
-        struct Response: Decodable {
+        struct Response: Decodable, Sendable {
             let contract: String
             let contractVersion: Int
             let data: PlatformSweepAverageChangeDetection
@@ -166,7 +166,7 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
         return exportPayload
     }
 
-    private enum CodingKeys: String, CodingKey { case comparison, detection }
+    private enum CodingKeys: String, CodingKey, Sendable { case comparison, detection }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         comparison = try values.decode(PlatformSweepAverageComparison.self, forKey: .comparison)
@@ -223,7 +223,7 @@ public struct PlatformSweepAverageChangeDetection: Decodable, Equatable {
 }
 
 /// Versioned local artifact. The payload is the exact validated server JSON, not a re-encoding.
-public struct PlatformSweepAverageExportArtifact {
+public struct PlatformSweepAverageExportArtifact: Sendable {
     public let data: PlatformSweepAverageChangeDetection
     public init(data: PlatformSweepAverageChangeDetection) { self.data = data }
     public func canonicalData() throws -> Data {
@@ -340,7 +340,7 @@ func averageInterval(_ interval: PlatformInterval) -> (Int64, Int64)? {
     return (start, end)
 }
 
-private struct AverageRawKey: CodingKey {
+private struct AverageRawKey: CodingKey, Sendable {
     let stringValue: String
     var intValue: Int? { nil }
     init(_ value: String) { stringValue = value }
@@ -350,7 +350,7 @@ private struct AverageRawKey: CodingKey {
 
 /// Check original keys before Foundation can strip a leading U+FEFF during NSString bridging.
 /// Settings are arbitrary recorded JSON, so their keys and values are deliberately not rewritten.
-private struct AverageRawEnvelope: Decodable {
+private struct AverageRawEnvelope: Decodable, Sendable {
     init(from decoder: Decoder) throws {
         func object(_ decoder: Decoder, _ keys: Set<String>) throws -> KeyedDecodingContainer<AverageRawKey> {
             let value = try decoder.container(keyedBy: AverageRawKey.self)
@@ -446,7 +446,7 @@ private func averageResponseShape(_ bytes: Data, detection: Bool) throws {
 extension PlatformClient {
     /// Explicit read-only POST. Local pinning never writes an archive reference.
     public func sweepAverageComparison(sessionID: String, referenceIDs: [String], targetID: String) async throws -> PlatformSweepAverageComparison {
-        struct Body: Encodable { let referenceIds: [String]; let targetId: String }
+        struct Body: Encodable, Sendable { let referenceIds: [String]; let targetId: String }
         guard averageScopeID(sessionID), averageID(targetID), (2...16).contains(referenceIDs.count),
               referenceIDs.allSatisfy(averageID), averageUniqueIDs(referenceIDs),
               !referenceIDs.contains(where: { averageSameID($0, targetID) }) else { throw PlatformError.invalidCommand("Нужны 2–16 разных ID эталонных свипов и отдельный целевой ID (до 128 символов)") }
@@ -467,7 +467,7 @@ extension PlatformClient {
         sessionID: String, referenceIDs: [String], targetID: String,
         minimumIncreaseDb: Double, minimumBins: Int,
     ) async throws -> PlatformSweepAverageChangeDetection {
-        struct Body: Encodable {
+        struct Body: Encodable, Sendable {
             let referenceIds: [String]
             let targetId: String
             let minimumIncreaseDb: Double

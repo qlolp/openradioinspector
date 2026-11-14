@@ -82,7 +82,7 @@ class SerialSessionValidationTests(unittest.TestCase):
             with self.subTest(sqlite=sqlite):
                 service, store = self.service(sqlite)
                 server = create_server(host='127.0.0.1', port=0, sessions=service)
-                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
                 thread.start()
                 try:
                     with patch('radioinspector.serial_instruments.WindowsSerialTransport') as windows:

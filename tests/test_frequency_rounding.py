@@ -452,7 +452,7 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         size = service.archive_capacity()["database_bytes"]
         service.close()
         self.server = create_server(host="127.0.0.1", port=0, session_database=path, archive_max_bytes=size)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         self.thread.start()
         self.addCleanup(self.stop_server)
         self.root = f"/api/v1/sessions/{quote(self.session.id, safe='')}/candidate-frequency-rounding"
@@ -466,11 +466,12 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         self.server.server_close()
 
     def request(self, payload=None, *, raw=None, path=None, method="POST"):
-        if raw is None:
+        if raw is None and method == "POST":
             raw = json.dumps(request_body() if payload is None else payload).encode()
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         try:
-            connection.request(method, path or self.root, body=raw, headers={"Content-Type": "application/json"})
+            connection.request(method, path or self.root, body=raw,
+                               headers={"Content-Type": "application/json"} if raw is not None else {})
             response = connection.getresponse()
             return response.status, json.loads(response.read())
         finally:
@@ -542,10 +543,9 @@ class FrequencyRoundingHTTPTests(unittest.TestCase):
         service = self.server.session_service
         before = (service.health(), service.events(), service.archive_capacity())
         for suffix in ("?", "?x=1", "?x=", "?&", "?candidate_id=candidate-1"):
-            # Advertise a body but do not send it: query rejection must happen
-            # before body reads. Sending it after headers races the server's
-            # close and can reset the connection on Windows (WinError 10053).
-            status, response = self.raw_headers("Content-Length: 100\r\n", path=self.root + suffix)
+            # Exercise the real client's separate header/body sends. The
+            # bounded body is consumed before the query error closes the socket.
+            status, response = self.request(path=self.root + suffix)
             self.assertEqual((status, response["error"]["code"]), (400, "invalid_request"))
         self.assertEqual(self.request(method="GET", raw=b"")[0], 404)
         for identifier, expected, code in (("missing", 404, "candidate_not_found"),

@@ -172,7 +172,7 @@ class ResearchTests(unittest.TestCase):
         from radioinspector.web.server import create_server
         for i in range(20):self.sessions.ingest_sweep(sweep(i,session=self.session.id,stream=self.session.streams[0].id))
         server=create_server(host='127.0.0.1',port=0,sessions=self.sessions,workers=self.workers)
-        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        thread=threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True);thread.start()
         def request(method,suffix,body=None):
             connection=http.client.HTTPConnection('127.0.0.1',server.server_port,timeout=3)
             connection.request(method,'/api/v1/monitoring-projects/'+self.project['id']+suffix,

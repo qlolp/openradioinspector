@@ -360,6 +360,8 @@ class WindowsApp(TkTimerOwner):
         self.measurement_panel = MeasurementResultPanel(self, notebook)
         from .frequency_counter import FrequencyCounterPanel
         self.counter_panel = FrequencyCounterPanel(self, notebook)
+        from .field_strength import FieldStrengthPanel
+        self.field_panel = FieldStrengthPanel(self, notebook)
         from .dvb_parameters import DvbEvaluationPanel
         self.dvb_panel = DvbEvaluationPanel(self, notebook)
         from .phonogram import PhonogramPanel
@@ -425,6 +427,8 @@ class WindowsApp(TkTimerOwner):
             self.measurement_panel.update()
         if hasattr(self, "counter_panel"):
             self.counter_panel.update()
+        if hasattr(self, "field_panel"):
+            self.field_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
         if hasattr(self, "phonogram_panel"):
@@ -714,6 +718,8 @@ class WindowsApp(TkTimerOwner):
             self.measurement_panel.update()
         if hasattr(self, "counter_panel"):
             self.counter_panel.update()
+        if hasattr(self, "field_panel"):
+            self.field_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
         if hasattr(self, "phonogram_panel"):
@@ -901,6 +907,8 @@ class WindowsApp(TkTimerOwner):
             self.measurement_panel.update()
         if hasattr(self, "counter_panel"):
             self.counter_panel.update()
+        if hasattr(self, "field_panel"):
+            self.field_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
         if hasattr(self, "phonogram_panel"):
@@ -978,6 +986,8 @@ class WindowsApp(TkTimerOwner):
             self.measurement_panel.update()
         if hasattr(self, "counter_panel"):
             self.counter_panel.update()
+        if hasattr(self, "field_panel"):
+            self.field_panel.update()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.update()
         if hasattr(self, "phonogram_panel"):
@@ -1727,6 +1737,8 @@ class WindowsApp(TkTimerOwner):
             self.measurement_panel.close()
         if hasattr(self, "counter_panel"):
             self.counter_panel.close()
+        if hasattr(self, "field_panel"):
+            self.field_panel.close()
         if hasattr(self, "dvb_panel"):
             self.dvb_panel.close()
         if hasattr(self, "phonogram_panel"):
@@ -1752,6 +1764,8 @@ class WindowsApp(TkTimerOwner):
         self._action_callbacks.clear()
         getattr(self, '_project_action_clients', {}).clear()
         self._refresh_running = self._action_running = False
+        from .tk_variables import release_variable_traces
+        release_variable_traces(self)
         self._executor.shutdown(wait=False, cancel_futures=True)
         while True:
             try:

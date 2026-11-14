@@ -1,0 +1,35 @@
+{
+  "name": "@openradioinspector/modern-client",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "build:native": "tsc --noEmit && vite build --base ./ --outDir ../windows/frontend --emptyOutDir",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run --maxWorkers=2 --exclude 'e2e/**'",
+    "test:e2e": "playwright test",
+    "test:interaction": "playwright test --config playwright.interaction.config.ts",
+    "format:check": "prettier --check src tests/*.ts e2e *.ts *.json index.html"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "happy-dom": "21.0.4",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}

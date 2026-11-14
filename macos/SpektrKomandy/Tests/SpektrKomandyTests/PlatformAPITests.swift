@@ -307,6 +307,26 @@ final class PlatformAPITests: XCTestCase {
         )
     }
 
+    func testPersonalRCUsesAnExplicitReceiveRangeAndVerifiedReceiverProfile() async throws {
+        let configuration = try PlatformSerialReceiveConfiguration(startHz: 430_000_000, stopHz: 440_000_000, points: 290, rbwHz: 30_000)
+        let client = try client { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+            let streams = body["streams"] as! [[String: Any]]
+            let receive = streams[0]["settings"] as! [String: Any]
+            XCTAssertEqual(receive["start_hz"] as? Int, 430_000_000)
+            XCTAssertEqual(receive["stop_hz"] as? Int, 440_000_000)
+            XCTAssertEqual(receive["points"] as? Int, 290)
+            XCTAssertEqual(receive["rbw_hz"] as? Int, 30_000)
+            XCTAssertEqual((streams[1]["settings"] as? [String: Any])?["receiver_profile"] as? String, "ardv1-monitor-v1")
+            return (self.response(request.url!), self.envelope(self.sessionJSON))
+        }
+        _ = try await client.createSerialSession(name: "RC", tinySAPort: "/dev/cu.tiny", ardv1Port: "/dev/cu.aor", receive: configuration, monitorReceiverProfile: true)
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 440_000_000, stopHz: 430_000_000, points: 290, rbwHz: 30_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 801_000_000, points: 290, rbwHz: 10_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 800_000_000, points: 291, rbwHz: 10_000))
+        XCTAssertThrowsError(try PlatformSerialReceiveConfiguration(startHz: 100_000, stopHz: 800_000_000, points: 290, rbwHz: 20_000))
+    }
+
     func testTuneEncodesBothIDsAndUsesIntegerHertz() async throws {
         let client = try client { request in
             XCTAssertEqual(
@@ -328,6 +348,39 @@ final class PlatformAPITests: XCTestCase {
         await XCTAssertThrowsPlatformError(
             try await client.tune(sessionID: "s", streamID: "r", frequencyHz: 0, mode: "FM")
         )
+    }
+
+    func testSessionPathsRetainDistinctUTF8SpellingsWithoutChangingReturnedIDs() async throws {
+        var paths: [String] = []; let lock = NSLock()
+        let client = try client { request in
+            let path = request.url!.absoluteString
+            lock.withLock { paths.append(path) }
+            let id = path.hasSuffix("%C3%A9") ? "é" : "e\u{301}"
+            return (self.response(request.url!), self.envelope("{\"id\":\"" + id + "\",\"name\":\"synthetic\",\"state\":\"running\",\"streams\":[]}"))
+        }
+        let composed = try await client.getSession("é"), decomposed = try await client.getSession("e\u{301}")
+        XCTAssertEqual(Array(composed.id.utf8), [195, 169]); XCTAssertEqual(Array(decomposed.id.utf8), [101, 204, 129])
+        XCTAssertEqual(lock.withLock { paths }, ["https://example.test/root/api/v1/sessions/%C3%A9", "https://example.test/root/api/v1/sessions/e%CC%81"])
+    }
+
+    func testStreamingMetadataSnapshotDoesNotRefetchMeasurements() async throws {
+        let lock = NSLock(); var measurementReads = 0
+        let client = try client { request in
+            let path = request.url!.path
+            if path.hasSuffix("/sweeps") || path.hasSuffix("/observations") {
+                lock.withLock { measurementReads += 1 }
+                return (self.response(request.url!), self.envelope("[]"))
+            }
+            if path.hasSuffix("/workers") || path.hasSuffix("/candidates") || path.hasSuffix("/investigations") { return (self.response(request.url!), self.envelope("[]")) }
+            if path.hasSuffix("/investigations/next") { return (self.response(request.url!), self.envelope("null")) }
+            if path.hasSuffix("/sessions/session/old") { return (self.response(request.url!), self.envelope(self.sessionJSON)) }
+            if request.url!.absoluteString.hasSuffix("/sessions/session%2Fold") { return (self.response(request.url!), self.envelope(self.sessionJSON)) }
+            return (self.response(request.url!, status: 404), self.envelope("{}"))
+        }
+        let snapshot = try await client.snapshot(sessionID: "session/old", includeArchiveCapacity: false, includeMeasurements: false)
+        XCTAssertEqual(snapshot.session.id, "session/old")
+        XCTAssertTrue(snapshot.sweeps.isEmpty); XCTAssertTrue(snapshot.observations.isEmpty)
+        XCTAssertEqual(lock.withLock { measurementReads }, 0)
     }
 
     func testSnapshotKeepsSweepAndObservationSeparate() async throws {
@@ -726,6 +779,57 @@ if stdin_errors:
         } catch is PlatformError {
         } catch {
             XCTFail("Другая ошибка: \(error)", file: file, line: line)
+        }
+    }
+}
+
+extension PlatformAPITests {
+    func testScopedClientRemainsUsableAfterOriginalClientIsReleased() async throws {
+        var original: PlatformClient? = try client("http://127.0.0.1:8772") { request in
+            XCTAssertTrue(request.url!.path.hasPrefix("/api/v1/instances/owner-A/"))
+            let data = request.url!.path.hasSuffix("/health") ? self.envelope("{\"runtime_instance_id\":\"owner-A\"}") : self.envelope("[]")
+            return (self.response(request.url!), data)
+        }
+        weak var releasedOriginal = original
+        let bound = try original!.scoped(toRuntimeInstance: "owner-A")
+        original = nil
+        XCTAssertNil(releasedOriginal)
+        try await bound.verifyRuntimeOwner()
+        let sessions = try await bound.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func testReleasingScopedClientDoesNotInvalidateOriginalClient() async throws {
+        let original = try client("http://127.0.0.1:8772") { request in
+            XCTAssertEqual(request.url!.path, "/api/v1/sessions")
+            return (self.response(request.url!), self.envelope("[]"))
+        }
+        var bound: PlatformClient? = try original.scoped(toRuntimeInstance: "owner-A")
+        weak var releasedBound = bound
+        bound = nil
+        XCTAssertNil(releasedBound)
+        let sessions = try await original.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func testRuntimeScopePinsEveryEndpointAndRejectsAReplacementHealthIdentity() async throws {
+        let api = try client("http://127.0.0.1:8772") { request in
+            let url = request.url!
+            XCTAssertTrue(url.path.hasPrefix("/api/v1/instances/owner-A/"))
+            let data = url.path.hasSuffix("/health") ? self.envelope("{\"runtime_instance_id\":\"owner-A\"}") : self.envelope("[]")
+            return (self.response(url), data)
+        }
+        let bound = try api.scoped(toRuntimeInstance: "owner-A")
+        try await bound.verifyRuntimeOwner()
+        _ = try await bound.listSessions()
+        XCTAssertEqual(bound.baseURL.runtimeInstanceID, "owner-A")
+        let replacement = try client("http://127.0.0.1:8772") { request in
+            (self.response(request.url!), self.envelope("{\"runtime_instance_id\":\"owner-B\"}"))
+        }.scoped(toRuntimeInstance: "owner-A")
+        do { try await replacement.verifyRuntimeOwner(); XCTFail("A replacement peer must not become an accepted client") }
+        catch PlatformError.invalidResponse { }
+        for invalid in ["", "../owner", "owner/other", "a%2Fb"] {
+            XCTAssertThrowsError(try PlatformBaseURL("http://127.0.0.1:8772", runtimeInstanceID: invalid))
         }
     }
 }

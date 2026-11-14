@@ -1,0 +1,20 @@
+[package]
+name = "ori-automation"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+description = "Opt-in legacy per-session detection, handoff and completion facade"
+
+[dependencies]
+ori-archive = { path = "../ori-archive" }
+ori-session = { path = "../ori-session" }
+ori-runtime = { path = "../ori-runtime" }
+chrono = { version = "=0.4.45", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision"] }
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+unicode-general-category = "=0.6.0"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

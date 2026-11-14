@@ -1,0 +1,53 @@
+{
+  "source": "Python Controller and capture_png; owned UltraWire, no hardware",
+  "acquire_commands": [
+    "pause",
+    "output off",
+    "caloutput off",
+    "release"
+  ],
+  "release_commands": [
+    "output off",
+    "caloutput off",
+    "release"
+  ],
+  "reenter_commands": [
+    "pause",
+    "output off",
+    "caloutput off",
+    "release"
+  ],
+  "preset_document": "{\"schema_version\": 1, \"profile\": \"tinysa-ultra-zs405-control-v1\", \"settings\": {\"rbw_hz\": 30000, \"stop_hz\": 901000000, \"repeat\": 3, \"start_hz\": 900000000, \"points\": 7, \"ultra\": true, \"attenuation_db\": 0, \"lna\": true}}",
+  "preset_commands": [
+    "output off",
+    "caloutput off",
+    "release",
+    "mode input",
+    "lna off",
+    "ultra on",
+    "sweep 900000000 901000000 7",
+    "rbw 30",
+    "repeat 3",
+    "attenuate 0",
+    "lna on"
+  ],
+  "preset_settings": {
+    "start_hz": 900000000,
+    "stop_hz": 901000000,
+    "points": 7,
+    "rbw_hz": 30000,
+    "attenuation_db": 0,
+    "lna": true,
+    "ultra": true,
+    "calculation": "off",
+    "output_enabled": false,
+    "caloutput_mhz": "off",
+    "repeat": 3
+  },
+  "preset_application": "sequential_acknowledged",
+  "preset_rollback": "not_available_on_device",
+  "rgb565_pattern": "big-endian u16 index modulo 65536 for 480*320 pixels",
+  "raw_rgb565_sha256": "dc15c73597605780e7cddbd02721652b7c5f9b53a76f19dd7f87d2f4e0c29048",
+  "decoded_rgb_sha256": "ebfe763a9f1555ad5efac214c20e5be8f6bc574003af6ee895d1a36e81b8b5ff",
+  "python_png_sha256": "c8c4b0ce57819d6cb25eef1c87d887900df96c66bc1e46dcfe6c3a47579edc3b"
+}

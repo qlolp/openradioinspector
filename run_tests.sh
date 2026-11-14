@@ -11,7 +11,7 @@ if [[ -n "${VIRTUAL_ENV:-}" && -x "$VIRTUAL_ENV/bin/python" ]]; then
 elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
     PYTHON="$ROOT_DIR/.venv/bin/python"
 elif command -v uv >/dev/null 2>&1; then
-    exec uv run --no-project --with "$ROOT_DIR[serial,test]" python -m unittest discover -s tests -t . "$@"
+    exec uv run --no-project --with-requirements "$ROOT_DIR/requirements/core.lock" --with "$ROOT_DIR[serial,test]" python -m unittest discover -s tests -t . "$@"
 else
     for candidate in python3.12 python3.11 python3.10 python3; do
         if command -v "$candidate" >/dev/null 2>&1; then
@@ -28,7 +28,7 @@ if [[ -z "$PYTHON" ]]; then
     echo "На macOS системный /usr/bin/python3 (версия 3.9) не содержит numpy и tomllib." >&2
     echo "Способы запуска:" >&2
     echo "  1) Активировать существующее виртуальное окружение: source .venv/bin/activate" >&2
-    echo "  2) Или через uv: uv run --no-project --with '.[serial,test]' python -m unittest discover -s tests -t ." >&2
+    echo "  2) Или через uv: uv run --no-project --with-requirements requirements/core.lock --with '.[serial,test]' python -m unittest discover -s tests -t ." >&2
     echo "  3) Или напрямую: ./.venv/bin/python -m unittest discover -s tests -t ." >&2
     exit 1
 fi

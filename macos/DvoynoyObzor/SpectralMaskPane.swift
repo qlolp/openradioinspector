@@ -33,7 +33,10 @@ enum SpectralMaskFiles {
 
 @MainActor
 final class SpectralMaskModel: ObservableObject {
-    struct Scope: Equatable { let server: String; let session: String; let stream: String }
+    struct Scope: Equatable {
+        let server: String; let session: String; let stream: String
+        static func == (left: Self, right: Self) -> Bool { PlatformExactID.same(left.server, right.server) && PlatformExactID.same(left.session, right.session) && PlatformExactID.same(left.stream, right.stream) }
+    }
     @Published var draft = "" { didSet { if oldValue != draft { cancel() } } }
     @Published private(set) var source: PlatformSweep?
     @Published private(set) var result: PlatformSweepMaskAnalysis?
@@ -62,7 +65,7 @@ final class SpectralMaskModel: ObservableObject {
         if self.scope != scope || self.client !== client { cancel() }
         self.client = client; self.scope = scope
         self.source = source.flatMap {
-            guard $0.sessionId == scope?.session, $0.streamId == scope?.stream, $0.levelUnit == "dBm",
+            guard PlatformExactID.same($0.sessionId, scope?.session), PlatformExactID.same($0.streamId, scope?.stream), $0.levelUnit == "dBm",
                   $0.settings?.filter({ $0.key != "sequence" }).isEmpty == false,
                   (1...16_384).contains($0.levels.count),
                   $0.frequenciesHz.allSatisfy({ $0 <= PlatformSpectralMask.maximumFrequencyHz }) else { return nil }
@@ -111,7 +114,7 @@ final class SpectralMaskModel: ObservableObject {
             do {
                 let value = try await fetch(client, scope.session, source.id, submitted)
                 guard let self, !Task.isCancelled, self.matches(scope, client, currentRevision) else { return }
-                guard value.sessionId == scope.session, value.streamId == scope.stream, value.sweep.id == source.id,
+                guard PlatformExactID.same(value.sessionId, scope.session), PlatformExactID.same(value.streamId, scope.stream), PlatformExactID.same(value.sweep.id, source.id),
                       value.sweep.interval == source.interval, value.sweep.levels == source.levels,
                       value.sweep.settings == source.settings,
                       value.frequenciesHz == source.frequenciesHz else {

@@ -1,0 +1,274 @@
+{
+  "acknowledged": {
+    "acknowledged": true,
+    "id": "703ed2bfc8b357cb93fa25d81c63ea8e"
+  },
+  "alerts": {
+    "items": [
+      {
+        "acknowledged_at": "2026-11-11T13:00:00.123456Z",
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "delivery": {
+          "attempts": 2,
+          "last_error": null,
+          "next_attempt_at": null,
+          "state": "sent"
+        },
+        "event_id": "event/%+α",
+        "id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "kind": "persistent",
+        "message": "Обнаружено излучение / отклонение: 145500005 Гц",
+        "notification_id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "occurred_at": "2026-11-11T13:00:00.123456Z",
+        "project_id": "00000000000000000000000000000001",
+        "severity": "warning"
+      }
+    ],
+    "next_cursor": null
+  },
+  "clock": "2026-11-11T13:00:00.123456Z",
+  "configured": {
+    "active_session_id": "guard-сессия/%+?",
+    "analyzer_stream_id": "spectrum/one",
+    "archive": {
+      "minimum_free_bytes": 1048576,
+      "minimum_retention_seconds": 60
+    },
+    "audio": null,
+    "autostart": true,
+    "baseline_id": null,
+    "created_at": "2026-11-11T13:00:00.123456Z",
+    "detector_state": null,
+    "id": "00000000000000000000000000000001",
+    "name": "Operations",
+    "parameters": {
+      "confirmations": 2,
+      "dwell_seconds": 1,
+      "hysteresis_db": 4,
+      "impulse_db": 16,
+      "margin_db": 8,
+      "window_sweeps": 4
+    },
+    "profile": {
+      "analyzer": {
+        "capabilities": [
+          "sweep",
+          "waterfall"
+        ],
+        "device": "tinySA Ultra",
+        "firmware": null,
+        "id": "spectrum/one",
+        "label": "",
+        "level_unit": "dBm",
+        "model": null,
+        "port": "sim://tinysa",
+        "role": "spectrum_analyzer",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "tinysa-sim",
+          "period_s": 0.01,
+          "points": 9,
+          "start_hz": 100000000,
+          "stop_hz": 100080000
+        },
+        "state": "disconnected"
+      },
+      "receiver": {
+        "capabilities": [
+          "tune",
+          "audio"
+        ],
+        "device": "AR-DV1",
+        "firmware": null,
+        "id": "receiver+one",
+        "label": "",
+        "level_unit": "s_meter_count",
+        "model": null,
+        "port": "sim://ardv1",
+        "role": "receiver",
+        "serial_number": null,
+        "session_id": "guard-сессия/%+?",
+        "settings": {
+          "adapter": "ardv1-sim",
+          "frequency_hz": 145500000,
+          "mode": "FM",
+          "period_s": 0.01
+        },
+        "state": "disconnected"
+      }
+    },
+    "project_id": "00000000000000000000000000000001",
+    "receiver_mode": "FM",
+    "receiver_stream_id": "receiver+one",
+    "session_ids": [
+      "guard-сессия/%+?"
+    ],
+    "site": "Fixture",
+    "state": "draft",
+    "webhook_enabled": true
+  },
+  "defaults": {
+    "archive": {
+      "minimum_free_bytes": 268435456,
+      "minimum_retention_seconds": 3600
+    },
+    "autostart": false,
+    "detector": {
+      "confirmations": 3,
+      "dwell_seconds": 10.0,
+      "hysteresis_db": 3.0,
+      "impulse_db": 12.0,
+      "margin_db": 6.0,
+      "window_sweeps": 5
+    },
+    "webhook": {
+      "enabled": false,
+      "secret_configured": false,
+      "url": ""
+    }
+  },
+  "early_delivery": false,
+  "event": {
+    "center_frequency_hz": 145500005,
+    "id": "event/%+α",
+    "kind": "persistent"
+  },
+  "failed": {
+    "items": [
+      {
+        "acknowledged_at": null,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "delivery": {
+          "attempts": 1,
+          "last_error": "network_error",
+          "next_attempt_at": "2026-11-11T13:00:10.123456Z",
+          "state": "pending"
+        },
+        "event_id": "event/%+α",
+        "id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "kind": "persistent",
+        "message": "Обнаружено излучение / отклонение: 145500005 Гц",
+        "notification_id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "occurred_at": "2026-11-11T13:00:00.123456Z",
+        "project_id": "00000000000000000000000000000001",
+        "severity": "warning"
+      }
+    ],
+    "next_cursor": null
+  },
+  "first_delivery": true,
+  "fixture_version": 1,
+  "hardware_validation": "not_run",
+  "notification_id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+  "pending": {
+    "items": [
+      {
+        "acknowledged_at": null,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "delivery": {
+          "attempts": 0,
+          "last_error": null,
+          "next_attempt_at": "2026-11-11T13:00:00.123456Z",
+          "state": "pending"
+        },
+        "event_id": "event/%+α",
+        "id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "kind": "persistent",
+        "message": "Обнаружено излучение / отклонение: 145500005 Гц",
+        "notification_id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "occurred_at": "2026-11-11T13:00:00.123456Z",
+        "project_id": "00000000000000000000000000000001",
+        "severity": "warning"
+      }
+    ],
+    "next_cursor": null
+  },
+  "second_delivery": true,
+  "sent": {
+    "items": [
+      {
+        "acknowledged_at": null,
+        "created_at": "2026-11-11T13:00:00.123456Z",
+        "delivery": {
+          "attempts": 2,
+          "last_error": null,
+          "next_attempt_at": null,
+          "state": "sent"
+        },
+        "event_id": "event/%+α",
+        "id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "kind": "persistent",
+        "message": "Обнаружено излучение / отклонение: 145500005 Гц",
+        "notification_id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "occurred_at": "2026-11-11T13:00:00.123456Z",
+        "project_id": "00000000000000000000000000000001",
+        "severity": "warning"
+      }
+    ],
+    "next_cursor": null
+  },
+  "settings": {
+    "archive": {
+      "minimum_free_bytes": 1048576,
+      "minimum_retention_seconds": 60
+    },
+    "autostart": true,
+    "detector": {
+      "confirmations": 2,
+      "dwell_seconds": 1,
+      "hysteresis_db": 4,
+      "impulse_db": 16,
+      "margin_db": 8,
+      "window_sweeps": 4
+    },
+    "webhook": {
+      "enabled": true,
+      "secret_configured": true,
+      "url": "https://invalid.example/notify"
+    }
+  },
+  "synthetic": true,
+  "transport_requests": [
+    {
+      "body": "{\"event_id\":\"event/%+α\",\"kind\":\"persistent\",\"message\":\"Обнаружено излучение / отклонение: 145500005 Гц\",\"notification_id\":\"703ed2bfc8b357cb93fa25d81c63ea8e\",\"occurred_at\":\"2026-11-11T13:00:00.123456Z\",\"project_id\":\"00000000000000000000000000000001\",\"severity\":\"warning\"}",
+      "headers": {
+        "Content-type": "application/json",
+        "X-openradioinspector-notification-id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "X-openradioinspector-signature": "sha256=5aa11a4caec2c766d355a68a7b365e1469dc35101337b9f8feac8b38b06fc50e"
+      },
+      "timeout": 3,
+      "url": "https://invalid.example/notify"
+    },
+    {
+      "body": "{\"event_id\":\"event/%+α\",\"kind\":\"persistent\",\"message\":\"Обнаружено излучение / отклонение: 145500005 Гц\",\"notification_id\":\"703ed2bfc8b357cb93fa25d81c63ea8e\",\"occurred_at\":\"2026-11-11T13:00:00.123456Z\",\"project_id\":\"00000000000000000000000000000001\",\"severity\":\"warning\"}",
+      "headers": {
+        "Content-type": "application/json",
+        "X-openradioinspector-notification-id": "703ed2bfc8b357cb93fa25d81c63ea8e",
+        "X-openradioinspector-signature": "sha256=5aa11a4caec2c766d355a68a7b365e1469dc35101337b9f8feac8b38b06fc50e"
+      },
+      "timeout": 3,
+      "url": "https://invalid.example/notify"
+    }
+  ],
+  "update": {
+    "archive": {
+      "minimum_free_bytes": 1048576,
+      "minimum_retention_seconds": 60
+    },
+    "autostart": true,
+    "detector": {
+      "confirmations": 2,
+      "dwell_seconds": 1,
+      "hysteresis_db": 4,
+      "impulse_db": 16,
+      "margin_db": 8,
+      "window_sweeps": 4
+    },
+    "webhook": {
+      "enabled": true,
+      "secret": "public-synthetic-fixture-key",
+      "url": "https://invalid.example/notify"
+    }
+  }
+}

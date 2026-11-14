@@ -1,0 +1,60 @@
+{
+  "before_sha256": "026112926cdffb7bc1776510ddf05dd670856ebaf09eee4253c0750bb92db689",
+  "after_sha256": "0b7514b01422381fa45c7d72b8e257b6c2471afe3b44bfef43ed0e0eac533fba",
+  "dependency": "876cf8d",
+  "scope": "Explicit actual Python SQLite regeneration after independent canonical candidate precision fix; old golden unchanged. Metadata hashes/runtime fields are separate from this case-value diff.",
+  "case_changes": [
+    {
+      "path": "/cases/0/actions/16/result/0/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    },
+    {
+      "path": "/cases/0/actions/16/result/1/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    },
+    {
+      "path": "/cases/4/actions/1/result/list/entries/0/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    },
+    {
+      "path": "/cases/4/actions/2/args/1/list_json",
+      "before": "{\"format\": \"openradioinspector-signal-list\", \"format_version\": 1, \"name\": \"Signals\", \"frequency_unit\": \"Hz\", \"entries\": [{\"frequency_hz\": 100000003, \"bandwidth_hz\": 25000, \"interval\": {\"started_at\": \"2026-11-11T12:00:00.123456Z\", \"ended_at\": \"2026-11-11T12:00:00.123456Z\"}, \"level_unit\": \"dBm\", \"peak_level\": 0.0}]}",
+      "after": "{\"format\": \"openradioinspector-signal-list\", \"format_version\": 1, \"name\": \"Signals\", \"frequency_unit\": \"Hz\", \"entries\": [{\"frequency_hz\": 100000003, \"bandwidth_hz\": 25000, \"interval\": {\"started_at\": \"2026-11-11T12:00:00.123456Z\", \"ended_at\": \"2026-11-11T12:00:00.123456Z\"}, \"level_unit\": \"dBm\", \"peak_level\": -0.0}]}"
+    },
+    {
+      "path": "/cases/4/actions/2/events/0/payload/candidate/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    },
+    {
+      "path": "/cases/4/actions/3/args/1/list_json",
+      "before": "{\"format\": \"openradioinspector-signal-list\", \"format_version\": 1, \"name\": \"Signals\", \"frequency_unit\": \"Hz\", \"entries\": [{\"frequency_hz\": 100000003, \"bandwidth_hz\": 25000, \"interval\": {\"started_at\": \"2026-11-11T12:00:00.123456Z\", \"ended_at\": \"2026-11-11T12:00:00.123456Z\"}, \"level_unit\": \"dBm\", \"peak_level\": 0.0}]}",
+      "after": "{\"format\": \"openradioinspector-signal-list\", \"format_version\": 1, \"name\": \"Signals\", \"frequency_unit\": \"Hz\", \"entries\": [{\"frequency_hz\": 100000003, \"bandwidth_hz\": 25000, \"interval\": {\"started_at\": \"2026-11-11T12:00:00.123456Z\", \"ended_at\": \"2026-11-11T12:00:00.123456Z\"}, \"level_unit\": \"dBm\", \"peak_level\": -0.0}]}"
+    },
+    {
+      "path": "/cases/4/actions/5/result/0/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    },
+    {
+      "path": "/cases/4/actions/5/result/1/peak_level",
+      "before": 0.0,
+      "after": -0.0,
+      "before_bits": "0000000000000000",
+      "after_bits": "8000000000000000"
+    }
+  ]
+}

@@ -149,6 +149,18 @@ class LocalCore:
             raise
 
     def close(self):
+        try:
+            self._close_owned()
+        except BaseException:
+            bridge = getattr(self.server, 'runtime_bridge', None)
+            if bridge is not None:
+                bridge.__exit__(*sys.exc_info())
+            archive_owner = getattr(self.server, 'archive_owner', None)
+            if archive_owner is not None:
+                archive_owner.__exit__(*sys.exc_info())
+            raise
+
+    def _close_owned(self):
         if self.server is not None:
             server = self.server
             if self.thread is not None and self.thread.is_alive():
@@ -156,17 +168,9 @@ class LocalCore:
                 self.thread.join(timeout=10)
                 if self.thread.is_alive():
                     raise RuntimeError('HTTP ядра не остановлен; данные не закрыты')
-            for resource in (server.automatic_completion, server.automatic_detection,
-                             server.automatic_handoff, server.control_scheduler):
-                resource.close()
-            server.worker_manager.close()
-            if server.worker_manager.active_count or server.worker_manager.pending_start_count:
-                raise RuntimeError('Приборный I/O ещё выполняется; архив и блокировка сохранены')
-            state = server.RequestHandlerClass.state
-            state.close()
+            # The server drains its own HTTP streams before closing any state
+            # or archive and owns the current closers needed for writer proof.
             server.server_close()
-            server.session_service.close()
-            server.resource_cleanup.close()
             self.server = self.thread = None
         if self._lease is not None:
             self._lease.close()
@@ -280,6 +284,7 @@ def _serve_core(args):
     try:
         with LocalCore(args.data_dir, host=args.host, port=args.port,
                        archive_max_bytes=args.archive_max_bytes) as core:
+            core.server.runtime_stop = stop.set
             if args.ready_file:
                 _publish_ready_file(args.ready_file, core.url)
                 ready_owned = True

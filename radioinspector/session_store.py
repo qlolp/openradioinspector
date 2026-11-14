@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import struct
 import threading
+from . import candidate_precision
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -27,10 +29,15 @@ from .contracts import (
     to_primitive,
 )
 from .sweep_references import check_reference_creation
+from .observation_precision import decode_level
 from .sweep_context import ContextIncompatibleError, validate_context_request
 
 SCHEMA_VERSION = 6
 ARCHIVE_WARNING_THRESHOLD = 0.9
+
+
+class ArchiveReadBusy(RuntimeError):
+    """The bounded read pool is full; ingestion remains available."""
 
 
 class ArchiveCapacityExceededError(RuntimeError):
@@ -80,6 +87,7 @@ class SQLiteSessionStore:
         if path != ":memory:":
             Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._read_slots = threading.BoundedSemaphore(2)
         self._connection = sqlite3.connect(path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         # A connection-local function, not an archive schema/index migration.
@@ -98,16 +106,24 @@ class SQLiteSessionStore:
                 version = self._connection.execute("PRAGMA user_version").fetchone()[0]
                 if version > SCHEMA_VERSION:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
+                from .observation_precision import check_extension, install_extension
+                check_extension(self._connection)
+                candidate_precision.check_extension(self._connection)
                 self._connection.execute("PRAGMA foreign_keys = ON")
                 self._connection.execute("PRAGMA busy_timeout = 5000")
                 self._connection.execute("PRAGMA journal_mode = WAL")
-                self._connection.execute("PRAGMA synchronous = NORMAL")
+                # A successful ingest acknowledges durable data, including its
+                # event. WAL/NORMAL may lose acknowledged transactions on power
+                # loss; FULL syncs the WAL before commit returns.
+                self._connection.execute("PRAGMA synchronous = FULL")
                 # DDL and version advance are one rollback-safe migration.
                 self._connection.execute("BEGIN IMMEDIATE")
                 version = self._connection.execute("PRAGMA user_version").fetchone()[0]
                 if version > SCHEMA_VERSION:
                     raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
                 self._create_schema()
+                install_extension(self._connection)
+                candidate_precision.install_extension(self._connection)
                 self._create_ingestion_schema(backfill=version < 6)
                 self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         except BaseException:
@@ -402,12 +418,37 @@ class SQLiteSessionStore:
             ).fetchall()
             return [(row["sequence"], self._sweep_from_row(row)) for row in rows]
 
-    def save_instrument_artifact(self, item: dict) -> None:
+    @contextmanager
+    def read_snapshot(self):
+        """At most two independent short WAL readers, outside the writer lock."""
+        if not self.persistent:
+            with self._lock:
+                yield self._connection
+            return
+        if not self._read_slots.acquire(timeout=.1):
+            raise ArchiveReadBusy('Archive readers are busy; retry the query')
+        connection = None
+        try:
+            uri = Path(self.path).expanduser().resolve().as_uri() + '?mode=ro'
+            connection = sqlite3.connect(uri, uri=True, timeout=.1)
+            connection.row_factory = sqlite3.Row
+            connection.create_function('context_utf8', 1, lambda value: value.encode('utf-8'), deterministic=True)
+            connection.execute('PRAGMA query_only=ON')
+            connection.execute('BEGIN')
+            yield connection
+        finally:
+            if connection is not None:
+                connection.close()
+            self._read_slots.release()
+
+    def save_instrument_artifact(self, item: dict, *, event=None) -> None:
         with self._measurement_transaction():
             self._connection.execute('''INSERT INTO instrument_artifacts
                 (id,session_id,stream_id,schema_version,kind,mime_type,filename,sha256,created_at,payload,metadata_json)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
                 tuple(item[k] for k in ['id','session_id','stream_id','schema_version','kind','mime_type','filename','sha256','created_at','payload'])+(_json(item['metadata']),))
+            if event is not None:
+                self._insert_event(event)
 
     def get_instrument_artifact(self, session_id, stream_id, artifact_id):
         with self._lock:
@@ -697,6 +738,15 @@ class SQLiteSessionStore:
             ).fetchall()
             return [self._event(row) for row in rows]
 
+    def next_stream_event(self, *, after: int) -> Optional[SessionEvent]:
+        """A bounded event read outside the persistent archive's writer lock."""
+        with self.read_snapshot() as connection:
+            row = connection.execute(
+                "SELECT * FROM events WHERE sequence > ? ORDER BY sequence LIMIT 1",
+                (after,),
+            ).fetchone()
+            return self._event(row) if row is not None else None
+
     def record_sweep(
         self, sweep: Sweep, *, event: Optional[SessionEvent] = None
     ) -> None:
@@ -787,6 +837,9 @@ class SQLiteSessionStore:
                 data["audio_uri"], _json(data["metadata"]),
             ),
         )
+        if observation.level is not None:
+            self._connection.execute('INSERT INTO ori_observation_level_bits VALUES (?,?)',
+                                     (observation.id, struct.pack('<d', observation.level)))
 
     @staticmethod
     def _filters(session_id: str, stream_id: Optional[str]) -> tuple[str, list[Any]]:
@@ -923,13 +976,15 @@ class SQLiteSessionStore:
         with self._lock:
             rows = self._connection.execute(
                 f"""
-                SELECT * FROM (
+                SELECT source.*, precision.level_bits_le FROM (
                     SELECT *, CASE WHEN instr(started_at, '.') = 0
                         THEN replace(started_at, 'Z', '.000000Z')
                         ELSE started_at END AS sort_started_at
                     FROM observations WHERE {clause}
                     ORDER BY sort_started_at DESC, id DESC {limit_sql}
-                ) ORDER BY sort_started_at, id
+                ) AS source LEFT JOIN ori_observation_level_bits AS precision
+                    ON precision.observation_id=source.id
+                ORDER BY source.sort_started_at, source.id
                 """,
                 query_parameters,
             ).fetchall()
@@ -944,7 +999,7 @@ class SQLiteSessionStore:
                         },
                         "frequency_hz": row["frequency_hz"],
                         "mode": row["mode"],
-                        "level": row["level"],
+                        "level": decode_level(row["level"], row["level_bits_le"]),
                         "level_unit": row["level_unit"],
                         "squelch_open": (
                             None if row["squelch_open"] is None else bool(row["squelch_open"])
@@ -1053,6 +1108,8 @@ class SQLiteSessionStore:
             ),
         )
 
+        candidate_precision.save(self._connection,candidate)
+
     def _write_investigation(
         self,
         investigation: Investigation,
@@ -1134,9 +1191,9 @@ class SQLiteSessionStore:
                 },
                 "center_frequency_hz": row["center_frequency_hz"],
                 "bandwidth_hz": row["bandwidth_hz"],
-                "peak_level": row["peak_level"],
+                "peak_level": candidate_precision.decode(row["peak_level"],row["peak_level_bits_le"]),
                 "level_unit": row["level_unit"],
-                "score": row["score"],
+                "score": candidate_precision.decode(row["score"],row["score_bits_le"]),
                 "observation_ids": json.loads(row["observation_ids_json"]),
                 "state": row["state"],
             }
@@ -1145,7 +1202,7 @@ class SQLiteSessionStore:
     def get_candidate(self, candidate_id: str) -> Optional[Candidate]:
         with self._lock:
             row = self._connection.execute(
-                "SELECT * FROM candidates WHERE id = ?", (candidate_id,)
+                candidate_precision.SELECT+" WHERE c.id = ?", (candidate_id,)
             ).fetchone()
             return self._candidate(row) if row is not None else None
 
@@ -1162,7 +1219,7 @@ class SQLiteSessionStore:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM candidates" + where + " ORDER BY started_at, id", parameters,
+                candidate_precision.SELECT + where + " ORDER BY started_at, id", parameters,
             ).fetchall()
             return [self._candidate(row) for row in rows]
 

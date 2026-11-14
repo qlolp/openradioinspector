@@ -225,7 +225,7 @@ class QualityHTTPTests(unittest.TestCase):
                                          frequencies_hz=[100, 100, 300, 400]))
         service.close()
         self.server = create_server(host='127.0.0.1', port=0, session_database=path)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True); self.thread.start()
         self.addCleanup(self.stop)
         self.root = f'/api/v1/sessions/{self.session.id}/sweep-quality'
 
@@ -268,6 +268,8 @@ class QualityHTTPTests(unittest.TestCase):
                            (b'{"edge_margin_db":NaN}', 400), (b'{' + b' ' * 8193, 413)):
             actual, _ = self.post(body, raw=True)
             self.assertEqual(actual, code)
+        # Include the real body so separate header/body sends exercise the
+        # bounded query-refusal path rather than an empty-body workaround.
         self.assertEqual(self.post(request(), path=self.root + '?x=1')[0], 400)
         self.assertEqual(self.post(request(), headers={'Content-Type': 'text/plain'})[0], 415)
         self.assertEqual(self.post(request(), headers={'Content-Type': 'application/json',

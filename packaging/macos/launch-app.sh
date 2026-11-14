@@ -2,6 +2,7 @@
 set -eu
 contents=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ -n "${ORI_REMOTE_SERVER:-}" ]; then
+    unset ORI_BUNDLED_LEGACY_CORE
     ORI_LOCAL_CORE_URL="$ORI_REMOTE_SERVER" exec "$contents/Helpers/DvoynoyObzorUI"
 fi
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/openradioinspector-launch.XXXXXX")
@@ -29,4 +30,4 @@ until [ -s "$runtime/url" ]; do
 done
 url=$(cat "$runtime/url")
 case "$url" in http://127.0.0.1:*) ;; *) echo 'Invalid local readiness URL' >&2; exit 1 ;; esac
-ORI_LOCAL_CORE_URL="$url" "$contents/Helpers/DvoynoyObzorUI"
+ORI_BUNDLED_LEGACY_CORE=1 ORI_LOCAL_CORE_URL="$url" "$contents/Helpers/DvoynoyObzorUI"

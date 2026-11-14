@@ -1,0 +1,335 @@
+{
+  "format": "ori-collected-async-control-v1",
+  "provenance": {
+    "scope": "synthetic typed202/inspect/lease-denial/idempotency/cancel; no hardware",
+    "python_source_revision": "5f9a63b1c1d57b53c9bb7152cf6d9b5607d29d13",
+    "reference_collected_body_sha256": "9be3af55f6a598ad4e4d8fa0f20275b4d7be55289f4e32b22c71d24a74714edf",
+    "candidate_executable_sha256": "8af57898dc480f84b56d22c2fa498a38d416f0eaefff32419bf26c26baa6d1e4",
+    "candidate_embedding_sha256": "87abd60e0d1b9414682a949663265b6d82b6a4d5cc76c69fbe88850924491225"
+  },
+  "reference": {
+    "capabilities": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "data": {
+        "capabilities": {
+          "$fixture_catalogue": "tinysa-control-v1"
+        },
+        "status": {
+          "mode": "monitoring",
+          "revision": 0,
+          "profile_verified": false,
+          "lease_active": false,
+          "settings": {},
+          "settings_source": "unknown",
+          "settings_readback": false
+        }
+      }
+    },
+    "terminal_records": [
+      {
+        "operation_id": "<operation:inspect>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "inspect",
+        "state": "succeeded",
+        "error": null,
+        "created_at": "<validated-monotonic-admission>",
+        "result": {
+          "status": {
+            "mode": "monitoring",
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "connection_id": "<original-fixture-connection>",
+            "settings_complete": false,
+            "profile_verified": true,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "lease_active": false,
+            "lease_seconds": 0,
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "generator_output_readback": false,
+            "hardware_validation": "not_run"
+          },
+          "capabilities": {
+            "$fixture_catalogue": "tinysa-control-v1"
+          },
+          "commands": [
+            "attenuate",
+            "calc",
+            "caloutput",
+            "capture",
+            "commands",
+            "data",
+            "deviceid",
+            "ext_gain",
+            "freq",
+            "frequencies",
+            "help",
+            "info",
+            "level",
+            "levelchange",
+            "lna",
+            "marker",
+            "menu",
+            "mode",
+            "modulation",
+            "output",
+            "pause",
+            "rbw",
+            "recall",
+            "refresh",
+            "release",
+            "repeat",
+            "resume",
+            "save",
+            "scan",
+            "scanraw",
+            "sd_delete",
+            "sd_list",
+            "sd_read",
+            "selftest",
+            "spur",
+            "status",
+            "sweep",
+            "text",
+            "touch",
+            "trace",
+            "trigger",
+            "ultra",
+            "version",
+            "zero"
+          ]
+        },
+        "context_current": true
+      },
+      {
+        "operation_id": "<operation:denied>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "setting",
+        "state": "failed",
+        "error": "Требуется действующая эксклюзивная lab-аренда",
+        "created_at": "<validated-monotonic-admission>",
+        "result": null,
+        "context_current": true
+      },
+      {
+        "operation_id": "<operation:denied>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "setting",
+        "state": "failed",
+        "error": "Требуется действующая эксклюзивная lab-аренда",
+        "created_at": "<validated-monotonic-admission>",
+        "result": null
+      }
+    ],
+    "conflicting_request": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "error": {
+        "code": "instrument_conflict",
+        "message": "request_id identifies another operation"
+      }
+    },
+    "raw_rejected": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Unknown typed instrument operation"
+      }
+    }
+  },
+  "candidate_with_wire_regressions": {
+    "capabilities": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "data": {
+        "capabilities": {
+          "$fixture_catalogue": "tinysa-control-v1"
+        },
+        "status": {
+          "mode": "monitoring",
+          "revision": 0,
+          "profile_verified": false,
+          "lease_active": false,
+          "lease_seconds": 0,
+          "settings": {},
+          "settings_source": "unknown",
+          "settings_readback": false,
+          "device_mode": "unknown",
+          "device_mode_readback": false,
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    "terminal_records": [
+      {
+        "operation_id": "<operation:inspect>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "inspect",
+        "state": "succeeded",
+        "error": null,
+        "created_at": "<validated-monotonic-admission>",
+        "result": {
+          "status": {
+            "mode": "monitoring",
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "connection_id": "<original-fixture-connection>",
+            "settings_complete": false,
+            "profile_verified": true,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "lease_active": false,
+            "lease_seconds": 0.0,
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "generator_output_readback": false,
+            "hardware_validation": "not_run",
+            "restart_required": false,
+            "acquisition_paused": false
+          },
+          "capabilities": {
+            "$fixture_catalogue": "tinysa-control-v1"
+          },
+          "commands": [
+            "attenuate",
+            "calc",
+            "caloutput",
+            "capture",
+            "commands",
+            "data",
+            "deviceid",
+            "ext_gain",
+            "freq",
+            "frequencies",
+            "help",
+            "info",
+            "level",
+            "levelchange",
+            "lna",
+            "marker",
+            "menu",
+            "mode",
+            "modulation",
+            "output",
+            "pause",
+            "rbw",
+            "recall",
+            "refresh",
+            "release",
+            "repeat",
+            "resume",
+            "save",
+            "scan",
+            "scanraw",
+            "sd_delete",
+            "sd_list",
+            "sd_read",
+            "selftest",
+            "spur",
+            "status",
+            "sweep",
+            "text",
+            "touch",
+            "trace",
+            "trigger",
+            "ultra",
+            "version",
+            "zero"
+          ]
+        },
+        "context_current": true
+      },
+      {
+        "operation_id": "<operation:denied>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "setting",
+        "state": "failed",
+        "error": "instrument authority changed; operation denied",
+        "created_at": "<validated-monotonic-admission>",
+        "result": null,
+        "context_current": true
+      },
+      {
+        "operation_id": "<operation:denied>",
+        "session_id": "lab-é",
+        "stream_id": "lab/é",
+        "operation": "setting",
+        "state": "failed",
+        "error": "instrument authority changed; operation denied",
+        "created_at": "<validated-monotonic-admission>",
+        "result": null,
+        "context_current": true
+      }
+    ],
+    "conflicting_request": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "error": {
+        "code": "instrument_conflict",
+        "message": "instrument conflict: request_id identifies another operation"
+      }
+    },
+    "raw_rejected": {
+      "contract": "openradioinspector-platform",
+      "contract_version": 1,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "unknown typed instrument operation"
+      }
+    }
+  },
+  "catalogue": {
+    "source": "crates/ori-control/src/resources/capabilities.json",
+    "sha256": "4cbb82a501b2cb941cd3840e6c15d09a71fa0e9c7554d1e63323edb6910a57d0"
+  },
+  "candidate_operation_availability": {
+    "inspect": true,
+    "acquire.raw": true,
+    "acquire.zero": true,
+    "trace": true,
+    "marker": true,
+    "measurement": true,
+    "sd.list": true,
+    "sd.read": true,
+    "sd.delete": true,
+    "preset.save": true,
+    "preset.load": true,
+    "preset.export": true,
+    "preset.import": true,
+    "service.guide": true,
+    "selftest.start": true,
+    "generator.sweep": true,
+    "output.off": true,
+    "audio.inputs": false,
+    "audio.capture": false
+  }
+}

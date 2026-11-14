@@ -1,0 +1,24 @@
+[package]
+name = "ori-audio"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+publish = false
+description = "Bounded core-owned original PCM16 audio capture"
+
+[features]
+default = []
+native = ["dep:cpal"]
+
+[dependencies]
+ori-contracts = { path = "../ori-contracts" }
+chrono = "=0.4.45"
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["rt", "sync", "time", "macros"] }
+cpal = { version = "=0.18.2", optional = true, default-features = false }
+
+[dev-dependencies]
+serde_json = { version = "=1.0.154", features = ["arbitrary_precision", "float_roundtrip"] }
+sha2 = "=0.11.1"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "test-util"] }

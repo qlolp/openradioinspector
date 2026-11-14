@@ -21,6 +21,16 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: hashFiles('clients/web/package-lock.json') != ''
+        with:
+          node-version: '26.13.0'
+      - name: Bundle offline modern client
+        if: hashFiles('clients/web/package-lock.json') != ''
+        run: |
+          npm ci --prefix clients/web
+          npm --prefix clients/web run build
+          python tools/build_modern_web.py
       - run: python -m pip install build '.[serial]'
       - run: python tools/release/check_public_tree.py
       - run: python -m build
@@ -57,7 +67,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && 'xcode-27' || matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -67,6 +77,21 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: hashFiles('clients/web/package-lock.json') != ''
+        with:
+          node-version: '26.13.0'
+      - name: Bundle offline modern client
+        if: hashFiles('clients/web/package-lock.json') != ''
+        shell: bash
+        run: |
+          npm ci --prefix clients/web
+          npm --prefix clients/web run build
+          python tools/build_modern_web.py
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash macos/ci/select-xcode.sh
       - name: Build Windows unsigned installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -99,7 +124,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
   native-review-regressions:
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -110,8 +135,82 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install '.[serial,test]'
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        shell: bash
+        run: bash macos/ci/select-xcode.sh
+      - name: Check bundled helper and remote launch lifetimes
+        run: |
+          python macos/ci/test_launcher.py -v
+          python macos/ci/test_native_ci.py -v
       - name: Native URL and concurrent completion regressions
         shell: bash
         run: |
           set -euo pipefail
-          swift test --package-path macos/SpektrKomandy --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget)'
+          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget|testRuntimeScopePinsEveryEndpoint|testScopedClientRemainsUsable|testReleasingScopedClient|SecurityClientTests)'
+      - name: Native credentials, pairing and archive context regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path macos -j 2 --filter '(NativeNodeConnectionTests|NativeCredentialStoreTests|NativeArchiveContextTests|NativeStreamingModelTests|SweepComparisonModelTests)' --skip DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
+      - name: Compile native app in Swift 6 mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Debug -jobs 2 -destination platform=macOS -derivedDataPath "$RUNNER_TEMP/native-swift6" CODE_SIGNING_ALLOWED=NO build
+
+  macos-personal-rc:
+    runs-on: xcode-27
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Select Xcode 27.2 and Swift 6.4.2
+        run: bash macos/ci/select-xcode.sh
+      - name: Install pinned build-only Rust toolchain
+        run: rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
+      - name: Build native arm64 personal RC
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos/rc-diagnostics
+          bash packaging/macos/build.sh --personal-rc 2>&1 | tee build/macos/rc-diagnostics/build.log
+      - name: Check relocated signed package outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          relocated="$RUNNER_TEMP/ori-personal-rc"
+          mkdir "$relocated"
+          ditto "build/macos/personal-rc/dmg-root/OpenRadioInspector RC.app" "$relocated/OpenRadioInspector RC.app"
+          python tools/release/check_public_tree.py --directory "$relocated/OpenRadioInspector RC.app"
+          python tools/release/smoke_macos_personal_rc.py --app "$relocated/OpenRadioInspector RC.app" --manifest build/macos/personal-rc/dmg-root/manifest.json --report-dir "$RUNNER_TEMP/ori-personal-rc-smoke"
+      - name: Exercise RC-only load, online backup and restored originals
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: '1.99.1'
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/build/macos/personal-rc/cargo"
+          export ORI_BUILD_SOURCE_SHA="$(git rev-parse HEAD)"
+          cargo build --locked --release --target aarch64-apple-darwin -p ori-core --no-default-features --features serial --example benchmark_background
+          mkdir build/macos/personal-rc/acceptance-tools
+          ditto "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/examples/benchmark_background" build/macos/personal-rc/acceptance-tools/ori-rc-benchmark
+          python -m benchmarks.ori_bench.macos_rc --candidate "$GITHUB_WORKSPACE/build/macos/personal-rc/acceptance-tools/ori-rc-benchmark" --output-dir "$RUNNER_TEMP/ori-rc-load-smoke" --smoke-seconds 5
+      - name: Preserve RC artifacts and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: personal-macos-rc-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/macos/personal-rc/packages/*
+            build/macos/rc-diagnostics/*
+            build/macos/personal-rc/acceptance-tools/*
+            ${{ runner.temp }}/ori-rc-load-smoke/**
+            ${{ runner.temp }}/ori-personal-rc-smoke/**
+            ${{ runner.temp }}/native-*-version.txt
+          retention-days: 90
+          if-no-files-found: warn

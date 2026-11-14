@@ -1,0 +1,28 @@
+[package]
+name = "ori-control"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+publish = false
+license = "MIT"
+description = "Bounded asynchronous instrument control through the existing Core executor"
+
+[dependencies]
+ori-instruments = { path = "../ori-instruments" }
+ori-contracts = { path = "../ori-contracts" }
+tokio = { version = "=1.54.1", features = ["rt", "sync", "time", "macros"] }
+tokio-util = { version = "=0.7.20", features = ["rt"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision"] }
+thiserror = "=2.0.21"
+sha2 = "=0.11.1"
+base64 = "=0.23.1"
+rand = "=0.8.8"
+subtle = "=2.6.1"
+png = "=0.18.1"
+
+[dev-dependencies]
+ori-archive = { path = "../ori-archive" }
+tempfile = "=3.27.0"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "test-util"] }

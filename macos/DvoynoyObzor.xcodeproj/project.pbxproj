@@ -106,6 +106,27 @@
 				<string>A1EAD2D23E0357049F6D4522</string>
 				<string>B9043CDA07AA4D44A13C5712</string>
 				<string>2F9AFF2D513317FC8BF884A6</string>
+				<string>E607E554409ABB5773EE7BD6</string>
+				<string>441C5A87CDBAD8331BA23011</string>
+				<string>F9EAE3314B5272C2A4D9497F</string>
+				<string>52EF5E3053D7F2F630CA27F9</string>
+				<string>64364FFC96A84AECB0D56273</string>
+				<string>35BCB26CBE4CBDEBA091E8A5</string>
+				<string>D545C042F21CE20DA613D593</string>
+				<string>068ADE214FC7AC838DB7D978</string>
+				<string>3539A63C27475510C53811D3</string>
+				<string>FB00CF9BBC44BF54A7C87FBA</string>
+				<string>F246B92705E08DB0DA1E364F</string>
+				<string>344EBD4222C4BC603E37ACC6</string>
+				<string>D26047F0CC171E7664B20C4C</string>
+				<string>2CAD5477F3553E0B19E81B1A</string>
+				<string>C7C9B75D6A4D5226CEB52BAE</string>
+				<string>AEF42B7AD37AC87AE3B65651</string>
+				<string>57DAEC6D4E67B42F513EFE1F</string>
+				<string>A7DBCA73C41924881647F3D3</string>
+				<string>9E5734938479EEA975ABD862</string>
+				<string>A460C49E4B62078F22DC9CFB</string>
+				<string>98235B57063C3B404D840699</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -179,6 +200,27 @@
 				<string>8872EB9AA53A9C33110D863D</string>
 				<string>3CB2800745D34D959670D89B</string>
 				<string>5587A160A132CB4A8998D845</string>
+				<string>62D031DB8E6EE356FC5B8B65</string>
+				<string>7548CF4A65AAA62A5522EED8</string>
+				<string>B2DD3566B342610451707609</string>
+				<string>D2894808D5EC61B1CBA5F331</string>
+				<string>94A403ACAA6EC797D5ECBC60</string>
+				<string>A4FB972D19E5C965327FDA29</string>
+				<string>FEE9DAFCBBAA9F19BD8BA94B</string>
+				<string>6FE09A32C1C6696B3A974170</string>
+				<string>E6D3B1F7C4B430AE9E27B17D</string>
+				<string>4F708C98C182EB76143D5E47</string>
+				<string>0479BC5D4BECD2EB338D08C9</string>
+				<string>7B4B1B0D03F1586C913F6B82</string>
+				<string>58D26228C4127B4A5310F91B</string>
+				<string>D52538672991B848A5192077</string>
+				<string>15DCCACA39B584D9B4B4AFAB</string>
+				<string>0F61FF714A20009CFB00AA5C</string>
+				<string>077585AF82E27615C14AB3EB</string>
+				<string>93936EB83269C88984983395</string>
+				<string>A46CFC0C94D45033A0AE097E</string>
+				<string>510EC8D85DF7CD55EF645D34</string>
+				<string>D6E467E73D8BC4660304F0D3</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -275,7 +317,7 @@
 				<key>SDKROOT</key>
 				<string>macosx</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>DEBUG_INFORMATION_FORMAT</key>
 				<string>dwarf</string>
 				<key>ENABLE_TESTABILITY</key>
@@ -315,7 +357,7 @@
 				<key>SDKROOT</key>
 				<string>macosx</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>DEBUG_INFORMATION_FORMAT</key>
 				<string>dwarf-with-dsym</string>
 				<key>GCC_OPTIMIZATION_LEVEL</key>
@@ -373,9 +415,9 @@
 				<key>SWIFT_EMIT_LOC_STRINGS</key>
 				<string>YES</string>
 				<key>SWIFT_STRICT_CONCURRENCY</key>
-				<string>minimal</string>
+				<string>complete</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>ENABLE_TESTABILITY</key>
 				<string>YES</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
@@ -429,9 +471,9 @@
 				<key>SWIFT_EMIT_LOC_STRINGS</key>
 				<string>YES</string>
 				<key>SWIFT_STRICT_CONCURRENCY</key>
-				<string>minimal</string>
+				<string>complete</string>
 				<key>SWIFT_VERSION</key>
-				<string>5.0</string>
+				<string>6.0</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
 				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
 			</dict>
@@ -933,6 +975,384 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>B9043CDA07AA4D44A13C5712</string>
+		</dict>
+		<key>E607E554409ABB5773EE7BD6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>MonitoringCharts.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>62D031DB8E6EE356FC5B8B65</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>E607E554409ABB5773EE7BD6</string>
+		</dict>
+		<key>441C5A87CDBAD8331BA23011</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>MonitoringWorkspaceModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>7548CF4A65AAA62A5522EED8</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>441C5A87CDBAD8331BA23011</string>
+		</dict>
+		<key>F9EAE3314B5272C2A4D9497F</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>MonitoringWorkspacePane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>B2DD3566B342610451707609</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>F9EAE3314B5272C2A4D9497F</string>
+		</dict>
+		<key>52EF5E3053D7F2F630CA27F9</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeMetalSurface.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>D2894808D5EC61B1CBA5F331</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>52EF5E3053D7F2F630CA27F9</string>
+		</dict>
+		<key>64364FFC96A84AECB0D56273</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeSpectrumFrame.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>94A403ACAA6EC797D5ECBC60</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>64364FFC96A84AECB0D56273</string>
+		</dict>
+		<key>35BCB26CBE4CBDEBA091E8A5</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeWorkspaceChrome.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A4FB972D19E5C965327FDA29</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>35BCB26CBE4CBDEBA091E8A5</string>
+		</dict>
+		<key>D545C042F21CE20DA613D593</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteDevicePanes.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>FEE9DAFCBBAA9F19BD8BA94B</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>D545C042F21CE20DA613D593</string>
+		</dict>
+		<key>068ADE214FC7AC838DB7D978</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteDualModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>6FE09A32C1C6696B3A974170</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>068ADE214FC7AC838DB7D978</string>
+		</dict>
+		<key>3539A63C27475510C53811D3</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteMeasurementStream.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>E6D3B1F7C4B430AE9E27B17D</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>3539A63C27475510C53811D3</string>
+		</dict>
+		<key>FB00CF9BBC44BF54A7C87FBA</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteSweepComparisonPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>4F708C98C182EB76143D5E47</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>FB00CF9BBC44BF54A7C87FBA</string>
+		</dict>
+		<key>F246B92705E08DB0DA1E364F</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteSweepReferenceActions.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>0479BC5D4BECD2EB338D08C9</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>F246B92705E08DB0DA1E364F</string>
+		</dict>
+		<key>344EBD4222C4BC603E37ACC6</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>RemoteWorkflowActions.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>7B4B1B0D03F1586C913F6B82</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>344EBD4222C4BC603E37ACC6</string>
+		</dict>
+		<key>D26047F0CC171E7664B20C4C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>ExactIDSelection.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>58D26228C4127B4A5310F91B</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>D26047F0CC171E7664B20C4C</string>
+		</dict>
+		<key>2CAD5477F3553E0B19E81B1A</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeCredentialStore.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>D52538672991B848A5192077</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>2CAD5477F3553E0B19E81B1A</string>
+		</dict>
+		<key>C7C9B75D6A4D5226CEB52BAE</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeNodeConnectionModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>15DCCACA39B584D9B4B4AFAB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>C7C9B75D6A4D5226CEB52BAE</string>
+		</dict>
+		<key>AEF42B7AD37AC87AE3B65651</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeServiceSocket.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>0F61FF714A20009CFB00AA5C</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>AEF42B7AD37AC87AE3B65651</string>
+		</dict>
+		<key>57DAEC6D4E67B42F513EFE1F</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeLocalService.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>077585AF82E27615C14AB3EB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>57DAEC6D4E67B42F513EFE1F</string>
+		</dict>
+		<key>A7DBCA73C41924881647F3D3</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeLocalServicePane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>93936EB83269C88984983395</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A7DBCA73C41924881647F3D3</string>
+		</dict>
+		<key>9E5734938479EEA975ABD862</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeRCPreparationModel.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>A46CFC0C94D45033A0AE097E</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>9E5734938479EEA975ABD862</string>
+		</dict>
+		<key>A460C49E4B62078F22DC9CFB</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeRCPreparationPane.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>510EC8D85DF7CD55EF645D34</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>A460C49E4B62078F22DC9CFB</string>
+		</dict>
+		<key>98235B57063C3B404D840699</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeRCBundle.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>D6E467E73D8BC4660304F0D3</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>98235B57063C3B404D840699</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

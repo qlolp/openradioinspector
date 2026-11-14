@@ -1,0 +1,35 @@
+# Offline template. Render paths and install only after the acceptance gates.
+# The legacy core must implement the runtime IPC/writer lease contract first.
+[Unit]
+Description=OpenRadioInspector owned backend supervisor
+After=local-fs.target network.target
+
+[Service]
+Type=simple
+User=openradioinspector
+Group=openradioinspector
+SupplementaryGroups=dialout
+WorkingDirectory=/var/lib/openradioinspector
+ExecStart=/opt/openradioinspector/runtime/bin/ori-supervisor run /etc/openradioinspector/supervisor.json
+ExecStop=/opt/openradioinspector/runtime/bin/ori-supervisor shutdown /var/lib/openradioinspector
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=150
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/openradioinspector
+MemoryMax=1536M
+MemorySwapMax=0
+TasksMax=128
+CPUWeight=80
+IOWeight=80
+Delegate=cpu io memory pids
+# Delegation alone does not provision a worker leaf, io.max or disk quotas.
+# See docs/runtime-modernization.md before enabling research.
+
+[Install]
+WantedBy=multi-user.target

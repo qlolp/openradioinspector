@@ -1,0 +1,4722 @@
+{
+  "format": "ori-automation-python-sqlite-oracle",
+  "format_version": 1,
+  "runtime": {
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "sqlite": "3.53.1"
+  },
+  "generator_sha256": "1ad3fcadb9c10238e95fbaee7cc4ea2af4dd952c20c7fd40eac988e217f1235c",
+  "source_sha256": {
+    "automatic_detection.py": "140639faf39d26f730afc01831d9985937b2fd1f1ce249b1435235dea76e4020",
+    "automatic_handoff.py": "1daea062d03dd9c24eff434fd89524772e7c2dd7dd07ebcfc9593404e8461542",
+    "automatic_completion.py": "1a4da3d75c50ef7d3d628fc204c63c47d243a96da79c81b8c94c3774eea5a649",
+    "session_service.py": "c66b40a8f3a9b81b2afcade113da00e10123864c98dacdd7ba28aeeda3875f8f",
+    "session_store.py": "f73d6263b619224cba0a016c2126bc532859b1009f157987e647da66dad4deb2",
+    "contracts.py": "e3bcf7f12b5090a4e028710a3442cfbd21bb1fbc171dd692e76f5c94250605e2"
+  },
+  "regions": [
+    {
+      "sweep": {
+        "id": "region-é",
+        "session_id": "session-é",
+        "stream_id": "spectrum/é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123457Z"
+        },
+        "frequencies_hz": [
+          100000001,
+          100100001,
+          100200001,
+          100300001,
+          100400001,
+          100500001,
+          100600001
+        ],
+        "levels": [
+          -100.125,
+          -0.0,
+          -1.0000000000000002,
+          -90.0,
+          -55.0,
+          -54.0,
+          -100.0
+        ],
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "synthetic": true,
+          "opaque": {
+            "é": 1,
+            "é": 2
+          }
+        }
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 10,
+      "regions": [
+        {
+          "center_frequency_hz": 100100001,
+          "bandwidth_hz": 100000,
+          "peak_level": -0.0,
+          "score": 60.0
+        },
+        {
+          "center_frequency_hz": 100500001,
+          "bandwidth_hz": 100000,
+          "peak_level": -54.0,
+          "score": 6.0
+        }
+      ]
+    },
+    {
+      "sweep": {
+        "id": "region-é",
+        "session_id": "session-é",
+        "stream_id": "spectrum/é",
+        "interval": {
+          "started_at": "2026-11-11T12:00:00.123456Z",
+          "ended_at": "2026-11-11T12:00:00.123457Z"
+        },
+        "frequencies_hz": [
+          100000001,
+          100100001,
+          100200001,
+          100300001,
+          100400001,
+          100500001,
+          100600001
+        ],
+        "levels": [
+          -80.0,
+          -60.0,
+          -60.0,
+          -70.0,
+          -0.0,
+          -0.0,
+          -80.0
+        ],
+        "level_unit": "dBm",
+        "settings": {
+          "rbw_hz": 10000,
+          "synthetic": true,
+          "opaque": {
+            "é": 1,
+            "é": 2
+          }
+        }
+      },
+      "threshold_dbm": -60.0,
+      "maximum": 10,
+      "regions": [
+        {
+          "center_frequency_hz": 100400001,
+          "bandwidth_hz": 100000,
+          "peak_level": -0.0,
+          "score": 60.0
+        },
+        {
+          "center_frequency_hz": 100100001,
+          "bandwidth_hz": 100000,
+          "peak_level": -60.0,
+          "score": 0.0
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "combined",
+      "seed": {
+        "sessions": [
+          {
+            "name": "Synthetic legacy automation",
+            "streams": [
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "spectrum_analyzer",
+                "level_unit": "dBm",
+                "id": "spectrum/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              }
+            ],
+            "id": "session-é",
+            "state": "running",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": null,
+            "metadata": {
+              "é": 1,
+              "é": 2
+            },
+            "contract_version": 1
+          }
+        ]
+      },
+      "actions": [
+        {
+          "kind": "detection",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -70.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": [],
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.0,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 3,
+              "retry_delay_seconds": 30.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.0,
+              "minimum_listening_seconds": 0.0,
+              "minimum_observations": 1,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_sweep",
+          "args": [
+            {
+              "id": "old-é",
+              "session_id": "session-é",
+              "stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "frequencies_hz": [
+                100000001,
+                100100001,
+                100200001,
+                100300001,
+                100400001,
+                100500001,
+                100600001
+              ],
+              "levels": [
+                -100.125,
+                -0.0,
+                -1.0000000000000002,
+                -90.0,
+                -55.0,
+                -54.0,
+                -100.0
+              ],
+              "level_unit": "dBm",
+              "settings": {
+                "rbw_hz": 10000,
+                "synthetic": true,
+                "opaque": {
+                  "é": 1,
+                  "é": 2
+                }
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "frequencies_hz": [
+              100000001,
+              100100001,
+              100200001,
+              100300001,
+              100400001,
+              100500001,
+              100600001
+            ],
+            "levels": [
+              -100.125,
+              -0.0,
+              -1.0000000000000002,
+              -90.0,
+              -55.0,
+              -54.0,
+              -100.0
+            ],
+            "level_unit": "dBm",
+            "id": "old-é",
+            "settings": {
+              "rbw_hz": 10000,
+              "synthetic": true,
+              "opaque": {
+                "é": 1,
+                "é": 2
+              }
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "sweep.received",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "sweep": {
+                  "session_id": "session-é",
+                  "stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "frequencies_hz": [
+                    100000001,
+                    100100001,
+                    100200001,
+                    100300001,
+                    100400001,
+                    100500001,
+                    100600001
+                  ],
+                  "levels": [
+                    -100.125,
+                    -0.0,
+                    -1.0000000000000002,
+                    -90.0,
+                    -55.0,
+                    -54.0,
+                    -100.0
+                  ],
+                  "level_unit": "dBm",
+                  "id": "old-é",
+                  "settings": {
+                    "rbw_hz": 10000,
+                    "synthetic": true,
+                    "opaque": {
+                      "é": 1,
+                      "é": 2
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true,
+              "threshold_dbm": -60.0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -60.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "stream_id": null,
+                  "threshold_dbm": -60.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": [],
+          "events": []
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_sweep",
+          "args": [
+            {
+              "id": "é",
+              "session_id": "session-é",
+              "stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "frequencies_hz": [
+                100000001,
+                100100001,
+                100200001,
+                100300001,
+                100400001,
+                100500001,
+                100600001
+              ],
+              "levels": [
+                -100.125,
+                -0.0,
+                -1.0000000000000002,
+                -90.0,
+                -55.0,
+                -54.0,
+                -100.0
+              ],
+              "level_unit": "dBm",
+              "settings": {
+                "rbw_hz": 10000,
+                "synthetic": true,
+                "opaque": {
+                  "é": 1,
+                  "é": 2
+                }
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "frequencies_hz": [
+              100000001,
+              100100001,
+              100200001,
+              100300001,
+              100400001,
+              100500001,
+              100600001
+            ],
+            "levels": [
+              -100.125,
+              -0.0,
+              -1.0000000000000002,
+              -90.0,
+              -55.0,
+              -54.0,
+              -100.0
+            ],
+            "level_unit": "dBm",
+            "id": "é",
+            "settings": {
+              "rbw_hz": 10000,
+              "synthetic": true,
+              "opaque": {
+                "é": 1,
+                "é": 2
+              }
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "sweep.received",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "sweep": {
+                  "session_id": "session-é",
+                  "stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "frequencies_hz": [
+                    100000001,
+                    100100001,
+                    100200001,
+                    100300001,
+                    100400001,
+                    100500001,
+                    100600001
+                  ],
+                  "levels": [
+                    -100.125,
+                    -0.0,
+                    -1.0000000000000002,
+                    -90.0,
+                    -55.0,
+                    -54.0,
+                    -100.0
+                  ],
+                  "level_unit": "dBm",
+                  "id": "é",
+                  "settings": {
+                    "rbw_hz": 10000,
+                    "synthetic": true,
+                    "opaque": {
+                      "é": 1,
+                      "é": 2
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_sweep",
+          "args": [
+            {
+              "id": "é",
+              "session_id": "session-é",
+              "stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T11:59:59.123456Z",
+                "ended_at": "2026-11-11T11:59:59.123457Z"
+              },
+              "frequencies_hz": [
+                100000001,
+                100100001,
+                100200001,
+                100300001,
+                100400001,
+                100500001,
+                100600001
+              ],
+              "levels": [
+                -100.125,
+                -0.0,
+                -1.0000000000000002,
+                -90.0,
+                -55.0,
+                -54.0,
+                -100.0
+              ],
+              "level_unit": "dBm",
+              "settings": {
+                "rbw_hz": 10000,
+                "synthetic": true,
+                "opaque": {
+                  "é": 1,
+                  "é": 2
+                }
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T11:59:59.123456Z",
+              "ended_at": "2026-11-11T11:59:59.123457Z"
+            },
+            "frequencies_hz": [
+              100000001,
+              100100001,
+              100200001,
+              100300001,
+              100400001,
+              100500001,
+              100600001
+            ],
+            "levels": [
+              -100.125,
+              -0.0,
+              -1.0000000000000002,
+              -90.0,
+              -55.0,
+              -54.0,
+              -100.0
+            ],
+            "level_unit": "dBm",
+            "id": "é",
+            "settings": {
+              "rbw_hz": 10000,
+              "synthetic": true,
+              "opaque": {
+                "é": 1,
+                "é": 2
+              }
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "sweep.received",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "sweep": {
+                  "session_id": "session-é",
+                  "stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T11:59:59.123456Z",
+                    "ended_at": "2026-11-11T11:59:59.123457Z"
+                  },
+                  "frequencies_hz": [
+                    100000001,
+                    100100001,
+                    100200001,
+                    100300001,
+                    100400001,
+                    100500001,
+                    100600001
+                  ],
+                  "levels": [
+                    -100.125,
+                    -0.0,
+                    -1.0000000000000002,
+                    -90.0,
+                    -55.0,
+                    -54.0,
+                    -100.0
+                  ],
+                  "level_unit": "dBm",
+                  "id": "é",
+                  "settings": {
+                    "rbw_hz": 10000,
+                    "synthetic": true,
+                    "opaque": {
+                      "é": 1,
+                      "é": 2
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": [
+            {
+              "session_id": "session-é",
+              "source_stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "center_frequency_hz": 100100001,
+              "level_unit": "dBm",
+              "id": "generated-0001",
+              "bandwidth_hz": 100000,
+              "peak_level": -0.0,
+              "score": 60.0,
+              "observation_ids": [],
+              "state": "new"
+            },
+            {
+              "session_id": "session-é",
+              "source_stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "center_frequency_hz": 100500001,
+              "level_unit": "dBm",
+              "id": "generated-0002",
+              "bandwidth_hz": 100000,
+              "peak_level": -54.0,
+              "score": 6.0,
+              "observation_ids": [],
+              "state": "new"
+            }
+          ],
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "candidate.created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "generated-0001",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "new"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "automatic_detection.candidate_created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate_id": "generated-0001",
+                "sweep_id": "é",
+                "source_stream_id": "spectrum/é",
+                "center_frequency_hz": 100100001,
+                "peak_level": -0.0,
+                "level_unit": "dBm"
+              }
+            },
+            {
+              "sequence": 3,
+              "event_type": "candidate.created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100500001,
+                  "level_unit": "dBm",
+                  "id": "generated-0002",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -54.0,
+                  "score": 6.0,
+                  "observation_ids": [],
+                  "state": "new"
+                }
+              }
+            },
+            {
+              "sequence": 4,
+              "event_type": "automatic_detection.candidate_created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate_id": "generated-0002",
+                "sweep_id": "é",
+                "source_stream_id": "spectrum/é",
+                "center_frequency_hz": 100500001,
+                "peak_level": -54.0,
+                "level_unit": "dBm"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -60.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_sweep_id": "é",
+              "last_result": "candidates_created",
+              "last_error": null,
+              "sweeps_processed": 2,
+              "candidates_created": 2,
+              "duplicates_suppressed": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": []
+        },
+        {
+          "kind": "domain",
+          "method": "enqueue_investigation",
+          "args": [
+            "session-é",
+            "generated-0001",
+            {
+              "id": "job-é",
+              "target_stream_id": "receiver/é",
+              "priority": 9,
+              "mode": " fm "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "generated-0001",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "job-é",
+            "state": "queued",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": null,
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.queued",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "generated-0001",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "job-é",
+                  "state": "queued",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": null,
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "generated-0001",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true,
+              "minimum_priority": 5
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_priority": 5,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 3,
+              "retry_delay_seconds": 30.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_priority": 5,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 3,
+                  "retry_delay_seconds": 30.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 10,
+          "result": {
+            "candidate_id": "generated-0001",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "job-é",
+            "state": "listening",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": "2026-11-11T12:00:10.123456Z"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.tuning",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "generated-0001",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "job-é",
+                  "state": "tuning",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "generated-0001",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "investigation.listening",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "generated-0001",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "job-é",
+                  "state": "listening",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": "2026-11-11T12:00:10.123456Z"
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "generated-0001",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "investigating"
+                }
+              }
+            },
+            {
+              "sequence": 3,
+              "event_type": "automatic_handoff.started",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation_id": "job-é",
+                "target_stream_id": "receiver/é"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true,
+              "minimum_listening_seconds": 10.0,
+              "minimum_observations": 2
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_listening_seconds": 10.0,
+              "minimum_observations": 2,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_completion.policy_changed",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_listening_seconds": 10.0,
+                  "minimum_observations": 2,
+                  "receiver_stream_id": null
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "before",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123455Z",
+                "ended_at": "2026-11-11T12:00:00.123456Z"
+              },
+              "frequency_hz": 100100001,
+              "mode": "FM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123455Z",
+              "ended_at": "2026-11-11T12:00:00.123456Z"
+            },
+            "frequency_hz": 100100001,
+            "mode": "FM",
+            "level_unit": "s_meter_count",
+            "id": "before",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123455Z",
+                    "ended_at": "2026-11-11T12:00:00.123456Z"
+                  },
+                  "frequency_hz": 100100001,
+                  "mode": "FM",
+                  "level_unit": "s_meter_count",
+                  "id": "before",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "wrong-mode",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:11.123456Z",
+                "ended_at": "2026-11-11T12:00:11.123457Z"
+              },
+              "frequency_hz": 100100001,
+              "mode": "AM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:11.123456Z",
+              "ended_at": "2026-11-11T12:00:11.123457Z"
+            },
+            "frequency_hz": 100100001,
+            "mode": "AM",
+            "level_unit": "s_meter_count",
+            "id": "wrong-mode",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:11.123456Z",
+                    "ended_at": "2026-11-11T12:00:11.123457Z"
+                  },
+                  "frequency_hz": 100100001,
+                  "mode": "AM",
+                  "level_unit": "s_meter_count",
+                  "id": "wrong-mode",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "wrong-frequency",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:11.123456Z",
+                "ended_at": "2026-11-11T12:00:11.123457Z"
+              },
+              "frequency_hz": 100100002,
+              "mode": "FM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:11.123456Z",
+              "ended_at": "2026-11-11T12:00:11.123457Z"
+            },
+            "frequency_hz": 100100002,
+            "mode": "FM",
+            "level_unit": "s_meter_count",
+            "id": "wrong-frequency",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:11.123456Z",
+                    "ended_at": "2026-11-11T12:00:11.123457Z"
+                  },
+                  "frequency_hz": 100100002,
+                  "mode": "FM",
+                  "level_unit": "s_meter_count",
+                  "id": "wrong-frequency",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "wrong-stream",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:11.123456Z",
+                "ended_at": "2026-11-11T12:00:11.123457Z"
+              },
+              "frequency_hz": 100100001,
+              "mode": "FM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:11.123456Z",
+              "ended_at": "2026-11-11T12:00:11.123457Z"
+            },
+            "frequency_hz": 100100001,
+            "mode": "FM",
+            "level_unit": "s_meter_count",
+            "id": "wrong-stream",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:11.123456Z",
+                    "ended_at": "2026-11-11T12:00:11.123457Z"
+                  },
+                  "frequency_hz": 100100001,
+                  "mode": "FM",
+                  "level_unit": "s_meter_count",
+                  "id": "wrong-stream",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "é",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:11.123456Z",
+                "ended_at": "2026-11-11T12:00:11.123457Z"
+              },
+              "frequency_hz": 100100001,
+              "mode": "FM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:11.123456Z",
+              "ended_at": "2026-11-11T12:00:11.123457Z"
+            },
+            "frequency_hz": 100100001,
+            "mode": "FM",
+            "level_unit": "s_meter_count",
+            "id": "é",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:10.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:11.123456Z",
+                    "ended_at": "2026-11-11T12:00:11.123457Z"
+                  },
+                  "frequency_hz": 100100001,
+                  "mode": "FM",
+                  "level_unit": "s_meter_count",
+                  "id": "é",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:10.123456Z",
+          "monotonic": 10.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_observation",
+          "args": [
+            {
+              "id": "é",
+              "session_id": "session-é",
+              "stream_id": "receiver/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:12.123456Z",
+                "ended_at": "2026-11-11T12:00:12.123457Z"
+              },
+              "frequency_hz": 100100001,
+              "mode": "FM",
+              "level": -0.0,
+              "level_unit": "s_meter_count",
+              "metadata": {
+                "synthetic": true,
+                "é": -0.0,
+                "é": -1.0000000000000002
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "receiver/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:12.123456Z",
+              "ended_at": "2026-11-11T12:00:12.123457Z"
+            },
+            "frequency_hz": 100100001,
+            "mode": "FM",
+            "level_unit": "s_meter_count",
+            "id": "é",
+            "level": -0.0,
+            "squelch_open": null,
+            "decoded_mode": null,
+            "audio_uri": null,
+            "metadata": {
+              "synthetic": true,
+              "é": -0.0,
+              "é": -1.0000000000000002
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "observation.received",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "observation": {
+                  "session_id": "session-é",
+                  "stream_id": "receiver/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:12.123456Z",
+                    "ended_at": "2026-11-11T12:00:12.123457Z"
+                  },
+                  "frequency_hz": 100100001,
+                  "mode": "FM",
+                  "level_unit": "s_meter_count",
+                  "id": "é",
+                  "level": -0.0,
+                  "squelch_open": null,
+                  "decoded_mode": null,
+                  "audio_uri": null,
+                  "metadata": {
+                    "synthetic": true,
+                    "é": -0.0,
+                    "é": -1.0000000000000002
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "generated-0001",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "job-é",
+            "state": "completed",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": "2026-11-11T12:00:20.123456Z",
+            "result_observation_ids": [
+              "é",
+              "é"
+            ],
+            "error": null,
+            "listening_started_at": "2026-11-11T12:00:10.123456Z"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.completed",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "generated-0001",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "job-é",
+                  "state": "completed",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": "2026-11-11T12:00:20.123456Z",
+                  "result_observation_ids": [
+                    "é",
+                    "é"
+                  ],
+                  "error": null,
+                  "listening_started_at": "2026-11-11T12:00:10.123456Z"
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "generated-0001",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "resolved"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "automatic_completion.completed",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation_id": "job-é",
+                "target_stream_id": "receiver/é",
+                "result_observation_ids": [
+                  "é",
+                  "é"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_listening_seconds": 10.0,
+              "minimum_observations": 2,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:20.123456Z",
+              "last_investigation_id": "job-é",
+              "last_result": "completed",
+              "last_error": null,
+              "completed_investigations": 1,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": false
+            }
+          ],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -60.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_sweep_id": "é",
+              "last_result": "disabled",
+              "last_error": null,
+              "sweeps_processed": 2,
+              "candidates_created": 2,
+              "duplicates_suppressed": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 1.0,
+                  "stream_id": null,
+                  "threshold_dbm": -60.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "ingest_sweep",
+          "args": [
+            {
+              "id": "disabled",
+              "session_id": "session-é",
+              "stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "frequencies_hz": [
+                100000001,
+                100100001,
+                100200001,
+                100300001,
+                100400001,
+                100500001,
+                100600001
+              ],
+              "levels": [
+                -100.125,
+                -0.0,
+                -1.0000000000000002,
+                -90.0,
+                -55.0,
+                -54.0,
+                -100.0
+              ],
+              "level_unit": "dBm",
+              "settings": {
+                "rbw_hz": 10000,
+                "synthetic": true,
+                "opaque": {
+                  "é": 1,
+                  "é": 2
+                }
+              }
+            }
+          ],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "frequencies_hz": [
+              100000001,
+              100100001,
+              100200001,
+              100300001,
+              100400001,
+              100500001,
+              100600001
+            ],
+            "levels": [
+              -100.125,
+              -0.0,
+              -1.0000000000000002,
+              -90.0,
+              -55.0,
+              -54.0,
+              -100.0
+            ],
+            "level_unit": "dBm",
+            "id": "disabled",
+            "settings": {
+              "rbw_hz": 10000,
+              "synthetic": true,
+              "opaque": {
+                "é": 1,
+                "é": 2
+              }
+            }
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "sweep.received",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "sweep": {
+                  "session_id": "session-é",
+                  "stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "frequencies_hz": [
+                    100000001,
+                    100100001,
+                    100200001,
+                    100300001,
+                    100400001,
+                    100500001,
+                    100600001
+                  ],
+                  "levels": [
+                    -100.125,
+                    -0.0,
+                    -1.0000000000000002,
+                    -90.0,
+                    -55.0,
+                    -54.0,
+                    -100.0
+                  ],
+                  "level_unit": "dBm",
+                  "id": "disabled",
+                  "settings": {
+                    "rbw_hz": 10000,
+                    "synthetic": true,
+                    "opaque": {
+                      "é": 1,
+                      "é": 2
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true
+            }
+          ],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -60.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_sweep_id": "é",
+              "last_result": "enabled",
+              "last_error": null,
+              "sweeps_processed": 2,
+              "candidates_created": 2,
+              "duplicates_suppressed": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:20.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "stream_id": null,
+                  "threshold_dbm": -60.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": [],
+          "events": []
+        },
+        {
+          "kind": "all",
+          "method": "restart",
+          "args": [],
+          "at": "2026-11-11T12:00:20.123456Z",
+          "monotonic": 20.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "detection": {
+              "policy": {
+                "enabled": false,
+                "interval_seconds": 1.0,
+                "stream_id": null,
+                "threshold_dbm": -70.0,
+                "dedup_bandwidth_hz": 100000,
+                "cooldown_seconds": 60.0,
+                "max_candidates_per_sweep": 10
+              },
+              "runtime": {
+                "last_run_at": null,
+                "last_sweep_id": null,
+                "last_result": "disabled",
+                "last_error": null,
+                "sweeps_processed": 0,
+                "candidates_created": 0,
+                "duplicates_suppressed": 0
+              },
+              "scheduler_alive": false,
+              "policy_persistent": false,
+              "restart_requires_opt_in": true,
+              "processes_existing_archive": false,
+              "automatically_enqueues_investigations": false
+            },
+            "handoff": {
+              "policy": {
+                "enabled": false,
+                "interval_seconds": 1.0,
+                "minimum_priority": 0,
+                "receiver_stream_id": null,
+                "max_consecutive_failures": 3,
+                "retry_delay_seconds": 30.0
+              },
+              "runtime": {
+                "last_run_at": null,
+                "last_investigation_id": null,
+                "last_result": "disabled",
+                "last_error": null,
+                "consecutive_failures": 0,
+                "successful_dispatches": 0,
+                "failed_dispatches": 0
+              },
+              "scheduler_alive": false,
+              "policy_persistent": false,
+              "restart_requires_opt_in": true
+            },
+            "completion": {
+              "policy": {
+                "enabled": false,
+                "interval_seconds": 1.0,
+                "minimum_listening_seconds": 0.0,
+                "minimum_observations": 1,
+                "receiver_stream_id": null
+              },
+              "runtime": {
+                "last_run_at": null,
+                "last_investigation_id": null,
+                "last_result": "disabled",
+                "last_error": null,
+                "completed_investigations": 0,
+                "skipped_investigations": 0
+              },
+              "scheduler_alive": false,
+              "policy_persistent": false,
+              "restart_requires_opt_in": true,
+              "automatic_fail_or_cancel": false
+            }
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "validation",
+      "seed": {
+        "sessions": [
+          {
+            "name": "Synthetic legacy automation",
+            "streams": [
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "spectrum_analyzer",
+                "level_unit": "dBm",
+                "id": "spectrum/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              }
+            ],
+            "id": "session-é",
+            "state": "running",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": null,
+            "metadata": {
+              "é": 1,
+              "é": 2
+            },
+            "contract_version": 1
+          }
+        ]
+      },
+      "actions": [
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": 1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "enabled должно быть JSON boolean"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enable": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Неизвестные поля политики: enable"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": false
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "0.01"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "NaN"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1.25"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.25,
+              "stream_id": null,
+              "threshold_dbm": -70.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 1.25,
+                  "stream_id": null,
+                  "threshold_dbm": -70.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "١_٢.٥"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "stream_id": null,
+              "threshold_dbm": -70.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 12.5,
+                  "stream_id": null,
+                  "threshold_dbm": -70.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1__0"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": " +Infinity "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "stream_id": "missing"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "stream_id не принадлежит сеансу"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "stream_id": "receiver/é"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Политика может выбирать только spectrum_analyzer"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "stream_id": null,
+              "threshold_dbm": -70.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": 1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "enabled должно быть JSON boolean"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enable": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Неизвестные поля политики: enable"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": false
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "0.01"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "NaN"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1.25"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.25,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 3,
+              "retry_delay_seconds": 30.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 1.25,
+                  "minimum_priority": 0,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 3,
+                  "retry_delay_seconds": 30.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "١_٢.٥"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 3,
+              "retry_delay_seconds": 30.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 12.5,
+                  "minimum_priority": 0,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 3,
+                  "retry_delay_seconds": 30.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1__0"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": " +Infinity "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "receiver_stream_id": "missing"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "receiver_stream_id не принадлежит сеансу"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "receiver_stream_id": "spectrum/é"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Политика может выбирать только receiver"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 3,
+              "retry_delay_seconds": 30.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": 1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "enabled должно быть JSON boolean"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "enable": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Неизвестные поля политики: enable"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": false
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "0.01"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "NaN"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1.25"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.25,
+              "minimum_listening_seconds": 0.0,
+              "minimum_observations": 1,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_completion.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 1.25,
+                  "minimum_listening_seconds": 0.0,
+                  "minimum_observations": 1,
+                  "receiver_stream_id": null
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "١_٢.٥"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "minimum_listening_seconds": 0.0,
+              "minimum_observations": 1,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_completion.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": false,
+                  "interval_seconds": 12.5,
+                  "minimum_listening_seconds": 0.0,
+                  "minimum_observations": 1,
+                  "receiver_stream_id": null
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": "1__0"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть конечным числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "interval_seconds": " +Infinity "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "interval_seconds должно быть в диапазоне 0.1…3600.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "receiver_stream_id": "missing"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "receiver_stream_id не принадлежит сеансу"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "receiver_stream_id": "spectrum/é"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "Политика может выбирать только receiver"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 12.5,
+              "minimum_listening_seconds": 0.0,
+              "minimum_observations": 1,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "disabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "dedup_bandwidth_hz": 1.5
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "dedup_bandwidth_hz должно быть целым числом"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "cooldown_seconds": -1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "cooldown_seconds должно быть в диапазоне 0.0…86400.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "max_candidates_per_sweep": 0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "max_candidates_per_sweep должно быть в диапазоне 1…100"
+          },
+          "events": []
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "threshold_dbm": -301
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "threshold_dbm должно быть в диапазоне -300.0…100.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "minimum_priority": -1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "minimum_priority должно быть в диапазоне 0…1000000"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "max_consecutive_failures": 101
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "max_consecutive_failures должно быть в диапазоне 1…100"
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "retry_delay_seconds": 0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "retry_delay_seconds должно быть в диапазоне 0.1…86400.0"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "minimum_observations": 0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "minimum_observations должно быть в диапазоне 1…1000"
+          },
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "minimum_listening_seconds": -1
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "error": {
+            "http_status": 400,
+            "api_code": "invalid_request",
+            "message": "minimum_listening_seconds должно быть в диапазоне 0.0…86400.0"
+          },
+          "events": []
+        }
+      ]
+    },
+    {
+      "name": "failures",
+      "seed": {
+        "sessions": [
+          {
+            "name": "Synthetic legacy automation",
+            "streams": [
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "spectrum_analyzer",
+                "level_unit": "dBm",
+                "id": "spectrum/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              }
+            ],
+            "id": "session-é",
+            "state": "running",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": null,
+            "metadata": {
+              "é": 1,
+              "é": 2
+            },
+            "contract_version": 1
+          }
+        ]
+      },
+      "actions": [
+        {
+          "kind": "domain",
+          "method": "create_candidate",
+          "args": [
+            "session-é",
+            {
+              "id": "candidate-low",
+              "source_stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "center_frequency_hz": 100100001,
+              "bandwidth_hz": 100000,
+              "peak_level": -0.0,
+              "score": 60.0,
+              "level_unit": "dBm"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "source_stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "center_frequency_hz": 100100001,
+            "level_unit": "dBm",
+            "id": "candidate-low",
+            "bandwidth_hz": 100000,
+            "peak_level": -0.0,
+            "score": 60.0,
+            "observation_ids": [],
+            "state": "new"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "candidate.created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-low",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "new"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "enqueue_investigation",
+          "args": [
+            "session-é",
+            "candidate-low",
+            {
+              "id": "low",
+              "target_stream_id": "receiver/é",
+              "priority": 2,
+              "mode": " fm "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-low",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "low",
+            "state": "queued",
+            "priority": 2,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": null,
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.queued",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-low",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "low",
+                  "state": "queued",
+                  "priority": 2,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": null,
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-low",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "create_candidate",
+          "args": [
+            "session-é",
+            {
+              "id": "candidate-é",
+              "source_stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "center_frequency_hz": 100100001,
+              "bandwidth_hz": 100000,
+              "peak_level": -0.0,
+              "score": 60.0,
+              "level_unit": "dBm"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "source_stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "center_frequency_hz": 100100001,
+            "level_unit": "dBm",
+            "id": "candidate-é",
+            "bandwidth_hz": 100000,
+            "peak_level": -0.0,
+            "score": 60.0,
+            "observation_ids": [],
+            "state": "new"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "candidate.created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "new"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "enqueue_investigation",
+          "args": [
+            "session-é",
+            "candidate-é",
+            {
+              "id": "é",
+              "target_stream_id": "receiver/é",
+              "priority": 9,
+              "mode": " fm "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-é",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "é",
+            "state": "queued",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": null,
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.queued",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "queued",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": null,
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "create_candidate",
+          "args": [
+            "session-é",
+            {
+              "id": "candidate-é",
+              "source_stream_id": "spectrum/é",
+              "interval": {
+                "started_at": "2026-11-11T12:00:00.123456Z",
+                "ended_at": "2026-11-11T12:00:00.123457Z"
+              },
+              "center_frequency_hz": 100100001,
+              "bandwidth_hz": 100000,
+              "peak_level": -0.0,
+              "score": 60.0,
+              "level_unit": "dBm"
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "session_id": "session-é",
+            "source_stream_id": "spectrum/é",
+            "interval": {
+              "started_at": "2026-11-11T12:00:00.123456Z",
+              "ended_at": "2026-11-11T12:00:00.123457Z"
+            },
+            "center_frequency_hz": 100100001,
+            "level_unit": "dBm",
+            "id": "candidate-é",
+            "bandwidth_hz": 100000,
+            "peak_level": -0.0,
+            "score": 60.0,
+            "observation_ids": [],
+            "state": "new"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "candidate.created",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "new"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "enqueue_investigation",
+          "args": [
+            "session-é",
+            "candidate-é",
+            {
+              "id": "é",
+              "target_stream_id": "receiver/é",
+              "priority": 9,
+              "mode": " fm "
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-é",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "é",
+            "state": "queued",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": null,
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.queued",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "queued",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": null,
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true,
+              "minimum_priority": 5,
+              "max_consecutive_failures": 2,
+              "retry_delay_seconds": 60.0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_priority": 5,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 2,
+              "retry_delay_seconds": 60.0
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_priority": 5,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 2,
+                  "retry_delay_seconds": 60.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "Стенд: receiver недоступен",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-é",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "é",
+            "state": "failed",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": "2026-11-11T12:00:00.123456Z",
+            "result_observation_ids": [],
+            "error": "Стенд: receiver недоступен",
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.tuning",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "tuning",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "investigation.failed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "failed",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": "2026-11-11T12:00:00.123456Z",
+                  "result_observation_ids": [],
+                  "error": "Стенд: receiver недоступен",
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "Стенд: receiver недоступен",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-é",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "é",
+            "state": "failed",
+            "priority": 9,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": "2026-11-11T12:00:00.123456Z",
+            "result_observation_ids": [],
+            "error": "Стенд: receiver недоступен",
+            "listening_started_at": null
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.tuning",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "tuning",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "investigation.failed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-é",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "é",
+                  "state": "failed",
+                  "priority": 9,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": "2026-11-11T12:00:00.123456Z",
+                  "result_observation_ids": [],
+                  "error": "Стенд: receiver недоступен",
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-é",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            },
+            {
+              "sequence": 3,
+              "event_type": "automatic_handoff.disabled",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "reason": "max_consecutive_failures",
+                "last_error": "Стенд: receiver недоступен",
+                "consecutive_failures": 2
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "status",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": false,
+              "interval_seconds": 1.0,
+              "minimum_priority": 5,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 2,
+              "retry_delay_seconds": 60.0
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_investigation_id": "é",
+              "last_result": "circuit_breaker",
+              "last_error": "Стенд: receiver недоступен",
+              "consecutive_failures": 2,
+              "successful_dispatches": 0,
+              "failed_dispatches": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true,
+              "minimum_priority": 0
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 2,
+              "retry_delay_seconds": 60.0
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_investigation_id": "é",
+              "last_result": "enabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 0,
+              "failed_dispatches": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_priority": 0,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 2,
+                  "retry_delay_seconds": 60.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "candidate_id": "candidate-low",
+            "target_stream_id": "receiver/é",
+            "target_frequency_hz": 100100001,
+            "id": "low",
+            "state": "listening",
+            "priority": 2,
+            "mode": " fm ",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": null,
+            "result_observation_ids": [],
+            "error": null,
+            "listening_started_at": "2026-11-11T12:00:00.123456Z"
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "investigation.tuning",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-low",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "low",
+                  "state": "tuning",
+                  "priority": 2,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": null
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-low",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "investigation.listening",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-low",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "low",
+                  "state": "listening",
+                  "priority": 2,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": null,
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": "2026-11-11T12:00:00.123456Z"
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-low",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "investigating"
+                }
+              }
+            },
+            {
+              "sequence": 3,
+              "event_type": "automatic_handoff.started",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation_id": "low",
+                "target_stream_id": "receiver/é"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "domain",
+          "method": "stop_session",
+          "args": [
+            "session-é"
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "name": "Synthetic legacy automation",
+            "streams": [
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "spectrum_analyzer",
+                "level_unit": "dBm",
+                "id": "spectrum/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              },
+              {
+                "session_id": "session-é",
+                "device": "synthetic",
+                "role": "receiver",
+                "level_unit": "s_meter_count",
+                "id": "receiver/é",
+                "label": "",
+                "port": null,
+                "model": null,
+                "serial_number": null,
+                "firmware": null,
+                "state": "disconnected",
+                "capabilities": [],
+                "settings": {}
+              }
+            ],
+            "id": "session-é",
+            "state": "stopped",
+            "created_at": "2026-11-11T12:00:00.123456Z",
+            "started_at": "2026-11-11T12:00:00.123456Z",
+            "ended_at": "2026-11-11T12:00:00.123456Z",
+            "metadata": {
+              "é": 1,
+              "é": 2
+            },
+            "contract_version": 1
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "session.stopped",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "session": {
+                  "name": "Synthetic legacy automation",
+                  "streams": [
+                    {
+                      "session_id": "session-é",
+                      "device": "synthetic",
+                      "role": "spectrum_analyzer",
+                      "level_unit": "dBm",
+                      "id": "spectrum/é",
+                      "label": "",
+                      "port": null,
+                      "model": null,
+                      "serial_number": null,
+                      "firmware": null,
+                      "state": "disconnected",
+                      "capabilities": [],
+                      "settings": {}
+                    },
+                    {
+                      "session_id": "session-é",
+                      "device": "synthetic",
+                      "role": "receiver",
+                      "level_unit": "s_meter_count",
+                      "id": "receiver/é",
+                      "label": "",
+                      "port": null,
+                      "model": null,
+                      "serial_number": null,
+                      "firmware": null,
+                      "state": "disconnected",
+                      "capabilities": [],
+                      "settings": {}
+                    },
+                    {
+                      "session_id": "session-é",
+                      "device": "synthetic",
+                      "role": "receiver",
+                      "level_unit": "s_meter_count",
+                      "id": "receiver/é",
+                      "label": "",
+                      "port": null,
+                      "model": null,
+                      "serial_number": null,
+                      "firmware": null,
+                      "state": "disconnected",
+                      "capabilities": [],
+                      "settings": {}
+                    }
+                  ],
+                  "id": "session-é",
+                  "state": "stopped",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": "2026-11-11T12:00:00.123456Z",
+                  "metadata": {
+                    "é": 1,
+                    "é": 2
+                  },
+                  "contract_version": 1
+                }
+              }
+            },
+            {
+              "sequence": 2,
+              "event_type": "investigation.cancelled",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "investigation": {
+                  "candidate_id": "candidate-low",
+                  "target_stream_id": "receiver/é",
+                  "target_frequency_hz": 100100001,
+                  "id": "low",
+                  "state": "cancelled",
+                  "priority": 2,
+                  "mode": " fm ",
+                  "created_at": "2026-11-11T12:00:00.123456Z",
+                  "started_at": "2026-11-11T12:00:00.123456Z",
+                  "ended_at": "2026-11-11T12:00:00.123456Z",
+                  "result_observation_ids": [],
+                  "error": null,
+                  "listening_started_at": "2026-11-11T12:00:00.123456Z"
+                },
+                "candidate": {
+                  "session_id": "session-é",
+                  "source_stream_id": "spectrum/é",
+                  "interval": {
+                    "started_at": "2026-11-11T12:00:00.123456Z",
+                    "ended_at": "2026-11-11T12:00:00.123457Z"
+                  },
+                  "center_frequency_hz": 100100001,
+                  "level_unit": "dBm",
+                  "id": "candidate-low",
+                  "bandwidth_hz": 100000,
+                  "peak_level": -0.0,
+                  "score": 60.0,
+                  "observation_ids": [],
+                  "state": "queued"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "stream_id": null,
+              "threshold_dbm": -70.0,
+              "dedup_bandwidth_hz": 100000,
+              "cooldown_seconds": 60.0,
+              "max_candidates_per_sweep": 10
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_sweep_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "sweeps_processed": 0,
+              "candidates_created": 0,
+              "duplicates_suppressed": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "processes_existing_archive": false,
+            "automatically_enqueues_investigations": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_detection.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "stream_id": null,
+                  "threshold_dbm": -70.0,
+                  "dedup_bandwidth_hz": 100000,
+                  "cooldown_seconds": 60.0,
+                  "max_candidates_per_sweep": 10
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "detection",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": [],
+          "events": []
+        },
+        {
+          "kind": "handoff",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_priority": 0,
+              "receiver_stream_id": null,
+              "max_consecutive_failures": 2,
+              "retry_delay_seconds": 60.0
+            },
+            "runtime": {
+              "last_run_at": "2026-11-11T12:00:00.123456Z",
+              "last_investigation_id": "low",
+              "last_result": "enabled",
+              "last_error": null,
+              "consecutive_failures": 0,
+              "successful_dispatches": 1,
+              "failed_dispatches": 2
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_handoff.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_priority": 0,
+                  "receiver_stream_id": null,
+                  "max_consecutive_failures": 2,
+                  "retry_delay_seconds": 60.0
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "handoff",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        },
+        {
+          "kind": "completion",
+          "method": "configure",
+          "args": [
+            {
+              "enabled": true
+            }
+          ],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": {
+            "policy": {
+              "enabled": true,
+              "interval_seconds": 1.0,
+              "minimum_listening_seconds": 0.0,
+              "minimum_observations": 1,
+              "receiver_stream_id": null
+            },
+            "runtime": {
+              "last_run_at": null,
+              "last_investigation_id": null,
+              "last_result": "enabled",
+              "last_error": null,
+              "completed_investigations": 0,
+              "skipped_investigations": 0
+            },
+            "scheduler_alive": false,
+            "policy_persistent": false,
+            "restart_requires_opt_in": true,
+            "automatic_fail_or_cancel": false
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "event_type": "automatic_completion.policy_changed",
+              "occurred_at": "2026-11-11T12:00:00.123456Z",
+              "session_id": "session-é",
+              "payload": {
+                "policy": {
+                  "enabled": true,
+                  "interval_seconds": 1.0,
+                  "minimum_listening_seconds": 0.0,
+                  "minimum_observations": 1,
+                  "receiver_stream_id": null
+                },
+                "source": "operator_api"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "completion",
+          "method": "run_once",
+          "args": [],
+          "at": "2026-11-11T12:00:00.123456Z",
+          "monotonic": 0.0,
+          "effect": "ok",
+          "tune_delay_seconds": 0,
+          "result": null,
+          "events": []
+        }
+      ]
+    }
+  ]
+}

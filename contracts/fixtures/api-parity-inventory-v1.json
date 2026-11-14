@@ -1,0 +1,697 @@
+{
+  "format": "ori-public-api-cli-inventory",
+  "format_version": 1,
+  "python_source_revision": "5f9a63b1c1d57b53c9bb7152cf6d9b5607d29d13",
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/capabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/archive/capacity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/task-scheduler"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/task-scheduler"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/openapi.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/measurement-catalog"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/task-scheduler/tasks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/task-scheduler/tasks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/task-scheduler/tasks/{name}/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/sweep-summaries"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/audio-segments"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workers"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/workers/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/workers/stop"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/workers"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/tune"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/sweeps"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweeps"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweeps/batch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/observations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/observations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/observations/batch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/candidates"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/candidates"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/candidates/{candidate_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/candidates/by-id/{candidate_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/investigations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/investigations/{investigation_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/investigations/by-id/{investigation_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/candidates/{candidate_id}/investigations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/candidates/{candidate_id}/dismiss"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/investigations/next"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/investigations/start-next"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/investigations/{investigation_id}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/investigations/{investigation_id}/complete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/investigations/{investigation_id}/fail"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/investigations/{investigation_id}/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/automatic-detection"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/automatic-detection"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/automatic-handoff"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/automatic-handoff"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/automatic-completion"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/automatic-completion"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/candidate-frequency-rounding"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-average-comparison"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-average-change-detection"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-three-thresholds"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-context"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-occupancy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/frequency-rounding"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-quality"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/frequency-counter"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/dvb-evaluation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/measurement-map"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-mask-analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/sweep-comparison"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/sweep-threshold"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/sweep-references"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/sweep-references"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/measurement-results"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/measurement-results"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/analytics/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/archive/export"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/archive/export.ndjson"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/phonogram/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/audio/status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/phonogram/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/phonogram/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/phonogram/frames"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/phonogram/wav"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/audio/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/signal-list/export"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/signal-list/import"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/capabilities"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/control-lease"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/control-lease"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations/{operation_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/screen"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/content"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations/{operation_id}/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/audio-inputs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/preflight"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/storage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/alerts"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/baselines"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/baselines"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/allowed"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/allowed"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/events"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/arm"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/disarm"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/configure"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/preparation"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/preparation/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/preparation/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/manual/acquire"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/manual/renew"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/manual/return"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/manual/tune"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/search/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/search/mark"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/search/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/baselines/{baseline_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/review"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/audio"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring-projects/{project_id}/alerts/{alert_id}/ack"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/history/{sweep_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring-projects/{project_id}/history/{sweep_id}/comparison"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/field-strength-rms-v2"
+    }
+  ],
+  "legacy_operations": [
+    {
+      "method": "GET",
+      "path": "/api/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/signals"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coverage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/occupancy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/efficiency"
+    },
+    {
+      "method": "GET",
+      "path": "/api/keywords"
+    },
+    {
+      "method": "GET",
+      "path": "/api/measure"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream"
+    },
+    {
+      "method": "POST",
+      "path": "/api/threshold"
+    },
+    {
+      "method": "POST",
+      "path": "/api/database"
+    }
+  ],
+  "radioinspector_subcommands": [
+    "demo",
+    "scan",
+    "occupancy",
+    "measure",
+    "signals",
+    "assignments",
+    "coverage",
+    "df",
+    "report",
+    "export",
+    "convert",
+    "serve",
+    "keywords",
+    "tasks",
+    "freqs",
+    "iq",
+    "devices"
+  ],
+  "console_entrypoints": [
+    "radioinspector",
+    "radioinspector-desktop",
+    "radioinspector-core",
+    "radioinspector-windows",
+    "radioinspector-archive-import",
+    "radioinspector-archive-export",
+    "radioinspector-archive-stream",
+    "radioinspector-archive-export-stream",
+    "radioinspector-archive-backup",
+    "radioinspector-task-scheduler"
+  ],
+  "source_sha256": {
+    "radioinspector/web/server.py": "adf679a1e6e6fcf6363e72e4719c4f963ed63b9b981fc2e07ac5d4be718aeed3",
+    "radioinspector/web/openapi.py": "1ac4a3613c9e875faae524f64db4185f1825100b183e6bbcc3b51e7ca762ed6e",
+    "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+    "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+    "radioinspector/cli.py": "4a9edce6aad51d00cc4ae0b156e550eb435f78ddda4ed9815acbb7ebcde8db70",
+    "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c"
+  },
+  "approved_source_snapshots": [
+    {
+      "revision": "3cef3ec1d0b6c28e1017fc15174143e299bf8404",
+      "source_sha256": {
+        "radioinspector/web/server.py": "923e6cf24de1dc4551fbd70b8f0891e706749661a814090209ec1a43892c1f49",
+        "radioinspector/web/openapi.py": "1ac4a3613c9e875faae524f64db4185f1825100b183e6bbcc3b51e7ca762ed6e",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/cli.py": "4a9edce6aad51d00cc4ae0b156e550eb435f78ddda4ed9815acbb7ebcde8db70",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "f702e8a1e7ed20114250d1345674bb9a282f55c9",
+      "source_sha256": {
+        "radioinspector/web/server.py": "fcd03adafa85782316370ffcc933a10237cdf475f4f8791f3338d4ca69cab400",
+        "radioinspector/web/openapi.py": "1ac4a3613c9e875faae524f64db4185f1825100b183e6bbcc3b51e7ca762ed6e",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/cli.py": "4a9edce6aad51d00cc4ae0b156e550eb435f78ddda4ed9815acbb7ebcde8db70",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "86b536c7dd881e7bbaa22f3f26b084e6e970f9fb",
+      "source_sha256": {
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/cli.py": "4a9edce6aad51d00cc4ae0b156e550eb435f78ddda4ed9815acbb7ebcde8db70",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c",
+        "radioinspector/web/openapi.py": "1ac4a3613c9e875faae524f64db4185f1825100b183e6bbcc3b51e7ca762ed6e",
+        "radioinspector/web/server.py": "771f02fef845a17d1c859d73148897d63365504a030f9b6f5c31992efc1adcf6"
+      }
+    },
+    {
+      "revision": "fb0c0e3471c976e57d3687d5520c1027ecbd7fb4",
+      "source_sha256": {
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c",
+        "radioinspector/web/openapi.py": "4c61eed875411abc0454b3abdd165c62b1cc94a5fdd2184b0e34e0f11e5d46ab",
+        "radioinspector/web/server.py": "59af84f23774de1d32e125d65837bdcc565ec2e258fe7fbf7322e523c48b4eaa"
+      }
+    },
+    {
+      "revision": "bb64f27716b510c1b5580fa299c17017bf3314d1",
+      "source_sha256": {
+        "radioinspector/web/server.py": "59af84f23774de1d32e125d65837bdcc565ec2e258fe7fbf7322e523c48b4eaa",
+        "radioinspector/web/openapi.py": "d0a152c3f6d76ddc18de73ef00fea75a2ba8e13303cf7be5037974e962368058",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    }
+  ],
+  "source_support_sha256": {
+    "radioinspector/web/event_streams.py": "28576731a49e0004d0c684fea703a146b8ecbf95833f30b85e2274ba11e364af"
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "ori-instruments"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+description = "Bounded asynchronous tinySA Ultra and AR-DV1 serial adapters"
+
+[features]
+default = []
+serial = ["dep:tokio-serial", "dep:serialport"]
+
+[dependencies]
+chrono = { version = "=0.4.45", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["io-util", "rt", "sync", "time", "macros"] }
+serialport = { version = "=4.10.1", default-features = false, optional = true }
+tokio-serial = { version = "=5.5.0", default-features = false, optional = true }
+
+[dev-dependencies]
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "test-util"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "=0.2.191"

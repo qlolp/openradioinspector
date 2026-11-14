@@ -1,0 +1,28 @@
+[package]
+name = "ori-guard"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+publish = false
+description = "Core-owned monitoring project, baseline, guard and manual ownership domain"
+
+[dependencies]
+ori-archive = { path = "../ori-archive" }
+ori-contracts = { path = "../ori-contracts" }
+ori-monitoring = { path = "../ori-monitoring" }
+ori-session = { path = "../ori-session" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision"] }
+tokio = { version = "=1.54.1", features = ["sync", "time", "rt", "macros"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
+thiserror = "=2.0.21"
+rand = "=0.8.8"
+sha2 = "=0.11.1"
+base64 = "=0.23.1"
+url = "=2.5.8"
+uuid = { version = "=1.29.2", default-features = false, features = ["std", "v5"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+tokio = { version = "=1.54.1", features = ["rt-multi-thread", "test-util"] }

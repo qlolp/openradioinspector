@@ -33,12 +33,14 @@ final class SweepComparisonModelTests: XCTestCase {
         private var status = 200
         private var malformed = false
         private var wrongStream = false
+        private var watermark: Int64 = 100
         private var held: [Stub] = []
         private var comparisons: [(String, String)] = []
         var requestCount: Int { lock.withLock { comparisons.count } }
         var pendingCount: Int { lock.withLock { held.count } }
         var stoppedCount: Int { lock.withLock { held.filter(\.isStopped).count } }
         var lastPair: (String, String)? { lock.withLock { comparisons.last } }
+        func restoreArchive() { lock.withLock { watermark = 7; ids = ["restored"] } }
 
         func configure(ids: [String]? = nil, stream: String? = nil, hold: Bool = false,
                        status: Int = 200, malformed: Bool = false, wrongStream: Bool = false) {
@@ -88,7 +90,8 @@ final class SweepComparisonModelTests: XCTestCase {
                 if !config.2 {
                     stub.respond(config.4 ? [:] : comparison(stub, stream: config.5 ? "foreign" : config.1), status: config.3)
                 }
-            } else if path == "/api/v1/sessions" { stub.respond([session("s", stream: config.1)]) }
+            } else if path == "/api/v1/health" { stub.respond(["last_event_id": lock.withLock { watermark }]) }
+            else if path == "/api/v1/sessions" { stub.respond([session("s", stream: config.1)]) }
             else if path == "/api/v1/sessions/s" || path == "/api/v1/sessions/s2" {
                 stub.respond(session(path.hasSuffix("s2") ? "s2" : "s", stream: config.1))
             } else if path.hasSuffix("/sweeps") { stub.respond(config.0.map { sweep($0, stream: config.1) }) }
@@ -276,6 +279,27 @@ final class SweepComparisonModelTests: XCTestCase {
         responses.release()
         XCTAssertNil(model.sweepComparison)
         XCTAssertEqual(model.comparisonReference?.id, "t")
+    }
+
+    @MainActor func testSameIDArchiveRollbackCancelsComparisonAndRejectsItsLateAnswer() async throws {
+        let responses = Responses()
+        let model = try await self.model(responses)
+        defer { responses.release(); model.disconnect() }
+        pin(model)
+        responses.configure(hold: true)
+        model.compareLatestSweep()
+        try await waitFor { responses.pendingCount == 1 }
+        responses.restoreArchive()
+        await model.refresh()
+        XCTAssertNil(model.comparisonReference)
+        XCTAssertNil(model.sweepComparison)
+        XCTAssertFalse(model.sweepComparisonPending)
+        XCTAssertEqual(model.comparisonSweeps.map(\.id), ["restored"])
+        try await waitFor { responses.stoppedCount == 1 }
+        responses.release()
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertNil(model.sweepComparison)
+        XCTAssertNil(model.sweepComparisonError)
     }
 
     @MainActor func testScopeChangesAndWindowDisconnectCancelAndClearReference() async throws {

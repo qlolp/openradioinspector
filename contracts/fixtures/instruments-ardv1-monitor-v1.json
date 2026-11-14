@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "evidence": "authored_synthetic_transcript",
+  "hardware_validation": "not_run",
+  "config": {
+    "frequency_hz": 145500000,
+    "mode": "AUTO",
+    "profile": "ardv1-monitor-v1"
+  },
+  "transcript": [
+    {
+      "write_ascii": "RE1\r",
+      "read_ascii": "20\r\n"
+    },
+    {
+      "write_ascii": "VR\r",
+      "read_ascii": "20VR2504A\r\n"
+    },
+    {
+      "write_ascii": "RN\r",
+      "read_ascii": "20RNsynthetic\r\n"
+    },
+    {
+      "write_ascii": "VFA\r",
+      "read_ascii": "20\r\n"
+    },
+    {
+      "write_ascii": "MD000\r",
+      "read_ascii": "20\r\n"
+    },
+    {
+      "write_ascii": "RF0145.50000\r",
+      "read_ascii": "20\r\n"
+    },
+    {
+      "write_ascii": "LM\r",
+      "read_ascii": "20LM1043\r\n"
+    },
+    {
+      "write_ascii": "MD\r",
+      "read_ascii": "20MD700\r\n"
+    }
+  ],
+  "expected": {
+    "frequency_hz": 145500000,
+    "mode": "AUTO",
+    "level": 104,
+    "level_unit": "s_meter_count",
+    "raw_squelch_status": 3,
+    "squelch_open": true,
+    "decoded_mode": "DMR",
+    "raw_mode_status": "MD700",
+    "frequency_readback": false
+  }
+}

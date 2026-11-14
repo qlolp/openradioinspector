@@ -1,0 +1,17 @@
+syntax = "proto3";
+package ori.measurements.v1;
+
+// Versioned event framing. The JSON is the standard api_payload(event) envelope.
+// Only when spectrum is present are BOTH arrays absent from
+// data.payload.sweep in envelope_json. All other metadata remains unchanged.
+message StreamFrame {
+  uint32 protocol_version = 1;
+  uint64 sequence = 2;
+  bytes envelope_json = 3;
+  optional SpectrumArrays spectrum = 4;
+}
+
+message SpectrumArrays {
+  repeated uint64 frequencies_hz = 1 [packed = true];
+  repeated double levels = 2 [packed = true];
+}

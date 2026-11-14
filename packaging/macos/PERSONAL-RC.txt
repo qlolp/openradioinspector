@@ -1,0 +1,26 @@
+OpenRadioInspector 0.4.0-macos.rc.1 — personal test candidate
+
+Apple Silicon / arm64; target acceptance system: macOS 27.3, not yet tested.
+No public stable release, Developer ID or Apple notarization is claimed.
+
+1. Verify SHA256SUMS and the source revision in the external manifest.
+2. Open the DMG and copy “OpenRadioInspector RC.app” to /Applications.
+   Eject the DMG. Do not register the background service from a mounted image.
+3. If macOS blocks this personal ad-hoc build, review its origin and use the
+   standard Privacy & Security → Open Anyway procedure. Do not disable Gatekeeper.
+4. Start the app, explicitly start/approve its background service, then follow
+   device preparation. Starting the service does not connect USB or arm guard.
+
+Command-Q closes the interface. The independently registered guard continues.
+Use “Stop service” and wait for confirmation before replacing/moving the app.
+Do not install over a running service. A failed stop is not permission to update.
+Data: ~/Library/Application Support/OpenRadioInspector/macOS-RC
+This is separate from an existing installation. Original measurements are not
+removed automatically. Backup/restore must target a separate directory; never
+restore an older archive over newer measurements during rollback.
+
+Audio capture and Python/DuckDB analysis are unavailable in RC1. Rust remains a
+candidate. Software checks, full 30-minute offered-load acceptance and eight
+hours with tinySA Ultra + AR-DV1 on the actual Mac are distinct gates. A hosted
+build or synthetic check does not constitute hardware acceptance. Weekly
+standalone testing remains required before claiming proven 24/7 operation.

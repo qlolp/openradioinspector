@@ -1,0 +1,13 @@
+# Accelerated Rust sampled lifecycle
+
+The harness owns a fresh replay-mode Rust candidate and archive, reuses the existing `Config(scenario="lifecycle")` producer and source verifiers, and restarts that same archive twice. The default is an **accelerated seven-day sampled timeline**: 168 hourly sweeps, observations and closed ten-second 48 kHz mono PCM16 WAVs. Audio totals 1,680 seconds, not seven continuous days. No hardware, real-time endurance, Pi performance or internal-memory acceptance is implied.
+
+An explicit candidate path or `ORI_CORE_ENDURANCE_BINARY` is required. Its SHA-256 is checked before each launch and after JOIN. Missing binary/routes/capabilities are explicit unavailable outcomes, never skipped positive evidence. New report/data directories must be outside Git worktrees; previous reports and unknown files are preserved.
+
+Use the existing POSIX `OwnedCommand` process-tree authority. A trusted CLI adapter keeps Core in that same held session and supplies its stdin lifeline; a private bounded stop request closes the pipe and waits for the real child. Owner wait/release must prove the child tree joined before restart. Unsupported platforms fail closed as unavailable. No owner-library changes or Rust compilation are needed.
+
+After ingestion the harness creates a real draft Guard project and verifies its inactive status, public history and preflight outcome without arming, probing devices or claiming ready hardware. Session start changes metadata only; no worker-start route is called. A disk-backed derived event ledger freezes every original event sequence and payload digest. Each restart must retain exact source/WAV hashes and all event identities, retain the session running without active workers, and keep the draft Guard inactive. Current Core startup resets runtime stream state without inventing a recovery event; the event watermark must remain unchanged.
+
+Bounded public summaries (100), Guard history pages (16), event pages (8), original producer queue and streaming verifiers bound the harness working set. They do not establish Core resident-memory bounds. Reports retain actual HTTP observations, producer evidence, candidate digest, owned process JOINs and observed service downtime. Downtime is not an RF coverage measurement.
+
+Chosen approach: wrap the existing lifecycle workload and verifier; this preserves its offered denominators and exact source algorithm. A second producer would duplicate authority. Reusing a fresh-only parity node cannot restart the same archive, so the existing general release owner is composed with a small CLI adapter instead. Root approved this design and source-only scope; no nested agents, Core/Archive/Guard edits, push or hardware work.

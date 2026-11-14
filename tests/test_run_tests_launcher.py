@@ -38,5 +38,7 @@ class TestShellLauncher(unittest.TestCase):
         result = subprocess.run([shutil.which('bash'), str(root / 'run_tests.sh')],
                                 env=environment, text=True, capture_output=True, check=True)
         arguments = result.stdout.splitlines()
-        self.assertEqual(arguments[:4], ['run', '--no-project', '--with', str(root) + '[serial,test]'])
-        self.assertEqual(arguments[4:], ['python', '-m', 'unittest', 'discover', '-s', 'tests', '-t', '.'])
+        self.assertEqual(arguments[:6], ['run', '--no-project', '--with-requirements',
+                                        str(root / 'requirements/core.lock'),
+                                        '--with', str(root) + '[serial,test]'])
+        self.assertEqual(arguments[6:], ['python', '-m', 'unittest', 'discover', '-s', 'tests', '-t', '.'])

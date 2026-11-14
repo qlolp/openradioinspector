@@ -1,8 +1,11 @@
 """Run the complete synthetic release checks, without accessing physical devices.
 
 Usage: python -m tests.run_release_checks [--swift]
+       python -m tests.run_release_checks --modern --research-python PATH [--swift] [--windows-llvm]
 Requires NumPy, pySerial, Node and a working Tk display (use xvfb-run on Linux).
 --swift additionally runs both macOS packages and an unsigned Xcode build.
+--modern selects the additive modernization profile; its --swift checks only
+the portable contracts package. Full releases require both profiles.
 Only private child processes, ephemeral loopback servers and temporary archives
 are owned here. Hardware acceptance remains a separate, explicit operation.
 """
@@ -14,6 +17,7 @@ import faulthandler
 import importlib
 import json
 import os
+import stat
 from pathlib import Path
 import re
 import shutil
@@ -28,6 +32,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from tests.loopback_dns import local_loopback_names
+from tests import release_process_ownership as process_ownership
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,13 +147,16 @@ class DiagnosticTestResult(unittest.TextTestResult):
         self._event("stop", test, time.monotonic())
 
 
-# Keep lifecycle/worker-GC regressions in-process: they deliberately reuse Tk.
-MACOS_TK_CLASSES = frozenset({
+# Keep Tcl-only lifecycle/worker-GC regressions in-process: they deliberately
+# verify creator-thread disposal. Real GUI graphs belong to a fresh process;
+# delayed native interpreter GC on an acquisition thread aborts on all OSes.
+NATIVE_TK_CLASSES = frozenset({
     "tests.test_windows_release_flows.WindowsReleaseFlowTests",
     "tests.test_windows_sweep_context.ActualTkHTTPTests",
     "tests.test_windows_three_thresholds.ActualTkHTTPTests",
     "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
     "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+    "tests.test_windows_monitoring.MonitoringTkTests",
 })
 TK_CASE_TIMEOUT = 90
 
@@ -208,7 +216,7 @@ def isolate_tk_cases(suite):
             result.addTest(isolate_tk_cases(item))
         else:
             result.addTest(IsolatedTkTest(item.id())
-                           if item.id().rsplit(".", 1)[0] in MACOS_TK_CLASSES else item)
+                           if item.id().rsplit(".", 1)[0] in NATIVE_TK_CLASSES else item)
     return result
 
 
@@ -228,8 +236,13 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
                 raise ReleaseCheckError("Single-test selection must resolve to exactly the requested case")
         else:
             suite = unittest.defaultTestLoader.discover(str(ROOT / "tests"), top_level_dir=str(ROOT))
-            if sys.platform == "darwin" or os.environ.get("ORI_RELEASE_ISOLATE_TK") == "1":
-                suite = isolate_tk_cases(suite)
+            # ELF relocation/AF_UNIX packaging belongs to the Linux target.
+            # Load that suite explicitly instead of creating platform skips in
+            # every Windows/macOS release. Never mask empty base discovery.
+            if suite.countTestCases() and sys.platform.startswith("linux"):
+                suite.addTests(unittest.defaultTestLoader.loadTestsFromName(
+                    "tests.offline_core_release_checks"))
+            suite = isolate_tk_cases(suite)
         result = unittest.TextTestRunner(verbosity=2, resultclass=DiagnosticTestResult if diagnostics else None).run(suite)
     skipped = [(test.id(), reason) for test, reason in result.skipped]
     unexpected = unexpected_skips(skipped)
@@ -244,7 +257,7 @@ def run_python_suite(report_path: Path, *, diagnostics: bool = False, only_test:
 
 
 class _GilSafeWatchdog:
-    """Older CPython's C timer can read a concurrently freed frame (gh-140815)."""
+    """Dump from an explicitly joined Python thread while it holds the GIL."""
     def __init__(self, interval, stream):
         self.interval, self.stream = interval, stream
         self.stopped = threading.Event()
@@ -277,15 +290,18 @@ class _GilSafeWatchdog:
 
 def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, only_test: str | None = None) -> int:
     # CPython gh-140815 was fixed in 3.13.10 / 3.14.1, without a 3.12
-    # backport. Keep the GIL-independent C timer on corrected interpreters.
-    # Older versions use a joined Python watchdog; if native code holds the
-    # GIL forever it cannot dump, but the outer owned-process timeout still
-    # terminates the command. Product tests and their deadlines are unchanged.
+    # backport. Darwin 3.14/3.15 also had partial native timer dumps followed by
+    # a post-suite hang; native cancellation joins that dump without a bound.
+    # Use the existing joined Python watchdog for this observed profile too.
+    # A Python watchdog cannot dump while native code holds the GIL forever;
+    # the owned outer timeout still terminates that failed command.
+    # Product tests and their deadlines are unchanged.
     # Fatal handlers belong only to this dedicated diagnostic child.
     faulthandler.enable(file=sys.__stderr__, all_threads=True)
     version = tuple(sys.version_info[:3])
     fixed = version >= (3, 14, 1) or (3, 13, 10) <= version < (3, 14, 0)
-    if not fixed:
+    darwin_observed = sys.platform == "darwin" and version[:2] in ((3, 14), (3, 15))
+    if not fixed or darwin_observed:
         watchdog = _GilSafeWatchdog(diagnostic_after, sys.__stderr__)
         watchdog.start()
         try:
@@ -344,8 +360,17 @@ class WindowsJob:
             _fields_ += [(name, wintypes.DWORD) for name in
                          ("TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses")]
 
+        class ProcessList(ctypes.Structure):
+            # Windows DWORD is always 32 bits; ULONG_PTR follows the process ABI.
+            _fields_ = [("assigned", ctypes.c_uint32), ("listed", ctypes.c_uint32),
+                        ("pids", ctypes.c_size_t * 32)]
+
+        class FileTime(ctypes.Structure):
+            _fields_ = [("low", ctypes.c_uint32), ("high", ctypes.c_uint32)]
+
         self.ctypes = ctypes
         self.Accounting = Accounting
+        self.ProcessList, self.FileTime = ProcessList, FileTime
         self.api = ctypes.WinDLL("kernel32", use_last_error=True)
         for name, argtypes, restype in (
             ("CreateJobObjectW", [ctypes.c_void_p, wintypes.LPCWSTR], wintypes.HANDLE),
@@ -353,6 +378,13 @@ class WindowsJob:
             ("AssignProcessToJobObject", [wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
             ("QueryInformationJobObject", [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p], wintypes.BOOL),
             ("TerminateJobObject", [wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
+            ("OpenProcess", [ctypes.c_uint32, wintypes.BOOL, ctypes.c_uint32], wintypes.HANDLE),
+            ("IsProcessInJob", [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(ctypes.c_int32)], wintypes.BOOL),
+            ("GetProcessTimes", [wintypes.HANDLE, *([ctypes.POINTER(FileTime)] * 4)], wintypes.BOOL),
+            ("QueryFullProcessImageNameW", [wintypes.HANDLE, ctypes.c_uint32, wintypes.LPWSTR,
+                                           ctypes.POINTER(ctypes.c_uint32)], wintypes.BOOL),
+            ("WaitForSingleObject", [wintypes.HANDLE, ctypes.c_uint32], ctypes.c_uint32),
+            ("GetExitCodeProcess", [wintypes.HANDLE, ctypes.POINTER(ctypes.c_uint32)], wintypes.BOOL),
             ("CloseHandle", [wintypes.HANDLE], wintypes.BOOL),
         ):
             function = getattr(self.api, name)
@@ -377,6 +409,78 @@ class WindowsJob:
             raise self.ctypes.WinError(self.ctypes.get_last_error())
         return accounting.ActiveProcesses
 
+    def snapshot_diagnostics(self) -> dict:
+        """Observe at most 32 members; never use these PID observations to signal.
+
+        Membership can change between listing and opening. Query details only
+        after the opened handle is confirmed in this exact, still-owned Job.
+        All subsequent facts refer to that stable handle, not a fresh PID lookup.
+        """
+        c = self.ctypes
+        report = {"version": 1, "capacity": 32, "status": "closed", "members": []}
+        if not self.handle:
+            return report
+        listed = self.ProcessList()
+        if not self.api.QueryInformationJobObject(self.handle, 3, c.byref(listed), c.sizeof(listed), None):
+            error = c.get_last_error()
+            report.update(status="overflow" if error == 234 else "query_failed", winerror=error)
+            return report
+        report.update(status="complete", assigned_count=listed.assigned, listed_count=listed.listed)
+        if listed.listed > 32 or listed.listed > listed.assigned:
+            report["status"] = "invalid_count"
+            return report
+        for pid in listed.pids[:listed.listed]:
+            row = {"pid": pid, "membership": "invalid_pid"}
+            report["members"].append(row)
+            if not 0 < pid <= 0xFFFFFFFF:
+                continue
+            # PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE; no signal rights.
+            handle = self.api.OpenProcess(0x00101000, False, pid)
+            if not handle:
+                row.update(membership="open_failed", winerror=c.get_last_error())
+                continue
+            errors = []
+            def failed(operation):
+                errors.append({"operation": operation, "winerror": c.get_last_error()})
+            try:
+                member = c.c_int32()
+                if not self.api.IsProcessInJob(handle, self.handle, c.byref(member)):
+                    row.update(membership="query_failed", winerror=c.get_last_error())
+                    continue
+                if not member.value:
+                    row["membership"] = "not_in_original_job"
+                    continue
+                row["membership"] = "confirmed"
+                times = [self.FileTime() for _ in range(4)]
+                if self.api.GetProcessTimes(handle, *(c.byref(value) for value in times)):
+                    row["birth_filetime"] = (times[0].high << 32) | times[0].low
+                else:
+                    failed("GetProcessTimes")
+                image, length = c.create_unicode_buffer(1024), c.c_uint32(1024)
+                if not self.api.QueryFullProcessImageNameW(handle, 0, image, c.byref(length)):
+                    failed("QueryFullProcessImageNameW")
+                elif not 0 < length.value < 1024:
+                    errors.append({"operation": "QueryFullProcessImageNameW", "invalid_length": length.value})
+                else:
+                    row["image"] = image[:length.value]
+                wait = self.api.WaitForSingleObject(handle, 0)
+                if wait in (0, 258):
+                    row["wait"] = "signaled" if wait == 0 else "not_signaled"
+                else:
+                    failed("WaitForSingleObject")
+                code = c.c_uint32()
+                if self.api.GetExitCodeProcess(handle, c.byref(code)):
+                    # 259 can also be a real exit status; retain the separate wait fact.
+                    row["exit_code"] = code.value
+                else:
+                    failed("GetExitCodeProcess")
+            finally:
+                if not self.api.CloseHandle(handle):
+                    failed("CloseHandle")
+                if errors:
+                    row["errors"] = errors
+        return report
+
     def terminate(self) -> None:
         if not self.api.TerminateJobObject(self.handle, 1):
             raise self.ctypes.WinError(self.ctypes.get_last_error())
@@ -386,6 +490,19 @@ class WindowsJob:
             handle, self.handle = self.handle, None
             if not self.api.CloseHandle(handle):
                 raise self.ctypes.WinError(self.ctypes.get_last_error())
+
+
+def _save_windows_job_diagnostics(job: WindowsJob, path: Path) -> None:
+    """Best effort only: neither collection nor persistence can replace the gate."""
+    try:
+        try:
+            report = job.snapshot_diagnostics()
+        except BaseException as error:
+            report = {"version": 1, "status": "collection_failed", "error_type": type(error).__name__}
+        path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    except BaseException:
+        # The original strict failure still drives original-Job termination below.
+        pass
 
 
 def _linux_group_has_live_members(group: int, proc_root: Path = Path("/proc")) -> bool | None:
@@ -459,11 +576,21 @@ def _registered_groups(registry: Path):
         yield record, SimpleNamespace(pid=int(record.stem), poll=lambda: None, wait=lambda **_kwargs: None)
 
 
-def _cleanup_registry(registry: Path, timeout: float) -> None:
+def _cleanup_registry(registry: Path, timeout: float, *, exclude_session: Path | None = None) -> None:
     errors = []
+    deadline = time.monotonic() + timeout
+    for owner in process_ownership.registered_commands(registry, exclude=exclude_session):
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:raise process_ownership.OwnershipError("Nested cleanup deadline; ownership retained")
+            owner.stop(remaining)
+        except (OSError, process_ownership.OwnershipError, TimeoutError) as error:
+            errors.append(str(error))
     for record, group in _registered_groups(registry):
         try:
-            _stop_command(group, timeout)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:raise ReleaseCheckError("Nested cleanup deadline; ownership retained")
+            _stop_command(group, remaining)
             record.unlink(missing_ok=True)
         except (OSError, ReleaseCheckError, subprocess.SubprocessError) as error:
             errors.append(f"owned group {group.pid}: {error}")
@@ -531,9 +658,74 @@ def _stop_command(process: subprocess.Popen, timeout: float, job: WindowsJob | N
             time.sleep(0.05)
 
 
+def _run_posix_command(command: list[str], *, name: str, environment: dict[str, str],
+                       directory: Path, timeout: float, shutdown_timeout: float) -> str:
+    environment = environment.copy()
+    parent_registry = Path(environment.get("ORI_RELEASE_PROCESS_REGISTRY", directory))
+    registry = Path(tempfile.mkdtemp(prefix=name + ".groups-", dir=parent_registry))
+    environment["ORI_RELEASE_PROCESS_REGISTRY"] = str(registry)
+    path = directory / (name + ".log")
+    print(f"\n== {name}: {' '.join(command)} ==", flush=True)
+    owner = None
+    with path.open("w", encoding="utf-8") as log:
+        try:
+            owner = process_ownership.OwnedCommand.start(command, environment=environment,
+                registry=registry, root=ROOT, log=log, shutdown_timeout=shutdown_timeout)
+            registry = owner.directory / "groups"
+            actual_status = owner.wait(timeout)
+            if owner.authority.members():
+                raise ReleaseCheckError(f"{name}: command left an active owned descendant")
+            for nested in process_ownership.registered_commands(registry, exclude=owner.directory):
+                status = nested.status()
+                if status is None or status["phase"] != "released":
+                    raise ReleaseCheckError(f"{name}: command left an active nested descendant")
+                nested.stop(shutdown_timeout)
+            for record, group in _registered_groups(registry):
+                if _signal_group(group, 0):
+                    raise ReleaseCheckError(f"{name}: command left an active nested descendant")
+                record.unlink(missing_ok=True)
+            # The actual child status is known, but the session anchor has not
+            # exited or been reaped. Both ends verify closure before release.
+            owner.release(shutdown_timeout)
+        except BaseException as error:
+            cleanup_errors = []
+            deadline = time.monotonic() + shutdown_timeout
+            if owner is not None:
+                try:owner.stop(max(.001, deadline - time.monotonic()))
+                except BaseException as cleanup_error:cleanup_errors.append(str(cleanup_error))
+            try:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if any(registry.rglob("*.pid")) or any(process_ownership.registered_commands(registry)):
+                        raise ReleaseCheckError("Cleanup deadline; ownership retained")
+                else:
+                    _cleanup_registry(registry, remaining, exclude_session=owner.directory if owner is not None else None)
+            except BaseException as cleanup_error:cleanup_errors.append(str(cleanup_error))
+            print(_read(path), end="", flush=True)
+            if cleanup_errors:
+                recovery = f"; recovery record: {owner.directory / 'recovery.json'}" if owner is not None else ""
+                raise ReleaseCheckError(f"{name}: {error}; cleanup failed: " + "; ".join(cleanup_errors) + recovery) from error
+            if isinstance(error, process_ownership.OwnershipError):
+                raise ReleaseCheckError(f"{name}: {error}") from error
+            raise
+    output = _read(path)
+    print(output, end="" if output.endswith("\n") else "\n", flush=True)
+    if actual_status:
+        raise ReleaseCheckError(f"{name} exited with status {actual_status}")
+    return output
+
+
 def run_command(command: list[str], *, name: str, environment: dict[str, str],
-                directory: Path, timeout: float, shutdown_timeout: float = 15) -> str:
+                directory: Path, timeout: float, shutdown_timeout: float = 15,
+                _llvm_negative_probe=None) -> str:
     """Capture UTF-8 diagnostics and reap only this command's owned process tree."""
+    if _llvm_negative_probe is not None:
+        from tools.modernization import windows_llvm
+        windows_llvm.validate_negative_invocation(_llvm_negative_probe, command, name=name,
+                                                  directory=directory, platform=sys.platform)
+    if os.name == "posix" and sys.platform != "win32":
+        return _run_posix_command(command, name=name, environment=environment,
+                                  directory=directory, timeout=timeout, shutdown_timeout=shutdown_timeout)
     path = directory / (name + ".log")
     print(f"\n== {name}: {' '.join(command)} ==", flush=True)
     environment = environment.copy()
@@ -563,6 +755,7 @@ def run_command(command: list[str], *, name: str, environment: dict[str, str],
             process.stdin.close()
             process.wait(timeout=timeout)
             if job is not None and _job_still_active(job,shutdown_timeout):
+                _save_windows_job_diagnostics(job, directory / (name + ".windows-job.json"))
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
             if job is None and _signal_group(process, 0):
                 raise ReleaseCheckError(f"{name}: command left an active owned descendant")
@@ -608,7 +801,11 @@ def run_command(command: list[str], *, name: str, environment: dict[str, str],
                 _retire_stopped_group(record, process)
     output = _read(path)
     print(output, end="" if output.endswith("\n") else "\n", flush=True)
-    if process.returncode:
+    if _llvm_negative_probe is not None:
+        # Only the literal private compiler probe may expect status 1. All of
+        # the original Windows Job, descendant and JOIN gates above ran first.
+        windows_llvm.validate_probe(process.returncode, output, _llvm_negative_probe.obj, negative=True)
+    elif process.returncode:
         raise ReleaseCheckError(f"{name} exited with status {process.returncode}")
     return output
 
@@ -728,21 +925,165 @@ def validate_swift_output(output: str, name: str) -> None:
         raise ReleaseCheckError(f"{name}: no executed XCTest tests were reported")
 
 
+def modern_commands(directory, environment, *, research_python, swift):
+    from tools.modernization.checks import commands
+    return commands(ROOT,directory,environment,research_python=research_python,swift=swift)
+
+
+def run_modern_checks(directory, environment, *, research_python, swift, command_timeout, shutdown_timeout,
+                      windows_llvm=False):
+    from tools.modernization.checks import count_tests
+    path=directory/'modern-results.json'
+    report={'profile':'modern','successful':False,'hardware_validation':'not_run',
+            'swift_scope':'portable-contracts' if swift else 'not_requested','checks':[]}
+    current=None
+    llvm_tools=None
+    try:
+        if not research_python:
+            raise ReleaseCheckError('--modern requires --research-python pointing to an isolated Python 3.15.1 environment')
+        checks=modern_commands(directory,environment,research_python=research_python,swift=swift)
+        if not checks or not any(check.kind in ('rust','node','python','swift','vitest') for check in checks):
+            raise ReleaseCheckError('Modernization profile has no test suites')
+        report['checks']=[{'name':check.name,'status':'not_run','tests_run':None} for check in checks]
+        for check,current in zip(checks,report['checks']):
+            current['status']='running'
+            current['command']=check.command
+            started=time.monotonic()
+            try:
+                child=environment.copy()
+                child.update(check.environment)
+                use_llvm=False
+                if windows_llvm:
+                    from tools.modernization import windows_llvm as llvm
+                    use_llvm=check.name in llvm.BUILD_CHECKS
+                    if use_llvm:
+                        if llvm_tools is None:
+                            llvm_tools=llvm.preflight(directory,environment,run_command=run_command,
+                                timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                        child=llvm.environment_for(child,platform=sys.platform,modern=True,opt_in=True,
+                                                   check_name=check.name,tools=llvm_tools)
+                        llvm.verify_tools(llvm_tools,environment=child)
+                try:
+                    output=run_command(check.command,name=check.name,environment=child,directory=directory,
+                                       timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                except BaseException:
+                    if use_llvm:
+                        try:llvm.audit_cargo(directory,environment['CARGO_TARGET_DIR'],llvm_tools,check_name=check.name,
+                                             environment=child,command_succeeded=False)
+                        except Exception as audit_error:
+                            print(f'[windows-llvm] failed-command cache audit: {type(audit_error).__name__}',flush=True)
+                    raise
+                if use_llvm:
+                    llvm.audit_cargo(directory,environment['CARGO_TARGET_DIR'],llvm_tools,check_name=check.name,environment=child)
+                if check.version and re.search(check.version,output,re.M) is None:
+                    raise ReleaseCheckError(f'{check.name}: runtime version does not match the pinned toolchain')
+                if check.kind=='swift':
+                    validate_swift_output(output,check.name)
+                current['tests_run']=count_tests(check.kind,output,check.report)
+                current['status']='passed'
+            finally:
+                current['elapsed_seconds']=time.monotonic()-started
+        report['successful']=True
+    except BaseException as error:
+        if current is not None:
+            current['status']='failed'
+        report['error']=f'{type(error).__name__}: {error}'
+        if isinstance(error,ValueError):
+            raise ReleaseCheckError(str(error)) from error
+        raise
+    finally:
+        path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+
+def _read_client_interop_diagnostic(directory: Path, name: str, limit: int) -> bytes:
+    if name not in ('web-diagnostics.json', 'web-final.png'):
+        raise ValueError('Unrecognized client diagnostic')
+    parent = directory / 'modern-core-client-interop'
+    parents = [(path, path.lstat()) for path in (directory, parent)]
+    reparse = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
+    if any(not stat.S_ISDIR(info.st_mode) or getattr(info, 'st_file_attributes', 0) & reparse
+           for _, info in parents):
+        raise ValueError('Client diagnostic parent is not a regular directory')
+    source = parent / name
+    before = source.lstat()
+    if (not stat.S_ISREG(before.st_mode) or getattr(before, 'st_file_attributes', 0) & reparse
+            or not 0 < before.st_size <= limit):
+        raise ValueError('Client diagnostic is not a bounded regular file')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0)
+    with os.fdopen(os.open(source, flags), 'rb') as stream:
+        opened = os.fstat(stream.fileno())
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError('Client diagnostic identity changed')
+        for path, info in parents:
+            current = path.lstat()
+            if (getattr(current, 'st_file_attributes', 0) & reparse or
+                    (current.st_dev, current.st_ino, current.st_mode) != (info.st_dev, info.st_ino, info.st_mode)):
+                raise ValueError('Client diagnostic parent changed')
+        raw = stream.read(limit + 1)
+        after = os.fstat(stream.fileno())
+    if len(raw) != before.st_size or len(raw) > limit or (
+        after.st_size, after.st_mtime_ns
+    ) != (before.st_size, before.st_mtime_ns):
+        raise ValueError('Client diagnostic changed or exceeded its byte bound')
+    return raw
+
+
+def _retain_client_interop_diagnostics(directory: Path, destination: Path) -> None:
+    artifacts = []
+    for name, limit in (('web-diagnostics.json', 2 * 1024 * 1024), ('web-final.png', 1024 * 1024)):
+        item = {'path': 'modern-core-client-interop/' + name, 'status': 'missing'}
+        try:
+            raw = _read_client_interop_diagnostic(directory, name, limit)
+            if name.endswith('.json'):
+                value = json.loads(raw)
+                if (not isinstance(value, dict) or not isinstance(value.get('requests'), list)
+                        or len(value['requests']) > 128 or not isinstance(value.get('body'), str)
+                        or len(value['body']) > 32768 or not isinstance(value.get('state'), dict)):
+                    raise ValueError('Malformed client diagnostic JSON')
+            elif (len(raw) < 45 or raw[:8] != b'\x89PNG\r\n\x1a\n'
+                    or raw[8:16] != b'\x00\x00\x00\rIHDR'
+                    or raw[-12:] != b'\x00\x00\x00\x00IEND\xaeB`\x82'):
+                raise ValueError('Malformed client diagnostic PNG')
+            output = destination / ('modern-core-client-interop-' + name)
+            with tempfile.TemporaryDirectory(prefix='.client-interop-', dir=destination) as temporary:
+                staged = Path(temporary) / name
+                staged.write_bytes(raw)
+                staged.replace(output)
+            item['status'] = 'copied'
+            item['bytes'] = len(raw)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, RecursionError) as error:
+            item['status'] = 'rejected'
+            item['error'] = type(error).__name__
+        artifacts.append(item)
+    (destination / 'modern-core-client-interop-artifacts.json').write_text(
+        json.dumps({'artifacts': artifacts}, indent=2) + '\n', encoding='utf-8')
+
+
 def _persist_release_report(directory: Path, report_dir: Path, *,
                             failure: BaseException | None, cleanup_errors: list[str],
-                            swift: bool) -> None:
+                            swift: bool, modern: bool = False) -> None:
     """Keep diagnostics, never fixture databases, home directories or build trees."""
     report_dir.mkdir(parents=True, exist_ok=True)
     destination = Path(tempfile.mkdtemp(prefix="run-", dir=report_dir))
-    for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json']:
+    for source in [*directory.glob("*.log"), directory / "python-results.json", directory / 'monitoring-endurance.json', *directory.glob("modern-*.json")]:
         if source.is_file():
+            if source.name.startswith('modern-windows-llvm-') and source.suffix == '.log':
+                continue  # The opt-in helper retains only its fixed, bounded probe logs.
             shutil.copy2(source, destination / source.name)
+    if (directory / 'modern-windows-llvm').is_dir():
+        from tools.modernization.windows_llvm import retain_artifacts
+        retain_artifacts(directory, destination)
+    if modern:
+        _retain_client_interop_diagnostics(directory, destination)
     summary = {
         "successful": failure is None and not cleanup_errors,
         "finished_at": datetime.now(timezone.utc).isoformat(),
         "python": sys.version,
         "platform": sys.platform,
         "swift_requested": swift,
+        "profile": "modern" if modern else "legacy",
         "hardware_validation": "not_run",
         "error": f"{type(failure).__name__}: {failure}" if failure else None,
         "cleanup_errors": list(cleanup_errors),
@@ -753,16 +1094,44 @@ def _persist_release_report(directory: Path, report_dir: Path, *,
     print(f"Release diagnostics: {destination}", flush=True)
 
 
-def release_checks(*, swift: bool = False, startup_timeout: float = 20,
+def _release_temporary_directory(*, modern: bool):
+    if not modern or os.name != "posix":
+        return tempfile.TemporaryDirectory(prefix="ori-release-checks-")
+    # Reserve the Unix socket budget for children/.tmp.../candidate/.ori-runtime.
+    # Canonical paths matter on macOS, where /var and /tmp are aliases.
+    candidates = []
+    try:
+        candidates.append(tempfile.gettempdir())
+    except (OSError, RuntimeError, UnicodeError):
+        pass
+    candidates.append("/tmp")
+    for candidate in candidates:
+        try:
+            parent = Path(candidate).resolve(strict=True)
+            if len(str(parent).encode("utf-8")) <= 16 and parent.is_dir():
+                return tempfile.TemporaryDirectory(prefix="ori-release-checks-", dir=parent)
+        except (OSError, RuntimeError, UnicodeError):
+            continue
+    raise ReleaseCheckError(
+        "Modern POSIX checks require a canonical temporary parent of at most 16 UTF-8 bytes; "
+        "the preferred temp directory and /tmp are unavailable or too long")
+
+
+def release_checks(*, swift: bool = False, modern: bool = False, research_python: str | None = None, startup_timeout: float = 20,
                    command_timeout: float = 600, shutdown_timeout: float = 15,
-                   report_dir: Path | None = None) -> None:
+                   report_dir: Path | None = None, windows_llvm: bool = False) -> None:
+    if windows_llvm and (not modern or sys.platform != 'win32'):
+        raise ReleaseCheckError('--windows-llvm requires --modern on Windows')
     environment = child_environment()
     environment.pop("ORI_RELEASE_PROCESS_REGISTRY", None)
     children: list[Fixture] = []
     failure: BaseException | None = None
     cleanup_errors = []
-    with tempfile.TemporaryDirectory(prefix="ori-release-checks-") as temporary:
-        directory = Path(temporary)
+    with _release_temporary_directory(modern=modern) as temporary:
+        # Canonicalize this owned root before passing it to children: macOS
+        # aliases /var through /private/var, and Windows may return an 8.3 path.
+        # Production writer ownership deliberately rejects symlink aliases.
+        directory = Path(temporary).resolve()
         # Some server tests use tempfile's default for their synthetic task book.
         # Give every fresh child a private temp root before it imports tempfile.
         child_temp = directory / "children"
@@ -773,63 +1142,82 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
         # test scope. It also keeps build caches out of the user's home directory.
         child_home = directory / "home"
         child_home.mkdir()
+        native_login_home = environment.get("HOME")
         environment["HOME"] = str(child_home)
         try:
-            if swift and sys.platform != "darwin":
-                raise ReleaseCheckError("--swift requires macOS with Xcode")
-            if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
-                raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
-            run_command([sys.executable, "-m", "tests.run_release_checks", "--_dependency-check"],
-                        name="dependencies", environment=environment, directory=directory,
-                        timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
-            run_command([shutil.which("node"), "--version"], name="node", environment=environment,
-                        directory=directory, timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
-            for key, module in FIXTURES:
-                fixture = Fixture(module, directory, environment)
-                children.append(fixture)  # Register ownership before readiness can fail.
-                environment[key] = fixture.ready(startup_timeout)
-                print(f"{module}: {environment[key]}", flush=True)
-            environment["THREE_THRESHOLDS_SMOKE_URL"] = environment["ORI_THREE_THRESHOLDS_SMOKE_BASE_URL"]
-            report_path = directory / "python-results.json"
-            run_command([sys.executable, "-m", "tests.run_release_checks", "--_diagnostic-after",
-                         str(min(60.0, command_timeout * 0.8)), "--_python-suite", str(report_path)],
-                        name="python-node-tk", environment=environment, directory=directory,
-                        timeout=command_timeout, shutdown_timeout=shutdown_timeout)
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            if (not report.get("successful") or report.get("tests_run", 0) <= 0 or
-                    report.get("unexpected_skips") or unexpected_skips(report.get("skipped", []))):
-                raise ReleaseCheckError("Python suite report did not pass the release gate")
-            print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
-            endurance_path=directory/'monitoring-endurance.json'
-            run_command([sys.executable,'-m','tests.monitoring_endurance','--report',str(endurance_path)],
-                name='monitoring-seven-day',environment=environment,directory=directory,
-                timeout=command_timeout,shutdown_timeout=shutdown_timeout)
-            endurance=json.loads(endurance_path.read_text(encoding='utf-8'))
-            if not (endurance.get('logical_elapsed_seconds',0)>=604800 and endurance.get('raw_sweeps',0)>0
-                    and endurance.get('raw_sweeps')==endurance.get('raw_verified')
-                    and endurance.get('bounded_working_registry') and endurance.get('restart_no_duplicate_events')
-                    and endurance.get('active_workers')==0 and endurance.get('hardware_validation')=='not_run'
-                    and endurance.get('comparison',{}).get('comparable_weak_recall')):
-                raise ReleaseCheckError('Seven-day synthetic monitoring acceptance did not pass')
-            if swift:
-                for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
-                    command = ["swift", "test", "--package-path", package,
-                               "--scratch-path", str(directory / (name + "-build"))]
-                    if name == "swift-native":
-                        # This explicit hardware probe belongs to bench acceptance;
-                        # synthetic runs must never auto-open an attached device.
-                        command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
-                    output = run_command(command,
-                                         name=name, environment=environment, directory=directory,
-                                         timeout=command_timeout, shutdown_timeout=shutdown_timeout)
-                    validate_swift_output(output, name)
-                run_command(["xcodebuild", "-project", "macos/DvoynoyObzor.xcodeproj", "-scheme", "DvoynoyObzor",
-                             "-configuration", "Debug", "-destination", "platform=macOS",
-                             "-derivedDataPath", str(directory / "DerivedData"),
-                             "CODE_SIGNING_ALLOWED=NO", "build"], name="xcode-unsigned", environment=environment,
-                            directory=directory, timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+            if modern:
+                # Keep toolchain stores explicit before private HOME takes effect.
+                for key,default in (("CARGO_HOME",Path.home()/".cargo"),("RUSTUP_HOME",Path.home()/".rustup")):
+                    environment.setdefault(key,str(default))
+                environment.update(CARGO_BUILD_JOBS="2",RUST_TEST_THREADS="2",GOMAXPROCS="2",RAYON_NUM_THREADS="2",UV_THREADPOOL_SIZE="2",CARGO_TARGET_DIR=str(directory/"modern-rust-target"),
+                                   OPENBLAS_NUM_THREADS="1",OMP_NUM_THREADS="1",MKL_NUM_THREADS="1",VECLIB_MAXIMUM_THREADS="1")
+                run_modern_checks(directory,environment,research_python=research_python,swift=swift,
+                                  command_timeout=command_timeout,shutdown_timeout=shutdown_timeout,
+                                  **({'windows_llvm':True} if windows_llvm else {}))
             else:
-                print("macOS Swift/native/Xcode checks not requested (use --swift on macOS).", flush=True)
+                if swift and sys.platform != "darwin":
+                    raise ReleaseCheckError("--swift requires macOS with Xcode")
+                if swift and (shutil.which("swift") is None or shutil.which("xcodebuild") is None):
+                    raise ReleaseCheckError("--swift requires swift and xcodebuild on PATH")
+                run_command([sys.executable, "-m", "tests.run_release_checks", "--_dependency-check"],
+                            name="dependencies", environment=environment, directory=directory,
+                            timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
+                run_command([shutil.which("node"), "--version"], name="node", environment=environment,
+                            directory=directory, timeout=startup_timeout, shutdown_timeout=shutdown_timeout)
+                for key, module in FIXTURES:
+                    fixture = Fixture(module, directory, environment)
+                    children.append(fixture)  # Register ownership before readiness can fail.
+                    environment[key] = fixture.ready(startup_timeout)
+                    print(f"{module}: {environment[key]}", flush=True)
+                environment["THREE_THRESHOLDS_SMOKE_URL"] = environment["ORI_THREE_THRESHOLDS_SMOKE_BASE_URL"]
+                report_path = directory / "python-results.json"
+                run_command([sys.executable, "-m", "tests.run_release_checks", "--_diagnostic-after",
+                             str(min(60.0, command_timeout * 0.8)), "--_python-suite", str(report_path)],
+                            name="python-node-tk", environment=environment, directory=directory,
+                            timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                if (not report.get("successful") or report.get("tests_run", 0) <= 0 or
+                        report.get("unexpected_skips") or unexpected_skips(report.get("skipped", []))):
+                    raise ReleaseCheckError("Python suite report did not pass the release gate")
+                print(f"Python/Node/Tk: {report['tests_run']} tests, {len(report['skipped'])} allowed platform skips", flush=True)
+                endurance_path=directory/'monitoring-endurance.json'
+                run_command([sys.executable,'-m','tests.monitoring_endurance','--report',str(endurance_path)],
+                    name='monitoring-seven-day',environment=environment,directory=directory,
+                    timeout=command_timeout,shutdown_timeout=shutdown_timeout)
+                endurance=json.loads(endurance_path.read_text(encoding='utf-8'))
+                if not (endurance.get('logical_elapsed_seconds',0)>=604800 and endurance.get('raw_sweeps',0)>0
+                        and endurance.get('raw_sweeps')==endurance.get('raw_verified')
+                        and endurance.get('bounded_working_registry') and endurance.get('restart_no_duplicate_events')
+                        and endurance.get('active_workers')==0 and endurance.get('hardware_validation')=='not_run'
+                        and endurance.get('comparison',{}).get('comparable_weak_recall')):
+                    raise ReleaseCheckError('Seven-day synthetic monitoring acceptance did not pass')
+                if swift:
+                    for name, package in (("swift-sdk", "macos/SpektrKomandy"), ("swift-native", "macos")):
+                        command = ["swift", "test", "--package-path", package,
+                                   "--scratch-path", str(directory / (name + "-build"))]
+                        command_environment = environment
+                        if name == "swift-native":
+                            # This explicit hardware probe belongs to bench acceptance;
+                            # synthetic runs must never auto-open an attached device.
+                            command += ["--skip", "DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected"]
+                            # Native Security/WebKit need the actual login context;
+                            # keep private temp roots and the final fixture URLs.
+                            command_environment = environment.copy()
+                            if native_login_home is None:
+                                command_environment.pop("HOME", None)
+                            else:
+                                command_environment["HOME"] = native_login_home
+                        output = run_command(command,
+                                             name=name, environment=command_environment, directory=directory,
+                                             timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                        validate_swift_output(output, name)
+                    run_command(["xcodebuild", "-project", "macos/DvoynoyObzor.xcodeproj", "-scheme", "DvoynoyObzor",
+                                 "-configuration", "Debug", "-destination", "platform=macOS",
+                                 "-derivedDataPath", str(directory / "DerivedData"),
+                                 "CODE_SIGNING_ALLOWED=NO", "build"], name="xcode-unsigned", environment=environment,
+                                directory=directory, timeout=command_timeout, shutdown_timeout=shutdown_timeout)
+                else:
+                    print("macOS Swift/native/Xcode checks not requested (use --swift on macOS).", flush=True)
         except BaseException as error:
             failure = error
         finally:
@@ -841,7 +1229,7 @@ def release_checks(*, swift: bool = False, startup_timeout: float = 20,
             if report_dir is not None:
                 try:
                     _persist_release_report(directory, Path(report_dir), failure=failure,
-                                            cleanup_errors=cleanup_errors, swift=swift)
+                                            cleanup_errors=cleanup_errors, swift=swift, modern=modern)
                 except (OSError, ValueError) as error:
                     cleanup_errors.append(f"Cannot save release diagnostics: {error}")
         if cleanup_errors:
@@ -877,7 +1265,10 @@ def _windows_supervisor_exit_status(returncode: int) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--swift", action="store_true", help="Run both macOS Swift suites and an unsigned Xcode build")
+    parser.add_argument("--swift", action="store_true", help="Run native macOS/Xcode checks, or portable contracts with --modern")
+    parser.add_argument("--modern",action="store_true",help="Select modernization checks; full release also requires the legacy profile")
+    parser.add_argument("--windows-llvm",action="store_true",help="Opt into verified existing LLVM tools only for Windows modern Cargo children")
+    parser.add_argument("--research-python",help="Explicit isolated Python 3.15.1 interpreter for --modern")
     parser.add_argument("--startup-timeout", type=positive_seconds, default=20, metavar="SECONDS")
     parser.add_argument("--command-timeout", type=positive_seconds, default=600, metavar="SECONDS")
     parser.add_argument("--shutdown-timeout", type=positive_seconds, default=15, metavar="SECONDS")
@@ -887,13 +1278,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--_dependency-check", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_diagnostic-after", type=positive_seconds, default=60, help=argparse.SUPPRESS)
     parser.add_argument("--_supervise-command", help=argparse.SUPPRESS)
+    parser.add_argument("--_session-owner", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.research_python and not args.modern:
+        parser.error("--research-python requires --modern")
+    if args.windows_llvm and (not args.modern or sys.platform != 'win32'):
+        parser.error("--windows-llvm requires --modern on Windows")
     if args._single_test is not None and args._python_suite is None:
         parser.error("--_single-test requires --_python-suite")
+    if args._session_owner is not None and (args._supervise_command is None or os.name != "posix"):
+        parser.error("--_session-owner requires a private POSIX command")
     if args._supervise_command is not None:
         if sys.stdin.buffer.readline() != b"go\n":
             return 1
         command = json.loads(args._supervise_command)
+        if args._session_owner is not None:
+            return process_ownership.supervise_anchor(command, args._session_owner, args.shutdown_timeout,
+                lambda registry, budget, exclude: _cleanup_registry(registry, budget, exclude_session=exclude))
         if os.name == "posix":
             os.execvpe(command[0], command, os.environ)
         return _windows_supervisor_exit_status(subprocess.call(command))
@@ -907,9 +1308,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous[signum] = signal.signal(signum, _interrupted)
-        release_checks(swift=args.swift, startup_timeout=args.startup_timeout,
+        release_checks(swift=args.swift,modern=args.modern,research_python=args.research_python,startup_timeout=args.startup_timeout,
                        command_timeout=args.command_timeout, shutdown_timeout=args.shutdown_timeout,
-                       report_dir=args.report_dir)
+                       report_dir=args.report_dir, **({'windows_llvm':True} if args.windows_llvm else {}))
     except KeyboardInterrupt as error:
         print(f"Release checks interrupted: {error}", file=sys.stderr)
         return 130

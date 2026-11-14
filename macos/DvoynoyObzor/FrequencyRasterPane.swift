@@ -32,9 +32,12 @@ enum FrequencyRasterFiles {
 
 @MainActor
 final class FrequencyRasterModel: ObservableObject {
-    struct Scope: Equatable { let server: String; let session: String }
+    struct Scope: Equatable {
+        let server: String; let session: String
+        static func == (left: Self, right: Self) -> Bool { PlatformExactID.same(left.server, right.server) && PlatformExactID.same(left.session, right.session) }
+    }
     @Published var draft = "" { didSet { if oldValue != draft { clear() } } }
-    @Published var chosen: Set<String> = [] { didSet { if oldValue != chosen { clear() } } }
+    @Published var chosen: Set<PlatformExactID> = [] { didSet { if oldValue != chosen { clear() } } }
     @Published private(set) var candidates: [PlatformCandidate] = []
     @Published private(set) var result: PlatformFrequencyRounding?
     @Published private(set) var pending = false
@@ -59,7 +62,7 @@ final class FrequencyRasterModel: ObservableObject {
         let values = chosenCandidates.map(\.centerFrequencyHz)
         return values.min()! < values.max()! || values.count == 1
     }
-    var chosenCandidates: [PlatformCandidate] { candidates.filter { chosen.contains($0.id) } }
+    var chosenCandidates: [PlatformCandidate] { candidates.filter { chosen.contains($0.exactID) } }
 
     func configure(client: PlatformClient?, scope: Scope?, candidates: [PlatformCandidate]) {
         if self.scope != scope || self.client !== client { clear(); chosen = [] }
@@ -68,10 +71,10 @@ final class FrequencyRasterModel: ObservableObject {
         self.candidates = candidates.filter {
             PlatformFrequencyRounding.sameID($0.sessionId, scope?.session) && seen.insert(Data($0.id.utf8)).inserted
         }
-        chosen = chosen.intersection(Set(self.candidates.map(\.id)))
+        chosen = chosen.intersection(Set(self.candidates.map(\.exactID)))
     }
     func toggle(_ id: String) {
-        if chosen.contains(id) { chosen.remove(id) } else { chosen.insert(id) }
+        if chosen.contains(PlatformExactID(id)) { chosen.remove(PlatformExactID(id)) } else { chosen.insert(PlatformExactID(id)) }
     }
     func reset() { configure(client: nil, scope: nil, candidates: []) }
     func clear() {
@@ -99,7 +102,7 @@ final class FrequencyRasterModel: ObservableObject {
             return
         }
         let currentRevision = revision, submitted = draft
-        let ids = candidates.map(\.id).filter { chosen.contains($0) }
+        let ids = candidates.map(\.id).filter { chosen.contains(PlatformExactID($0)) }
         guard !ids.isEmpty else { errorText = "Выберите хотя бы одного кандидата."; return }
         pending = true
         request = Task { [weak self, fetch] in
@@ -157,12 +160,12 @@ struct RemoteFrequencyRasterPane: View {
                     .foregroundStyle(model.candidates.isEmpty ? .secondary : .primary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(model.candidates) { candidate in
+                        ForEach(model.candidates, id: \.exactID) { candidate in
                             Button {
                                 model.toggle(candidate.id)
                             } label: {
                                 HStack {
-                                    Image(systemName: model.chosen.contains(candidate.id) ? "checkmark.square" : "square")
+                                    Image(systemName: model.chosen.contains(candidate.exactID) ? "checkmark.square" : "square")
                                     Text("\(candidate.id) · \(String(candidate.centerFrequencyHz)) Гц")
                                 }
                             }.buttonStyle(.plain)

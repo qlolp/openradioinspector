@@ -23,6 +23,189 @@ READY = {"url": "http://127.0.0.1:49152/platform", "dump_sha256_before": BEFORE}
 AFTER = {"dump_sha256_after": BEFORE, "unchanged": True}
 
 
+class ClientInteropDiagnosticRetentionTests(unittest.TestCase):
+    diagnostic = b'{"requests":[[200,"/modern/"]],"body":"Synthetic fixture","state":{"sources":[]}}\n'
+    png = bytes.fromhex(
+        '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489'
+        '0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082'
+    )
+
+    def persist(self, directory, reports, *, modern=True, failure=None, cleanup_errors=()):
+        with redirect_stdout(io.StringIO()):
+            try:
+                release._persist_release_report(directory, reports, failure=failure,
+                    cleanup_errors=list(cleanup_errors), swift=False, modern=modern)
+            except RecursionError:
+                self.fail('Unusable diagnostic JSON must not escape the collector or replace the primary failure')
+        return next(reports.glob('run-*'))
+
+    def receipt(self, destination):
+        path = destination / 'modern-core-client-interop-artifacts.json'
+        self.assertTrue(path.is_file(), 'Artifact retention must record both fixed-path dispositions')
+        return json.loads(path.read_text())
+
+    def test_retains_only_the_two_existing_synthetic_diagnostics_with_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+            (source / 'web-final.png').write_bytes(self.png)
+            for name in ('vectors.json', 'archive.sqlite3', 'credentials.json', 'web.json', 'web-cpu-profile.json'):
+                (source / name).write_text('must remain private')
+            (source / 'home').mkdir()
+            (source / 'home/secret').write_text('must remain private')
+            destination = self.persist(root / 'private', root / 'reports')
+            self.assertTrue((destination / 'modern-core-client-interop-web-diagnostics.json').is_file(), 'Synthetic Web diagnostics must survive private scope cleanup')
+            self.assertEqual((destination / 'modern-core-client-interop-web-diagnostics.json').read_bytes(), self.diagnostic)
+            self.assertEqual((destination / 'modern-core-client-interop-web-final.png').read_bytes(), self.png)
+            self.assertEqual({path.name for path in destination.iterdir()}, {
+                'summary.json', 'modern-core-client-interop-artifacts.json',
+                'modern-core-client-interop-web-diagnostics.json', 'modern-core-client-interop-web-final.png',
+            })
+            receipt = self.receipt(destination)
+            self.assertEqual([item['status'] for item in receipt['artifacts']], ['copied', 'copied'])
+
+    def test_rejects_malformed_json_or_png_without_copying_the_payload(self):
+        for name, payload in (
+            ('web-diagnostics.json', b'not json'), ('web-diagnostics.json', b'[]'),
+            ('web-diagnostics.json', b'{"requests":[],"body":"synthetic"}'),
+            ('web-diagnostics.json', b'[' * 2000 + b'0' + b']' * 2000),
+            ('web-final.png', b'not a PNG'), ('web-final.png', self.png[:20]),
+        ):
+            with self.subTest(name=name, payload=payload), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = root / 'private/modern-core-client-interop'
+                source.mkdir(parents=True)
+                (source / name).write_bytes(payload)
+                destination = self.persist(root / 'private', root / 'reports')
+                self.assertFalse((destination / ('modern-core-client-interop-' + name)).exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+
+    def test_rejects_oversized_files_before_retaining_any_payload(self):
+        for name, bound in (('web-diagnostics.json', 2 * 1024 * 1024), ('web-final.png', 1024 * 1024)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = root / 'private/modern-core-client-interop'
+                source.mkdir(parents=True)
+                with (source / name).open('wb') as stream:
+                    stream.truncate(bound + 1)
+                destination = self.persist(root / 'private', root / 'reports')
+                self.assertFalse((destination / ('modern-core-client-interop-' + name)).exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+
+    def test_refuses_file_or_parent_symlink_traversal_to_unrelated_content(self):
+        for link_parent in (False, True):
+            with self.subTest(link_parent=link_parent), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                private = root / 'private'
+                private.mkdir()
+                outside = root / 'unrelated'
+                outside.mkdir()
+                (outside / 'web-diagnostics.json').write_bytes(self.diagnostic)
+                source = private / 'modern-core-client-interop'
+                if link_parent:
+                    link = source
+                    target = outside
+                else:
+                    source.mkdir()
+                    link = source / 'web-diagnostics.json'
+                    target = outside / 'web-diagnostics.json'
+                try:
+                    link.symlink_to(target, target_is_directory=link_parent)
+                except OSError:
+                    # Windows may deny creating links. Exercise the same lstat refusal
+                    # with regular fixture bytes, rather than skipping that contract.
+                    if link_parent:
+                        source.mkdir(exist_ok=True)
+                    else:
+                        link.write_bytes(self.diagnostic)
+                    original = Path.lstat
+                    def linked(path, *args, **kwargs):
+                        result = original(path, *args, **kwargs)
+                        if path == link:
+                            values = list(result)
+                            values[0] = 0o120777
+                            return os.stat_result(values)
+                        return result
+                    with patch.object(Path, 'lstat', linked):
+                        destination = self.persist(private, root / 'reports')
+                else:
+                    destination = self.persist(private, root / 'reports')
+                self.assertFalse((destination / 'modern-core-client-interop-web-diagnostics.json').exists())
+                receipt = self.receipt(destination)
+                self.assertIn('rejected', [item['status'] for item in receipt['artifacts']])
+                self.assertEqual((outside / 'web-diagnostics.json').read_bytes(), self.diagnostic)
+
+    def test_refuses_windows_reparse_attributes_on_both_parents_and_the_file(self):
+        for component in ('root', 'parent', 'file'):
+            with self.subTest(component=component), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                private = root / 'private'
+                source = private / 'modern-core-client-interop'
+                source.mkdir(parents=True)
+                path = source / 'web-diagnostics.json'
+                path.write_bytes(self.diagnostic)
+                linked = {'root': private, 'parent': source, 'file': path}[component]
+                original = Path.lstat
+                def reparse(path, *args, **kwargs):
+                    info = original(path, *args, **kwargs)
+                    if path == linked:
+                        return SimpleNamespace(**{
+                            **{key: getattr(info, key) for key in dir(info) if key.startswith('st_')},
+                            'st_file_attributes': 0x400,
+                        })
+                    return info
+                with patch.object(Path, 'lstat', reparse):
+                    destination = self.persist(private, root / 'reports')
+                self.assertFalse((destination / 'modern-core-client-interop-web-diagnostics.json').exists())
+                self.assertIn('rejected', [item['status'] for item in self.receipt(destination)['artifacts']])
+                self.assertEqual(path.read_bytes(), self.diagnostic)
+
+    def test_rejected_artifacts_preserve_the_original_failure_and_cleanup_evidence(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(b'malformed')
+            failure = release.ReleaseCheckError('original Web canvas failure')
+            destination = self.persist(root / 'private', root / 'reports', failure=failure,
+                cleanup_errors=['original owned cleanup evidence'])
+            summary = json.loads((destination / 'summary.json').read_text())
+            self.assertFalse(summary['successful'])
+            self.assertEqual(summary['error'], 'ReleaseCheckError: original Web canvas failure')
+            self.assertEqual(summary['cleanup_errors'], ['original owned cleanup evidence'])
+            self.assertTrue((destination / 'modern-core-client-interop-artifacts.json').exists())
+
+    def test_modern_failure_is_reraised_after_diagnostics_survive_private_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            reports = Path(folder)
+            failure = release.ReleaseCheckError('original Web canvas failure')
+            def failed_profile(directory, environment, **kwargs):
+                source = directory / 'modern-core-client-interop'
+                source.mkdir()
+                (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+                raise failure
+            with patch.object(release, 'run_modern_checks', side_effect=failed_profile), redirect_stdout(io.StringIO()):
+                with self.assertRaises(release.ReleaseCheckError) as caught:
+                    release.release_checks(modern=True, research_python=sys.executable, report_dir=reports)
+            self.assertIs(caught.exception, failure)
+            destination = next(reports.glob('run-*'))
+            self.assertTrue((destination / 'modern-core-client-interop-web-diagnostics.json').is_file(), 'Synthetic Web diagnostics must survive private scope cleanup')
+            self.assertEqual((destination / 'modern-core-client-interop-web-diagnostics.json').read_bytes(), self.diagnostic)
+
+    def test_legacy_profile_does_not_collect_nested_modern_artifacts(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'private/modern-core-client-interop'
+            source.mkdir(parents=True)
+            (source / 'web-diagnostics.json').write_bytes(self.diagnostic)
+            destination = self.persist(root / 'private', root / 'reports', modern=False)
+            self.assertEqual({path.name for path in destination.iterdir()}, {'summary.json'})
+
+
 class ReleaseGateTests(unittest.TestCase):
     def test_child_environment_replaces_smoke_optins_without_mutating_parent(self):
         source = {"ORI_OTHER_SMOKE_BASE_URL": "https://do-not-contact.invalid",
@@ -61,11 +244,32 @@ class ReleaseGateTests(unittest.TestCase):
                 pass
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "results.json"
-            with patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Skipped("test_missing_fixture")])), redirect_stderr(io.StringIO()):
+            with patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Skipped("test_missing_fixture")])), \
+                    patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite()), redirect_stderr(io.StringIO()):
                 self.assertEqual(release.run_python_suite(path), 1)
             report = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(report["tests_run"], 1)
         self.assertEqual(len(report["unexpected_skips"]), 1)
+
+    def test_linux_packaging_suite_runs_only_for_its_target_without_platform_skips(self):
+        class Passing(unittest.TestCase):
+            def runTest(self):
+                self.assertTrue(True)
+        for platform, count in (("linux", 2), ("darwin", 1), ("win32", 1)):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "result.json"
+                with patch.object(release.sys, "platform", platform), \
+                        patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite([Passing()])), \
+                        patch.object(release.unittest.defaultTestLoader, "loadTestsFromName", return_value=unittest.TestSuite([Passing()])) as extra, \
+                        redirect_stderr(io.StringIO()):
+                    self.assertEqual(release.run_python_suite(path), 0)
+                report = json.loads(path.read_text())
+                self.assertEqual(report["tests_run"], count)
+                self.assertEqual(report["skipped"], [])
+                if platform == "linux":
+                    extra.assert_called_once_with("tests.offline_core_release_checks")
+                else:
+                    extra.assert_not_called()
 
     def test_python_suite_rejects_empty_discovery(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(release.unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()), redirect_stderr(io.StringIO()):
@@ -150,30 +354,36 @@ class ReleaseDiagnosticTests(unittest.TestCase):
 
 
     def test_watchdog_version_boundaries_preserve_single_selection_and_cleanup(self):
-        for version, native in (((3, 12, 10), False), ((3, 13, 9), False),
-                                ((3, 13, 10), True), ((3, 14, 0), False),
-                                ((3, 14, 1), True)):
-            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
-                with self.subTest(version=version, outcome=outcome), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
-                    if isinstance(outcome, BaseException):
-                        suite.side_effect = outcome
-                        with self.assertRaises(type(outcome)):
-                            release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
-                    else:
-                        suite.return_value = outcome
-                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
-                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
-                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
-                    if native:
-                        watchdog.assert_not_called()
-                        arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
-                        cancel.assert_called_once_with()
-                    else:
-                        arm.assert_not_called()
-                        cancel.assert_not_called()
-                        watchdog.assert_called_once_with(60, sys.__stderr__)
-                        watchdog.return_value.start.assert_called_once_with()
-                        watchdog.return_value.close.assert_called_once_with()
+        # Expected native-timer platforms are explicit: Darwin 3.14/3.15 use
+        # the joined watchdog even after the upstream version fix boundary.
+        for version, native_platforms in (
+            ((3, 12, 10), ()), ((3, 13, 9), ()),
+            ((3, 13, 10), ("linux", "win32", "darwin")),
+            ((3, 14, 0), ()), ((3, 14, 1), ("linux", "win32")),
+            ((3, 15, 0), ("linux", "win32")),
+        ):
+            for platform in ("linux", "win32", "darwin"):
+                for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):
+                    with self.subTest(platform=platform, version=version, outcome=outcome), patch.object(release.sys, "platform", platform), patch.object(release.sys, "version_info", version), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                        if isinstance(outcome, BaseException):
+                            suite.side_effect = outcome
+                            with self.assertRaises(type(outcome)):
+                                release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one")
+                        else:
+                            suite.return_value = outcome
+                            self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 60, only_test="module.Case.test_one"), outcome)
+                        suite.assert_called_once_with(Path("unused.json"), diagnostics=True, only_test="module.Case.test_one")
+                        enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                        if platform in native_platforms:
+                            watchdog.assert_not_called()
+                            arm.assert_called_once_with(60, repeat=True, file=sys.__stderr__, exit=False)
+                            cancel.assert_called_once_with()
+                        else:
+                            arm.assert_not_called()
+                            cancel.assert_not_called()
+                            watchdog.assert_called_once_with(60, sys.__stderr__)
+                            watchdog.return_value.start.assert_called_once_with()
+                            watchdog.return_value.close.assert_called_once_with()
 
 
     def test_gil_watchdog_repeats_and_records_dump_failure(self):
@@ -236,19 +446,21 @@ class ReleaseDiagnosticTests(unittest.TestCase):
         enable.assert_not_called()
 
     def test_cli_watchdog_is_periodic_nonterminating_and_cancelled_after_every_outcome(self):
-        for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
-            with self.subTest(outcome=outcome), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
-                if isinstance(outcome, BaseException):
-                    suite.side_effect = outcome
-                    with self.assertRaises(type(outcome)):
-                        release._run_diagnostic_python_suite(Path("unused.json"), 0.1)
-                else:
-                    suite.return_value = outcome
-                    self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
-                arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
-                enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
-                cancel.assert_called_once_with()
-                suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+        for platform in ("linux", "win32"):
+            for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("synthetic failure")):
+                with self.subTest(platform=platform, outcome=outcome), patch.object(release.sys, "platform", platform), patch.object(release.sys, "version_info", (3, 14, 1)), patch.object(release, "run_python_suite") as suite, patch.object(release, "_GilSafeWatchdog") as watchdog, patch.object(release.faulthandler, "enable") as enable, patch.object(release.faulthandler, "dump_traceback_later") as arm, patch.object(release.faulthandler, "cancel_dump_traceback_later") as cancel:
+                    if isinstance(outcome, BaseException):
+                        suite.side_effect = outcome
+                        with self.assertRaises(type(outcome)):
+                            release._run_diagnostic_python_suite(Path("unused.json"), 0.1)
+                    else:
+                        suite.return_value = outcome
+                        self.assertEqual(release._run_diagnostic_python_suite(Path("unused.json"), 0.1), outcome)
+                    arm.assert_called_once_with(0.1, repeat=True, file=sys.__stderr__, exit=False)
+                    enable.assert_called_once_with(file=sys.__stderr__, all_threads=True)
+                    cancel.assert_called_once_with()
+                    suite.assert_called_once_with(Path("unused.json"), diagnostics=True)
+                    watchdog.assert_not_called()
 
     def test_legacy_python_uses_joined_gil_safe_watchdog_without_c_timer(self):
         import threading
@@ -464,14 +676,13 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         self.assertNotIn("Timeout", after)
 
     def test_interrupted_command_is_reaped(self):
-        process = Mock()
-        process.wait.side_effect = [KeyboardInterrupt, None, None]
-        process.poll.return_value = None
-        with patch.object(release.subprocess, "Popen", return_value=process), patch.object(release, "_signal_group", side_effect=lambda _process, signum: signum != 0) as group, patch.object(release.sys, "platform", "darwin"), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
-            release.run_command(["synthetic-command"], name="interrupted", environment=self.environment,
-                                directory=self.directory, timeout=1)
-        self.assertEqual(group.call_args_list[0].args, (process, release.signal.SIGTERM))
-        process.kill.assert_not_called()
+        owner = Mock(); owner.directory = self.directory / "model-owner"
+        owner.wait.side_effect = KeyboardInterrupt
+        with patch.object(release.process_ownership.OwnedCommand, "start", return_value=owner), redirect_stdout(io.StringIO()), self.assertRaises(KeyboardInterrupt):
+            release._run_posix_command(["synthetic-command"], name="interrupted", environment=self.environment,
+                                       directory=self.directory, timeout=1, shutdown_timeout=2)
+        owner.stop.assert_called_once()
+        owner.release.assert_not_called()
 
     def test_timed_out_command_descendant_is_stopped_but_unrelated_child_survives(self):
         ready = self.directory / "descendant-started"
@@ -484,7 +695,17 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
                                       f"Path({str(unrelated_done)!r}).write_text('done')"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: unrelated.wait(timeout=5))
-        with redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        wait_target = release.process_ownership.OwnedCommand if os.name == "posix" else subprocess.Popen
+        original_wait = wait_target.wait
+        def wait_after_child_start(process, timeout=None):
+            if timeout == 0.7:
+                deadline = time.monotonic() + 8
+                while not ready.exists() and time.monotonic() < deadline:
+                    time.sleep(.005)
+                self.assertTrue(ready.exists(), "owned descendant did not become ready")
+                return original_wait(process, timeout=.1)
+            return original_wait(process, timeout=timeout)
+        with patch.object(wait_target, "wait", wait_after_child_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="descendant-timeout",
                                 environment=self.environment, directory=self.directory,
                                 timeout=0.7, shutdown_timeout=2)
@@ -510,7 +731,8 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
         # Exercise a real wait timeout after the nested session has started.
         # The old 0.8s launch budget raced four Python/supervisor startups under
         # load and sometimes never reached the cleanup scenario being tested.
-        original_wait = subprocess.Popen.wait
+        wait_target = release.process_ownership.OwnedCommand if os.name == "posix" else subprocess.Popen
+        original_wait = wait_target.wait
         def wait_after_nested_start(process, timeout=None):
             if timeout == 10:
                 deadline = time.monotonic() + 8
@@ -519,7 +741,7 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
                 self.assertTrue(ready.exists(), 'nested child did not start')
                 return original_wait(process, timeout=0.05)
             return original_wait(process, timeout=timeout)
-        with patch.object(subprocess.Popen, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
+        with patch.object(wait_target, 'wait', wait_after_nested_start), redirect_stdout(io.StringIO()), self.assertRaises(subprocess.TimeoutExpired):
             release.run_command([sys.executable, "-c", parent], name="outer-timeout",
                                 environment=self.environment, directory=self.directory,
                                 timeout=10, shutdown_timeout=2)
@@ -559,15 +781,23 @@ with trace.open('w') as log, patch.object(release.sys, '__stderr__', log):
     def test_posix_supervisor_cannot_start_before_group_registration(self):
         events = []
         process = Mock()
-        process.returncode = 0
+        identity = release.process_ownership.ProcessIdentity(12345, 10, 12345, 12345, 9876)
+        process.pid = identity.pid
         process.stdin.write.side_effect = lambda _data: events.append("start")
-        def register(*_args):
-            events.append("register")
-            return None
-        with patch.object(release.sys, "platform", "darwin"), patch.object(release, "_register_group", side_effect=register), patch.object(release, "_signal_group", return_value=False), patch.object(release.subprocess, "Popen", return_value=process), redirect_stdout(io.StringIO()):
-            release.run_command(["synthetic-command"], name="posix-gate", environment=self.environment,
-                                directory=self.directory, timeout=1)
-        self.assertEqual(events, ["register", "start"])
+        kernel = Mock(); kernel.identity.return_value = identity
+        meta = dict(version=1, owner="a" * 32, anchor=release.process_ownership.asdict(identity))
+        scope = self.directory / "model-scope"; scope.mkdir(mode=0o700)
+        # Portable model of the POSIX gate; real Linux/Darwin tests separately
+        # exercise private file permissions and actual child/session metadata.
+        with patch.object(release.process_ownership, "local_kernel", return_value=kernel), \
+                patch.object(release.process_ownership, "_independent_directory", return_value=scope), \
+                patch.dict(release.process_ownership._retained_commands, {}, clear=True), \
+                patch.object(release.subprocess, "Popen", return_value=process), \
+                patch.object(release.process_ownership, "write_record", side_effect=lambda *_args: events.append("register")), \
+                patch.object(release.process_ownership, "_meta", return_value=(meta, identity)):
+            release.process_ownership.OwnedCommand.start(["synthetic-command"], environment=self.environment,
+                registry=self.directory, root=release.ROOT, log=io.StringIO(), shutdown_timeout=2)
+        self.assertEqual(events, ["register", "register", "register", "start"])
 
     def test_registration_is_retained_until_the_owned_group_is_gone(self):
         record = self.directory / "123.pid"
@@ -690,15 +920,16 @@ class IsolatedTkHarnessTests(unittest.TestCase):
                                             unexpected_skips=[[self.case_id, "unexpected"]]), returncode=1)
         self.assertFalse(result.wasSuccessful())
 
-    def test_only_five_named_classes_are_wrapped_and_lifecycle_is_unchanged(self):
+    def test_only_named_native_classes_are_wrapped_and_lifecycle_is_unchanged(self):
         expected_classes = {
             "tests.test_windows_release_flows.WindowsReleaseFlowTests",
             "tests.test_windows_sweep_context.ActualTkHTTPTests",
             "tests.test_windows_three_thresholds.ActualTkHTTPTests",
             "tests.test_windows_frequency_rounding.ActualTkHTTPTests",
             "tests.test_windows_sweep_average.AverageActualTkHTTPTests",
+            "tests.test_windows_monitoring.MonitoringTkTests",
         }
-        self.assertEqual(release.MACOS_TK_CLASSES, expected_classes)
+        self.assertEqual(release.NATIVE_TK_CLASSES, expected_classes)
         cases = []
         for name in sorted(expected_classes):
             case = unittest.FunctionTestCase(lambda: None)
@@ -711,7 +942,7 @@ class IsolatedTkHarnessTests(unittest.TestCase):
             case.id = lambda name=name: name + ".test_owned"
             unchanged.append(case)
         suite = release.isolate_tk_cases(unittest.TestSuite([unittest.TestSuite(cases), *unchanged]))
-        self.assertEqual(suite.countTestCases(), 7)
+        self.assertEqual(suite.countTestCases(), len(expected_classes) + len(unchanged))
         self.assertEqual(list(release._case_ids(suite)), [case.id() for case in cases + unchanged])
         self.assertTrue(all(isinstance(case, release.IsolatedTkTest) for case in next(iter(suite))))
         for actual, original in zip(list(suite)[1:], unchanged):
@@ -776,9 +1007,22 @@ class IsolatedTkHarnessTests(unittest.TestCase):
                     return wait(timeout=timeout)
                 process.wait = wait_after_ready
                 return process
+            original_owner_wait = release.process_ownership.OwnedCommand.wait
+            def owner_wait_after_ready(owner, timeout):
+                deadline = time.monotonic() + 20
+                while not ready.exists():
+                    if time.monotonic() >= deadline:
+                        self.fail("synthetic child did not become ready within startup allowance")
+                    status = owner.status()
+                    if status is not None and status["phase"] == "exited":
+                        self.fail("synthetic child exited before readiness")
+                    time.sleep(0.01)
+                return original_owner_wait(owner, .3)
             # Start the short timeout only once the real nested child is ready;
             # cold Windows/macOS Python imports get a separate startup allowance.
-            with patch.object(release.subprocess, "Popen", side_effect=start), \
+            wait_patch = (patch.object(release.process_ownership.OwnedCommand, "wait", owner_wait_after_ready)
+                          if os.name == "posix" else patch.object(release.subprocess, "Popen", side_effect=start))
+            with wait_patch, \
                     redirect_stdout(io.StringIO()) as output, self.assertRaises(subprocess.TimeoutExpired):
                 release.run_command([sys.executable, "-c", parent], name="isolated-outer-timeout",
                                     environment=release.child_environment(), directory=root,
@@ -804,6 +1048,7 @@ class OrchestrationTests(unittest.TestCase):
         fixtures = []
         environments = []
         commands = []
+        native_home = os.environ.get("HOME")
 
         def fixture_factory(module, directory, environment):
             fixture = Mock()
@@ -819,8 +1064,11 @@ class OrchestrationTests(unittest.TestCase):
             self.assertTrue(Path(kwargs["environment"]["TMPDIR"]).is_dir())
             self.assertEqual(kwargs["environment"]["TMPDIR"], kwargs["environment"]["TEMP"])
             self.assertEqual(kwargs["environment"]["TMPDIR"], kwargs["environment"]["TMP"])
-            self.assertTrue(Path(kwargs["environment"]["HOME"]).is_dir())
-            self.assertEqual(list(Path(kwargs["environment"]["HOME"]).iterdir()), [])
+            if kwargs["name"] == "swift-native":
+                self.assertEqual(kwargs["environment"].get("HOME"), native_home)
+            else:
+                self.assertTrue(Path(kwargs["environment"]["HOME"]).is_dir())
+                self.assertEqual(list(Path(kwargs["environment"]["HOME"]).iterdir()), [])
             if "--_python-suite" in command:
                 if failure is not None:
                     raise failure
@@ -910,11 +1158,53 @@ class OrchestrationTests(unittest.TestCase):
         self.assertIn("-derivedDataPath", xcode)
         self.assertNotIn("test", xcode)
 
+    def test_native_login_home_does_not_weaken_tk_or_fixture_isolation(self):
+        with tempfile.TemporaryDirectory(prefix="ori-login-home-unit-") as login_home:
+            Path(login_home, ".Tk.py").write_text("raise AssertionError('user startup profile')", encoding="utf-8")
+            for original_home in (login_home, None):
+                with self.subTest(home_present=original_home is not None), patch.dict(os.environ):
+                    if original_home is None:
+                        os.environ.pop("HOME", None)
+                    else:
+                        os.environ["HOME"] = original_home
+                    fixtures, environments, commands, factory, command = self.make_runner()
+                    with patch.object(release.sys, "platform", "darwin"), patch.object(release.shutil, "which", return_value="tool"), patch.object(release, "Fixture", side_effect=factory), patch.object(release, "run_command", side_effect=command), redirect_stdout(io.StringIO()):
+                        release.release_checks(swift=True)
+                    native = next(env for args, env in commands if args[:4] == ["swift", "test", "--package-path", "macos"])
+                    self.assertEqual(native.get("HOME"), original_home)
+                    if original_home is None:
+                        self.assertNotIn("HOME", native)
+                    isolated = [env for args, env in commands if args[:4] != ["swift", "test", "--package-path", "macos"]]
+                    for env in [*environments, *isolated]:
+                        self.assertNotEqual(env["HOME"], original_home)
+                    self.assertEqual(native["TMPDIR"], isolated[-1]["TMPDIR"])
+                    self.assertEqual(native["TEMP"], native["TMPDIR"])
+                    self.assertEqual(native["TMP"], native["TMPDIR"])
+                    for key, _module in release.FIXTURES:
+                        self.assertEqual(native[key], isolated[-1][key])
+                    self.assertEqual(os.environ.get("HOME"), original_home)
+                    self.assertFalse(Path(native["TMPDIR"]).exists())
+                    for fixture in fixtures:
+                        fixture.close.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
 
 class IsolatedTkProcessTests(unittest.TestCase):
+    def test_native_monitoring_is_isolated_without_moving_tcl_lifetime_checks(self):
+        gui = unittest.defaultTestLoader.loadTestsFromName(
+            'tests.test_windows_monitoring.MonitoringTkTests.test_event_items_never_replace_project_selector')
+        headless = unittest.defaultTestLoader.loadTestsFromName(
+            'tests.test_windows_tk_lifecycle.WindowsTimerLifecycleTests.test_close_before_first_tick_cancels_tcl_callbacks')
+        before = list(gui)[0]
+        isolated = list(release.isolate_tk_cases(gui))[0]
+        self.assertIsInstance(isolated, release.IsolatedTkTest,
+                              'Native Tk graphs must not survive into acquisition worker GC')
+        self.assertEqual(isolated.id(), before.id())
+        original = list(headless)[0]
+        self.assertIs(list(release.isolate_tk_cases(headless))[0], original)
+
     def test_child_runs_exact_named_case_and_reports_success(self):
         case = release.IsolatedTkTest('tests.test_release_v040.AbsolutePowerTests.test_dbw_and_dbm_report_the_same_physical_power')
         result = unittest.TestResult()

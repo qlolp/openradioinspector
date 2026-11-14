@@ -1,0 +1,344 @@
+{
+  "python_version": "3.12.14",
+  "numpy_version": "2.5.4",
+  "source_sha256": {
+    "radioinspector/phonogram.py": "b41c8b785d96a757576e22a3bddadbcbb32b83ea2b7bb85e7eea488268fce80b",
+    "radioinspector/audio_stream.py": "3f1b8dec6a5f9273dfd6da9d097912152930bbd3488ab99640fc4662b06ac365",
+    "radioinspector/session_service.py": "c66b40a8f3a9b81b2afcade113da00e10123864c98dacdd7ba28aeeda3875f8f"
+  },
+  "limits": {
+    "pre_history_seconds": 5.0,
+    "max_recording_seconds": 600.0,
+    "max_push_samples": 480000,
+    "max_live_samples": 48000,
+    "max_subscribers": 4,
+    "max_queued_blocks": 64
+  },
+  "quantization": {
+    "clipping": {
+      "samples": [
+        -2,
+        -1,
+        -0.5,
+        -0.0,
+        0,
+        0.5,
+        1,
+        2
+      ],
+      "pcm_hex": "0180018001c000000000ff3fff7fff7f",
+      "buffered_seconds": 0.00016666666666666666
+    },
+    "adjacent": {
+      "samples": [
+        -1.0000000000000002,
+        -0.9999999999999999,
+        -3.051850947599719e-05,
+        3.051850947599719e-05,
+        0.9999999999999999,
+        1.0000000000000002
+      ],
+      "pcm_hex": "01800280ffff0100fe7fff7f",
+      "buffered_seconds": 0.000125
+    },
+    "booleans": {
+      "samples": [
+        false,
+        true
+      ],
+      "pcm_hex": "0000ff7f",
+      "buffered_seconds": 4.1666666666666665e-05
+    },
+    "numeric_strings": {
+      "samples": [
+        "-1",
+        " 0.5 ",
+        "+1e-1"
+      ],
+      "pcm_hex": "0180ff3fcc0c",
+      "buffered_seconds": 6.25e-05
+    },
+    "unicode_and_underscore_numbers": {
+      "samples": [
+        "٠.٢٥",
+        "-０.５",
+        "0.1_25"
+      ],
+      "pcm_hex": "ff1f01c0ff0f",
+      "buffered_seconds": 6.25e-05
+    },
+    "rectangular": {
+      "samples": [
+        [
+          -1,
+          0
+        ],
+        [
+          0.5,
+          1
+        ]
+      ],
+      "pcm_hex": "01800000ff3fff7f",
+      "buffered_seconds": 8.333333333333333e-05
+    },
+    "empty_nested": {
+      "samples": [
+        []
+      ],
+      "pcm_hex": "",
+      "buffered_seconds": 0.0
+    }
+  },
+  "invalid_samples": {
+    "ragged": {
+      "samples": [
+        [
+          0
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "error_type": "ValueError",
+      "message": "setting an array element with a sequence. The requested array has an inhomogeneous shape after 1 dimensions. The detected shape was (2,) + inhomogeneous part."
+    },
+    "none": {
+      "samples": [
+        null
+      ],
+      "error_type": "PhonogramError",
+      "message": "Отсчёты должны быть конечными числами"
+    },
+    "bad_string": {
+      "samples": [
+        "junk"
+      ],
+      "error_type": "ValueError",
+      "message": "could not convert string to float: 'junk'"
+    },
+    "nan_string": {
+      "samples": [
+        "NaN"
+      ],
+      "error_type": "PhonogramError",
+      "message": "Отсчёты должны быть конечными числами"
+    },
+    "inf_string": {
+      "samples": [
+        "inf"
+      ],
+      "error_type": "PhonogramError",
+      "message": "Отсчёты должны быть конечными числами"
+    },
+    "object": {
+      "samples": [
+        {}
+      ],
+      "error_type": "TypeError",
+      "message": "float() argument must be a string or a real number, not 'dict'"
+    },
+    "mixed_ragged": {
+      "samples": [
+        [],
+        [
+          [],
+          [
+            1
+          ]
+        ]
+      ],
+      "error_type": "ValueError",
+      "message": "setting an array element with a sequence. The requested array has an inhomogeneous shape after 1 dimensions. The detected shape was (2,) + inhomogeneous part."
+    },
+    "invalid_string_repr": {
+      "samples": [
+        "oops  "
+      ],
+      "error_type": "ValueError",
+      "message": "could not convert string to float: 'oops\\xa0\\u2028'"
+    },
+    "too_many_dimensions": {
+      "samples": [
+        [
+          [
+            [
+              [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    [
+                                                                      [
+                                                                        [
+                                                                          [
+                                                                            [
+                                                                              [
+                                                                                [
+                                                                                  [
+                                                                                    [
+                                                                                      [
+                                                                                        [
+                                                                                          [
+                                                                                            [
+                                                                                              [
+                                                                                                [
+                                                                                                  [
+                                                                                                    [
+                                                                                                      [
+                                                                                                        [
+                                                                                                          [
+                                                                                                            [
+                                                                                                              [
+                                                                                                                [
+                                                                                                                  [
+                                                                                                                    [
+                                                                                                                      [
+                                                                                                                        [
+                                                                                                                          [
+                                                                                                                            [
+                                                                                                                              [
+                                                                                                                                [
+                                                                                                                                  [
+                                                                                                                                    [
+                                                                                                                                      [
+                                                                                                                                        0
+                                                                                                                                      ]
+                                                                                                                                    ]
+                                                                                                                                  ]
+                                                                                                                                ]
+                                                                                                                              ]
+                                                                                                                            ]
+                                                                                                                          ]
+                                                                                                                        ]
+                                                                                                                      ]
+                                                                                                                    ]
+                                                                                                                  ]
+                                                                                                                ]
+                                                                                                              ]
+                                                                                                            ]
+                                                                                                          ]
+                                                                                                        ]
+                                                                                                      ]
+                                                                                                    ]
+                                                                                                  ]
+                                                                                                ]
+                                                                                              ]
+                                                                                            ]
+                                                                                          ]
+                                                                                        ]
+                                                                                      ]
+                                                                                    ]
+                                                                                  ]
+                                                                                ]
+                                                                              ]
+                                                                            ]
+                                                                          ]
+                                                                        ]
+                                                                      ]
+                                                                    ]
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "error_type": "ValueError",
+      "message": "setting an array element with a sequence. The requested array would exceed the maximum number of dimension of 64."
+    }
+  },
+  "recording": {
+    "before": {
+      "sample_rate_hz": 48000,
+      "recording": false,
+      "pre_history_seconds": 5.0,
+      "buffered_seconds": 0.0002916666666666667,
+      "recorded_seconds": 0.0,
+      "started_at": null,
+      "last": null
+    },
+    "started": {
+      "recording": true,
+      "sample_rate_hz": 48000,
+      "pre_history_seconds": 0.0002916666666666667,
+      "started_at": "2026-11-11T12:00:00.123456Z"
+    },
+    "status": {
+      "sample_rate_hz": 48000,
+      "recording": false,
+      "pre_history_seconds": 5.0,
+      "buffered_seconds": 0.000375,
+      "recorded_seconds": 0.0,
+      "started_at": null,
+      "last": {
+        "sample_rate_hz": 48000,
+        "pre_history_samples": 14,
+        "recorded_samples": 4,
+        "pre_history_seconds": 0.0002916666666666667,
+        "recorded_seconds": 8.333333333333333e-05,
+        "duration_seconds": 0.000375,
+        "started_at": "2026-11-11T12:00:00.123456Z",
+        "ended_at": "2026-11-11T12:00:01.654321Z"
+      }
+    },
+    "summary": {
+      "sample_rate_hz": 48000,
+      "pre_history_samples": 14,
+      "recorded_samples": 4,
+      "pre_history_seconds": 0.0002916666666666667,
+      "recorded_seconds": 8.333333333333333e-05,
+      "duration_seconds": 0.000375,
+      "started_at": "2026-11-11T12:00:00.123456Z",
+      "ended_at": "2026-11-11T12:00:01.654321Z"
+    },
+    "wav_hex": "524946464800000057415645666d7420100000000100010080bb0000007701000200100064617461240000000180018001c000000000ff3fff7fff7f01800280ffff0100fe7fff7f0000ff7f000001e0"
+  },
+  "hardware_validation": "not_run"
+}

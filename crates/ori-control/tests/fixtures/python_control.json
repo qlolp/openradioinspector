@@ -1,0 +1,5119 @@
+{
+  "source": "Actual Python Controller + UltraWire; memory-selected analog WAV; no hardware",
+  "cases": [
+    {
+      "operation": "inspect",
+      "parameters": {},
+      "commands": [],
+      "result": {
+        "status": {
+          "mode": "monitoring",
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "revision": 0,
+          "settings_complete": false,
+          "profile_verified": true,
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off"
+          },
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "lease_active": false,
+          "lease_seconds": 0,
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        },
+        "capabilities": {
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "source_revision": "ea71dfd9e53d6dec95256ac70914659cf260d48d",
+          "model": "tinySA Ultra ZS405",
+          "screen": {
+            "width": 480,
+            "height": 320,
+            "format": "rgb565be"
+          },
+          "wiki_version": "1.3507+ (includes Ultra+; presence must be checked on live ZS405)",
+          "hardware_validation": "not_run",
+          "settings": {
+            "start_hz": {
+              "label": "Начало, Гц",
+              "command": "sweep start",
+              "type": "integer",
+              "min": 100000,
+              "max": 6000000000
+            },
+            "stop_hz": {
+              "label": "Конец, Гц",
+              "command": "sweep stop",
+              "type": "integer",
+              "min": 100000,
+              "max": 6000000000
+            },
+            "center_hz": {
+              "label": "Центр, Гц",
+              "command": "sweep center",
+              "type": "integer",
+              "min": 100000,
+              "max": 6000000000
+            },
+            "span_hz": {
+              "label": "Полоса обзора, Гц",
+              "command": "sweep span",
+              "type": "integer",
+              "min": 0,
+              "max": 5999900000
+            },
+            "points": {
+              "label": "Точек",
+              "command": "sweep",
+              "type": "integer",
+              "min": 2,
+              "max": 450
+            },
+            "rbw_hz": {
+              "label": "RBW, Гц",
+              "command": "rbw",
+              "type": "choice",
+              "choices": [
+                "auto",
+                200,
+                1000,
+                3000,
+                10000,
+                30000,
+                100000,
+                300000,
+                600000,
+                850000
+              ]
+            },
+            "attenuation_db": {
+              "label": "Аттенюатор, дБ",
+              "command": "attenuate",
+              "type": "integer_or_auto",
+              "min": 0,
+              "max": 31
+            },
+            "lna": {
+              "label": "LNA",
+              "command": "lna",
+              "type": "boolean"
+            },
+            "ultra": {
+              "label": "Ultra (расширенный диапазон)",
+              "command": "ultra",
+              "type": "boolean"
+            },
+            "spur": {
+              "label": "Подавление spur",
+              "command": "spur",
+              "type": "choice",
+              "choices": [
+                "off",
+                "on",
+                "auto"
+              ]
+            },
+            "repeat": {
+              "label": "Повторов на частоту",
+              "command": "repeat",
+              "type": "integer",
+              "min": 1,
+              "max": 1000
+            },
+            "sweep_accuracy": {
+              "label": "Точность sweep",
+              "command": "sweep",
+              "type": "choice",
+              "choices": [
+                "normal",
+                "precise",
+                "fast",
+                "noise"
+              ]
+            },
+            "sweep_seconds": {
+              "label": "Время sweep, с (0=auto)",
+              "command": "sweeptime",
+              "type": "number",
+              "min": 0,
+              "max": 60
+            },
+            "external_gain_db": {
+              "label": "Внешний gain, дБ",
+              "command": "ext_gain",
+              "type": "number",
+              "min": -100,
+              "max": 100
+            },
+            "calculation": {
+              "label": "Обработка трассы",
+              "command": "calc",
+              "type": "choice",
+              "choices": [
+                "off",
+                "minh",
+                "maxh",
+                "maxd",
+                "aver4",
+                "aver16",
+                "aver",
+                "quasi",
+                "log",
+                "lin"
+              ]
+            },
+            "trigger_mode": {
+              "label": "Trigger",
+              "command": "trigger",
+              "type": "choice",
+              "choices": [
+                "auto",
+                "normal",
+                "single"
+              ]
+            },
+            "trigger_dbm": {
+              "label": "Порог trigger, dBm",
+              "command": "trigger",
+              "type": "number",
+              "min": -174,
+              "max": 30
+            },
+            "trace_unit": {
+              "label": "Единицы экрана",
+              "command": "trace",
+              "type": "choice",
+              "choices": [
+                "dBm",
+                "dBmV",
+                "dBuV",
+                "dBV",
+                "V",
+                "Vpp",
+                "W",
+                "RAW"
+              ]
+            },
+            "ref_level": {
+              "label": "Reference level (единицы экрана)",
+              "command": "trace reflevel",
+              "type": "number_or_auto",
+              "min": -174,
+              "max": 150
+            },
+            "scale_div": {
+              "label": "Масштаб на деление",
+              "command": "trace scale",
+              "type": "number_or_auto",
+              "min": 0.01,
+              "max": 100
+            },
+            "output_hz": {
+              "label": "Генератор, Гц",
+              "command": "freq",
+              "type": "integer",
+              "min": 100000,
+              "max": 800000000,
+              "lab": true
+            },
+            "output_dbm": {
+              "label": "Генератор, dBm",
+              "command": "level",
+              "type": "number",
+              "min": -115,
+              "max": -19,
+              "lab": true
+            },
+            "output_enabled": {
+              "label": "RF выход",
+              "command": "output",
+              "type": "boolean",
+              "lab": true
+            },
+            "modulation": {
+              "label": "Модуляция",
+              "command": "modulation",
+              "type": "choice",
+              "choices": [
+                "off",
+                "am",
+                "fm"
+              ],
+              "lab": true
+            },
+            "modulation_hz": {
+              "label": "Частота модуляции, Гц",
+              "command": "modulation freq",
+              "type": "integer",
+              "min": 50,
+              "max": 5000,
+              "lab": true
+            },
+            "am_depth_percent": {
+              "label": "Глубина AM, %",
+              "command": "modulation depth",
+              "type": "integer",
+              "min": 10,
+              "max": 100,
+              "lab": true
+            },
+            "fm_deviation_hz": {
+              "label": "Девиация FM, Гц",
+              "command": "modulation deviation",
+              "type": "integer",
+              "min": 1000,
+              "max": 300000,
+              "lab": true
+            },
+            "output_delta_db": {
+              "label": "Изменение уровня sweep, дБ",
+              "command": "levelchange",
+              "type": "number",
+              "min": -90,
+              "max": 90,
+              "lab": true
+            },
+            "caloutput_mhz": {
+              "label": "CAL, МГц",
+              "command": "caloutput",
+              "type": "choice",
+              "choices": [
+                "off",
+                1,
+                2,
+                3,
+                4,
+                10,
+                15,
+                30
+              ],
+              "lab": true
+            }
+          },
+          "operations": {
+            "inspect": {
+              "label": "Проверить профиль и команды",
+              "fields": {}
+            },
+            "acquire.raw": {
+              "label": "Исходный scanraw",
+              "fields": {
+                "start_hz": {
+                  "label": "Начало, Гц",
+                  "type": "integer",
+                  "default": 100000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "stop_hz": {
+                  "label": "Конец, Гц",
+                  "type": "integer",
+                  "default": 101000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "points": {
+                  "label": "Точек",
+                  "type": "integer",
+                  "default": 450,
+                  "min": 1,
+                  "max": 65536
+                }
+              }
+            },
+            "acquire.zero": {
+              "label": "Zero-span (UTC-интервал)",
+              "fields": {
+                "start_hz": {
+                  "label": "Частота, Гц",
+                  "type": "integer",
+                  "default": 100000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "points": {
+                  "label": "Точек",
+                  "type": "integer",
+                  "default": 450,
+                  "min": 1,
+                  "max": 65536
+                }
+              }
+            },
+            "trace": {
+              "label": "Трассы прибора",
+              "fields": {
+                "trace": {
+                  "label": "Трасса",
+                  "type": "integer",
+                  "default": 1,
+                  "min": 1,
+                  "max": 4
+                },
+                "action": {
+                  "label": "Действие",
+                  "type": "choice",
+                  "default": "read",
+                  "choices": [
+                    "read",
+                    "copy",
+                    "freeze",
+                    "subtract",
+                    "view",
+                    "calculation"
+                  ]
+                },
+                "source_trace": {
+                  "label": "Исходная/вычитаемая трасса",
+                  "type": "integer",
+                  "default": 2,
+                  "min": 1,
+                  "max": 4
+                },
+                "enabled": {
+                  "label": "Включено",
+                  "type": "boolean",
+                  "default": false
+                },
+                "calculation": {
+                  "label": "Обработка",
+                  "type": "choice",
+                  "default": "off",
+                  "choices": [
+                    "off",
+                    "minh",
+                    "maxh",
+                    "maxd",
+                    "aver4",
+                    "aver16",
+                    "aver",
+                    "quasi",
+                    "log",
+                    "lin"
+                  ]
+                }
+              }
+            },
+            "marker": {
+              "label": "Маркеры прибора",
+              "fields": {
+                "marker": {
+                  "label": "Маркер",
+                  "type": "integer",
+                  "default": 1,
+                  "min": 1,
+                  "max": 8
+                },
+                "action": {
+                  "label": "Действие",
+                  "type": "choice",
+                  "default": "read",
+                  "choices": [
+                    "read",
+                    "on",
+                    "off",
+                    "peak",
+                    "frequency",
+                    "delta",
+                    "noise",
+                    "tracking",
+                    "trace",
+                    "trace_aver"
+                  ]
+                },
+                "frequency_hz": {
+                  "label": "Частота, Гц",
+                  "type": "integer",
+                  "default": 100000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "reference": {
+                  "label": "Опорный маркер / трасса",
+                  "type": "integer",
+                  "default": 1,
+                  "min": 1,
+                  "max": 4
+                },
+                "enabled": {
+                  "label": "Включено",
+                  "type": "boolean",
+                  "default": true
+                }
+              }
+            },
+            "measurement": {
+              "label": "Измерение ядром (по исходному scanraw)",
+              "fields": {
+                "method": {
+                  "label": "Метод",
+                  "type": "choice",
+                  "default": "peak",
+                  "choices": [
+                    "peak",
+                    "occupied_bandwidth",
+                    "bandwidth_3db",
+                    "centroid",
+                    "channel_power"
+                  ]
+                },
+                "start_hz": {
+                  "label": "Начало, Гц",
+                  "type": "integer",
+                  "default": 100000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "stop_hz": {
+                  "label": "Конец, Гц",
+                  "type": "integer",
+                  "default": 101000000,
+                  "min": 100000,
+                  "max": 6000000000
+                },
+                "points": {
+                  "label": "Точек",
+                  "type": "integer",
+                  "default": 450,
+                  "min": 2,
+                  "max": 65536
+                }
+              }
+            },
+            "sd.list": {
+              "label": "Список файлов SD",
+              "fields": {}
+            },
+            "sd.read": {
+              "label": "Получить файл SD в архив",
+              "fields": {
+                "filename": {
+                  "label": "Имя файла",
+                  "type": "text",
+                  "default": "TRACE.CSV"
+                }
+              }
+            },
+            "sd.delete": {
+              "label": "Удалить файл с SD",
+              "lab": true,
+              "fields": {
+                "filename": {
+                  "label": "Имя файла",
+                  "type": "text",
+                  "default": "TRACE.CSV"
+                },
+                "confirm_delete": {
+                  "label": "Подтверждаю удаление",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "preset.save": {
+              "label": "Сохранить пресет прибора",
+              "lab": true,
+              "fields": {
+                "slot": {
+                  "label": "Слот",
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 4
+                },
+                "confirm": {
+                  "label": "Подтверждаю перезапись",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "preset.load": {
+              "label": "Загрузить пресет прибора",
+              "lab": true,
+              "fields": {
+                "slot": {
+                  "label": "Слот",
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 4
+                },
+                "confirm": {
+                  "label": "Пресет может изменить RF",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "preset.export": {
+              "label": "Экспорт настроек ядра в JSON",
+              "fields": {}
+            },
+            "preset.import": {
+              "label": "Импорт настроек ядра из JSON",
+              "lab": true,
+              "fields": {
+                "document": {
+                  "label": "JSON пресета",
+                  "type": "multiline",
+                  "default": ""
+                },
+                "confirm": {
+                  "label": "Применить приёмные настройки",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "service.guide": {
+              "label": "Сервис / функции экрана",
+              "fields": {
+                "name": {
+                  "label": "Процедура",
+                  "type": "choice",
+                  "default": "multiband",
+                  "choices": [
+                    "multiband",
+                    "vbw",
+                    "measurements",
+                    "listen",
+                    "calibration",
+                    "selftest",
+                    "firmware",
+                    "expert",
+                    "generator_extended",
+                    "generator_sweep",
+                    "corrections",
+                    "sd_csv"
+                  ]
+                }
+              }
+            },
+            "selftest.start": {
+              "label": "Запустить self-test прибора",
+              "lab": true,
+              "fields": {
+                "test": {
+                  "label": "Номер 1–3",
+                  "type": "integer",
+                  "default": 1,
+                  "min": 1,
+                  "max": 3
+                },
+                "confirm": {
+                  "label": "Стенд подключён, возможен RF",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "generator.sweep": {
+              "label": "Sweep генератора",
+              "lab": true,
+              "fields": {
+                "start_hz": {
+                  "label": "Начало, Гц",
+                  "type": "integer",
+                  "default": 30000000,
+                  "min": 100000,
+                  "max": 800000000
+                },
+                "stop_hz": {
+                  "label": "Конец, Гц",
+                  "type": "integer",
+                  "default": 31000000,
+                  "min": 100000,
+                  "max": 800000000
+                },
+                "points": {
+                  "label": "Точек",
+                  "type": "integer",
+                  "default": 100,
+                  "min": 2,
+                  "max": 450
+                },
+                "seconds": {
+                  "label": "Время, с",
+                  "type": "number",
+                  "default": 1,
+                  "min": 0.003,
+                  "max": 60
+                },
+                "level_dbm": {
+                  "label": "Уровень, dBm",
+                  "type": "number",
+                  "default": -30,
+                  "min": -115,
+                  "max": -19
+                },
+                "delta_db": {
+                  "label": "Изменение уровня, дБ",
+                  "type": "number",
+                  "default": 0,
+                  "min": -90,
+                  "max": 90
+                },
+                "confirm": {
+                  "label": "Включить RF sweep",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            },
+            "output.off": {
+              "label": "Отключить RF и CAL",
+              "fields": {}
+            },
+            "audio.inputs": {
+              "label": "Аналоговые аудиовходы ядра",
+              "fields": {}
+            },
+            "audio.capture": {
+              "label": "Записать аналоговый LISTEN в WAV",
+              "lab": true,
+              "fields": {
+                "device": {
+                  "label": "Индекс входа из списка",
+                  "type": "integer",
+                  "default": 0,
+                  "min": 0,
+                  "max": 1024
+                },
+                "seconds": {
+                  "label": "Длительность, с",
+                  "type": "number",
+                  "default": 5,
+                  "min": 0.1,
+                  "max": 30
+                },
+                "sample_rate_hz": {
+                  "label": "Частота дискретизации, Гц",
+                  "type": "choice",
+                  "default": 48000,
+                  "choices": [
+                    8000,
+                    12000,
+                    24000,
+                    48000
+                  ]
+                },
+                "confirm_connection": {
+                  "label": "LISTEN → аудиовход ядра подключён",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          },
+          "menu": [
+            {
+              "id": "analyzer/pause",
+              "path": [
+                "analyzer",
+                "PAUSE"
+              ],
+              "label": "PAUSE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset",
+              "path": [
+                "analyzer",
+                "PRESET"
+              ],
+              "label": "PRESET",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/load_startup",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "LOAD STARTUP"
+              ],
+              "label": "LOAD STARTUP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/load_x",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "LOAD X"
+              ],
+              "label": "LOAD X",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/load_defaults",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "LOAD DEFAULTS"
+              ],
+              "label": "LOAD DEFAULTS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/save_settings",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "SAVE SETTINGS"
+              ],
+              "label": "SAVE SETTINGS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/load_from_sd",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "LOAD from SD"
+              ],
+              "label": "LOAD from SD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE"
+              ],
+              "label": "STORE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store/store_as_startup",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE",
+                "STORE AS STARTUP"
+              ],
+              "label": "STORE AS STARTUP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store/store_x",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE",
+                "STORE X"
+              ],
+              "label": "STORE X",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store/store_sd",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE",
+                "STORE -> SD"
+              ],
+              "label": "STORE -> SD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store/save_as_png",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE",
+                "SAVE AS PNG"
+              ],
+              "label": "SAVE AS PNG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/preset/store/factory_defaults",
+              "path": [
+                "analyzer",
+                "PRESET",
+                "STORE",
+                "FACTORY DEFAULTS"
+              ],
+              "label": "FACTORY DEFAULTS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency",
+              "path": [
+                "analyzer",
+                "FREQUENCY"
+              ],
+              "label": "FREQUENCY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/start",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "START"
+              ],
+              "label": "START",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/stop",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "STOP"
+              ],
+              "label": "STOP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/center",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "CENTER"
+              ],
+              "label": "CENTER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/span",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "SPAN"
+              ],
+              "label": "SPAN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/zero_span",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "ZERO SPAN"
+              ],
+              "label": "ZERO SPAN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/rbw",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "RBW"
+              ],
+              "label": "RBW",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND"
+              ],
+              "label": "MULTI BAND",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz"
+              ],
+              "label": "xHz yHz",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/start",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "START"
+              ],
+              "label": "START",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/end",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "END"
+              ],
+              "label": "END",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/center",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "CENTER"
+              ],
+              "label": "CENTER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/span",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "SPAN"
+              ],
+              "label": "SPAN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/level",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "LEVEL"
+              ],
+              "label": "LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/name",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "NAME"
+              ],
+              "label": "NAME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/xhz_yhz/disable",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "xHz yHz",
+                "DISABLE"
+              ],
+              "label": "DISABLE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/altern",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "ALTERN"
+              ],
+              "label": "ALTERN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/bands_sd",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "BANDS->SD"
+              ],
+              "label": "BANDS->SD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/multi_band/sd_bands",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MULTI BAND",
+                "SD->BANDS"
+              ],
+              "label": "SD->BANDS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/vbw",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "VBW"
+              ],
+              "label": "VBW",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/shift_freq",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "SHIFT FREQ"
+              ],
+              "label": "SHIFT FREQ",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/frequency/marker_center",
+              "path": [
+                "analyzer",
+                "FREQUENCY",
+                "MARKER -> CENTER"
+              ],
+              "label": "MARKER -> CENTER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level",
+              "path": [
+                "analyzer",
+                "LEVEL"
+              ],
+              "label": "LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/ref_level",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "REF LEVEL"
+              ],
+              "label": "REF LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/scale/div",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "SCALE/DIV"
+              ],
+              "label": "SCALE/DIV",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/attenuate",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "ATTENUATE"
+              ],
+              "label": "ATTENUATE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/unit",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "UNIT"
+              ],
+              "label": "UNIT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/ext_gain",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "EXT GAIN"
+              ],
+              "label": "EXT GAIN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/lna",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "LNA"
+              ],
+              "label": "LNA",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER"
+              ],
+              "label": "TRIGGER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/auto",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "AUTO"
+              ],
+              "label": "AUTO",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/normal",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "NORMAL"
+              ],
+              "label": "NORMAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/single",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "SINGLE"
+              ],
+              "label": "SINGLE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/level",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "LEVEL"
+              ],
+              "label": "LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/level/trigger_level",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "LEVEL",
+                "TRIGGER LEVEL"
+              ],
+              "label": "TRIGGER LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/level/trigger_trace_x",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "LEVEL",
+                "TRIGGER TRACE x"
+              ],
+              "label": "TRIGGER TRACE x",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/edge",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "EDGE"
+              ],
+              "label": "EDGE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/trigger",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "TRIGGER"
+              ],
+              "label": "TRIGGER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/interval",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "INTERVAL"
+              ],
+              "label": "INTERVAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/beep",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "BEEP"
+              ],
+              "label": "BEEP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/trigger/auto_save",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "TRIGGER",
+                "AUTO SAVE"
+              ],
+              "label": "AUTO SAVE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/level/listen",
+              "path": [
+                "analyzer",
+                "LEVEL",
+                "LISTEN"
+              ],
+              "label": "LISTEN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace",
+              "path": [
+                "analyzer",
+                "TRACE"
+              ],
+              "label": "TRACE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/trace_n",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "TRACE n"
+              ],
+              "label": "TRACE n",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/enable",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "ENABLE"
+              ],
+              "label": "ENABLE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/freeze",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "FREEZE"
+              ],
+              "label": "FREEZE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state"
+              ],
+              "label": "CALC state",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/off",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "OFF"
+              ],
+              "label": "OFF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/min_hold",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "MIN HOLD"
+              ],
+              "label": "MIN HOLD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/max_hold",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "MAX HOLD"
+              ],
+              "label": "MAX HOLD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/max_decay",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "MAX DECAY"
+              ],
+              "label": "MAX DECAY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/aver_4",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "AVER 4"
+              ],
+              "label": "AVER 4",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/aver_16",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "AVER 16"
+              ],
+              "label": "AVER 16",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/aver",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "AVER"
+              ],
+              "label": "AVER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/quasi_peak",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "QUASI PEAK"
+              ],
+              "label": "QUASI PEAK",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/calc_state/table_trace",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "CALC state",
+                "TABLE->TRACE"
+              ],
+              "label": "TABLE->TRACE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/normalize",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "NORMALIZE"
+              ],
+              "label": "NORMALIZE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/subtract",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "SUBTRACT"
+              ],
+              "label": "SUBTRACT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/trace_trace",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "TRACE->TRACE"
+              ],
+              "label": "TRACE->TRACE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/trace_sd",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "TRACE->SD"
+              ],
+              "label": "TRACE->SD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/trace/sd_trace",
+              "path": [
+                "analyzer",
+                "TRACE",
+                "SD->TRACE"
+              ],
+              "label": "SD->TRACE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display",
+              "path": [
+                "analyzer",
+                "DISPLAY"
+              ],
+              "label": "DISPLAY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/pause_sweep",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "PAUSE SWEEP"
+              ],
+              "label": "PAUSE SWEEP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/waterfall",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "WATERFALL"
+              ],
+              "label": "WATERFALL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/big_number",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "BIG NUMBER"
+              ],
+              "label": "BIG NUMBER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/draw_line",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "DRAW LINE"
+              ],
+              "label": "DRAW LINE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_time",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP TIME"
+              ],
+              "label": "SWEEP TIME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_points",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP POINTS"
+              ],
+              "label": "SWEEP POINTS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY"
+              ],
+              "label": "SWEEP ACCURACY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/normal",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "NORMAL"
+              ],
+              "label": "NORMAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/precise",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "PRECISE"
+              ],
+              "label": "PRECISE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/fast",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "FAST"
+              ],
+              "label": "FAST",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/noise_source",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "NOISE SOURCE"
+              ],
+              "label": "NOISE SOURCE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/nspeedup",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "NSPEEDUP"
+              ],
+              "label": "NSPEEDUP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/sweep_accuracy/wspeedup",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "SWEEP ACCURACY",
+                "WSPEEDUP"
+              ],
+              "label": "WSPEEDUP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/display/rotate_display",
+              "path": [
+                "analyzer",
+                "DISPLAY",
+                "ROTATE DISPLAY"
+              ],
+              "label": "ROTATE DISPLAY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker",
+              "path": [
+                "analyzer",
+                "MARKER"
+              ],
+              "label": "MARKER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER"
+              ],
+              "label": "MODIFY MARKER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/marker_n",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "MARKER n"
+              ],
+              "label": "MARKER n",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/delta_n",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "DELTA n"
+              ],
+              "label": "DELTA n",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/noise",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "NOISE"
+              ],
+              "label": "NOISE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/tracking",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "TRACKING"
+              ],
+              "label": "TRACKING",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/trace_n",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "TRACE n"
+              ],
+              "label": "TRACE n",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/trace_average",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "TRACE AVERAGE"
+              ],
+              "label": "TRACE AVERAGE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH"
+              ],
+              "label": "SEARCH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/peak_search",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "PEAK SEARCH"
+              ],
+              "label": "PEAK SEARCH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/min_left",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "MIN<-LEFT"
+              ],
+              "label": "MIN<-LEFT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/min_right",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "MIN->RIGHT"
+              ],
+              "label": "MIN->RIGHT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/max_left",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "MAX<-LEFT"
+              ],
+              "label": "MAX<-LEFT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/max_right",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "MAX->RIGHT"
+              ],
+              "label": "MAX->RIGHT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/enter_frequency",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "ENTER FREQUENCY"
+              ],
+              "label": "ENTER FREQUENCY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/tracking",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "TRACKING"
+              ],
+              "label": "TRACKING",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/peak_n",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "PEAK n"
+              ],
+              "label": "PEAK n",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/search/peak_excursion",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "SEARCH",
+                "PEAK EXCURSION"
+              ],
+              "label": "PEAK EXCURSION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/modify_marker/delete",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MODIFY MARKER",
+                "DELETE"
+              ],
+              "label": "DELETE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS"
+              ],
+              "label": "MARKER OPS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops/_start",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS",
+                "->START"
+              ],
+              "label": "->START",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops/_stop",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS",
+                "->STOP"
+              ],
+              "label": "->STOP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops/_center",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS",
+                "->CENTER"
+              ],
+              "label": "->CENTER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops/_span",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS",
+                "->SPAN"
+              ],
+              "label": "->SPAN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/marker_ops/_ref_level",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "MARKER OPS",
+                "->REF LEVEL"
+              ],
+              "label": "->REF LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/search_marker",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "SEARCH MARKER"
+              ],
+              "label": "SEARCH MARKER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/reset_markers",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "RESET MARKERS"
+              ],
+              "label": "RESET MARKERS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/marker/n_markers",
+              "path": [
+                "analyzer",
+                "MARKER",
+                "n MARKERS"
+              ],
+              "label": "n MARKERS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure",
+              "path": [
+                "analyzer",
+                "MEASURE"
+              ],
+              "label": "MEASURE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/off",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "OFF"
+              ],
+              "label": "OFF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/harmonic",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "HARMONIC"
+              ],
+              "label": "HARMONIC",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/oip3",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "OIP3"
+              ],
+              "label": "OIP3",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/phase_noise",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "PHASE NOISE"
+              ],
+              "label": "PHASE NOISE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/snr",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "SNR"
+              ],
+              "label": "SNR",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/_3db_width",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "-3dB WIDTH"
+              ],
+              "label": "-3dB WIDTH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/occupied_width",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "OCCUPIED WIDTH"
+              ],
+              "label": "OCCUPIED WIDTH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/am",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "AM"
+              ],
+              "label": "AM",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/fm",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "FM"
+              ],
+              "label": "FM",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/thd",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "THD"
+              ],
+              "label": "THD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/channel_power",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "CHANNEL POWER"
+              ],
+              "label": "CHANNEL POWER",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/linear",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "LINEAR"
+              ],
+              "label": "LINEAR",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/noise_figure",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "NOISE FIGURE"
+              ],
+              "label": "NOISE FIGURE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/noise_figure/measure_tinysa_nf",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "NOISE FIGURE",
+                "MEASURE TINYSA NF"
+              ],
+              "label": "MEASURE TINYSA NF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/noise_figure/store_tinysa_nf",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "NOISE FIGURE",
+                "STORE TINYSA NF"
+              ],
+              "label": "STORE TINYSA NF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/noise_figure/validate_tinysa_nf",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "NOISE FIGURE",
+                "VALIDATE TINYSA NF"
+              ],
+              "label": "VALIDATE TINYSA NF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/measure/noise_figure/measure_amp_nf",
+              "path": [
+                "analyzer",
+                "MEASURE",
+                "NOISE FIGURE",
+                "MEASURE AMP NF"
+              ],
+              "label": "MEASURE AMP NF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage",
+              "path": [
+                "analyzer",
+                "STORAGE"
+              ],
+              "label": "STORAGE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/load_capture",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "LOAD CAPTURE"
+              ],
+              "label": "LOAD CAPTURE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/load_settings",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "LOAD SETTINGS"
+              ],
+              "label": "LOAD SETTINGS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/load_cmd",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "LOAD CMD"
+              ],
+              "label": "LOAD CMD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/load_config",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "LOAD CONFIG"
+              ],
+              "label": "LOAD CONFIG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/auto_name",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "AUTO NAME"
+              ],
+              "label": "AUTO NAME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/save_capture",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "SAVE CAPTURE"
+              ],
+              "label": "SAVE CAPTURE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/save_settings",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "SAVE SETTINGS"
+              ],
+              "label": "SAVE SETTINGS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/save_config",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "SAVE CONFIG"
+              ],
+              "label": "SAVE CONFIG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/mhz_csv",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "MHz CSV"
+              ],
+              "label": "MHz CSV",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/save_traces",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "SAVE TRACES"
+              ],
+              "label": "SAVE TRACES",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/storage/usb_disk",
+              "path": [
+                "analyzer",
+                "STORAGE",
+                "USB DISK"
+              ],
+              "label": "USB DISK",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config",
+              "path": [
+                "analyzer",
+                "CONFIG"
+              ],
+              "label": "CONFIG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/touch",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "TOUCH"
+              ],
+              "label": "TOUCH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/touch/touch_cal",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "TOUCH",
+                "TOUCH CAL"
+              ],
+              "label": "TOUCH CAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/touch/touch_test",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "TOUCH",
+                "TOUCH TEST"
+              ],
+              "label": "TOUCH TEST",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/self_test",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "SELF TEST"
+              ],
+              "label": "SELF TEST",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_cal",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CAL"
+              ],
+              "label": "LEVEL CAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_cal/calibrate_100khz_to_5_34ghz",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CAL",
+                "CALIBRATE 100kHz to 5.34GHz"
+              ],
+              "label": "CALIBRATE 100kHz to 5.34GHz",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_cal/calibrate_above_5_34ghz",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CAL",
+                "CALIBRATE above 5.34GHz"
+              ],
+              "label": "CALIBRATE above 5.34GHz",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_cal/reset_calibration",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CAL",
+                "RESET CALIBRATION"
+              ],
+              "label": "RESET CALIBRATION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/version",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "VERSION"
+              ],
+              "label": "VERSION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/spur_removal",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "SPUR REMOVAL"
+              ],
+              "label": "SPUR REMOVAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/sample_rep",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "SAMPLE REP"
+              ],
+              "label": "SAMPLE REP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/brightness",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "BRIGHTNESS"
+              ],
+              "label": "BRIGHTNESS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/date_time",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "DATE TIME"
+              ],
+              "label": "DATE TIME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/date_time/set_time",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "DATE TIME",
+                "SET TIME"
+              ],
+              "label": "SET TIME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/date_time/set_date",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "DATE TIME",
+                "SET DATE"
+              ],
+              "label": "SET DATE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/pulse_high",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "PULSE HIGH"
+              ],
+              "label": "PULSE HIGH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/lo_output",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LO OUTPUT"
+              ],
+              "label": "LO OUTPUT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/enable_ultra",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "ENABLE ULTRA"
+              ],
+              "label": "ENABLE ULTRA",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/minimum_grid_lines",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "MINIMUM GRID LINES"
+              ],
+              "label": "MINIMUM GRID LINES",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/jog_step",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "JOG STEP"
+              ],
+              "label": "JOG STEP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/clear_config",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "CLEAR CONFIG"
+              ],
+              "label": "CLEAR CONFIG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/connection",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "CONNECTION"
+              ],
+              "label": "CONNECTION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/connection/usb",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "CONNECTION",
+                "USB"
+              ],
+              "label": "USB",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/connection/serial",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "CONNECTION",
+                "SERIAL"
+              ],
+              "label": "SERIAL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/connection/serial_speed",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "CONNECTION",
+                "SERIAL SPEED"
+              ],
+              "label": "SERIAL SPEED",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION"
+              ],
+              "label": "LEVEL CORRECTION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/input_level",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "INPUT LEVEL"
+              ],
+              "label": "INPUT LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/output_level",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "OUTPUT LEVEL"
+              ],
+              "label": "OUTPUT LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/output_level/30mhz_level",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "OUTPUT LEVEL",
+                "30MHz LEVEL"
+              ],
+              "label": "30MHz LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/output_level/1ghz_level",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "OUTPUT LEVEL",
+                "1GHz LEVEL"
+              ],
+              "label": "1GHz LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/output_level/1_2ghz_level",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "OUTPUT LEVEL",
+                "1.2GHz LEVEL"
+              ],
+              "label": "1.2GHz LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/in_curve",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "IN CURVE"
+              ],
+              "label": "IN CURVE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/level_correction/out_curve",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "LEVEL CORRECTION",
+                "OUT CURVE"
+              ],
+              "label": "OUT CURVE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/ham_bands",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "HAM BANDS"
+              ],
+              "label": "HAM BANDS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG"
+              ],
+              "label": "EXPERT CONFIG",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/progress_bar",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "PROGRESS BAR"
+              ],
+              "label": "PROGRESS BAR",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/direct_mode",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "DIRECT MODE"
+              ],
+              "label": "DIRECT MODE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/linear_averaging",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "LINEAR AVERAGING"
+              ],
+              "label": "LINEAR AVERAGING",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/harmonic",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "HARMONIC"
+              ],
+              "label": "HARMONIC",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/freq_corr",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "FREQ CORR"
+              ],
+              "label": "FREQ CORR",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/nf",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "NF"
+              ],
+              "label": "NF",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/dump_firmware",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "DUMP FIRMWARE"
+              ],
+              "label": "DUMP FIRMWARE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "analyzer/config/expert_config/internals",
+              "path": [
+                "analyzer",
+                "CONFIG",
+                "EXPERT CONFIG",
+                "INTERNALS"
+              ],
+              "label": "INTERNALS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/output",
+              "path": [
+                "generator",
+                "OUTPUT"
+              ],
+              "label": "OUTPUT",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/freq",
+              "path": [
+                "generator",
+                "FREQ"
+              ],
+              "label": "FREQ",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/level",
+              "path": [
+                "generator",
+                "LEVEL"
+              ],
+              "label": "LEVEL",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/level/above_800/900mhz_",
+              "path": [
+                "generator",
+                "LEVEL",
+                "Above 800/900MHz:"
+              ],
+              "label": "Above 800/900MHz:",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod",
+              "path": [
+                "generator",
+                "MOD"
+              ],
+              "label": "MOD",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/none",
+              "path": [
+                "generator",
+                "MOD",
+                "NONE"
+              ],
+              "label": "NONE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/am",
+              "path": [
+                "generator",
+                "MOD",
+                "AM"
+              ],
+              "label": "AM",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/fm",
+              "path": [
+                "generator",
+                "MOD",
+                "FM"
+              ],
+              "label": "FM",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/freq",
+              "path": [
+                "generator",
+                "MOD",
+                "FREQ"
+              ],
+              "label": "FREQ",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/am_depth",
+              "path": [
+                "generator",
+                "MOD",
+                "AM DEPTH"
+              ],
+              "label": "AM DEPTH",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/mod/fm_deviation",
+              "path": [
+                "generator",
+                "MOD",
+                "FM DEVIATION"
+              ],
+              "label": "FM DEVIATION",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/sweep",
+              "path": [
+                "generator",
+                "SWEEP"
+              ],
+              "label": "SWEEP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/sweep/span",
+              "path": [
+                "generator",
+                "SWEEP",
+                "SPAN"
+              ],
+              "label": "SPAN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/sweep/level_change",
+              "path": [
+                "generator",
+                "SWEEP",
+                "LEVEL CHANGE"
+              ],
+              "label": "LEVEL CHANGE",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/sweep/sweep_time",
+              "path": [
+                "generator",
+                "SWEEP",
+                "SWEEP TIME"
+              ],
+              "label": "SWEEP TIME",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/sweep/sweep_points",
+              "path": [
+                "generator",
+                "SWEEP",
+                "SWEEP POINTS"
+              ],
+              "label": "SWEEP POINTS",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/start_sweep",
+              "path": [
+                "generator",
+                "START SWEEP"
+              ],
+              "label": "START SWEEP",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/external_gain",
+              "path": [
+                "generator",
+                "EXTERNAL GAIN"
+              ],
+              "label": "EXTERNAL GAIN",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/output/cleanest",
+              "path": [
+                "generator",
+                "OUTPUT",
+                "CLEANEST"
+              ],
+              "label": "CLEANEST",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            },
+            {
+              "id": "generator/output/highest_accuracy",
+              "path": [
+                "generator",
+                "OUTPUT",
+                "HIGHEST ACCURACY"
+              ],
+              "label": "HIGHEST ACCURACY",
+              "access": "screen",
+              "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree",
+              "availability": "check_live_screen",
+              "presence_readback": false
+            }
+          ],
+          "limitations": [
+            "No simultaneous analyzer and generator",
+            "No documented USB PCM or IQ",
+            "Screen is read-only in monitoring; lab actions require exclusive lease",
+            "Firmware source evidence is not physical validation"
+          ]
+        },
+        "commands": [
+          "attenuate",
+          "calc",
+          "caloutput",
+          "capture",
+          "commands",
+          "data",
+          "deviceid",
+          "ext_gain",
+          "freq",
+          "frequencies",
+          "help",
+          "info",
+          "level",
+          "levelchange",
+          "lna",
+          "marker",
+          "menu",
+          "mode",
+          "modulation",
+          "output",
+          "pause",
+          "rbw",
+          "recall",
+          "refresh",
+          "release",
+          "repeat",
+          "resume",
+          "save",
+          "scan",
+          "scanraw",
+          "sd_delete",
+          "sd_list",
+          "sd_read",
+          "selftest",
+          "spur",
+          "status",
+          "sweep",
+          "sweeptime",
+          "text",
+          "touch",
+          "trace",
+          "trigger",
+          "ultra",
+          "version",
+          "zero"
+        ]
+      }
+    },
+    {
+      "operation": "service.guide",
+      "parameters": {},
+      "commands": [],
+      "result": {
+        "name": "multiband",
+        "route": "FREQUENCY → MULTI BAND",
+        "steps": [
+          "Получите lab-аренду. Откройте FREQUENCY → MULTI BAND на живом экране.",
+          "Задайте START/END или CENTER/SPAN, LEVEL и NAME каждого диапазона; DISABLE исключает полосу.",
+          "Выберите ALTERN для чередования либо общий экран. Сохраните BANDS→SD; получите файл через SD.",
+          "Встроенный multiband доступен в live screen. scanraw — отдельное измерение одного диапазона; не подменяет его."
+        ],
+        "execution": "physical_and_screen",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "hardware_validation": "not_run",
+        "source": "https://tinysa.org/wiki/pmwiki.php?n=TinySA4.MenuTree"
+      }
+    },
+    {
+      "operation": "capture",
+      "parameters": {},
+      "commands": [
+        "capture"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "screen",
+          "mime_type": "image/png",
+          "filename": "tinysa-screen.png",
+          "sha256": "f19d17373260b3aa0f5392438e6ea49e590a0b62fc15b5a328c5cd323ca25c3e",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 0,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval"
+          },
+          "representation": "PNG payload omitted; exhaustive pixel oracle is separate"
+        }
+      }
+    },
+    {
+      "operation": "lease.acquire",
+      "parameters": {
+        "acknowledge_rf": true
+      },
+      "commands": [
+        "pause",
+        "output off",
+        "caloutput off",
+        "release"
+      ],
+      "result": {
+        "lease_id": "<private synthetic lease>",
+        "expires_in": 30,
+        "status": {
+          "mode": "lab",
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "revision": 1,
+          "settings_complete": false,
+          "profile_verified": true,
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off",
+            "output_enabled": false,
+            "caloutput_mhz": "off"
+          },
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "lease_active": true,
+          "lease_seconds": 30.0,
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "lease.renew",
+      "parameters": {},
+      "commands": [],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 1,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "setting",
+      "parameters": {
+        "name": "repeat",
+        "value": 3
+      },
+      "commands": [
+        "repeat 3"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 2,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "touch",
+      "parameters": {
+        "x": 1,
+        "y": 2
+      },
+      "commands": [
+        "touch 1 2"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 3,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "release",
+      "parameters": {},
+      "commands": [
+        "release"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 4,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "keypad",
+      "parameters": {
+        "text": "100M"
+      },
+      "commands": [
+        "text 100M"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 5,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "menu.home",
+      "parameters": {},
+      "commands": [
+        "menu"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 6,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "sd.list",
+      "parameters": {},
+      "commands": [
+        "sd_list"
+      ],
+      "result": {
+        "directory_text": "TRACE.CSV"
+      }
+    },
+    {
+      "operation": "sd.read",
+      "parameters": {},
+      "commands": [
+        "sd_read TRACE.CSV"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "sd_file",
+          "mime_type": "application/octet-stream",
+          "filename": "TRACE.CSV",
+          "data_base64": "b3JpZ2luYWwAU0T/Y2g+IGJ5dGVz",
+          "sha256": "74f4ad53da1b9e131261ef00472940dfd67e1dfebeaba7b1c48bde63ad44461f",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 6,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3
+            },
+            "device_mode": "unknown",
+            "device_mode_readback": false,
+            "settings_source": "unknown",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval"
+          }
+        }
+      }
+    },
+    {
+      "operation": "sd.delete",
+      "parameters": {
+        "confirm_delete": true
+      },
+      "commands": [
+        "sd_delete TRACE.CSV"
+      ],
+      "result": {
+        "deleted": "TRACE.CSV",
+        "confirmation": "device_response"
+      }
+    },
+    {
+      "operation": "preset.save",
+      "parameters": {
+        "confirm": true
+      },
+      "commands": [
+        "save 0"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 7,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "preset.load",
+      "parameters": {
+        "confirm": true
+      },
+      "commands": [
+        "recall 0"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 8,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "unknown",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "unknown",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "preset.import",
+      "parameters": {
+        "document": "{\"schema_version\": 1, \"profile\": \"tinysa-ultra-zs405-control-v1\", \"settings\": {\"start_hz\": 100000000, \"stop_hz\": 101000000, \"points\": 3}}",
+        "confirm": true
+      },
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release",
+        "mode input",
+        "lna off",
+        "ultra off",
+        "sweep 100000000 101000000 3"
+      ],
+      "result": {
+        "status": {
+          "mode": "lab",
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "revision": 9,
+          "settings_complete": false,
+          "profile_verified": true,
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off",
+            "output_enabled": false,
+            "caloutput_mhz": "off",
+            "repeat": 3
+          },
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "lease_active": true,
+          "lease_seconds": 30.0,
+          "device_mode": "input",
+          "device_mode_readback": false,
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        },
+        "application": "sequential_acknowledged",
+        "rollback": "not_available_on_device"
+      }
+    },
+    {
+      "operation": "acquire.raw",
+      "parameters": {
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "raw_scan",
+          "mime_type": "application/json",
+          "filename": "tinysa-raw-scan.json",
+          "data_base64": "eyJmcmVxdWVuY2llc19oeiI6IFsxMDAwMDAwMDAsIDEwMDMzMzMzMywgMTAwNjY2NjY2XSwgImxldmVscyI6IFstOTAuMCwgLTgwLjAsIC03MC4wXSwgImxldmVsX3VuaXQiOiAiZEJtIiwgIndpcmVfYmFzZTY0IjogImUzaUFDbmpBQzNnQURYMD0iLCAiemVyb19kYiI6IDE3NCwgInN0YXJ0ZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAiZW5kZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAic2FtcGxlX29mZnNldHNfc2Vjb25kcyI6IG51bGwsICJ0aW1pbmdfc291cmNlIjogImludGVydmFsX29ubHkiLCAiZ3JpZF9zb3VyY2UiOiAiZmlybXdhcmVfZWE3MWRmZF9zY2FucmF3IiwgInJlcXVlc3RlZF9zdG9wX2h6IjogMTAxMDAwMDAwLCAic3RvcF9pc19pbmNsdXNpdmUiOiBmYWxzZX0=",
+          "sha256": "d5bbf044e6dd4002e743dc757bf42dbb06c41dc8bad661e8ed3a9a1709b97082",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 9,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval"
+          }
+        }
+      }
+    },
+    {
+      "operation": "acquire.zero",
+      "parameters": {
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 100000000 3 0"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "zero_span",
+          "mime_type": "application/json",
+          "filename": "tinysa-zero-span.json",
+          "data_base64": "eyJmcmVxdWVuY2llc19oeiI6IFsxMDAwMDAwMDAsIDEwMDAwMDAwMCwgMTAwMDAwMDAwXSwgImxldmVscyI6IFstOTAuMCwgLTgwLjAsIC03MC4wXSwgImxldmVsX3VuaXQiOiAiZEJtIiwgIndpcmVfYmFzZTY0IjogImUzaUFDbmpBQzNnQURYMD0iLCAiemVyb19kYiI6IDE3NCwgInN0YXJ0ZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAiZW5kZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAic2FtcGxlX29mZnNldHNfc2Vjb25kcyI6IG51bGwsICJ0aW1pbmdfc291cmNlIjogImludGVydmFsX29ubHkiLCAiZ3JpZF9zb3VyY2UiOiAiZmlybXdhcmVfZWE3MWRmZF9zY2FucmF3IiwgInJlcXVlc3RlZF9zdG9wX2h6IjogMTAwMDAwMDAwLCAic3RvcF9pc19pbmNsdXNpdmUiOiBudWxsfQ==",
+          "sha256": "be9cabf8de1ab58f4e58dfa2db4eaaa210acee754cbce8f5eed86268cabedc0a",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 9,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval"
+          }
+        }
+      }
+    },
+    {
+      "operation": "trace",
+      "parameters": {},
+      "commands": [
+        "trace 1 value"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "processed_trace",
+          "mime_type": "application/json",
+          "filename": "tinysa-device-trace.json",
+          "data_base64": "eyJkZXZpY2VfcmVzcG9uc2UiOiAiMCAtOTBcbjEgLTgwIiwgInRyYWNlIjogMSwgImxldmVsX3VuaXQiOiAiaW50ZXJuYWxfZEJtIiwgInJlYWRiYWNrIjogImZpcm13YXJlX3RyYWNlX3ZhbHVlIn0=",
+          "sha256": "9675f03287146f7563137b6ce7af8d31b4e80051ecd65a6271eeed2ad78f54cd",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 9,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval"
+          }
+        }
+      }
+    },
+    {
+      "operation": "trace",
+      "parameters": {
+        "action": "copy"
+      },
+      "commands": [
+        "trace 1 copy 2"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 10,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "marker",
+      "parameters": {},
+      "commands": [
+        "marker 1"
+      ],
+      "result": {
+        "device_response": "marker 1 100500000 -80",
+        "level_unit": "unknown"
+      }
+    },
+    {
+      "operation": "marker",
+      "parameters": {
+        "action": "on"
+      },
+      "commands": [
+        "marker 1 on"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 11,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "preset.export",
+      "parameters": {},
+      "commands": [],
+      "result": {
+        "artifact": {
+          "kind": "diagnostic",
+          "mime_type": "application/json",
+          "filename": "tinysa-preset.json",
+          "data_base64": "eyJzY2hlbWFfdmVyc2lvbiI6IDEsICJwcm9maWxlIjogInRpbnlzYS11bHRyYS16czQwNS1jb250cm9sLXYxIiwgInNldHRpbmdzIjogeyJzdGFydF9oeiI6IDEwMDAwMDAwMCwgInN0b3BfaHoiOiAxMDEwMDAwMDAsICJwb2ludHMiOiAzLCAicmJ3X2h6IjogMTAwMDAsICJhdHRlbnVhdGlvbl9kYiI6ICJhdXRvIiwgImxuYSI6IGZhbHNlLCAidWx0cmEiOiBmYWxzZSwgImNhbGN1bGF0aW9uIjogIm9mZiIsICJyZXBlYXQiOiAzfX0=",
+          "sha256": "9dc737810317c9f4d98c0dc7dda12660dc4da3c6c5e0c98c53e394d2fe51d2e6",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 11,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "artifact_creation_only"
+          }
+        }
+      }
+    },
+    {
+      "operation": "selftest.start",
+      "parameters": {
+        "confirm": true
+      },
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release",
+        "selftest 1"
+      ],
+      "result": {
+        "completion": "inspect_live_screen",
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "generator.sweep",
+      "parameters": {
+        "confirm": true
+      },
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release",
+        "mode output",
+        "output off",
+        "sweep 30000000 31000000 100",
+        "level -30",
+        "levelchange 0",
+        "sweeptime 1",
+        "output on",
+        "sweep go",
+        "resume"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 13,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": true,
+          "caloutput_mhz": "off",
+          "repeat": 3,
+          "generator_sweep": {
+            "start_hz": 30000000,
+            "stop_hz": 31000000,
+            "points": 100,
+            "seconds": 1,
+            "level_dbm": -30,
+            "delta_db": 0,
+            "confirm": true
+          }
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "output",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "output.off",
+      "parameters": {},
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 14,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3,
+          "generator_sweep": {
+            "start_hz": 30000000,
+            "stop_hz": 31000000,
+            "points": 100,
+            "seconds": 1,
+            "level_dbm": -30,
+            "delta_db": 0,
+            "confirm": true
+          }
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": true,
+        "lease_seconds": 30.0,
+        "device_mode": "output",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "audio.inputs",
+      "parameters": {},
+      "commands": [],
+      "result": {
+        "available": true,
+        "devices": [
+          {
+            "index": 0,
+            "name": "owned-memory-input",
+            "input_channels": 1,
+            "default_sample_rate_hz": 8000.0
+          }
+        ],
+        "reason": null,
+        "source": "analog_input",
+        "usb_pcm": false
+      }
+    },
+    {
+      "operation": "audio.capture",
+      "parameters": {
+        "device": 0,
+        "seconds": 0.1,
+        "sample_rate_hz": 8000,
+        "confirm_connection": true
+      },
+      "commands": [],
+      "result": {
+        "artifact": {
+          "kind": "audio",
+          "mime_type": "audio/wav",
+          "filename": "tinysa-listen.wav",
+          "data_base64": "UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "sha256": "7d4f0c97ceeb15e27991364993a1cc974aa4b9aff68f84e3a61cdb8a3be02c3e",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 14,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              }
+            },
+            "device_mode": "output",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_audio_interval",
+            "audio_source": "analog_input",
+            "device": 0,
+            "sample_rate_hz": 8000
+          }
+        }
+      }
+    },
+    {
+      "operation": "lease.release",
+      "parameters": {},
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release"
+      ],
+      "result": {
+        "mode": "lab",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 15,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3,
+          "generator_sweep": {
+            "start_hz": 30000000,
+            "stop_hz": 31000000,
+            "points": 100,
+            "seconds": 1,
+            "level_dbm": -30,
+            "delta_db": 0,
+            "confirm": true
+          }
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": false,
+        "lease_seconds": 0,
+        "device_mode": "output",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "lease.acquire",
+      "parameters": {
+        "acknowledge_rf": true
+      },
+      "commands": [
+        "pause",
+        "output off",
+        "caloutput off",
+        "release"
+      ],
+      "result": {
+        "lease_id": "<private synthetic lease>",
+        "expires_in": 30,
+        "status": {
+          "mode": "lab",
+          "profile": "tinysa-ultra-zs405-control-v1",
+          "revision": 16,
+          "settings_complete": false,
+          "profile_verified": true,
+          "settings": {
+            "start_hz": 100000000,
+            "stop_hz": 101000000,
+            "points": 3,
+            "rbw_hz": 10000,
+            "attenuation_db": "auto",
+            "lna": false,
+            "ultra": false,
+            "calculation": "off",
+            "output_enabled": false,
+            "caloutput_mhz": "off",
+            "repeat": 3,
+            "generator_sweep": {
+              "start_hz": 30000000,
+              "stop_hz": 31000000,
+              "points": 100,
+              "seconds": 1,
+              "level_dbm": -30,
+              "delta_db": 0,
+              "confirm": true
+            }
+          },
+          "settings_source": "command_acknowledged",
+          "settings_readback": false,
+          "lease_active": true,
+          "lease_seconds": 30.0,
+          "device_mode": "output",
+          "device_mode_readback": false,
+          "generator_output_readback": false,
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "monitor.resume",
+      "parameters": {},
+      "commands": [
+        "output off",
+        "caloutput off",
+        "release",
+        "mode input",
+        "lna off",
+        "attenuate auto",
+        "calc off",
+        "trigger auto",
+        "trace dBm",
+        "refresh off"
+      ],
+      "result": {
+        "mode": "monitoring",
+        "profile": "tinysa-ultra-zs405-control-v1",
+        "revision": 17,
+        "settings_complete": false,
+        "profile_verified": true,
+        "settings": {
+          "start_hz": 100000000,
+          "stop_hz": 101000000,
+          "points": 3,
+          "rbw_hz": 10000,
+          "attenuation_db": "auto",
+          "lna": false,
+          "ultra": false,
+          "calculation": "off",
+          "output_enabled": false,
+          "caloutput_mhz": "off",
+          "repeat": 3,
+          "generator_sweep": {
+            "start_hz": 30000000,
+            "stop_hz": 31000000,
+            "points": 100,
+            "seconds": 1,
+            "level_dbm": -30,
+            "delta_db": 0,
+            "confirm": true
+          },
+          "trigger_mode": "auto",
+          "trace_unit": "dBm"
+        },
+        "settings_source": "command_acknowledged",
+        "settings_readback": false,
+        "lease_active": false,
+        "lease_seconds": 0,
+        "device_mode": "input",
+        "device_mode_readback": false,
+        "generator_output_readback": false,
+        "hardware_validation": "not_run"
+      }
+    },
+    {
+      "operation": "measurement",
+      "parameters": {
+        "method": "peak",
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0",
+        "rbw"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "measurement",
+          "mime_type": "application/json",
+          "filename": "tinysa-measurement.json",
+          "data_base64": "eyJuYW1lIjogIlNhbXBsZWQgcGVhayBmcmVxdWVuY3kiLCAidmFsdWUiOiAxMDA2NjY2NjYsICJ1bml0IjogIkh6IiwgInVuY2VydGFpbnR5IjogMzMzMzMzLjAsICJkZXRhaWxzIjogeyJsZXZlbF9kYm0iOiAtNzAuMH0sICJ3YXJuaW5ncyI6IFsiXHUwNDFlXHUwNDQ2XHUwNDM1XHUwNDNkXHUwNDNhXHUwNDMwIFx1MDQ0Zlx1MDQzNFx1MDQ0MFx1MDQzMCBcdTA0M2ZcdTA0M2UgXHUwNDM4XHUwNDQxXHUwNDQ1XHUwNDNlXHUwNDM0XHUwNDNkXHUwNDRiXHUwNDNjIFx1MDQzZVx1MDQ0Mlx1MDQ0MVx1MDQ0N1x1MDQ1MVx1MDQ0Mlx1MDQzMFx1MDQzYzsgXHUwNDNkXHUwNDM1IFx1MDQ0MFx1MDQzNVx1MDQzN1x1MDQ0M1x1MDQzYlx1MDQ0Y1x1MDQ0Mlx1MDQzMFx1MDQ0MiBcdTA0MzJcdTA0NDFcdTA0NDJcdTA0NDBcdTA0M2VcdTA0MzVcdTA0M2RcdTA0M2RcdTA0M2VcdTA0MzNcdTA0M2UgTUVBU1VSRSIsICJSQlcgXHUwNDM4IFx1MDQ0OFx1MDQzYVx1MDQzMFx1MDQzYlx1MDQzMCBcdTA0NDNcdTA0NDBcdTA0M2VcdTA0MzJcdTA0M2RcdTA0NGYgXHUwNDQyXHUwNDQwXHUwNDM1XHUwNDMxXHUwNDQzXHUwNDRlXHUwNDQyIFx1MDQzMFx1MDQzZlx1MDQzZlx1MDQzMFx1MDQ0MFx1MDQzMFx1MDQ0Mlx1MDQzZFx1MDQzZVx1MDQzOSBcdTA0M2ZcdTA0NDBcdTA0M2VcdTA0MzJcdTA0MzVcdTA0NDBcdTA0M2FcdTA0Mzg7IFx1MDQ0Mlx1MDQzZVx1MDQ0N1x1MDQzZFx1MDQzZVx1MDQ0MVx1MDQ0Mlx1MDQ0YyBcdTA0M2ZcdTA0NDBcdTA0MzhcdTA0MzFcdTA0M2VcdTA0NDBcdTA0MzAgXHUwNDNkXHUwNDM1IFx1MDQzZlx1MDQzZVx1MDQzNFx1MDQ0Mlx1MDQzMlx1MDQzNVx1MDQ0MFx1MDQzNlx1MDQzNFx1MDQzNVx1MDQzZFx1MDQzMCJdLCAibWV0aG9kIjogInBlYWsiLCAiaGFyZHdhcmVfdmFsaWRhdGlvbiI6ICJub3RfcnVuIiwgInNvdXJjZSI6IHsiZnJlcXVlbmNpZXNfaHoiOiBbMTAwMDAwMDAwLCAxMDAzMzMzMzMsIDEwMDY2NjY2Nl0sICJsZXZlbHMiOiBbLTkwLjAsIC04MC4wLCAtNzAuMF0sICJsZXZlbF91bml0IjogImRCbSIsICJ3aXJlX2Jhc2U2NCI6ICJlM2lBQ25qQUMzZ0FEWDA9IiwgInplcm9fZGIiOiAxNzQsICJzdGFydGVkX2F0IjogIjIwMjYtMTEtMTFUMTI6MDA6MDBaIiwgImVuZGVkX2F0IjogIjIwMjYtMTEtMTFUMTI6MDA6MDBaIiwgInNhbXBsZV9vZmZzZXRzX3NlY29uZHMiOiBudWxsLCAidGltaW5nX3NvdXJjZSI6ICJpbnRlcnZhbF9vbmx5IiwgImdyaWRfc291cmNlIjogImZpcm13YXJlX2VhNzFkZmRfc2NhbnJhdyIsICJyZXF1ZXN0ZWRfc3RvcF9oeiI6IDEwMTAwMDAwMCwgInN0b3BfaXNfaW5jbHVzaXZlIjogZmFsc2V9fQ==",
+          "sha256": "b0be9d097d836a91bd5ccd1f11e26fddb90856c110f2e19cd028af0284fa561b",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 17,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              },
+              "trigger_mode": "auto",
+              "trace_unit": "dBm"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval",
+            "rbw_applied_hz": 10000.0
+          }
+        },
+        "measurement": {
+          "name": "Sampled peak frequency",
+          "value": 100666666,
+          "unit": "Hz",
+          "uncertainty": 333333.0,
+          "details": {
+            "level_dbm": -70.0
+          },
+          "warnings": [
+            "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+            "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+          ],
+          "method": "peak",
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "measurement",
+      "parameters": {
+        "method": "occupied_bandwidth",
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0",
+        "rbw"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "measurement",
+          "mime_type": "application/json",
+          "filename": "tinysa-measurement.json",
+          "data_base64": "eyJiYW5kd2lkdGhfaHoiOiA4MTMxNDkuMTg2ODQ5OTk2NCwgImxvd2VyX2VkZ2VfaHoiOiAxMDAwMTgzMzMuMzE1LCAidXBwZXJfZWRnZV9oeiI6IDEwMDgzMTQ4Mi41MDE4NSwgImNlbnRlcl9oeiI6IDEwMDQyNDkwNy45MDg0MjUsICJtZXRob2QiOiAib2NjdXBpZWRfYmFuZHdpZHRoIiwgInVuY2VydGFpbnR5X2h6IjogMzMzMzMzLjAsICJ3YXJuaW5ncyI6IFsiXHUwNDFlXHUwNDQyXHUwNDNkXHUwNDNlXHUwNDQ4XHUwNDM1XHUwNDNkXHUwNDM4XHUwNDM1IFx1MDQ0MVx1MDQzOFx1MDQzM1x1MDQzZFx1MDQzMFx1MDQzYi9cdTA0NDhcdTA0NDNcdTA0M2MgMTAuMCBcdTA0MzRcdTA0MTEgXHUwNDNkXHUwNDM4XHUwNDM2XHUwNDM1IFx1MDQ0MFx1MDQzNVx1MDQzYVx1MDQzZVx1MDQzY1x1MDQzNVx1MDQzZFx1MDQzNFx1MDQ0M1x1MDQzNVx1MDQzY1x1MDQ0Ylx1MDQ0NSA0MCBcdTA0MzRcdTA0MTEgXHUyMDE0IFx1MDQ0Mlx1MDQzZVx1MDQ0N1x1MDQzZFx1MDQzZVx1MDQ0MVx1MDQ0Mlx1MDQ0YyBcdTA0MzhcdTA0MzdcdTA0M2NcdTA0MzVcdTA0NDBcdTA0MzVcdTA0M2RcdTA0MzhcdTA0NGYgXHUwNDQxXHUwNDNkXHUwNDM4XHUwNDM2XHUwNDM1XHUwNDNkXHUwNDMwIiwgIlx1MDQxZlx1MDQzZVx1MDQzYlx1MDQzZVx1MDQ0MVx1MDQzMCBcdTA0M2VcdTA0MzFcdTA0MzdcdTA0M2VcdTA0NDBcdTA0MzAgXHUwNDM0XHUwNDNlXHUwNDNiXHUwNDM2XHUwNDNkXHUwNDMwIFx1MDQ0MVx1MDQzZVx1MDQ0MVx1MDQ0Mlx1MDQzMFx1MDQzMlx1MDQzYlx1MDQ0Zlx1MDQ0Mlx1MDQ0YyAxLDVcdTIwMTMyIFx1MDQzZlx1MDQzZVx1MDQzYlx1MDQzZVx1MDQ0MVx1MDQ0YiBcdTA0MzdcdTA0MzBcdTA0M2RcdTA0MzhcdTA0M2NcdTA0MzBcdTA0MzVcdTA0M2NcdTA0NGJcdTA0NDUgXHUwNDQ3XHUwNDMwXHUwNDQxXHUwNDQyXHUwNDNlXHUwNDQyOyBcdTA0MzhcdTA0M2RcdTA0MzBcdTA0NDdcdTA0MzUgXHUwNDQwXHUwNDM1XHUwNDM3XHUwNDQzXHUwNDNiXHUwNDRjXHUwNDQyXHUwNDMwXHUwNDQyIFx1MDQzZFx1MDQzNVx1MDQzNFx1MDQzZVx1MDQ0MVx1MDQ0Mlx1MDQzZVx1MDQzMlx1MDQzNVx1MDQ0MFx1MDQzNVx1MDQzZCIsICJcdTA0MjhcdTA0MzBcdTA0MzMgXHUwNDNmXHUwNDM1XHUwNDQwXHUwNDM1XHUwNDQxXHUwNDQyXHUwNDQwXHUwNDNlXHUwNDM5XHUwNDNhXHUwNDM4IFx1MDQ0N1x1MDQzMFx1MDQ0MVx1MDQ0Mlx1MDQzZVx1MDQ0Mlx1MDQ0YiBcdTA0NDFcdTA0M2JcdTA0MzhcdTA0NDhcdTA0M2FcdTA0M2VcdTA0M2MgXHUwNDMyXHUwNDM1XHUwNDNiXHUwNDM4XHUwNDNhIFx1MDQzZVx1MDQ0Mlx1MDQzZFx1MDQzZVx1MDQ0MVx1MDQzOFx1MDQ0Mlx1MDQzNVx1MDQzYlx1MDQ0Y1x1MDQzZFx1MDQzZSBcdTA0MzhcdTA0MzdcdTA0M2NcdTA0MzVcdTA0NDBcdTA0MzVcdTA0M2RcdTA0M2RcdTA0M2VcdTA0MzkgXHUwNDNmXHUwNDNlXHUwNDNiXHUwNDNlXHUwNDQxXHUwNDRiIiwgIlx1MDQxZVx1MDQ0Nlx1MDQzNVx1MDQzZFx1MDQzYVx1MDQzMCBcdTA0NGZcdTA0MzRcdTA0NDBcdTA0MzAgXHUwNDNmXHUwNDNlIFx1MDQzOFx1MDQ0MVx1MDQ0NVx1MDQzZVx1MDQzNFx1MDQzZFx1MDQ0Ylx1MDQzYyBcdTA0M2VcdTA0NDJcdTA0NDFcdTA0NDdcdTA0NTFcdTA0NDJcdTA0MzBcdTA0M2M7IFx1MDQzZFx1MDQzNSBcdTA0NDBcdTA0MzVcdTA0MzdcdTA0NDNcdTA0M2JcdTA0NGNcdTA0NDJcdTA0MzBcdTA0NDIgXHUwNDMyXHUwNDQxXHUwNDQyXHUwNDQwXHUwNDNlXHUwNDM1XHUwNDNkXHUwNDNkXHUwNDNlXHUwNDMzXHUwNDNlIE1FQVNVUkUiLCAiUkJXIFx1MDQzOCBcdTA0NDhcdTA0M2FcdTA0MzBcdTA0M2JcdTA0MzAgXHUwNDQzXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDNkXHUwNDRmIFx1MDQ0Mlx1MDQ0MFx1MDQzNVx1MDQzMVx1MDQ0M1x1MDQ0ZVx1MDQ0MiBcdTA0MzBcdTA0M2ZcdTA0M2ZcdTA0MzBcdTA0NDBcdTA0MzBcdTA0NDJcdTA0M2RcdTA0M2VcdTA0MzkgXHUwNDNmXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDM1XHUwNDQwXHUwNDNhXHUwNDM4OyBcdTA0NDJcdTA0M2VcdTA0NDdcdTA0M2RcdTA0M2VcdTA0NDFcdTA0NDJcdTA0NGMgXHUwNDNmXHUwNDQwXHUwNDM4XHUwNDMxXHUwNDNlXHUwNDQwXHUwNDMwIFx1MDQzZFx1MDQzNSBcdTA0M2ZcdTA0M2VcdTA0MzRcdTA0NDJcdTA0MzJcdTA0MzVcdTA0NDBcdTA0MzZcdTA0MzRcdTA0MzVcdTA0M2RcdTA0MzAiXSwgImhhcmR3YXJlX3ZhbGlkYXRpb24iOiAibm90X3J1biIsICJzb3VyY2UiOiB7ImZyZXF1ZW5jaWVzX2h6IjogWzEwMDAwMDAwMCwgMTAwMzMzMzMzLCAxMDA2NjY2NjZdLCAibGV2ZWxzIjogWy05MC4wLCAtODAuMCwgLTcwLjBdLCAibGV2ZWxfdW5pdCI6ICJkQm0iLCAid2lyZV9iYXNlNjQiOiAiZTNpQUNuakFDM2dBRFgwPSIsICJ6ZXJvX2RiIjogMTc0LCAic3RhcnRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJlbmRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJzYW1wbGVfb2Zmc2V0c19zZWNvbmRzIjogbnVsbCwgInRpbWluZ19zb3VyY2UiOiAiaW50ZXJ2YWxfb25seSIsICJncmlkX3NvdXJjZSI6ICJmaXJtd2FyZV9lYTcxZGZkX3NjYW5yYXciLCAicmVxdWVzdGVkX3N0b3BfaHoiOiAxMDEwMDAwMDAsICJzdG9wX2lzX2luY2x1c2l2ZSI6IGZhbHNlfX0=",
+          "sha256": "e350a59e4d121ea9e207b91b6f0f6aed9e12abf40bc11593596655ea7664b432",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 17,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              },
+              "trigger_mode": "auto",
+              "trace_unit": "dBm"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval",
+            "rbw_applied_hz": 10000.0
+          }
+        },
+        "measurement": {
+          "bandwidth_hz": 813149.1868499964,
+          "lower_edge_hz": 100018333.315,
+          "upper_edge_hz": 100831482.50185,
+          "center_hz": 100424907.908425,
+          "method": "occupied_bandwidth",
+          "uncertainty_hz": 333333.0,
+          "warnings": [
+            "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 40 дБ — точность измерения снижена",
+            "Полоса обзора должна составлять 1,5–2 полосы занимаемых частот; иначе результат недостоверен",
+            "Шаг перестройки частоты слишком велик относительно измеренной полосы",
+            "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+            "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+          ],
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "measurement",
+      "parameters": {
+        "method": "bandwidth_3db",
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0",
+        "rbw"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "measurement",
+          "mime_type": "application/json",
+          "filename": "tinysa-measurement.json",
+          "data_base64": "eyJiYW5kd2lkdGhfaHoiOiAxODQ3NDUuMjg0MjgxNDYyNDMsICJsb3dlcl9lZGdlX2h6IjogMTAwNDgxOTIwLjcxNTcxODU0LCAidXBwZXJfZWRnZV9oeiI6IDEwMDY2NjY2Ni4wLCAiY2VudGVyX2h6IjogMTAwNTc0MjkzLjM1Nzg1OTI3LCAibWV0aG9kIjogImJhbmR3aWR0aF8zZGIiLCAidW5jZXJ0YWludHlfaHoiOiAzMzMzMzMuMCwgIndhcm5pbmdzIjogWyJcdTA0MjFcdTA0MzhcdTA0MzNcdTA0M2RcdTA0MzBcdTA0M2IgXHUwNDNkXHUwNDM1IFx1MDQzZVx1MDQ0Mlx1MDQzNFx1MDQzNVx1MDQzYlx1MDQ1MVx1MDQzZCBcdTA0M2VcdTA0NDIgXHUwNDNmXHUwNDQwXHUwNDMwXHUwNDMyXHUwNDNlXHUwNDMzXHUwNDNlIFx1MDQzYVx1MDQ0MFx1MDQzMFx1MDQ0ZiBcdTA0M2ZcdTA0M2VcdTA0M2JcdTA0M2VcdTA0NDFcdTA0NGIgXHUwNDNlXHUwNDMxXHUwNDM3XHUwNDNlXHUwNDQwXHUwNDMwIFx1MjAxNCBcdTA0M2ZcdTA0NDBcdTA0MzBcdTA0MzJcdTA0MzBcdTA0NGYgXHUwNDMzXHUwNDQwXHUwNDMwXHUwNDNkXHUwNDM4XHUwNDQ2XHUwNDMwIFx1MDQzZlx1MDQ0MFx1MDQzOFx1MDQzZFx1MDQ0Zlx1MDQ0Mlx1MDQzMCBcdTA0NDBcdTA0MzBcdTA0MzJcdTA0M2RcdTA0M2VcdTA0MzkgXHUwNDQ3XHUwNDMwXHUwNDQxXHUwNDQyXHUwNDNlXHUwNDQyXHUwNDM1IFx1MDQzYVx1MDQzZVx1MDQzZFx1MDQ0Nlx1MDQzMCBcdTA0M2VcdTA0MzFcdTA0MzdcdTA0M2VcdTA0NDBcdTA0MzAiLCAiXHUwNDFlXHUwNDQyXHUwNDNkXHUwNDNlXHUwNDQ4XHUwNDM1XHUwNDNkXHUwNDM4XHUwNDM1IFx1MDQ0MVx1MDQzOFx1MDQzM1x1MDQzZFx1MDQzMFx1MDQzYi9cdTA0NDhcdTA0NDNcdTA0M2MgMTAuMCBcdTA0MzRcdTA0MTEgXHUwNDNkXHUwNDM4XHUwNDM2XHUwNDM1IFx1MDQ0MFx1MDQzNVx1MDQzYVx1MDQzZVx1MDQzY1x1MDQzNVx1MDQzZFx1MDQzNFx1MDQ0M1x1MDQzNVx1MDQzY1x1MDQ0Ylx1MDQ0NSA0MCBcdTA0MzRcdTA0MTEiLCAiXHUwNDI4XHUwNDMwXHUwNDMzIFx1MDQzZlx1MDQzNVx1MDQ0MFx1MDQzNVx1MDQ0MVx1MDQ0Mlx1MDQ0MFx1MDQzZVx1MDQzOVx1MDQzYVx1MDQzOCBcdTA0NDdcdTA0MzBcdTA0NDFcdTA0NDJcdTA0M2VcdTA0NDJcdTA0NGIgXHUwNDQxXHUwNDNiXHUwNDM4XHUwNDQ4XHUwNDNhXHUwNDNlXHUwNDNjIFx1MDQzMlx1MDQzNVx1MDQzYlx1MDQzOFx1MDQzYSBcdTA0M2VcdTA0NDJcdTA0M2RcdTA0M2VcdTA0NDFcdTA0MzhcdTA0NDJcdTA0MzVcdTA0M2JcdTA0NGNcdTA0M2RcdTA0M2UgXHUwNDM4XHUwNDM3XHUwNDNjXHUwNDM1XHUwNDQwXHUwNDM1XHUwNDNkXHUwNDNkXHUwNDNlXHUwNDM5IFx1MDQzZlx1MDQzZVx1MDQzYlx1MDQzZVx1MDQ0MVx1MDQ0YiIsICJcdTA0MWVcdTA0NDZcdTA0MzVcdTA0M2RcdTA0M2FcdTA0MzAgXHUwNDRmXHUwNDM0XHUwNDQwXHUwNDMwIFx1MDQzZlx1MDQzZSBcdTA0MzhcdTA0NDFcdTA0NDVcdTA0M2VcdTA0MzRcdTA0M2RcdTA0NGJcdTA0M2MgXHUwNDNlXHUwNDQyXHUwNDQxXHUwNDQ3XHUwNDUxXHUwNDQyXHUwNDMwXHUwNDNjOyBcdTA0M2RcdTA0MzUgXHUwNDQwXHUwNDM1XHUwNDM3XHUwNDQzXHUwNDNiXHUwNDRjXHUwNDQyXHUwNDMwXHUwNDQyIFx1MDQzMlx1MDQ0MVx1MDQ0Mlx1MDQ0MFx1MDQzZVx1MDQzNVx1MDQzZFx1MDQzZFx1MDQzZVx1MDQzM1x1MDQzZSBNRUFTVVJFIiwgIlJCVyBcdTA0MzggXHUwNDQ4XHUwNDNhXHUwNDMwXHUwNDNiXHUwNDMwIFx1MDQ0M1x1MDQ0MFx1MDQzZVx1MDQzMlx1MDQzZFx1MDQ0ZiBcdTA0NDJcdTA0NDBcdTA0MzVcdTA0MzFcdTA0NDNcdTA0NGVcdTA0NDIgXHUwNDMwXHUwNDNmXHUwNDNmXHUwNDMwXHUwNDQwXHUwNDMwXHUwNDQyXHUwNDNkXHUwNDNlXHUwNDM5IFx1MDQzZlx1MDQ0MFx1MDQzZVx1MDQzMlx1MDQzNVx1MDQ0MFx1MDQzYVx1MDQzODsgXHUwNDQyXHUwNDNlXHUwNDQ3XHUwNDNkXHUwNDNlXHUwNDQxXHUwNDQyXHUwNDRjIFx1MDQzZlx1MDQ0MFx1MDQzOFx1MDQzMVx1MDQzZVx1MDQ0MFx1MDQzMCBcdTA0M2RcdTA0MzUgXHUwNDNmXHUwNDNlXHUwNDM0XHUwNDQyXHUwNDMyXHUwNDM1XHUwNDQwXHUwNDM2XHUwNDM0XHUwNDM1XHUwNDNkXHUwNDMwIl0sICJoYXJkd2FyZV92YWxpZGF0aW9uIjogIm5vdF9ydW4iLCAic291cmNlIjogeyJmcmVxdWVuY2llc19oeiI6IFsxMDAwMDAwMDAsIDEwMDMzMzMzMywgMTAwNjY2NjY2XSwgImxldmVscyI6IFstOTAuMCwgLTgwLjAsIC03MC4wXSwgImxldmVsX3VuaXQiOiAiZEJtIiwgIndpcmVfYmFzZTY0IjogImUzaUFDbmpBQzNnQURYMD0iLCAiemVyb19kYiI6IDE3NCwgInN0YXJ0ZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAiZW5kZWRfYXQiOiAiMjAyNi0xMS0xMVQxMjowMDowMFoiLCAic2FtcGxlX29mZnNldHNfc2Vjb25kcyI6IG51bGwsICJ0aW1pbmdfc291cmNlIjogImludGVydmFsX29ubHkiLCAiZ3JpZF9zb3VyY2UiOiAiZmlybXdhcmVfZWE3MWRmZF9zY2FucmF3IiwgInJlcXVlc3RlZF9zdG9wX2h6IjogMTAxMDAwMDAwLCAic3RvcF9pc19pbmNsdXNpdmUiOiBmYWxzZX19",
+          "sha256": "f4212de07cb4d6c5c0dc5db1b9c9094b4490ed83a60658b41a0016032b2c6c84",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 17,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              },
+              "trigger_mode": "auto",
+              "trace_unit": "dBm"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval",
+            "rbw_applied_hz": 10000.0
+          }
+        },
+        "measurement": {
+          "bandwidth_hz": 184745.28428146243,
+          "lower_edge_hz": 100481920.71571854,
+          "upper_edge_hz": 100666666.0,
+          "center_hz": 100574293.35785927,
+          "method": "bandwidth_3db",
+          "uncertainty_hz": 333333.0,
+          "warnings": [
+            "Сигнал не отделён от правого края полосы обзора — правая граница принята равной частоте конца обзора",
+            "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 40 дБ",
+            "Шаг перестройки частоты слишком велик относительно измеренной полосы",
+            "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+            "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+          ],
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "measurement",
+      "parameters": {
+        "method": "centroid",
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0",
+        "rbw"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "measurement",
+          "mime_type": "application/json",
+          "filename": "tinysa-measurement.json",
+          "data_base64": "eyJuYW1lIjogIlx1MDQyNlx1MDQzNVx1MDQzZFx1MDQ0Mlx1MDQ0MFx1MDQzMFx1MDQzYlx1MDQ0Y1x1MDQzZFx1MDQzMFx1MDQ0ZiBcdTA0NDdcdTA0MzBcdTA0NDFcdTA0NDJcdTA0M2VcdTA0NDJcdTA0MzAgKFx1MDQzY1x1MDQzNVx1MDQ0Mlx1MDQzZVx1MDQzNCBcdTA0NDZcdTA0MzVcdTA0M2RcdTA0NDJcdTA0NDBcdTA0MzAgXHUwNDQyXHUwNDRmXHUwNDM2XHUwNDM1XHUwNDQxXHUwNDQyXHUwNDM4KSIsICJ2YWx1ZSI6IG51bGwsICJ1bml0IjogIlx1MDQxM1x1MDQ0NiIsICJ1bmNlcnRhaW50eSI6IDY2NjY2Ni4wLCAid2FybmluZ3MiOiBbIlx1MDQxMiBcdTA0M2ZcdTA0M2VcdTA0M2JcdTA0M2VcdTA0NDFcdTA0MzUgXHUwNDNlXHUwNDMxXHUwNDM3XHUwNDNlXHUwNDQwXHUwNDMwIDMgXHUwNDQyXHUwNDNlXHUwNDQ3XHUwNDM1XHUwNDNhIFx1MDQzZlx1MDQ0MFx1MDQzOCBcdTA0NDBcdTA0MzVcdTA0M2FcdTA0M2VcdTA0M2NcdTA0MzVcdTA0M2RcdTA0MzRcdTA0NDNcdTA0MzVcdTA0M2NcdTA0NGJcdTA0NDUgMjAwOyBcdTA0NDJcdTA0M2VcdTA0NDdcdTA0M2RcdTA0M2VcdTA0NDFcdTA0NDJcdTA0NGMgXHUwNDNlXHUwNDQ2XHUwNDM1XHUwNDNkXHUwNDNhXHUwNDM4IFx1MDQ0MVx1MDQzZFx1MDQzOFx1MDQzNlx1MDQzNVx1MDQzZFx1MDQzMCIsICJcdTA0MWVcdTA0NDJcdTA0M2RcdTA0M2VcdTA0NDhcdTA0MzVcdTA0M2RcdTA0MzhcdTA0MzUgXHUwNDQxXHUwNDM4XHUwNDMzXHUwNDNkXHUwNDMwXHUwNDNiL1x1MDQ0OFx1MDQ0M1x1MDQzYyAxMC4wIFx1MDQzNFx1MDQxMSBcdTA0M2RcdTA0MzhcdTA0MzZcdTA0MzUgXHUwNDQwXHUwNDM1XHUwNDNhXHUwNDNlXHUwNDNjXHUwNDM1XHUwNDNkXHUwNDM0XHUwNDQzXHUwNDM1XHUwNDNjXHUwNDRiXHUwNDQ1IDMwIFx1MDQzNFx1MDQxMSIsICJcdTA0MjFcdTA0MzhcdTA0MzNcdTA0M2RcdTA0MzBcdTA0M2IgXHUwNDNkXHUwNDM1IFx1MDQzMlx1MDQ0Ylx1MDQzNFx1MDQzNVx1MDQzYlx1MDQzNVx1MDQzZCBcdTA0M2RcdTA0MzBcdTA0MzQgXHUwNDQzXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDNkXHUwNDM1XHUwNDNjIFx1MDQ0OFx1MDQ0M1x1MDQzY1x1MDQzMCBcdTIwMTQgXHUwNDNmXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDM1XHUwNDQwXHUwNDRjXHUwNDQyXHUwNDM1IFx1MDQzOFx1MDQ0MVx1MDQ0NVx1MDQzZVx1MDQzNFx1MDQzZFx1MDQ0Ylx1MDQzNSBcdTA0MzRcdTA0MzBcdTA0M2RcdTA0M2RcdTA0NGJcdTA0MzUiLCAiXHUwNDFlXHUwNDQ2XHUwNDM1XHUwNDNkXHUwNDNhXHUwNDMwIFx1MDQ0Zlx1MDQzNFx1MDQ0MFx1MDQzMCBcdTA0M2ZcdTA0M2UgXHUwNDM4XHUwNDQxXHUwNDQ1XHUwNDNlXHUwNDM0XHUwNDNkXHUwNDRiXHUwNDNjIFx1MDQzZVx1MDQ0Mlx1MDQ0MVx1MDQ0N1x1MDQ1MVx1MDQ0Mlx1MDQzMFx1MDQzYzsgXHUwNDNkXHUwNDM1IFx1MDQ0MFx1MDQzNVx1MDQzN1x1MDQ0M1x1MDQzYlx1MDQ0Y1x1MDQ0Mlx1MDQzMFx1MDQ0MiBcdTA0MzJcdTA0NDFcdTA0NDJcdTA0NDBcdTA0M2VcdTA0MzVcdTA0M2RcdTA0M2RcdTA0M2VcdTA0MzNcdTA0M2UgTUVBU1VSRSIsICJSQlcgXHUwNDM4IFx1MDQ0OFx1MDQzYVx1MDQzMFx1MDQzYlx1MDQzMCBcdTA0NDNcdTA0NDBcdTA0M2VcdTA0MzJcdTA0M2RcdTA0NGYgXHUwNDQyXHUwNDQwXHUwNDM1XHUwNDMxXHUwNDQzXHUwNDRlXHUwNDQyIFx1MDQzMFx1MDQzZlx1MDQzZlx1MDQzMFx1MDQ0MFx1MDQzMFx1MDQ0Mlx1MDQzZFx1MDQzZVx1MDQzOSBcdTA0M2ZcdTA0NDBcdTA0M2VcdTA0MzJcdTA0MzVcdTA0NDBcdTA0M2FcdTA0Mzg7IFx1MDQ0Mlx1MDQzZVx1MDQ0N1x1MDQzZFx1MDQzZVx1MDQ0MVx1MDQ0Mlx1MDQ0YyBcdTA0M2ZcdTA0NDBcdTA0MzhcdTA0MzFcdTA0M2VcdTA0NDBcdTA0MzAgXHUwNDNkXHUwNDM1IFx1MDQzZlx1MDQzZVx1MDQzNFx1MDQ0Mlx1MDQzMlx1MDQzNVx1MDQ0MFx1MDQzNlx1MDQzNFx1MDQzNVx1MDQzZFx1MDQzMCJdLCAiZGV0YWlscyI6IHsibm9pc2VfbGV2ZWxfZGIiOiAtODAuMCwgInRocmVzaG9sZF9kYiI6IC03NC4wLCAibGVmdF9lZGdlX2h6IjogMTAwMDAwMDAwLjAsICJyaWdodF9lZGdlX2h6IjogMTAwNjY2NjY2LjB9LCAibWV0aG9kIjogImNlbnRyb2lkIiwgImhhcmR3YXJlX3ZhbGlkYXRpb24iOiAibm90X3J1biIsICJzb3VyY2UiOiB7ImZyZXF1ZW5jaWVzX2h6IjogWzEwMDAwMDAwMCwgMTAwMzMzMzMzLCAxMDA2NjY2NjZdLCAibGV2ZWxzIjogWy05MC4wLCAtODAuMCwgLTcwLjBdLCAibGV2ZWxfdW5pdCI6ICJkQm0iLCAid2lyZV9iYXNlNjQiOiAiZTNpQUNuakFDM2dBRFgwPSIsICJ6ZXJvX2RiIjogMTc0LCAic3RhcnRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJlbmRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJzYW1wbGVfb2Zmc2V0c19zZWNvbmRzIjogbnVsbCwgInRpbWluZ19zb3VyY2UiOiAiaW50ZXJ2YWxfb25seSIsICJncmlkX3NvdXJjZSI6ICJmaXJtd2FyZV9lYTcxZGZkX3NjYW5yYXciLCAicmVxdWVzdGVkX3N0b3BfaHoiOiAxMDEwMDAwMDAsICJzdG9wX2lzX2luY2x1c2l2ZSI6IGZhbHNlfX0=",
+          "sha256": "29a83c38287e0c6721f99ea7bacfc93e88f980237db77dc187843222397b0b17",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 17,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              },
+              "trigger_mode": "auto",
+              "trace_unit": "dBm"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval",
+            "rbw_applied_hz": 10000.0
+          }
+        },
+        "measurement": {
+          "name": "Центральная частота (метод центра тяжести)",
+          "value": null,
+          "unit": "Гц",
+          "uncertainty": 666666.0,
+          "warnings": [
+            "В полосе обзора 3 точек при рекомендуемых 200; точность оценки снижена",
+            "Отношение сигнал/шум 10.0 дБ ниже рекомендуемых 30 дБ",
+            "Сигнал не выделен над уровнем шума — проверьте исходные данные",
+            "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+            "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+          ],
+          "details": {
+            "noise_level_db": -80.0,
+            "threshold_db": -74.0,
+            "left_edge_hz": 100000000.0,
+            "right_edge_hz": 100666666.0
+          },
+          "method": "centroid",
+          "hardware_validation": "not_run"
+        }
+      }
+    },
+    {
+      "operation": "measurement",
+      "parameters": {
+        "method": "channel_power",
+        "points": 3
+      },
+      "commands": [
+        "zero",
+        "scanraw 100000000 101000000 3 0",
+        "rbw"
+      ],
+      "result": {
+        "artifact": {
+          "kind": "measurement",
+          "mime_type": "application/json",
+          "filename": "tinysa-measurement.json",
+          "data_base64": "eyJuYW1lIjogIkNoYW5uZWwgcG93ZXIgZXN0aW1hdGUiLCAidmFsdWUiOiAtNTYuOTUzNjYzMTQzNjE4OTI1LCAidW5pdCI6ICJkQm0iLCAidW5jZXJ0YWludHkiOiBudWxsLCAiZGV0YWlscyI6IHsicmJ3X2h6IjogMTAwMDAuMCwgImludGVncmF0aW9uIjogInRyYXBlem9pZF9vdmVyX2FjdHVhbF9ncmlkIiwgImVuYndfY29ycmVjdGlvbiI6ICJub3RfY2FsaWJyYXRlZCJ9LCAid2FybmluZ3MiOiBbIlx1MDQxZVx1MDQ0Nlx1MDQzNVx1MDQzZFx1MDQzYVx1MDQzMCBcdTA0NGZcdTA0MzRcdTA0NDBcdTA0MzAgXHUwNDNmXHUwNDNlIFx1MDQzOFx1MDQ0MVx1MDQ0NVx1MDQzZVx1MDQzNFx1MDQzZFx1MDQ0Ylx1MDQzYyBcdTA0M2VcdTA0NDJcdTA0NDFcdTA0NDdcdTA0NTFcdTA0NDJcdTA0MzBcdTA0M2M7IFx1MDQzZFx1MDQzNSBcdTA0NDBcdTA0MzVcdTA0MzdcdTA0NDNcdTA0M2JcdTA0NGNcdTA0NDJcdTA0MzBcdTA0NDIgXHUwNDMyXHUwNDQxXHUwNDQyXHUwNDQwXHUwNDNlXHUwNDM1XHUwNDNkXHUwNDNkXHUwNDNlXHUwNDMzXHUwNDNlIE1FQVNVUkUiLCAiUkJXIFx1MDQzOCBcdTA0NDhcdTA0M2FcdTA0MzBcdTA0M2JcdTA0MzAgXHUwNDQzXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDNkXHUwNDRmIFx1MDQ0Mlx1MDQ0MFx1MDQzNVx1MDQzMVx1MDQ0M1x1MDQ0ZVx1MDQ0MiBcdTA0MzBcdTA0M2ZcdTA0M2ZcdTA0MzBcdTA0NDBcdTA0MzBcdTA0NDJcdTA0M2RcdTA0M2VcdTA0MzkgXHUwNDNmXHUwNDQwXHUwNDNlXHUwNDMyXHUwNDM1XHUwNDQwXHUwNDNhXHUwNDM4OyBcdTA0NDJcdTA0M2VcdTA0NDdcdTA0M2RcdTA0M2VcdTA0NDFcdTA0NDJcdTA0NGMgXHUwNDNmXHUwNDQwXHUwNDM4XHUwNDMxXHUwNDNlXHUwNDQwXHUwNDMwIFx1MDQzZFx1MDQzNSBcdTA0M2ZcdTA0M2VcdTA0MzRcdTA0NDJcdTA0MzJcdTA0MzVcdTA0NDBcdTA0MzZcdTA0MzRcdTA0MzVcdTA0M2RcdTA0MzAiXSwgIm1ldGhvZCI6ICJjaGFubmVsX3Bvd2VyIiwgImhhcmR3YXJlX3ZhbGlkYXRpb24iOiAibm90X3J1biIsICJzb3VyY2UiOiB7ImZyZXF1ZW5jaWVzX2h6IjogWzEwMDAwMDAwMCwgMTAwMzMzMzMzLCAxMDA2NjY2NjZdLCAibGV2ZWxzIjogWy05MC4wLCAtODAuMCwgLTcwLjBdLCAibGV2ZWxfdW5pdCI6ICJkQm0iLCAid2lyZV9iYXNlNjQiOiAiZTNpQUNuakFDM2dBRFgwPSIsICJ6ZXJvX2RiIjogMTc0LCAic3RhcnRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJlbmRlZF9hdCI6ICIyMDI2LTExLTExVDEyOjAwOjAwWiIsICJzYW1wbGVfb2Zmc2V0c19zZWNvbmRzIjogbnVsbCwgInRpbWluZ19zb3VyY2UiOiAiaW50ZXJ2YWxfb25seSIsICJncmlkX3NvdXJjZSI6ICJmaXJtd2FyZV9lYTcxZGZkX3NjYW5yYXciLCAicmVxdWVzdGVkX3N0b3BfaHoiOiAxMDEwMDAwMDAsICJzdG9wX2lzX2luY2x1c2l2ZSI6IGZhbHNlfX0=",
+          "sha256": "c00eb7af8f7c31ab55fc06e4090bafaad6cba053a57856814044c7cb58133ee5",
+          "metadata": {
+            "profile": "tinysa-ultra-zs405-control-v1",
+            "revision": 17,
+            "settings": {
+              "start_hz": 100000000,
+              "stop_hz": 101000000,
+              "points": 3,
+              "rbw_hz": 10000,
+              "attenuation_db": "auto",
+              "lna": false,
+              "ultra": false,
+              "calculation": "off",
+              "output_enabled": false,
+              "caloutput_mhz": "off",
+              "repeat": 3,
+              "generator_sweep": {
+                "start_hz": 30000000,
+                "stop_hz": 31000000,
+                "points": 100,
+                "seconds": 1,
+                "level_dbm": -30,
+                "delta_db": 0,
+                "confirm": true
+              },
+              "trigger_mode": "auto",
+              "trace_unit": "dBm"
+            },
+            "device_mode": "input",
+            "device_mode_readback": false,
+            "settings_source": "command_acknowledged",
+            "settings_readback": false,
+            "settings_complete": false,
+            "hardware_validation": "not_run",
+            "occurred_at": "2026-11-11T12:00:00Z",
+            "started_at": "2026-11-11T12:00:00Z",
+            "ended_at": "2026-11-11T12:00:00Z",
+            "timing_source": "host_usb_interval",
+            "rbw_applied_hz": 10000.0
+          }
+        },
+        "measurement": {
+          "name": "Channel power estimate",
+          "value": -56.953663143618925,
+          "unit": "dBm",
+          "uncertainty": null,
+          "details": {
+            "rbw_hz": 10000.0,
+            "integration": "trapezoid_over_actual_grid",
+            "enbw_correction": "not_calibrated"
+          },
+          "warnings": [
+            "Оценка ядра по исходным отсчётам; не результат встроенного MEASURE",
+            "RBW и шкала уровня требуют аппаратной проверки; точность прибора не подтверждена"
+          ],
+          "method": "channel_power",
+          "hardware_validation": "not_run"
+        }
+      }
+    }
+  ],
+  "wav_base64": "UklGRmQGAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YUAGAAAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl9gYWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1+f4CBgoOEhYaHiImKi4yNjo+QkZKTlJWWl5iZmpucnZ6foKGio6SlpqeoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr/AwcLDxMXGx8jJysvMzc7P0NHS09TV1tfY2drb3N3e3+Dh4uPk5ebn6Onq6+zt7u/w8fLz9PX29/j5+vv8/f7/AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

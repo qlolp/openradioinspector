@@ -1,0 +1,138 @@
+{
+  "source": "Original Python tinysa.api.dispatch + SessionService, memory only; no hardware",
+  "source_sha256": {
+    "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+    "radioinspector/session_service.py": "c66b40a8f3a9b81b2afcade113da00e10123864c98dacdd7ba28aeeda3875f8f"
+  },
+  "cases": [
+    {
+      "key": "limit",
+      "value": "abc",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "invalid literal for int() with base 10: 'abc'"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "1__0",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "invalid literal for int() with base 10: '1__0'"
+      }
+    },
+    {
+      "key": "limit",
+      "value": " +1_0 ",
+      "status": 200
+    },
+    {
+      "key": "limit",
+      "value": "١٠",
+      "status": 200
+    },
+    {
+      "key": "limit",
+      "value": "１０",
+      "status": 200
+    },
+    {
+      "key": "limit",
+      "value": "\t+1\n",
+      "status": 200
+    },
+    {
+      "key": "limit",
+      "value": "\u001c1\u001f",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "invalid literal for int() with base 10: '\\x1c1\\x1f'"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "​1",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "invalid literal for int() with base 10: '\\u200b1'"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "0",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact limit must be 1..100"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "-1",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact limit must be 1..100"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "101",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact limit must be 1..100"
+      }
+    },
+    {
+      "key": "limit",
+      "value": "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact limit must be 1..100"
+      }
+    },
+    {
+      "key": "offset",
+      "value": "-0",
+      "status": 200
+    },
+    {
+      "key": "offset",
+      "value": "-1",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact offset must be 0..10000000"
+      }
+    },
+    {
+      "key": "offset",
+      "value": "10_000_000",
+      "status": 200
+    },
+    {
+      "key": "offset",
+      "value": "10_000_001",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "Artifact offset must be 0..10000000"
+      }
+    },
+    {
+      "key": "offset",
+      "value": "xyz",
+      "status": 400,
+      "error": {
+        "code": "instrument_invalid",
+        "message": "invalid literal for int() with base 10: 'xyz'"
+      }
+    }
+  ]
+}

@@ -37,7 +37,7 @@ class OperationalTests(unittest.TestCase):
                 self.send_response(503 if len(captures)<2 else 204);self.end_headers()
             def log_message(self,*args):pass
         server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Hook)
-        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        thread=threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01},daemon=True);thread.start()
         self.addCleanup(thread.join,3);self.addCleanup(server.server_close);self.addCleanup(server.shutdown)
         self.service.update_settings(self.project['id'],dict(webhook=dict(enabled=True,url=f'http://127.0.0.1:{server.server_port}/hook',secret='fixture-secret')))
         project=self.service.project(self.project['id']);event=dict(id='event',kind='impulse',center_frequency_hz=100000000)

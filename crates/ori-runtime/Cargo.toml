@@ -1,0 +1,34 @@
+[package]
+name = "ori-runtime"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+description = "Owned backend supervision and offline LAN security for OpenRadioInspector"
+
+[dependencies]
+ori-contracts = { path = "../ori-contracts" }
+base64 = "=0.23.1"
+fs2 = "=0.4.3"
+rand = "=0.8.8"
+rcgen = { version = "=0.14.10", features = ["pem", "ring"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
+rustls-pemfile = "=2.2.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+sha2 = "=0.10.9"
+subtle = "=2.6.1"
+thiserror = "=2.0.21"
+tokio = { version = "=1.54.1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+url = "=2.5.8"
+time = "=0.3.55"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[[bin]]
+name = "ori-supervisor"
+path = "src/main.rs"
