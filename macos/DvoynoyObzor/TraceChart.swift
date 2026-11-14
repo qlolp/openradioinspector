@@ -15,11 +15,12 @@ struct TraceChart: View {
     var displayScale: PlatformSpectrumScale? = nil
     var plotHeight: CGFloat = 220
     var showsGrid = false
+    var usesMetal = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Group {
-                if NativeMetalResources.shared != nil {
+                if usesMetal, NativeMetalResources.shared != nil {
                     NativeTracePlot(current: current, minimum: minimum, maximum: maximum, threshold: threshold, displayScale: displayScale)
                 } else {
                     Canvas { context, size in draw(context: context, size: size) }

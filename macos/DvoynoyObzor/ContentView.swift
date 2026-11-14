@@ -105,7 +105,7 @@ struct ContentView: View {
                             maxHeight: operationsExpanded ? nil : 32)
                 }
             }
-            .background(Color.primary.opacity(0.025))
+            .background(Color(nsColor: .windowBackgroundColor))
             .navigationTitle(mode.title)
         }
         .frame(minWidth: 960, minHeight: 740)

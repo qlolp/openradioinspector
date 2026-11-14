@@ -130,7 +130,7 @@ struct RemoteUltraPane: View {
                     }
                     TraceChart(
                         current: model.displayCurrent, minimum: model.displayMinimum, maximum: model.displayMaximum,
-                        threshold: model.thresholdDbm, yTitle: "дБм · исходные", displayScale: model.displaySpectrumScale, plotHeight: max(90, (geometry.size.height - 160) * 0.58), showsGrid: true
+                        threshold: model.thresholdDbm, yTitle: "дБм · исходные", displayScale: model.displaySpectrumScale, plotHeight: max(90, (geometry.size.height - 160) * 0.58), showsGrid: true, usesMetal: false
                     )
                     HStack {
                         Text(model.displayCurrent.first.map { String(format: "%.5f", $0.x) } ?? "—")
@@ -150,7 +150,7 @@ struct RemoteUltraPane: View {
                         Text("Новые свипы сверху").font(.caption).foregroundStyle(.secondary)
                     }
                     WaterfallView(history: model.displayWaterfall, revision: model.displayWaterfallRevision,
-                        unitTitle: "дБм", displayScale: model.displaySpectrumScale, plotHeight: max(60, (geometry.size.height - 160) * 0.42))
+                        unitTitle: "дБм", displayScale: model.displaySpectrumScale, plotHeight: max(60, (geometry.size.height - 160) * 0.42), usesMetal: false)
                     Text("Строки — порядок свипов, не шкала времени; столбцы — отсчёты частоты.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
