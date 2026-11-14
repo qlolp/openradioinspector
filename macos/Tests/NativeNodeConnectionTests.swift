@@ -326,6 +326,28 @@ final class NativeNodeConnectionTests: XCTestCase {
 
 extension NativeNodeConnectionTests {
     @MainActor
+    func testOwnerPreflightReturnsAClientWhoseTransportSurvivesTheTemporaryClient() async throws {
+        let local = "http://127.55.42.3:18772"
+        let connection = NativeNodeConnectionModel(store: MemoryStore(), makeClient: { server, credential in
+            let transport = self.session({ stub in
+                let path = stub.request.url!.path
+                XCTAssertTrue(path.hasPrefix("/api/v1/instances/owner-A/"))
+                if path.hasSuffix("/health") { try stub.reply(["runtime_instance_id": "owner-A"]) }
+                else if path.hasSuffix("/security/status") { try stub.reply(["mode": "legacy_loopback", "pairing_required": false]) }
+                else if path.hasSuffix("/sessions") { try stub.reply([]) }
+                else { XCTFail("Unexpected scoped preflight request: \(path)"); try stub.reply([:], status: 404) }
+            }, server: server)
+            return try PlatformClient(baseURL: server, session: transport, credential: credential)
+        })
+        let accepted = await connection.preflight(server: local, runtimeInstanceID: "owner-A")
+        let node = try XCTUnwrap(accepted)
+        XCTAssertTrue(connection.accepts(node))
+        XCTAssertEqual(node.client.baseURL.runtimeInstanceID, "owner-A")
+        let sessions = try await node.client.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    @MainActor
     func testPersonalRCOwnerChangeInvalidatesClientAndRejectsGenericOrLateAttachment() throws {
         let local = "http://127.55.42.1:18772"
         let transport = session({ stub in

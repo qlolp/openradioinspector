@@ -781,12 +781,27 @@ private func platformValidateNDJSON(
     }
 }
 
+/// One resource owner shared by all scoped views of the same transport.
+/// Releasing a client must not invalidate a session another client still uses.
+private final class PlatformClientTransport: Sendable {
+    let session: URLSession
+    let usesInjectedSession: Bool
+
+    init(session: URLSession, usesInjectedSession: Bool) {
+        self.session = session
+        self.usesInjectedSession = usesInjectedSession
+    }
+
+    deinit { session.invalidateAndCancel() }
+}
+
 /// Immutable configuration; URLSession provides synchronized concurrent requests.
 public final class PlatformClient: Sendable {
     public let baseURL: PlatformBaseURL
-    private let session: URLSession
+    private let transport: PlatformClientTransport
+    private var session: URLSession { transport.session }
     private let credential: PlatformBearerCredential?
-    private let usesInjectedSession: Bool
+    private var usesInjectedSession: Bool { transport.usesInjectedSession }
     var eventSessionConfiguration: URLSessionConfiguration { Self.cookieFreeConfiguration(session.configuration) }
     public var hasBearerCredential: Bool { credential != nil }
     private let maximumResponseBytes = 2_000_000
@@ -798,21 +813,19 @@ public final class PlatformClient: Sendable {
         }
         self.credential = credential
         if let session {
-            self.session = session
-            self.usesInjectedSession = true
+            transport = PlatformClientTransport(session: session, usesInjectedSession: true)
         } else {
-            self.session = URLSession(
+            transport = PlatformClientTransport(session: URLSession(
                 configuration: Self.cookieFreeConfiguration(.ephemeral),
                 delegate: PlatformRedirectGuard(),
                 delegateQueue: nil
-            )
-            self.usesInjectedSession = false
+            ), usesInjectedSession: false)
         }
     }
 
     private init(cloning client: PlatformClient, runtimeInstanceID owner: String) throws {
         baseURL = try PlatformBaseURL(client.baseURL.root.absoluteString, runtimeInstanceID: owner)
-        session = client.session; credential = client.credential; usesInjectedSession = client.usesInjectedSession
+        transport = client.transport; credential = client.credential
     }
     public func scoped(toRuntimeInstance owner: String) throws -> PlatformClient {
         try PlatformClient(cloning: self, runtimeInstanceID: owner)
@@ -844,10 +857,6 @@ public final class PlatformClient: Sendable {
         request.setValue(nil, forHTTPHeaderField: "Cookie")
         request.setValue(nil, forHTTPHeaderField: "Authorization")
         credential?.authorize(&request)
-    }
-
-    deinit {
-        session.invalidateAndCancel()
     }
 
     public func listSessions() async throws -> [PlatformSession] {

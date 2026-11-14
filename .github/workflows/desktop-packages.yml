@@ -146,7 +146,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget|SecurityClientTests)'
+          swift test --package-path macos/SpektrKomandy -j 2 --filter '(testIPv6LoopbackKeepsHTTPExceptionNarrow|testResponseDelegateCompletesCancellationAcrossExecutorsOnce|testResponseDelegateRetainsCancellationUntilCallbackInstallation|testSupportedSweepHistoryFitsResponseBudget|testRuntimeScopePinsEveryEndpoint|testScopedClientRemainsUsable|testReleasingScopedClient|SecurityClientTests)'
       - name: Native credentials, pairing and archive context regressions
         shell: bash
         run: |

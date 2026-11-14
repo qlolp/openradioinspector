@@ -784,6 +784,34 @@ if stdin_errors:
 }
 
 extension PlatformAPITests {
+    func testScopedClientRemainsUsableAfterOriginalClientIsReleased() async throws {
+        var original: PlatformClient? = try client("http://127.0.0.1:8772") { request in
+            XCTAssertTrue(request.url!.path.hasPrefix("/api/v1/instances/owner-A/"))
+            let data = request.url!.path.hasSuffix("/health") ? self.envelope("{\"runtime_instance_id\":\"owner-A\"}") : self.envelope("[]")
+            return (self.response(request.url!), data)
+        }
+        weak var releasedOriginal = original
+        let bound = try original!.scoped(toRuntimeInstance: "owner-A")
+        original = nil
+        XCTAssertNil(releasedOriginal)
+        try await bound.verifyRuntimeOwner()
+        let sessions = try await bound.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
+    func testReleasingScopedClientDoesNotInvalidateOriginalClient() async throws {
+        let original = try client("http://127.0.0.1:8772") { request in
+            XCTAssertEqual(request.url!.path, "/api/v1/sessions")
+            return (self.response(request.url!), self.envelope("[]"))
+        }
+        var bound: PlatformClient? = try original.scoped(toRuntimeInstance: "owner-A")
+        weak var releasedBound = bound
+        bound = nil
+        XCTAssertNil(releasedBound)
+        let sessions = try await original.listSessions()
+        XCTAssertTrue(sessions.isEmpty)
+    }
+
     func testRuntimeScopePinsEveryEndpointAndRejectsAReplacementHealthIdentity() async throws {
         let api = try client("http://127.0.0.1:8772") { request in
             let url = request.url!
