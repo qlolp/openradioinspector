@@ -6,6 +6,9 @@ struct ContentView: View {
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
     @State private var showRCPreparation = false
+    @State private var setupExpanded = true
+    @State private var archiveExpanded = false
+    @State private var operationsExpanded = false
     @State private var developmentCore = NativeDevelopmentCore()
     @State private var developmentConnectionTask: Task<Void, Never>?
     @State private var windowClosed = false
@@ -33,47 +36,75 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 175, ideal: 205, max: 260)
         } detail: {
             VStack(spacing: 0) {
-                if NativeLocalService.isPersonalRC {
-                    NativeLocalServicePane(service: localService, connect: {
-                        connectLocalService()
-                    }, disconnect: { nodeConnection.cancel(); model.disconnect() })
-                }
-                if NativeLocalService.isPersonalRC {
-                    HStack {
-                        Button("Подготовить приборы…") { showRCPreparation = true }
-                            .disabled(!model.connected)
-                        DisclosureGroup("Сеансы и дополнительные действия") {
-                            NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
+                NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
+                DisclosureGroup("Ядро и настройка сеанса", isExpanded: $setupExpanded) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if NativeLocalService.isPersonalRC {
+                                NativeLocalServicePane(service: localService, connect: {
+                                    connectLocalService()
+                                }, disconnect: { nodeConnection.cancel(); model.disconnect() })
+                            }
+                            if NativeLocalService.isPersonalRC {
+                                HStack {
+                                    Button("Подготовить приборы…") { showRCPreparation = true }
+                                        .disabled(!model.connected)
+                                    DisclosureGroup("Сеансы и дополнительные действия") {
+                                        NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
+                                    }
+                                }.padding(.horizontal, 12)
+                            } else {
+                                NativeDevelopmentCorePane(core: developmentCore, model: model, connection: nodeConnection,
+                                    connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
+                                NativeConnectionPane(model: model, connection: nodeConnection)
+                            }
                         }
-                    }.padding(.horizontal, 12)
-                } else {
-                    NativeDevelopmentCorePane(core: developmentCore, model: model, connection: nodeConnection,
-                        connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
-                    NativeConnectionPane(model: model, connection: nodeConnection)
-                }
+                    }.frame(maxHeight: 240)
+                }.padding(.horizontal, 16).padding(.bottom, 8)
                 NativeContinuityBar(model: model, workspace: workspace)
-                RemoteArchiveCapacityPane(model: model).padding(.horizontal, 16)
+                DisclosureGroup("Хранилище и диагностика записи", isExpanded: $archiveExpanded) {
+                    RemoteArchiveCapacityPane(model: model)
+                }.font(.caption).padding(.horizontal, 16).padding(.vertical, 6)
                 VSplitView {
                     HSplitView {
                         RemoteUltraPane(model: model, research: mode == .research).frame(minWidth: 460)
                         if model.receiver != nil {
                             RemoteArPane(model: model).frame(minWidth: 300, idealWidth: 340, maxWidth: 480)
                         }
-                    }.frame(minHeight: 240)
+                    }.frame(minHeight: 280, idealHeight: 560)
                     VStack(spacing: 8) {
-                        // One model and one view identity survive local workspace changes.
-                        MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, sessionID: model.selectedSessionID,
-                            workspace: workspace, mode: mode, onProjectSession: { id in
-                                model.selectSession(id)
-                                Task { await model.reloadSessions() }
-                            }, onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
-                        if mode == .research {
-                            DisclosureGroup("Задания и автоматический анализ") { RemoteWorkflowPane(model: model).frame(minHeight: 280, maxHeight: 400) }
-                                .padding(.horizontal)
+                        HStack {
+                            Button {
+                                operationsExpanded.toggle()
+                            } label: {
+                                Label("События и охрана", systemImage: operationsExpanded ? "chevron.down" : "chevron.right")
+                            }.buttonStyle(.plain).font(.headline)
+                            Text("\(workspace.events.count) в списке").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Text("Проект · события · решения оператора").font(.caption).foregroundStyle(.secondary)
+                        }.padding(.horizontal, 16).padding(.top, 6)
+                        ScrollView {
+                            VStack(spacing: 8) {
+                                // Keep one workspace identity while its drawer is collapsed.
+                                MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, sessionID: model.selectedSessionID,
+                                    workspace: workspace, mode: mode, onProjectSession: { id in
+                                        model.selectSession(id)
+                                        Task { await model.reloadSessions() }
+                                    }, onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
+                                if mode == .research {
+                                    DisclosureGroup("Задания и автоматический анализ") {
+                                        RemoteWorkflowPane(model: model).frame(minHeight: 280, maxHeight: 400)
+                                    }.padding(.horizontal)
+                                }
+                            }
                         }
-                    }.frame(minHeight: 130, idealHeight: 220)
+                        .frame(height: operationsExpanded ? 220 : 0)
+                        .clipped().disabled(!operationsExpanded).allowsHitTesting(operationsExpanded).accessibilityHidden(!operationsExpanded)
+                    }.frame(minHeight: operationsExpanded ? 200 : 32, idealHeight: operationsExpanded ? 260 : 32,
+                            maxHeight: operationsExpanded ? nil : 32)
                 }
             }
+            .background(Color.primary.opacity(0.025))
             .navigationTitle(mode.title)
         }
         .frame(minWidth: 960, minHeight: 620)
@@ -98,6 +129,12 @@ struct ContentView: View {
                 }
             }
         })
+        .onChange(of: workspaceMode) { _, value in
+            if value == NativeWorkspace.research.rawValue { operationsExpanded = true }
+        }
+        .onChange(of: model.coreReachable) { _, reachable in
+            if reachable { setupExpanded = false }
+        }
         .onChange(of: model.serverURL) { _, _ in cancelSupersededDevelopmentStartup() }
         .onChange(of: model.connected) { _, _ in cancelSupersededDevelopmentStartup() }
         .onChange(of: nodeConnection.phase) { _, _ in cancelSupersededDevelopmentStartup() }

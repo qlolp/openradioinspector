@@ -51,6 +51,7 @@ struct WaterfallView: View {
     var revision: Int
     var unitTitle: String
     var displayScale: PlatformSpectrumScale? = nil
+    var plotHeight: CGFloat = 150
 
     @State private var image: CGImage?
     @State private var scale = WaterfallScale(low: 0, high: 1)
@@ -63,18 +64,18 @@ struct WaterfallView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let frame, NativeMetalResources.shared != nil {
                 NativeMetalPlot(mesh: nil, waterfall: frame)
-                    .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight, maxHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
                 legend
             } else if let image {
                 Image(decorative: image, scale: 1).resizable().interpolation(.none)
-                    .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight, maxHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
                 legend
             } else {
                 Text("Водопад появится после первого законченного свипа")
                     .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }

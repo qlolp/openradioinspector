@@ -31,7 +31,7 @@ struct NativeMeasurementStatus: View {
                     }
                 }
                 if model.spectrumPresentation.paused {
-                    Text("График на паузе. Приём и запись продолжаются.")
+                    Text("Показ зафиксирован. Пауза графика не управляет приёмом.")
                         .foregroundStyle(.orange)
                 }
             }.font(.caption)
