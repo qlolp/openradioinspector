@@ -53,9 +53,9 @@ struct NativeServiceReply: Decodable, Sendable {
 }
 
 enum NativeServiceSocket {
-    static func request(_ command: String, timeout: Duration = .seconds(2)) async throws -> Data {
+    static func request(_ command: String, timeout: Duration = .seconds(2), socketURL: URL = NativeLocalServicePaths.socket()) async throws -> Data {
         let task = Task.detached(priority: .userInitiated) {
-            try exchange(socket: NativeLocalServicePaths.socket(), command: command, timeout: timeout)
+            try exchange(socket: socketURL, command: command, timeout: timeout)
         }
         return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
     }
@@ -68,7 +68,7 @@ enum NativeServiceSocket {
         var metadata = stat()
         guard lstat(url.path, &metadata) == 0, metadata.st_uid == geteuid(),
               metadata.st_mode & S_IFMT == S_IFSOCK, metadata.st_mode & 0o077 == 0 else {
-            throw NativeServiceError.unavailable("Приватный сокет службы недоступен. Проверьте разрешение фоновой службы в настройках macOS.")
+            throw NativeServiceError.unavailable("Нет связи с фоновой службой. Проверьте её разрешение в настройках macOS.")
         }
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw NativeServiceError.unavailable("Не удалось открыть соединение со службой.") }
@@ -115,7 +115,7 @@ enum NativeServiceSocket {
         var reply = Data(), buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             try wait(Int16(POLLIN))
-            let received = Darwin.recv(fd, &buffer, buffer.count, 0)
+            let received = buffer.withUnsafeMutableBytes { Darwin.recv(fd, $0.baseAddress, $0.count, 0) }
             if received == 0 { return reply }
             if received > 0 {
                 guard reply.count + received <= 1_048_576 else { throw POSIXError(.EMSGSIZE) }

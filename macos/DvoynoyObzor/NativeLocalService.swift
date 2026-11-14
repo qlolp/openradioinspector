@@ -6,7 +6,7 @@ import ServiceManagement
 final class NativeLocalService: ObservableObject {
     enum Phase: Equatable { case inactive, checking, approval, stopped, ready, failed }
     enum Registration: Equatable { case enabled, approval, absent }
-    static let plistName = "local.dvoynoyobzor.core.plist"
+    static let plistName = "org.openradioinspector.macos.rc.core.plist"
     static let endpoint = "http://127.0.0.1:8772"
     static var isPersonalRC: Bool { Bundle.main.object(forInfoDictionaryKey: "ORIPersonalRC") as? Bool == true }
 
@@ -70,7 +70,17 @@ final class NativeLocalService: ObservableObject {
             let reply = try NativeServiceReply.decode(await exchange("status", .seconds(2)))
             guard current(token) else { return }
             accept(reply)
-        } catch { fail(error, token: token) }
+        } catch {
+            guard current(token) else { return }
+            let registration = SMAppService.agent(plistName: Self.plistName).status
+            if registration == .notRegistered {
+                phase = .stopped; status = nil
+                message = "Служба ещё не зарегистрирована. Нажмите «Запустить службу»; подключение приборов выполняется отдельно."
+            } else if registration == .requiresApproval {
+                phase = .approval; status = nil
+                message = "Разрешите фоновую службу в настройках macOS."
+            } else { fail(error, token: token) }
+        }
     }
     func start() async {
         guard !busy else { return }
@@ -103,7 +113,7 @@ final class NativeLocalService: ObservableObject {
         let token = begin()
         defer { if token == generation { busy = false } }
         do {
-            let data = try await exchange("shutdown", .seconds(125))
+            let data = try await exchange("stop", .seconds(125))
             guard current(token) else { return }
             struct Ack: Decodable { let ok: Bool }
             guard try JSONDecoder().decode(Ack.self, from: data).ok else {
@@ -115,6 +125,19 @@ final class NativeLocalService: ObservableObject {
             guard current(token) else { return }
             phase = .stopped; status = nil
             message = "Служба остановлена, ресурсы освобождены. Измерения сохранены."
+        } catch { fail(error, token: token) }
+    }
+
+    /// Explicit recovery when normal private control is unavailable. Removing
+    /// registration alone is never reported as proof that resources are free.
+    func removeRegistrationForRecovery() async {
+        let token = begin()
+        defer { if token == generation { busy = false } }
+        do {
+            try await unregister()
+            guard current(token) else { return }
+            phase = .stopped; status = nil
+            message = "Регистрация снята для восстановления. Освобождение ресурсов не подтверждено; обновление пока запрещено. Следующий запуск проверит владельца архива и порт."
         } catch { fail(error, token: token) }
     }
 }

@@ -25,6 +25,12 @@ struct NativeLocalServicePane: View {
             if service.phase == .approval {
                 Button("Открыть настройки фоновых служб") { SMAppService.openSystemSettingsLoginItems() }
             }
+            if service.phase == .failed {
+                Button("Снять регистрацию для восстановления · охрана остановится", role: .destructive) {
+                    disconnect()
+                    Task { await service.removeRegistrationForRecovery() }
+                }.disabled(service.busy)
+            }
             Text("Аудиозахват и тяжёлая Python/DuckDB-аналитика в RC1 недоступны. Физическая приёмка ещё не выполнена.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(12).background(.quaternary)

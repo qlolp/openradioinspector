@@ -201,6 +201,7 @@ fn backend(data: &Path, mode: &str) -> BackendSpec {
         ports: vec![address],
         startup_timeout_ms: 2000,
         shutdown_timeout_ms: 2000,
+        supervisor_lifeline: false,
     }
 }
 fn launch(data: &Path) -> ChildGuard {
@@ -302,6 +303,38 @@ fn sigterm_uses_graceful_control_instead_of_forwarding_termination_to_backend() 
             .unwrap();
     assert_eq!(intent["preserve_resume_requested"], true);
     assert_eq!(intent["reason"], "shutdown");
+}
+
+#[test]
+fn supervisor_death_closes_its_backend_lifeline_and_releases_writer_and_port() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut selected = serde_json::to_value(backend(temp.path(), "candidate")).unwrap();
+    selected["supervisor_lifeline"] = serde_json::json!(true);
+    selected["environment"]["ORI_TEST_BACKEND_STDIN_LIFELINE"] = serde_json::json!("1");
+    std::fs::write(
+        temp.path().join("supervisor.json"),
+        serde_json::to_vec(&serde_json::json!({"data_directory":temp.path(),"backend":selected}))
+            .unwrap(),
+    )
+    .unwrap();
+    let mut process = launch(temp.path());
+    assert_eq!(
+        command(temp.path(), serde_json::json!({"command":"status"}))["status"]["ready"],
+        true
+    );
+    assert!(WriterLease::acquire(temp.path()).is_err());
+    // Kill only this retained original supervisor Child, never a PID found in
+    // readiness data. Its EOF must stop the independently owned backend.
+    process.0.kill().unwrap();
+    assert_eq!(process.0.wait().unwrap().signal(), Some(libc::SIGKILL));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !backend_released(temp.path()) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        backend_released(temp.path()),
+        "backend survived its supervisor's owned lifeline"
+    );
 }
 #[test]
 fn successful_explicit_selection_survives_service_restart() {

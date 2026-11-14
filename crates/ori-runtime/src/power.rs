@@ -130,7 +130,10 @@ fn system_sample() -> io::Result<ClockSample> {
         fn mach_continuous_time() -> u64;
     }
     let mut timebase = Timebase { numer: 0, denom: 0 };
-    if unsafe { mach_timebase_info(&mut timebase) } != 0 || timebase.denom == 0 {
+    if unsafe { mach_timebase_info(&mut timebase) } != 0
+        || timebase.numer == 0
+        || timebase.denom == 0
+    {
         return Err(io::Error::other("sleep clock is unavailable"));
     }
     let nanos = |ticks: u64| -> io::Result<u64> {
@@ -167,8 +170,26 @@ impl IdleSleepAssertion {
             }
         }
         #[cfg(not(target_os = "macos"))]
-        let _ = armed;
+        if armed {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "idle sleep protection requires macOS IOPM",
+            ));
+        }
         Ok(())
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod unavailable_tests {
+    #[test]
+    fn other_platforms_do_not_claim_an_active_macos_sleep_assertion() {
+        let mut assertion = super::IdleSleepAssertion::default();
+        assert_eq!(
+            assertion.set_armed(true).unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported
+        );
+        assertion.set_armed(false).unwrap();
     }
 }
 impl Drop for IdleSleepAssertion {

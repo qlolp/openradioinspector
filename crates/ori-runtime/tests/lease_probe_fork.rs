@@ -75,6 +75,7 @@ async fn dropped_writer_probe_cannot_block_start_through_an_unrelated_fork() {
             ports: vec![addr],
             startup_timeout_ms: 2000,
             shutdown_timeout_ms: 2000,
+            supervisor_lifeline: false,
         })
         .await;
     let shutdown = supervisor.shutdown().await;

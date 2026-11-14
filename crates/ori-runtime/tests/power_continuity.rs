@@ -22,8 +22,10 @@ fn rc_configuration_uses_only_bundled_rust_and_an_explicit_isolated_archive() {
     assert!(
         !args
             .iter()
-            .any(|arg| arg.contains("audio") || arg.contains("python") || arg.contains("lifeline"))
+            .any(|arg| arg.contains("audio") || arg.contains("python"))
     );
+    assert!(config.backend.supervisor_lifeline);
+    assert!(args.iter().any(|arg| arg == "--stdin-lifeline"));
     assert!(ori_runtime::macos_agent::configuration(bundle, data, 0).is_err());
     assert!(
         ori_runtime::macos_agent::configuration(std::path::Path::new("relative"), data, 1).is_err()

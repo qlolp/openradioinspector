@@ -16,6 +16,10 @@ pub struct BackendSpec {
     pub ports: Vec<SocketAddr>,
     pub startup_timeout_ms: u64,
     pub shutdown_timeout_ms: u64,
+    /// The supervisor, never the UI, retains the backend's input pipe. Its death
+    /// closes the pipe even when normal Drop/HTTP shutdown cannot run.
+    #[serde(default)]
+    pub supervisor_lifeline: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeStatus {
@@ -180,7 +184,11 @@ impl Supervisor {
             .env("ORI_RUNTIME_CONTROL_TOKEN", &token)
             .env("ORI_RUNTIME_INSTANCE_ID", &instance_id)
             .env("ORI_RUNTIME_DATA_DIR", &self.data)
-            .stdin(Stdio::null())
+            .stdin(if spec.supervisor_lifeline {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         let child = OwnedChild::spawn(&mut command)?;

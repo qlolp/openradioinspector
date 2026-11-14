@@ -239,9 +239,9 @@ async fn dropped_configuration_waiter_cannot_drop_owned_admission_or_its_close_j
 #[tokio::test]
 async fn manual_return_reacquire_and_renew_never_refresh_an_old_policy_grant() {
     let directory = tempfile::tempdir().unwrap();
-    let core = Core::open(crate::CoreConfig::replay(directory.path()))
-        .await
-        .unwrap();
+    let mut configuration = crate::CoreConfig::replay(directory.path());
+    configuration.max_archive_bytes = Some(64 * 1024 * 1024);
+    let core = Core::open(configuration).await.unwrap();
     let archive = core.archive.as_ref().unwrap();
     let mut source = session();
     source["id"] = json!("guard-source");
@@ -278,6 +278,16 @@ async fn manual_return_reacquire_and_renew_never_refresh_an_old_policy_grant() {
         )
         .await
         .unwrap();
+    // This short authority test deliberately produces 100 Hz synthetic data.
+    // Give it an explicit short recording policy, independent of host free
+    // space and unrelated one-hour monitoring defaults. Production is unchanged.
+    guard
+        .update_settings(
+            project_id,
+            json!({"archive":{"minimum_free_bytes":1_048_576,"minimum_retention_seconds":60}}),
+        )
+        .await
+        .unwrap();
     let armed = guard.arm(project_id, json!({})).await.unwrap();
     let id = armed["active_session_id"].as_str().unwrap();
     let stream = armed["receiver_stream_id"].as_str().unwrap();
@@ -286,9 +296,32 @@ async fn manual_return_reacquire_and_renew_never_refresh_an_old_policy_grant() {
         .await
         .unwrap();
     let token = lease["token"].as_str().unwrap();
+    let mut commits = archive.subscribe_commits();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while archive
+            .list_sweeps(id, Some(armed["analyzer_stream_id"].as_str().unwrap()), 2)
+            .await
+            .unwrap()
+            .len()
+            < 2
+        {
+            assert!(!matches!(
+                commits.recv().await,
+                Err(tokio::sync::broadcast::error::RecvError::Closed)
+            ));
+        }
+    })
+    .await
+    .unwrap();
+    let budget = guard.storage_report(project_id, true).await.unwrap();
+    if budget["ready"] != true {
+        let evidence = json!({"bytes_per_second":budget["bytes_per_second"],"available_bytes":budget["available_bytes"],"required_retention_seconds":budget["required_retention_seconds"],"estimated_retention_seconds":budget["estimated_retention_seconds"]});
+        core.close().await.unwrap();
+        panic!("manual-grant fixture exhausted its unrelated storage budget: {evidence}");
+    }
     let binding = core.automation.get().unwrap();
     let policy = json!({"enabled":true,"receiver_stream_id":stream});
-    let configured = binding
+    let configured_result = binding
         .configure(
             PolicyKind::Completion,
             id.into(),
@@ -296,8 +329,26 @@ async fn manual_return_reacquire_and_renew_never_refresh_an_old_policy_grant() {
             original(&core).await,
             Some(token.into()),
         )
-        .await
-        .unwrap();
+        .await;
+    let configured = match configured_result {
+        Ok(value) => value,
+        Err(error) => {
+            let project = guard.project(project_id).await.unwrap();
+            let permission_error = guard
+                .capture_instrument_control(
+                    &ori_guard::ControlTarget {
+                        session_id: id.into(),
+                        stream_id: stream.into(),
+                    },
+                    Some(token),
+                )
+                .err()
+                .map(|error| error.to_string());
+            let evidence = json!({"error_code":error.api_code,"project_state":project["state"],"project_error":project["last_error"],"coverage":project["coverage"],"permission_error":permission_error});
+            core.close().await.unwrap();
+            panic!("initial manual policy configuration failed after owned cleanup: {evidence}");
+        }
+    };
     let old = binding
         .registry
         .lock()

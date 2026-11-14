@@ -26,6 +26,7 @@ pub fn configuration(bundle: &Path, data: &Path, maximum: u64) -> Result<Service
                 "--port".into(),
                 "8772".into(),
                 "--allow-serial".into(),
+                "--stdin-lifeline".into(),
                 "--archive-max-bytes".into(),
                 maximum.to_string(),
             ],
@@ -34,6 +35,7 @@ pub fn configuration(bundle: &Path, data: &Path, maximum: u64) -> Result<Service
             ports: vec![address],
             startup_timeout_ms: 30_000,
             shutdown_timeout_ms: 120_000,
+            supervisor_lifeline: true,
         },
     })
 }
