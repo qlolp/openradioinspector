@@ -11,6 +11,9 @@ struct NativeWaterfall3D: View {
     @State private var dragStart: CGPoint?
 
     var body: some View {
+        // Capture UI state on MainActor; the drawing helpers use immutable values.
+        let viewAzimuth = azimuth
+        let viewElevation = elevation
         VStack(spacing: 3) {
             HStack {
                 Text("3D · частота × UTC × дБм").font(.caption.bold())
@@ -22,10 +25,10 @@ struct NativeWaterfall3D: View {
                 let timeline = NativeSpectrumTimeline(sweeps)
                 guard let bounds, !timeline.rows.isEmpty else { return }
                 func project(_ x: Double, _ time: Double, _ level: Double) -> CGPoint {
-                    let horizontal = (x - 0.5) * cos(azimuth) + (time - 0.5) * sin(azimuth) * 0.55
-                    let depth = -(x - 0.5) * sin(azimuth) + (time - 0.5) * cos(azimuth) * 0.55
+                    let horizontal = (x - 0.5) * cos(viewAzimuth) + (time - 0.5) * sin(viewAzimuth) * 0.55
+                    let depth = -(x - 0.5) * sin(viewAzimuth) + (time - 0.5) * cos(viewAzimuth) * 0.55
                     return CGPoint(x: size.width * (0.5 + horizontal * 0.72),
-                                   y: size.height * (0.70 - depth * sin(elevation) * 0.65 - level * cos(elevation) * 0.48))
+                                   y: size.height * (0.70 - depth * sin(viewElevation) * 0.65 - level * cos(viewElevation) * 0.48))
                 }
                 func line(_ points: [CGPoint], color: Color, width: Double = 1) {
                     var path = Path()
