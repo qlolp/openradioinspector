@@ -244,7 +244,9 @@ async fn pressure_joins_pending_io_and_keeps_cancelled_debt_charged() {
     };
     tokio::time::timeout(Duration::from_secs(2), async {
         while qos.status().logical_bytes == 0 {
-            tokio::task::yield_now().await;
+            // status() observes the same private ledger lock used by the
+            // blocking reservation. Do not starve that writer with a hot reader.
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
     .await
