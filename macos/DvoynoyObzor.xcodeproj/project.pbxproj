@@ -128,6 +128,7 @@
 				<string>9E5734938479EEA975ABD862</string>
 				<string>A460C49E4B62078F22DC9CFB</string>
 				<string>98235B57063C3B404D840699</string>
+				<string>F00A0D100000000000000001</string>
 			</array>
 			<key>path</key>
 			<string>DvoynoyObzor</string>
@@ -223,6 +224,7 @@
 				<string>A46CFC0C94D45033A0AE097E</string>
 				<string>510EC8D85DF7CD55EF645D34</string>
 				<string>D6E467E73D8BC4660304F0D3</string>
+				<string>F00A0D100000000000000002</string>
 			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
@@ -1373,6 +1375,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>6300D08C718EC22A8BED75B2</string>
+		</dict>
+		<key>F00A0D100000000000000001</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>sourcecode.swift</string>
+			<key>path</key>
+			<string>NativeAudioPermission.swift</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>F00A0D100000000000000002</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>F00A0D100000000000000001</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>

@@ -63,13 +63,18 @@ def notices(destination, metadata, sysroot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir', type=Path, default=ROOT / 'build/macos/personal-rc')
+    parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--profile', choices=package.PROFILES, default='rc1',
+                        help='RC1 stays serial-only; rc2-audio is a separate unaccepted audio candidate')
     args = parser.parse_args()
+    selected = package.release_profile(args.profile)
+    features = 'ori-core/serial' + (',ori-core/audio' if selected['audio'] else '')
     if platform.system() != 'Darwin': raise SystemExit('Personal RC packaging requires macOS and Xcode; no artifact was built.')
     if run('git', 'status', '--porcelain', '--untracked-files=no', capture=True).strip():
         raise SystemExit('Commit tracked source changes before packaging.')
     source = run('git', 'rev-parse', 'HEAD', capture=True).strip()
-    output = args.output_dir.resolve()
+    output = (args.output_dir or ROOT / 'build/macos' /
+              ('personal-rc' if args.profile == 'rc1' else 'personal-audio-rc')).resolve()
     output.mkdir(parents=True, exist_ok=False)
     packages_dir = output / 'packages'; packages_dir.mkdir()
     stage = output / 'dmg-root'; stage.mkdir()
@@ -81,9 +86,9 @@ def main():
     swift = run('xcrun', 'swift', '--version', capture=True).strip()
     xcode = run('xcodebuild', '-version', capture=True).strip()
     metadata = json.loads(run('cargo', 'metadata', '--locked', '--format-version', '1', '--filter-platform',
-                             'aarch64-apple-darwin', '--features', 'ori-core/serial', env=env, capture=True))
+                             'aarch64-apple-darwin', '--features', features, env=env, capture=True))
     run('cargo', 'build', '--locked', '--release', '--target', 'aarch64-apple-darwin',
-        '-p', 'ori-core', '-p', 'ori-runtime', '--no-default-features', '--features', 'ori-core/serial', env=env)
+        '-p', 'ori-core', '-p', 'ori-runtime', '--no-default-features', '--features', features, env=env)
     derived = output / 'DerivedData'
     run('xcodebuild', '-project', 'macos/DvoynoyObzor.xcodeproj', '-scheme', 'DvoynoyObzor',
         '-configuration', 'Release', '-jobs', '2', '-derivedDataPath', derived, 'ARCHS=arm64',
@@ -112,13 +117,14 @@ def main():
     shutil.copyfile(ROOT / 'packaging/macos' / (package.AGENT_LABEL + '.plist'), agents / (package.AGENT_LABEL + '.plist'))
     notices(app / 'Contents/Resources/Notices', metadata, Path(run('rustc', '--print', 'sysroot', env=env, capture=True).strip()))
     package.prepare(app, source, components['ori-core'], components['ori-supervisor'],
-                    dict(rust=rust, swift=swift, xcode=xcode))
+                    dict(rust=rust, swift=swift, xcode=xcode), profile=args.profile)
     run('codesign', '--force', '--sign', '-', '--timestamp=none', app)
     run('codesign', '--verify', '--strict', '--deep', '--verbose=2', app)
     manifest = stage / 'manifest.json'; package.evidence(app, manifest)
-    shutil.copyfile(ROOT / 'packaging/macos/PERSONAL-RC.txt', stage / 'READ-ME.txt')
+    readme = 'PERSONAL-RC.txt' if args.profile == 'rc1' else 'AUDIO-CANDIDATE.txt'
+    shutil.copyfile(ROOT / 'packaging/macos' / readme, stage / 'READ-ME.txt')
     (stage / 'Applications').symlink_to('/Applications', target_is_directory=True)
-    stem = 'OpenRadioInspector-' + package.RELEASE_VERSION + '-macos-arm64-adhoc'
+    stem = 'OpenRadioInspector-' + selected['version'] + '-macos-arm64-adhoc'
     run('hdiutil', 'create', '-volname', 'OpenRadioInspector RC', '-srcfolder', stage,
         '-format', 'UDZO', packages_dir / (stem + '.dmg'))
     run('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', app, packages_dir / (stem + '.app.zip'))
@@ -126,7 +132,7 @@ def main():
     shutil.copyfile(stage / 'READ-ME.txt', packages_dir / 'READ-ME.txt')
     checksums = [package.digest(p) + '  ' + p.name for p in sorted(packages_dir.iterdir()) if p.is_file()]
     (packages_dir / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
-    print(json.dumps(dict(source=source, version=package.RELEASE_VERSION, artifacts=str(packages_dir),
+    print(json.dumps(dict(source=source, version=selected['version'], profile=args.profile, artifacts=str(packages_dir),
                           hardware_validation='not_run', performance_acceptance='not_run')))
 
 

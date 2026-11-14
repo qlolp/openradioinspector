@@ -45,6 +45,10 @@ The UI labels native audio capture and Python/DuckDB analysis unavailable in
 RC1. Existing source spectra, observation IDs, integer Hz, UTC, raw S-meter
 readings and receive-only guard rules remain unchanged.
 
+An explicitly selected [post-RC1 audio candidate](macos-audio-candidate.md)
+adds a separate package profile. The default RC1 above stays audio-free;
+neither profile constitutes hardware acceptance.
+
 Local Linux checks exercise owned backend processes, private socket framing,
 idle registration, explicit/idempotent start, independent reconnect, refused
 cutover and acknowledged resource release. Swift/SMAppService/IOPM integration
