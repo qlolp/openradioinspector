@@ -323,3 +323,47 @@ final class NativeNodeConnectionTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty)
     }
 }
+
+extension NativeNodeConnectionTests {
+    @MainActor
+    func testPersonalRCOwnerChangeInvalidatesClientAndRejectsGenericOrLateAttachment() throws {
+        let local = "http://127.55.42.1:18772"
+        let transport = session({ stub in
+            if stub.request.url!.path.hasSuffix("/sessions") { try stub.reply([]) }
+            else { try stub.reply([:], status: 404) }
+        }, server: local)
+        let remote = RemoteDualModel(requireRuntimeOwner: true)
+        remote.serverURL = local
+        remote.connect(startPolling: false)
+        XCTAssertFalse(remote.connected)
+        XCTAssertTrue(remote.observeVerifiedRuntimeOwner("owner-A"))
+        let first = try PlatformClient(baseURL: local, session: transport, runtimeInstanceID: "owner-A")
+        remote.connect(startPolling: false, using: first)
+        XCTAssertTrue(remote.connected)
+        let originalGeneration = remote.connectionGeneration
+        XCTAssertTrue(remote.observeVerifiedRuntimeOwner("owner-B"))
+        XCTAssertFalse(remote.connected); XCTAssertNil(remote.client)
+        remote.connect(startPolling: false, using: first)
+        XCTAssertFalse(remote.connected, "An old-owner completion cannot attach")
+        let second = try PlatformClient(baseURL: local, session: transport, runtimeInstanceID: "owner-B")
+        remote.connect(startPolling: false, using: second)
+        XCTAssertTrue(remote.connected)
+        XCTAssertFalse(remote.disconnectIfCurrent(connection: originalGeneration, server: local))
+        XCTAssertEqual(remote.client?.baseURL.runtimeInstanceID, "owner-B")
+        remote.disconnect()
+    }
+    @MainActor
+    func testExpectedPrivateOwnerCannotFallBackToLegacyOrAcceptReplacementHealth() async throws {
+        let local = "http://127.55.42.2:18772"
+        let connection = NativeNodeConnectionModel(store: MemoryStore(), makeClient: { server, credential in
+            let transport = self.session({ stub in
+                XCTAssertTrue(stub.request.url!.path.hasPrefix("/api/v1/instances/owner-A/"))
+                try stub.reply(["runtime_instance_id": "owner-B"])
+            }, server: server)
+            return try PlatformClient(baseURL: server, session: transport, credential: credential)
+        })
+        let accepted = await connection.preflight(server: local, runtimeInstanceID: "owner-A")
+        XCTAssertNil(accepted); XCTAssertEqual(connection.phase, .failed)
+        XCTAssertNil(connection.confirmLegacy(server: local))
+    }
+}

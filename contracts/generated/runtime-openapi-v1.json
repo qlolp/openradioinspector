@@ -24843,5 +24843,13 @@
   "x-ori-contract-variant": "rust-candidate",
   "x-ori-contract-version": 1,
   "x-ori-extension-version": 1,
+  "x-ori-runtime-owner-scope": {
+    "description": "Optional aliases for public v1 resources, SSE and WebSocket. The instance must match the privately verified supervisor owner. All canonical validation, authentication and body budgets are inherited. No private runtime/service administration is exposed. Original paths remain unchanged; a scoped client never falls back to an unscoped path.",
+    "feature": "runtime_owner_scoped_requests",
+    "health_identity_field": "runtime_instance_id",
+    "original_paths_preserved": true,
+    "owner_mismatch_status": 409,
+    "prefix": "/api/v1/instances/{runtime_instance_id}"
+  },
   "x-ori-support-policy": "Only listed backends plus satisfied feature/capability requirements indicate support. Compatibility targets are not implementation claims. Request feature conditions must also be checked."
 }

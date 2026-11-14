@@ -13,6 +13,7 @@ struct NativeConnectionPane: View {
     @ObservedObject var connection: NativeNodeConnectionModel
     var localServiceRequired = false
     var localServiceReady = true
+    var onLocalConnect: (() -> Void)?
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -28,8 +29,11 @@ struct NativeConnectionPane: View {
                     Button("Обновить") { Task { await model.reloadSessions() } }
                 } else {
                     Button("Подключить") {
-                        let endpoint = model.serverURL
-                        Task { accept(await connection.preflight(server: endpoint)) }
+                        if localServiceRequired { onLocalConnect?() }
+                        else {
+                            let endpoint = model.serverURL
+                            Task { accept(await connection.preflight(server: endpoint)) }
+                        }
                     }.disabled(connection.isBusy || !localServiceReady)
                 }
                 Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession).exactID) {
@@ -37,7 +41,7 @@ struct NativeConnectionPane: View {
                     ForEach(model.sessions, id: \.exactID) { Text("\($0.name) · \($0.state)").tag($0.exactID) }
                 }.disabled(!model.connected || model.busy)
             }
-            securityControls
+            if !localServiceRequired { securityControls }
             ErrorLine(text: model.errorText)
             if model.usesBundledLegacyHelper {
                 Label("Локальное вспомогательное ядро: завершается вместе с приложением. Для автономной охраны подключите отдельную службу ядра.", systemImage: "desktopcomputer")
@@ -60,7 +64,7 @@ struct NativeConnectionPane: View {
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.horizontal, 16).padding(.vertical, 10)
-            .onChange(of: PlatformExactID(model.serverURL)) { _, _ in connection.cancel() }
+            .onChange(of: PlatformExactID(model.serverURL)) { _, _ in if !localServiceRequired { connection.cancel() } }
             .onChange(of: model.authorizationRequired) { _, expired in
                 if expired { connection.authenticationExpired(server: model.serverURL) }
             }

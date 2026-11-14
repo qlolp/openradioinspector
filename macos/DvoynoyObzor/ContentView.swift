@@ -12,7 +12,7 @@ struct ContentView: View {
     init() {
         let workspace = MonitoringWorkspaceModel()
         _workspace = StateObject(wrappedValue: workspace)
-        let remote = RemoteDualModel(onArchiveContextReset: { [weak workspace] watermark in
+        let remote = RemoteDualModel(requireRuntimeOwner: NativeLocalService.isPersonalRC, onArchiveContextReset: { [weak workspace] watermark in
             workspace?.resetArchiveContext(watermark: watermark)
         })
         if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
@@ -40,7 +40,7 @@ struct ContentView: View {
                         Button("Подготовить приборы…") { showRCPreparation = true }
                             .disabled(!model.connected)
                         DisclosureGroup("Сеансы и дополнительные действия") {
-                            NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil)
+                            NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true, localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
                         }
                     }.padding(.horizontal, 12)
                 } else {
@@ -79,8 +79,9 @@ struct ContentView: View {
         .background(WindowCloseObserver { nodeConnection.cancel(); model.disconnect() })
         .onChange(of: localService.status?.instanceID) { _, owner in
             guard NativeLocalService.isPersonalRC else { return }
-            if owner == nil { nodeConnection.cancel(); model.disconnect() }
-            else if !model.connected { connectLocalService() }
+            nodeConnection.cancel()
+            model.observeVerifiedRuntimeOwner(owner)
+            if owner != nil { connectLocalService() }
         }
     }
 
@@ -88,7 +89,7 @@ struct ContentView: View {
         guard let owner = localService.status?.instanceID else { return }
         model.serverURL = NativeLocalService.endpoint
         Task {
-            if let node = await nodeConnection.preflight(server: model.serverURL),
+            if let node = await nodeConnection.preflight(server: model.serverURL, runtimeInstanceID: owner),
                localService.status?.instanceID == owner, nodeConnection.accepts(node) {
                 model.connect(using: node.client)
             }

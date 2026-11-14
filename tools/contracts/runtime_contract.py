@@ -130,6 +130,13 @@ def compose_runtime_document(baseline, extension, variant='rust-candidate'):
         'internal_runtime': 'Separate authenticated loopback IPC is outside this public API contract.'}
     validate_document(document)
     if variant == 'python-legacy': return deepcopy(baseline)
+    document['x-ori-runtime-owner-scope'] = {
+        'prefix': '/api/v1/instances/{runtime_instance_id}',
+        'feature': 'runtime_owner_scoped_requests',
+        'original_paths_preserved': True,
+        'owner_mismatch_status': 409,
+        'health_identity_field': 'runtime_instance_id',
+        'description': 'Optional aliases for public v1 resources, SSE and WebSocket. The instance must match the privately verified supervisor owner. All canonical validation, authentication and body budgets are inherited. No private runtime/service administration is exposed. Original paths remain unchanged; a scoped client never falls back to an unscoped path.'}
     document['x-ori-contract-variant'] = variant
     document['x-ori-baseline-schema-sha256'] = hashlib.sha256((json.dumps(baseline, ensure_ascii=False, sort_keys=True, indent=2)+'\n').encode()).hexdigest()
     document['x-ori-extension-version'] = 1

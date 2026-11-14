@@ -26,6 +26,13 @@ pub(crate) struct Preparation {
     pub sid: String,
 }
 #[derive(Clone)]
+pub(crate) struct StartupStorageBasis {
+    pub baseline_id: String,
+    pub bytes_per_second: f64,
+    pub expires: Duration,
+}
+
+#[derive(Clone)]
 pub(crate) struct ProjectRuntime {
     pub token: String,
     pub sid: String,
@@ -45,6 +52,7 @@ pub(crate) struct ProjectRuntime {
     pub critical_alert: Option<Value>,
     pub cached_project: Value,
     pub storage_checked: Option<Duration>,
+    pub startup_storage_basis: Option<StartupStorageBasis>,
 }
 pub(crate) struct RuntimeState {
     pub projects: HashMap<String, ProjectRuntime>,
@@ -553,7 +561,12 @@ impl GuardService {
         if self.runtime_snapshot(id)?.is_some() {
             return Ok(original);
         }
-        if original["baseline_id"].is_null() || self.preflight(id, false).await?["ready"] != true {
+        let preflight = if original["baseline_id"].is_null() {
+            Value::Null
+        } else {
+            self.preflight(id, false).await?
+        };
+        if original["baseline_id"].is_null() || preflight["ready"] != true {
             return Err(invalid(
                 "Требуются подтверждённый эталон и успешная подготовка",
             ));
@@ -581,6 +594,28 @@ impl GuardService {
         let sid = s(&session, "id")?.to_owned();
         let analyzer = s(&p, "analyzer_stream_id")?.to_owned();
         let receiver = s(&p, "receiver_stream_id")?.to_owned();
+        // The accepted preflight measured the compatible preparation session.
+        // Keep that conservative basis while its fresh clone obtains two sweeps;
+        // never manufacture a rate for a genuinely unmeasured project.
+        let startup_storage_basis = if p["archive"]["reserve_backup"] == true {
+            preflight["storage"]["bytes_per_second"]
+                .as_f64()
+                .filter(|rate| rate.is_finite() && *rate > 0.)
+                .map(|rate| {
+                    let cycle = preflight["performance"]["mean_observed_cycle_seconds"]
+                        .as_f64()
+                        .filter(|cycle| cycle.is_finite() && *cycle > 0.)
+                        .unwrap_or(0.);
+                    StartupStorageBasis {
+                        baseline_id: p["baseline_id"].as_str().unwrap_or("").to_owned(),
+                        bytes_per_second: rate,
+                        expires: self.clock.monotonic()
+                            + Duration::from_secs_f64((2. * cycle + 10.).clamp(30., 7230.)),
+                    }
+                })
+        } else {
+            None
+        };
         let runtime = ProjectRuntime {
             token,
             sid: sid.clone(),
@@ -600,6 +635,7 @@ impl GuardService {
             critical_alert: None,
             cached_project: p.clone(),
             storage_checked: None,
+            startup_storage_basis,
         };
         {
             let _tx = self.coordinator.lock().await;

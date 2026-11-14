@@ -37,14 +37,41 @@ pub(crate) fn json_response(status: StatusCode, value: &impl Serialize) -> Respo
 pub(crate) fn envelope(status: StatusCode, data: Value) -> Response {
     json_response(status, &Envelope::new(data))
 }
+fn scoped_parts(path: &str) -> ApiResult<(Vec<String>, Option<String>)> {
+    let mut parts = path_parts(path)?;
+    if parts.len() >= 3 && parts[..3] == ["api", "v1", "instances"] {
+        let owner = parts
+            .get(3)
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 128
+                    && value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+            })
+            .ok_or_else(|| ApiError::invalid("Invalid runtime instance scope"))?
+            .clone();
+        if parts.len() < 5 {
+            return Err(ApiError::invalid("Missing scoped API resource"));
+        }
+        parts.drain(2..4);
+        Ok((parts, Some(owner)))
+    } else {
+        Ok((parts, None))
+    }
+}
+
 pub(crate) fn request_limit(path: &str) -> usize {
-    if path.starts_with("/api/v1/security/") || path == "/internal/runtime/v1/shutdown" {
+    if path == "/internal/runtime/v1/shutdown" {
         return 4096;
     }
-    let Ok(parts) = path_parts(path) else {
+    let Ok((parts, _)) = scoped_parts(path) else {
         return 65536;
     };
     let route = parts.iter().map(String::as_str).collect::<Vec<_>>();
+    if route.starts_with(&["api", "v1", "security"]) {
+        return 4096;
+    }
     match route.as_slice() {
         [
             "api",
@@ -165,11 +192,36 @@ async fn dispatch(
         )
         .await;
     }
+    let (parts, runtime_owner) = scoped_parts(uri.path())?;
+    let security_path = if runtime_owner.is_some() {
+        format!(
+            "/{}",
+            parts
+                .iter()
+                .map(|part| ori_contracts::encode_path_segment(part))
+                .collect::<Vec<_>>()
+                .join("/")
+        )
+    } else {
+        uri.path().to_owned()
+    };
     let authentication = core
         .security
-        .check(&method, uri.path(), &headers, role)
+        .check(&method, &security_path, &headers, role)
         .await?;
-    let parts = path_parts(uri.path())?;
+    if let Some(expected) = runtime_owner
+        && !core
+            .config
+            .identity
+            .as_ref()
+            .is_some_and(|actual| actual.instance_id == expected)
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "runtime_owner_changed",
+            "The privately verified runtime owner has changed; no command was executed",
+        ));
+    }
     let scientific = parts
         .get(4)
         .and_then(|name| crate::analysis::method(name))
@@ -213,13 +265,13 @@ async fn dispatch(
     if method == Method::GET && parts == ["api", "v1", "events", "ws"] {
         return crate::websocket::upgrade(core, request, query, authentication).await;
     }
-    if uri.path() == "/api/v1/security/status" && method == Method::GET {
+    if security_path == "/api/v1/security/status" && method == Method::GET {
         return Ok(envelope(
             StatusCode::OK,
             core.security.status(&authentication),
         ));
     }
-    if uri.path().starts_with("/api/v1/security/") {
+    if security_path.starts_with("/api/v1/security/") {
         let (payload, _budget) = read_json(
             &core,
             &headers,
@@ -231,7 +283,7 @@ async fn dispatch(
         .await?;
         let _admitted = core.admission.enter()?;
         authentication.receipt().revalidate()?;
-        return match (method.as_str(), uri.path()) {
+        return match (method.as_str(), security_path.as_str()) {
             ("POST", "/api/v1/security/pair") => core.security.pair(payload, &headers).await,
             ("POST", "/api/v1/security/browser-session") => {
                 core.security.browser_session(&authentication, &payload)
@@ -496,6 +548,9 @@ async fn get(
                 counts["api_version"] = json!("v1");
                 counts["contract_version"] = json!(1);
                 counts["backend"] = json!("rust-candidate");
+                if let Some(identity) = &core.config.identity {
+                    counts["runtime_instance_id"] = json!(identity.instance_id);
+                }
                 counts
             } else {
                 json!({"status":"ok","api_version":"v1","contract_version":1,"backend":"rust-candidate","mode":"shadow","registry_available":false})
@@ -791,6 +846,8 @@ fn capabilities(core: &Core) -> Value {
     value["features"]["explicit_serial_adapters"] =
         Value::Bool(archived && core.config.devices.transport.is_some());
     let instrument_control = core.instrument_control.get().is_some();
+    value["features"]["runtime_owner_scoped_requests"] =
+        Value::Bool(core.config.identity.is_some());
     value["features"]["hardware_control"] = Value::Bool(instrument_control);
     value["features"]["tinysa_ultra_instrument_control"] = Value::Bool(instrument_control);
     value["features"]["tinysa_ultra_async_operations"] = Value::Bool(instrument_control);

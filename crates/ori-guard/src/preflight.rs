@@ -399,6 +399,7 @@ impl GuardService {
                 rate = Some(2. * bytes as f64 / span);
             }
         }
+        let source_rate_measured = rate.is_some_and(|rate| rate.is_finite() && rate > 0.);
         let now = self.clock.monotonic();
         let size = capacity["database_bytes"]
             .as_u64()
@@ -427,6 +428,24 @@ impl GuardService {
                 }
             }
         }
+        let mut startup_basis_used = false;
+        if reserve_backup
+            && !source_rate_measured
+            && let Some(runtime) = self.runtime_snapshot(id)?
+            && !runtime.stopped
+            && runtime.sid == s(&project, "active_session_id")?
+            && let Some(basis) = runtime.startup_storage_basis
+            && project["baseline_id"] == basis.baseline_id
+            && now < basis.expires
+        {
+            rate = Some(rate.unwrap_or(0.).max(basis.bytes_per_second));
+            startup_basis_used = true;
+        }
+        if reserve_backup && !source_rate_measured && !startup_basis_used {
+            // Metadata/page growth alone does not establish the new run's
+            // measurement rate once the validated startup window ends.
+            rate = None;
+        }
         let backup_reserve = if reserve_backup {
             rate.filter(|rate| rate.is_finite() && *rate > 0.)
                 .and_then(|rate| {
@@ -454,6 +473,9 @@ impl GuardService {
             && capacity["state"] != "full"
             && retention.is_none_or(|r| r >= retention_required as f64);
         let mut report = json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false});
+        if startup_basis_used {
+            report["rate_source"] = json!("validated_preflight_startup");
+        }
         if reserve_backup {
             report["backup_reserve_requested"] = json!(true);
             report["backup_reserve_bytes"] = json!(backup_reserve);

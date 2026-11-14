@@ -342,3 +342,41 @@ async fn shared_shutdown_handle_proves_durable_intent_before_blocked_device_drai
     assert!(!h.service.any_armed());
     h.archive.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn validated_backup_rate_survives_arm_into_an_empty_session_on_a_cold_service() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    h.service.update_settings(&id,json!({"archive":{"minimum_free_bytes":1_048_576,"minimum_retention_seconds":43_200,"reserve_backup":true}})).await.unwrap();
+    let before = h.service.preflight(&id, true).await.unwrap();
+    assert_eq!(before["ready"], true);
+    let old = h.service.project(&id).await.unwrap()["active_session_id"].clone();
+    let armed = h.service.arm(&id, json!({})).await.unwrap();
+    assert_ne!(armed["active_session_id"], old);
+    let first = h.service.storage_report(&id, true).await.unwrap();
+    let tick = h.service.tick(&id).await;
+    let state = h.service.project(&id).await.unwrap();
+    h.sources.advance(31);
+    let expired = h.service.storage_report(&id, true).await.unwrap();
+    h.close().await;
+    assert!(
+        expired["bytes_per_second"].is_null(),
+        "an expired startup basis must not turn metadata growth into a measured sweep rate: {expired}"
+    );
+    assert_eq!(expired["ready"], false);
+    assert_eq!(first["rate_source"], "validated_preflight_startup");
+    assert_eq!(
+        first["ready"], true,
+        "validated rate was lost on the session transition: {first}"
+    );
+    assert!(
+        first["bytes_per_second"]
+            .as_f64()
+            .is_some_and(|rate| rate > 0.)
+    );
+    assert!(
+        tick.is_ok(),
+        "first guard tick refused a validated budget: {tick:?}"
+    );
+    assert_eq!(state["state"], "armed", "{state}");
+}

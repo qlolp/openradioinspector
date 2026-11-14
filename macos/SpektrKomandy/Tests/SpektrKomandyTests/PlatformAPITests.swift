@@ -782,3 +782,26 @@ if stdin_errors:
         }
     }
 }
+
+extension PlatformAPITests {
+    func testRuntimeScopePinsEveryEndpointAndRejectsAReplacementHealthIdentity() async throws {
+        let api = try client("http://127.0.0.1:8772") { request in
+            let url = request.url!
+            XCTAssertTrue(url.path.hasPrefix("/api/v1/instances/owner-A/"))
+            let data = url.path.hasSuffix("/health") ? self.envelope("{\"runtime_instance_id\":\"owner-A\"}") : self.envelope("[]")
+            return (self.response(url), data)
+        }
+        let bound = try api.scoped(toRuntimeInstance: "owner-A")
+        try await bound.verifyRuntimeOwner()
+        _ = try await bound.listSessions()
+        XCTAssertEqual(bound.baseURL.runtimeInstanceID, "owner-A")
+        let replacement = try client("http://127.0.0.1:8772") { request in
+            (self.response(request.url!), self.envelope("{\"runtime_instance_id\":\"owner-B\"}"))
+        }.scoped(toRuntimeInstance: "owner-A")
+        do { try await replacement.verifyRuntimeOwner(); XCTFail("A replacement peer must not become an accepted client") }
+        catch PlatformError.invalidResponse { }
+        for invalid in ["", "../owner", "owner/other", "a%2Fb"] {
+            XCTAssertThrowsError(try PlatformBaseURL("http://127.0.0.1:8772", runtimeInstanceID: invalid))
+        }
+    }
+}

@@ -39,14 +39,21 @@ final class NativeNodeConnectionModel: ObservableObject {
     }
     func accepts(_ node: NativeAuthorizedNode) -> Bool { current(node.request, node.server) && phase == .ready }
 
-    func preflight(server text: String) async -> NativeAuthorizedNode? {
+    func preflight(server text: String, runtimeInstanceID: String? = nil) async -> NativeAuthorizedNode? {
         guard !isBusy else { return nil }
         let (operation, scope) = begin(text, phase: .checking)
         do {
             let base = try PlatformBaseURL(text)
             let credential = base.root.scheme == "https" ? try await store.load(for: base) : nil
             guard current(operation, scope), !Task.isCancelled else { return nil }
-            let client = try makeClient(text, credential)
+            let initial = try makeClient(text, credential)
+            let client: PlatformClient
+            if let owner = runtimeInstanceID {
+                guard base.isLoopback, base.root.scheme == "http" else { throw PlatformError.invalidURL("Локальная RC-служба требует loopback HTTP") }
+                client = try initial.scoped(toRuntimeInstance: owner)
+                try await client.verifyRuntimeOwner()
+                guard current(operation, scope), !Task.isCancelled else { return nil }
+            } else { client = initial }
             do {
                 let status = try await client.securityStatus()
                 guard current(operation, scope), !Task.isCancelled else { return nil }
@@ -61,16 +68,20 @@ final class NativeNodeConnectionModel: ObservableObject {
                     return ready(client, access: .pairedTLS, credential: credential, operation: operation, scope: scope)
                 case .legacyLoopback:
                     guard base.isLoopback else { throw PlatformError.invalidResponse("Legacy loopback доступ разрешён только локальному узлу") }
-                    return ready(try makeClient(text, nil), access: .legacyLoopback, operation: operation, scope: scope)
+                    return ready(runtimeInstanceID == nil ? try makeClient(text, nil) : client, access: .legacyLoopback, operation: operation, scope: scope)
                 }
             } catch PlatformError.http(status: 404, code: _, message: _) {
                 guard current(operation, scope), !Task.isCancelled else { return nil }
+                guard runtimeInstanceID == nil else { throw PlatformError.invalidResponse("Узел не подтвердил владельца RC; подключение к старому API запрещено") }
                 legacyClient = try makeClient(text, nil)
                 phase = .legacyConfirmation
                 message = "Сервер не поддерживает защищённое сопряжение (HTTP 404). Подтвердите подключение к старому API без сопряжения."
             }
         } catch {
-            if current(operation, scope), !Task.isCancelled { phase = .failed; message = describe(error) }
+            if current(operation, scope), !Task.isCancelled {
+                phase = .failed
+                message = runtimeInstanceID == nil ? describe(error) : "HTTP-ядро не подтвердило владельца фоновой службы. Повторите проверку службы; другое ядро не подключается."
+            }
         }
         return nil
     }

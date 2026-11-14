@@ -31,10 +31,15 @@ extension PlatformError: LocalizedError {
 
 public struct PlatformBaseURL: Equatable, Sendable {
     public let root: URL
+    public let runtimeInstanceID: String?
     public var isLoopback: Bool { root.host.map(platformLoopbackHost) ?? false }
     private let apiRootPath: String
 
-    public init(_ text: String) throws {
+    public init(_ text: String, runtimeInstanceID: String? = nil) throws {
+        if let owner = runtimeInstanceID {
+            guard !owner.isEmpty, owner.utf8.count <= 128, owner.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 95 || $0 == 45 }) else { throw PlatformError.invalidURL("Invalid runtime owner") }
+        }
+        self.runtimeInstanceID = runtimeInstanceID
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: value),
               let scheme = components.scheme?.lowercased(),
@@ -66,7 +71,8 @@ public struct PlatformBaseURL: Equatable, Sendable {
 
     func endpoint(path: String, query: [URLQueryItem] = []) throws -> URL {
         var components = URLComponents(url: root, resolvingAgainstBaseURL: false)
-        components?.percentEncodedPath = apiRootPath + "/api/v1" + path
+        let scope = runtimeInstanceID.map { "/instances/" + $0 } ?? ""
+        components?.percentEncodedPath = apiRootPath + "/api/v1" + scope + path
         if query.isEmpty {
             components?.percentEncodedQuery = nil
         } else {
@@ -785,8 +791,8 @@ public final class PlatformClient: Sendable {
     public var hasBearerCredential: Bool { credential != nil }
     private let maximumResponseBytes = 2_000_000
 
-    public init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil) throws {
-        self.baseURL = try PlatformBaseURL(baseURL)
+    public init(baseURL: String, session: URLSession? = nil, credential: PlatformBearerCredential? = nil, runtimeInstanceID: String? = nil) throws {
+        self.baseURL = try PlatformBaseURL(baseURL, runtimeInstanceID: runtimeInstanceID)
         guard credential == nil || self.baseURL.root.scheme == "https" else {
             throw PlatformError.invalidURL("Сопряжённый клиент требует HTTPS")
         }
@@ -802,6 +808,20 @@ public final class PlatformClient: Sendable {
             )
             self.usesInjectedSession = false
         }
+    }
+
+    private init(cloning client: PlatformClient, runtimeInstanceID owner: String) throws {
+        baseURL = try PlatformBaseURL(client.baseURL.root.absoluteString, runtimeInstanceID: owner)
+        session = client.session; credential = client.credential; usesInjectedSession = client.usesInjectedSession
+    }
+    public func scoped(toRuntimeInstance owner: String) throws -> PlatformClient {
+        try PlatformClient(cloning: self, runtimeInstanceID: owner)
+    }
+    public func verifyRuntimeOwner() async throws {
+        guard let expected = baseURL.runtimeInstanceID else { throw PlatformError.invalidCommand("A private runtime owner is required") }
+        struct Health: Decodable { let runtimeInstanceId: String? }
+        let health: Health = try await get("/health")
+        guard health.runtimeInstanceId == expected else { throw PlatformError.invalidResponse("HTTP peer does not match the privately verified runtime owner") }
     }
 
     private static func cookieFreeConfiguration(_ configuration: URLSessionConfiguration) -> URLSessionConfiguration {

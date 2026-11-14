@@ -578,9 +578,18 @@ impl Server {
         lan: bool,
         enabled: bool,
     ) -> Result<Self, LanRefusal> {
+        Self::try_configured_budget(features, lan, enabled, None).await
+    }
+    async fn try_configured_budget(
+        features: bool,
+        lan: bool,
+        enabled: bool,
+        maximum: Option<u64>,
+    ) -> Result<Self, LanRefusal> {
         let directory = tempfile::tempdir().unwrap();
         let factory = Factory::new();
         let mut config = CoreConfig::replay(directory.path());
+        config.max_archive_bytes = maximum;
         if enabled {
             config.devices.transport = Some(factory.clone());
         }
@@ -1730,7 +1739,9 @@ async fn done_at(server: &Server, base: &str, id: &str) -> Value {
 }
 #[tokio::test]
 async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition_paused() {
-    let server = Server::new().await;
+    let server = Server::try_configured_budget(false, false, true, Some(64 * 1024 * 1024))
+        .await
+        .unwrap_or_else(|_| panic!("owned handoff fixture setup refused"));
     // These host-valid descriptors are consumed only by the injected Factory.
     let (analyzer_port, receiver_port) = guard_fixture_ports(cfg!(windows));
     let session = json!({"id":"manual-control","name":"Owned serial Guard handoff","streams":[
@@ -1816,6 +1827,13 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
             json!({"name":"Owned baseline","location":"Memory","confirm":true}),
             201,
         ),
+        // This ownership fixture produces 100 Hz synthetic data; its short
+        // recording policy is independent of unrelated one-hour host defaults.
+        (
+            "settings",
+            json!({"archive":{"minimum_free_bytes":1_048_576,"minimum_retention_seconds":60}}),
+            200,
+        ),
     ] {
         let (actual, value) = server
             .request("POST", &format!("{project}/{path}"), Some(payload), None)
@@ -1841,6 +1859,37 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
         "/api/v1/sessions/{sid}/streams/{}",
         encode_path_segment(&stream)
     );
+    // Admission depends on actual committed synthetic flow, not host free space.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let (_, value) = server
+                .request(
+                    "GET",
+                    &format!("/api/v1/sessions/{sid}/sweeps?limit=2"),
+                    None,
+                    None,
+                )
+                .await;
+            if value["data"]
+                .as_array()
+                .is_some_and(|items| items.len() >= 2)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, budget) = server
+        .request("GET", &format!("{project}/preflight"), None, None)
+        .await;
+    if budget["data"]["storage"]["ready"] != true {
+        let storage = &budget["data"]["storage"];
+        let evidence = json!({"bytes_per_second":storage["bytes_per_second"],"available_bytes":storage["available_bytes"],"required_retention_seconds":storage["required_retention_seconds"],"estimated_retention_seconds":storage["estimated_retention_seconds"]});
+        server.stop().await;
+        panic!("handoff fixture exhausted its unrelated storage policy: {evidence}");
+    }
     let (status, manual) = server
         .request(
             "POST",

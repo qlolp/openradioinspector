@@ -8,7 +8,7 @@ use ori_archive::{Archive, ArchiveConfig};
 use ori_contracts::{DeviceRole, DeviceStream};
 use ori_runtime::{
     Error as RuntimeError,
-    qos::QosError,
+    qos::{BackgroundWorkGuard, QosError},
     worker::{Cancellation, ResearchPool},
 };
 use serde_json::{Value, json};
@@ -308,6 +308,49 @@ async fn start(manager: &Arc<DeviceManager>, id: &str) {
         .await
         .unwrap();
 }
+// Only fixture admission may wait for an actually quiet observer. Once a
+// grant exists it is retained unchanged through the complete RBW scenario.
+async fn quiet_fixture_grant(
+    qos: &BackgroundQos,
+    cancellation: Cancellation,
+) -> std::result::Result<BackgroundWorkGuard, QosError> {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match qos.register(cancellation.clone()) {
+                Err(QosError::Pressure) => tokio::time::sleep(Duration::from_millis(2)).await,
+                result => return result,
+            }
+        }
+    })
+    .await
+    .unwrap_or(Err(QosError::Pressure))
+}
+
+#[tokio::test]
+async fn quiet_fixture_waits_for_admission_without_replacing_an_original_grant() {
+    let qos = BackgroundQos::default();
+    qos.pressure(true).await.unwrap();
+    let original = Cancellation::default();
+    let owned_qos = qos.clone();
+    let owned_cancel = original.clone();
+    let mut waiter =
+        tokio::spawn(async move { quiet_fixture_grant(&owned_qos, owned_cancel).await });
+    let early = tokio::time::timeout(Duration::from_millis(20), &mut waiter).await;
+    let waited = early.is_err();
+    qos.pressure(false).await.unwrap();
+    let admitted = match early {
+        Ok(joined) => joined.unwrap(),
+        Err(_) => waiter.await.unwrap(),
+    };
+    let kept = admitted.is_ok() && qos.status().registered_work == 1 && !original.is_cancelled();
+    drop(admitted);
+    assert!(
+        waited && kept,
+        "fixture must await its initial quiet grant, not fail on pre-existing pressure"
+    );
+    assert_eq!(qos.status().registered_work, 0);
+}
+
 async fn until(mut condition: impl FnMut() -> bool) -> bool {
     tokio::time::timeout(Duration::from_secs(3), async {
         while !condition() {
@@ -765,7 +808,15 @@ async fn actual_same_worker_rbw_ack_starts_new_cadence_calibration_without_learn
     assert!(until(|| before.started_at.elapsed() > Duration::from_millis(1100)).await);
     let qos = &core.background.as_ref().unwrap().qos;
     let cancellation = Cancellation::default();
-    let grant = qos.register(cancellation.clone()).unwrap();
+    let grant = match quiet_fixture_grant(qos, cancellation.clone()).await {
+        Ok(grant) => grant,
+        Err(error) => {
+            let evidence = pressure_evidence(manager, observer, qos, &cancellation);
+            core.close().await.unwrap();
+            factory.join().await;
+            panic!("RBW fixture never reached quiet initial admission: {error}; {evidence}");
+        }
+    };
     factory.rbw_delay_ms.store(300, Ordering::Release);
     let submitted = instrument_call(
         &core,

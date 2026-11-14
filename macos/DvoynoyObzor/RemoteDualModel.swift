@@ -171,6 +171,8 @@ final class RemoteDualModel: ObservableObject {
     var referenceRequestRevision = 0
     var referenceTask: Task<Void, Never>?
     var referenceTimeoutTask: Task<Void, Never>?
+    private let requireRuntimeOwner: Bool
+    private(set) var verifiedRuntimeOwner: String?
     var connectionGeneration = 0
     private var capacityRequestRevision = 0
     var client: PlatformClient?
@@ -207,8 +209,10 @@ final class RemoteDualModel: ObservableObject {
         makeClient: @escaping (String) throws -> PlatformClient = { try PlatformClient(baseURL: $0) },
         comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
         thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000,
+        requireRuntimeOwner: Bool = false,
         onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }
     ) {
+        self.requireRuntimeOwner = requireRuntimeOwner
         self.makeClient = makeClient
         self.onArchiveContextReset = onArchiveContextReset
         self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
@@ -260,7 +264,21 @@ final class RemoteDualModel: ObservableObject {
         return workers.first(where: { PlatformExactID.same($0.streamId, streamID) })
     }
 
+    @discardableResult
+    func observeVerifiedRuntimeOwner(_ owner: String?) -> Bool {
+        guard owner != verifiedRuntimeOwner else { return false }
+        disconnect()
+        verifiedRuntimeOwner = owner
+        return true
+    }
+
     func connect(startPolling: Bool = true, using preparedClient: PlatformClient? = nil) {
+        if requireRuntimeOwner {
+            guard let verifiedRuntimeOwner, preparedClient?.baseURL.runtimeInstanceID == verifiedRuntimeOwner else {
+                errorText = "Требуется подключение к подтверждённому владельцу RC-службы."
+                return
+            }
+        }
         archiveHighWatermark = nil; archiveCacheVerified = false
         measurementStream.stop(); measurementSnapshot = nil; eventGapNotice = nil
         negotiatedMeasurementTransport = nil; measurementSource = nil; measurementDisplayIssue = nil
