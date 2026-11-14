@@ -53,6 +53,19 @@ class MacOSRCWorkloadTests(unittest.TestCase):
             self.assertFalse(value['research_best_effort'])
             self.assertEqual(command[-2:], ['--fixture-profile', str(phase/'fixture.json')])
 
+    def test_raw_history_uses_the_existing_ascending_page_and_exact_float_bits(self):
+        import copy
+        from benchmarks.ori_bench.macos_rc import verify_raw_page
+        from benchmarks.ori_bench.config import BenchmarkError
+        from benchmarks.ori_bench.source import sweep
+        config = Config('http://127.0.0.1:1', Path('/unused'), workload_profile='macos-rc1', points=4)
+        rows = [sweep(config, 0), sweep(config, 1)]
+        self.assertEqual(verify_raw_page(config, rows), 2)
+        for invalid in [list(reversed(rows)), [rows[0], rows[0]]]:
+            with self.assertRaises(BenchmarkError): verify_raw_page(config, invalid)
+        changed = copy.deepcopy(rows); changed[0]['levels'][1] = 0.0
+        with self.assertRaises(BenchmarkError): verify_raw_page(config, changed)
+
     def test_original_full_reference_is_unchanged(self):
         config = Config('http://127.0.0.1:1', Path('/unused'))
         self.assertEqual(config.planned_counts(), {'sweep': 18000, 'observation': 18000, 'audio': 180})

@@ -23,6 +23,26 @@ from .runner import atomic_report, output_directory, run
 from .source import encode, measurement_hash, observation, sweep
 
 
+def verify_raw_page(config, rows):
+    if not isinstance(rows, list) or len(rows) > 100:
+        raise BenchmarkError('history_invalid', 'Unbounded original-history response')
+    indices = []
+    prefix = config.run_id + '-sweep-'
+    for row in rows:
+        identifier = row.get('id', '')
+        if not isinstance(identifier, str) or not identifier.startswith(prefix):
+            raise BenchmarkError('history_invalid', 'Foreign history source')
+        index = int(identifier[len(prefix):])
+        if not 0 <= index < config.planned_counts()['sweep'] or measurement_hash('sweep', row) != measurement_hash('sweep', sweep(config, index)):
+            raise BenchmarkError('history_invalid', 'Original measurement changed in concurrent history')
+        indices.append(index)
+    # /sweeps retains the legacy ascending order within its newest bounded
+    # page. /sweep-summaries has a separate newest-first contract.
+    if indices != sorted(set(indices)):
+        raise BenchmarkError('history_invalid', 'Raw history order/identity changed')
+    return len(rows)
+
+
 class RCHistoryAndBackup(BackgroundWork):
     def __init__(self, *args):
         super().__init__(*args)
@@ -52,18 +72,7 @@ class RCHistoryAndBackup(BackgroundWork):
             # returned source against the same deterministic offered generator.
             rows = self.client.json(path + '/sweeps?limit=100')
             elapsed = (time.monotonic_ns() - began)/1e6
-            if not isinstance(rows, list) or len(rows) > 100:
-                raise BenchmarkError('history_invalid', 'Unbounded original-history response')
-            indices = []
-            prefix = self.config.run_id + '-sweep-'
-            for row in rows:
-                identifier = row.get('id', '')
-                if not identifier.startswith(prefix): raise BenchmarkError('history_invalid', 'Foreign history source')
-                index = int(identifier[len(prefix):])
-                if not 0 <= index < self.config.planned_counts()['sweep'] or measurement_hash('sweep', row) != measurement_hash('sweep', sweep(self.config, index)):
-                    raise BenchmarkError('history_invalid', 'Original measurement changed in concurrent history')
-                indices.append(index)
-            if indices != sorted(set(indices), reverse=True): raise BenchmarkError('history_invalid', 'History order/identity changed')
+            verify_raw_page(self.config, rows)
             after = self.node.backup_state()
             self.report['pages'] += 1
             self.report['largest_page'] = max(self.report['largest_page'], len(rows))
