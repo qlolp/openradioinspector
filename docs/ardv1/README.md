@@ -82,7 +82,7 @@ Swift SDK `ArDv1.swift` дополнительно формирует `ST` и с
 | Конфигурация | Громкость, beep, LCD/backlight/dimmer/contrast/direction, key color, защита, reset | AG/BP/LB/LD/LN/LU/KL/PT/RS | Отсутствует; destructive операции требуют отдельного явного действия |
 | TETRA | T-DM и T-TC, ручной выбор, auto/slots 1–4 | MD, TS | Отсутствует; не включать TETRA в AUTO |
 | TETRA GSSI PRO | Проверка опции, start/stop, single/multi, группы и bookmarks, mute и имена | TK…, SK | Отсутствует; платная опция и отдельная машина состояний |
-| Frequency scope | Нормальная и быстрая выдача уровней | GL/FD | Отсутствует; способ входа в scope и сетку необходимо подтвердить |
+| Frequency scope | Нормальная и быстрая выдача уровней | GL/FD | Недоступна на проверенной VR2504A/DV1. Есть [последовательный обзор через RF/ZK и RX](../ardv1-fast-scan.md#frequency-scope-в-ar-dv1) |
 | Реальное аудио | Захват выхода прибором-хостом, запись, доставка и воспроизведение в клиентах | Аналоговый выход + выбранный ADC; существующие phonogram/audio API | PCM hub есть, аппаратного источника и воспроизведения нет |
 | Локальные/служебные функции | IF direction, DCR WC, DISC.txt, firmware update, front-panel controls | A/F/U/X; для части нет определённой remote-команды | Явные инструкции и статус manual-only до появления проверенного wire-формата |
 

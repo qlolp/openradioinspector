@@ -55,6 +55,77 @@ final class PlatformWorkflowTests: XCTestCase {
         Data("{\"contract\":\"openradioinspector-platform\",\"contract_version\":1,\"data\":\(data)}".utf8)
     }
 
+    func testARDV1ScopeCreatesAnIndependentPhysicalReceiverSession() async throws {
+        let configuration = try PlatformARDV1ScopeConfiguration(startHz: 98_000_000, stopHz: 98_025_010, stepHz: 25_000)
+        XCTAssertEqual(configuration.pointCount, 3)
+        XCTAssertEqual(configuration.frequency(at: 2), 98_025_010)
+        XCTAssertThrowsError(try PlatformARDV1ScopeConfiguration(startHz: 98_000_000, stopHz: 108_000_000, stepHz: 10))
+        let port = "/dev/test-ardv1"
+        let api = try client { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v1/capabilities" {
+                XCTAssertEqual(request.httpMethod, "GET")
+                return (self.response(url), self.envelope(#"{"features":{"ardv1_sampled_scope":true}}"#))
+            }
+            XCTAssertEqual(url.path, "/api/v1/sessions")
+            XCTAssertEqual(request.httpMethod, "POST")
+            let arguments = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+            let streams = try XCTUnwrap(arguments["streams"] as? [[String: Any]])
+            XCTAssertEqual(streams.count, 1)
+            let stream = try XCTUnwrap(streams.first)
+            let settings = try XCTUnwrap(stream["settings"] as? [String: Any])
+            let scan = try XCTUnwrap(settings["fast_scan"] as? [String: Any])
+            XCTAssertEqual(stream["port"] as? String, port)
+            XCTAssertEqual(stream["role"] as? String, "receiver")
+            XCTAssertEqual(stream["level_unit"] as? String, "s_meter_count")
+            XCTAssertEqual(settings["adapter"] as? String, "ardv1-serial")
+            XCTAssertEqual(scan["step_hz"] as? Int, 25_000)
+            XCTAssertEqual(scan["stop_hz"] as? Int, 98_025_010)
+            XCTAssertEqual(scan["settle_s"] as? Double, 0.015)
+            return (self.response(url), self.envelope("""
+            {"id":"scope","name":"Обзор диапазона AR-DV1","state":"draft","streams":[
+              {"id":"receiver","device":"AR-DV1","role":"receiver","level_unit":"s_meter_count",
+               "state":"disconnected","capabilities":["receiver","ardv1_sampled_scope"],"port":"\(port)"}]}
+            """))
+        }
+        let created = try await api.createARDV1Scope(port: port, configuration: configuration)
+        XCTAssertEqual(created.streams.first?.port, port)
+        XCTAssertEqual(created.id, "scope")
+    }
+
+    func testARDV1ScopeAcceptsOnlyArchivedPointsOnTheRequestedGrid() async throws {
+        let configuration = try PlatformARDV1ScopeConfiguration(startHz: 98_000_000, stopHz: 98_025_010, stepHz: 25_000)
+        func observation(_ index: Int, hz: Int, readback: Bool) -> String {
+            """
+            {"id":"r\(index)","session_id":"scope","stream_id":"receiver","frequency_hz":\(hz),"mode":"FM",
+             "level_unit":"s_meter_count","level":23,
+             "interval":{"started_at":"2026-11-15T09:00:00Z","ended_at":"2026-11-15T09:00:01Z"},
+             "metadata":{"scan_index":\(index),"scan_total":3,"scan_tune_command":"\(index == 1 ? "ZK" : "RF")",
+              "frequency_readback":\(readback),"frequency_source":"receiver_RX","simulated":false,
+              "scope_source":"sequential_receiver_readback"}}
+            """
+        }
+        var points = """
+        [\(observation(1, hz: 98_025_000, readback: true)), \(observation(0, hz: 98_000_000, readback: true))]
+        """
+        let api = try client { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(url.path, "/api/v1/sessions/scope/observations")
+            XCTAssertEqual(url.query, "stream_id=receiver&limit=3")
+            return (self.response(url), self.envelope(points))
+        }
+        let archive = try await api.ardv1ScopePoints(sessionID: "scope", streamID: "receiver", configuration: configuration)
+        XCTAssertEqual(archive.map(\.index), [0, 1])
+        XCTAssertEqual(archive.map(\.tuneCommand), ["RF", "ZK"])
+        for corrupt in [observation(0, hz: 98_000_010, readback: true), observation(0, hz: 98_000_000, readback: false)] {
+            points = "[\(corrupt)]"
+            do {
+                _ = try await api.ardv1ScopePoints(sessionID: "scope", streamID: "receiver", configuration: configuration)
+                XCTFail("An unconfirmed point must not reach the graph")
+            } catch PlatformError.invalidResponse {}
+        }
+    }
+
     func testListeningOriginOptionalDecoding() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase

@@ -504,6 +504,9 @@ class DeviceWorker:
                 self._drain_commands()
                 if self._stop_event.is_set():
                     break
+                finished = getattr(self.adapter, "acquisition_finished", None)
+                if finished is not None and finished():
+                    break
                 idle=getattr(self.adapter,'instrument_idle',None)
                 if idle is not None and idle():
                     self._stop_event.wait(0.05)
@@ -686,6 +689,7 @@ class DeviceWorkerManager:
             "hardware_control": True,
             "hardware_validation_not_run": True,
             "explicit_serial_adapters": True,
+            "ardv1_sampled_scope": True,
         }
 
     @property
