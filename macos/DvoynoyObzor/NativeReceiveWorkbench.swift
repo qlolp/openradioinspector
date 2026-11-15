@@ -126,9 +126,21 @@ struct NativeReceiveWorkbench: View {
             HStack {
                 field("Аттенюатор, дБ / auto", text: $draft.attenuation)
                 Toggle("LNA", isOn: $draft.lna)
-                Toggle("Ultra до 6 ГГц", isOn: $draft.ultra)
+                Toggle("Запрос Ultra", isOn: $draft.ultra)
                 Picker("Spur", selection: $draft.spur) { ForEach(["auto","off","on"], id: \.self) { Text($0) } }.frame(width: 160)
             }
+            if let ultra = status["settings"]["ultra"].bool {
+                Text("Настройка ядра Ultra · \(ultra ? "включена" : "выключена")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if draft.ultra || status["settings"]["ultra"].bool == true {
+                Text("Подтвердите Ultra по флажку ENABLE ULTRA на экране прибора.")
+                    .font(.caption)
+            }
+            if let advice = draft.lnaAdvice(stopHz: status["settings"]["stop_hz"].integer) {
+                Label(advice, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            }
+            ultraPreparation
             HStack {
                 field("Точек 2–450", text: $draft.points)
                 field("Повторы 1–1000", text: $draft.repeats).disabled(draft.useVBW)
@@ -143,7 +155,7 @@ struct NativeReceiveWorkbench: View {
                     ForEach(["auto","1","1/3","1/10","1/30","1/100"], id: \.self) { Text($0) }
                 }.frame(width: 180).disabled(!draft.useVBW)
             }
-            Text("VBW — эквивалент через repeat для прошивки ea71dfd, не аппаратный readback. Малые отношения увеличивают время измерения. LNA отключает внутреннее ослабление. Ultra требует проверки ложных откликов.")
+            Text("VBW — эквивалент через repeat для прошивки ea71dfd. Малые отношения увеличивают время измерения. С LNA внутренний аттенюатор выключен.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Picker("Триггер", selection: $draft.trigger) {
@@ -160,6 +172,19 @@ struct NativeReceiveWorkbench: View {
                 Button("Считать настройки ядра") { task = Task { await refresh(initialize: true) } }.disabled(busy)
             }
             Text("Подтверждение: \(status["settings_source"].text) · readback: \(status["settings_readback"].scalar)").font(.caption)
+        }
+    }
+
+    private var ultraPreparation: some View {
+        DisclosureGroup("Подготовка Ultra на ZS405") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("На экране прибора откройте CONFIG → MORE → ENABLE ULTRA. Если флажок снят, выберите пункт и введите 4321. Проверьте отметку в этом меню.")
+                Text("Перед измерением уровней на гигагерцовых частотах остановите приём и соедините CAL и RF коротким кабелем SMA. Выполните CONFIG → LEVEL CAL → CALIBRATE 100kHz to 5.34GHz, затем выключите прибор, снимите кабель и включите прибор. Проверьте белые цифры уровней.")
+                Text("Паспортный диапазон LNA заканчивается на 4 ГГц. Между 3,5 и 4 ГГц сравните показания с усилителем и без него. Для диапазона 5 ГГц выключите LNA.")
+                Text("Диапазон для ручных измерений Ultra задаётся в панели «Экран и управление tinySA». Проверяйте возможные зеркальные и ложные отклики.")
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
