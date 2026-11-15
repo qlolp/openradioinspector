@@ -14,7 +14,7 @@ if os.name == "posix":
     import termios
 
 from radioinspector.device_workers import WorkerError
-from radioinspector.serial_instruments import PosixSerialTransport, TinySASerialAdapter
+from radioinspector.serial_instruments import PosixSerialTransport, TinySASerialAdapter, _TINYSA_PENDING_UNTIL
 from radioinspector.session_service import SessionService
 from tests.test_serial_instruments import serial_session
 from tests.test_tinysa_setup_guard import (
@@ -25,6 +25,8 @@ from tests.test_tinysa_setup_guard import (
 @unittest.skipUnless(os.name == "posix", "POSIX pseudo terminals required")
 class TinySASetupPTYTests(unittest.TestCase):
     def setUp(self) -> None:
+        # A reused macOS PTY path represents a new synthetic device in each test.
+        self.enterContext(patch.dict(_TINYSA_PENDING_UNTIL, {}, clear=True))
         self.master, self.slave = pty.openpty()
         self.addCleanup(os.close, self.master)
         self.addCleanup(os.close, self.slave)
