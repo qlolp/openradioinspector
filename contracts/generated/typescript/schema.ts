@@ -1479,6 +1479,12 @@ export const operations = {
     "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/content",
     "query": []
   },
+  "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_json": {
+    "max_request_bytes": null,
+    "method": "GET",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json",
+    "query": []
+  },
   "get_api_v1_sessions_id_streams_stream_id_instrument_capabilities": {
     "max_request_bytes": null,
     "method": "GET",
