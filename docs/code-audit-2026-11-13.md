@@ -4,6 +4,13 @@
 qlolp/docs/rt-comparison-consolidated»). Ветка `main`, 128 модулей Python
 верхнего уровня и пакетов, 36 417 строк Python, 161 файл тестов, 1737 тестов.
 
+**Перебазировано на `9154cf5` (15 ноября 2026).** За два дня ветка ушла на
+386 коммитов: добавлены 15 крейтов Rust, пакет `contracts/` с protobuf,
+`clients/`, `research/` и отдельный пакет `ori_research`. Разделы ниже
+сохранены как есть — они описывают состояние на дату аудита; изменения
+после этой даты отмечены отдельно. Числа измерений перепроверены на новом
+`main`: 147 модулей Python в пакете, 109 находок статического анализа.
+
 Аудит охватывает ядро (`radioinspector/`), HTTP-сервер, хранилище, исполнители
 приборов, три клиента и средства автоматизации. Отдельно проверены
 эксплуатационные риски, уже названные в [ревизии репозитория](repository-audit.md):
@@ -87,7 +94,7 @@ python3 tools/audit/code_checks.py radioinspector --rule ASSERT-IN-PROD
 `bandwidth_at_level`, `control_bandwidth`, `complex_center_frequency`,
 `center_frequency_centroid`, `field_strength` и `measure_signal`.
 
-### 3.3. Метаданные SigMF могли оказаться невалидным JSON
+### 3.3. Метаданные SigMF могли оказаться невалидным JSON — закрыто вверх по течению
 
 **Было:** `radioinspector/export/sigmf.py:138` записывал метаданные через
 `json.dumps` без `allow_nan=False`, тогда как `radioinspector/jsonio.py` и
@@ -97,6 +104,12 @@ python3 tools/audit/code_checks.py radioinspector --rule ASSERT-IN-PROD
 
 **Стало:** запись идёт с `allow_nan=False`; невалидные метаданные приводят к
 явной ошибке, а не к испорченному файлу.
+
+**Перепроверено 15 ноября 2026:** исправлено вверх по течению без участия
+этого среза — PR #184 «Fix SigMF sample bytes, provenance and failed-publication
+recovery». Реализация стала строже исходной: атомарная публикация через
+временные файлы с `fsync`, отказ при превышении 1 МиБ метаданных, запрет
+`NaN`. Правка из этого среза снята как избыточная.
 
 ### 3.4. Список кандидатов целиком материализовался в память
 
@@ -205,7 +218,6 @@ python3 tools/audit/code_checks.py radioinspector --rule ASSERT-IN-PROD
 | `radioinspector/archive_stream.py` | `assert` заменён явной проверкой типа пакета |
 | `radioinspector/devices/rtl.py` | два `assert` заменены на `InstrumentError` |
 | `radioinspector/measurements.py` | декоратор `_finite_trace`: нечисловые уровни отвергаются |
-| `radioinspector/export/sigmf.py` | строгий JSON метаданных (`allow_nan=False`) |
 | `radioinspector/session_store.py` | `load_candidates(limit, offset)`, `count_candidates` |
 | `radioinspector/session_service.py` | `list_candidates(limit, offset)` без двойного отсечения |
 | `radioinspector/request_limits.py` | `MAX_PAGE_LIMIT = 5000` |
@@ -213,6 +225,21 @@ python3 tools/audit/code_checks.py radioinspector --rule ASSERT-IN-PROD
 | `tests/test_code_quality.py` | 16 регрессионных тестов по находкам аудита |
 | `tools/audit/code_checks.py` | статический анализатор без внешних зависимостей |
 | `docs/api-v1.md` | постраничная выдача кандидатов |
+
+## 6a. Что изменилось после даты аудита
+
+* **SigMF** закрыт вверх по течении (PR #184) — правка снята.
+* **Остальные три находки в силе.** На `9154cf5` `assert` остаётся в четырёх
+  местах, `occupied_bandwidth_beta2` по-прежнему возвращает `nan` на трассе с
+  неполученной точкой, а `complex_center_frequency` даёт смешанный результат
+  (`centroid_hz=nan` при посчитанном `midpoint_hz`), постраничная выдача
+  кандидатов не появилась.
+* **Область аудита расширилась.** В дереве появились 15 крейтов Rust
+  (111 447 строк), `contracts/` с protobuf-схемами, `clients/web` и
+  `clients/windows`, пакет `research/`. Аудит 13 ноября охватывал только
+  Python-пакет `radioinspector/`; Rust-крейты, protobuf-контракты и
+  клиенты не разбирались. В песочнице нет `cargo`, поэтому проверить их
+  сборку и тесты локально нельзя — только по CI.
 
 ## 7. Открытые вопросы и рекомендации по порядку
 
