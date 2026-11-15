@@ -104,6 +104,9 @@ class ScheduledSerial(FakeSerial):
 
 class WindowsSerialTransportTests(unittest.TestCase):
     def setUp(self):
+        recovery = patch.dict(instruments._TINYSA_PENDING_UNTIL, {}, clear=True)
+        recovery.start()
+        self.addCleanup(recovery.stop)
         self.port = FakeSerial()
         self.factory = Mock(return_value=self.port)
         self.serial = types.SimpleNamespace(Serial=self.factory)
@@ -188,6 +191,12 @@ class WindowsSerialTransportTests(unittest.TestCase):
         adapter = instruments.TinySASerialAdapter(session.streams[0], transport=transport)
         self.addCleanup(adapter.close)
         clock = types.SimpleNamespace(monotonic=lambda: self.port.now)
+        # Isolate transaction timing from the separately tested new-connection
+        # synchronization window; measure subsequent offsets from zero.
+        with patch.object(instruments, "time", clock):
+            transport.synchronize_tinysa()
+        adapter._synchronized = True
+        self.port.now = 0.0
         return adapter, transport, clock
 
     def test_delayed_scan_echo_rows_and_fragmented_prompt_use_overall_deadline(self):
@@ -296,7 +305,7 @@ class WindowsSerialTransportTests(unittest.TestCase):
         with patch.object(instruments, 'os', types.SimpleNamespace(name='posix')):
             with patch.object(instruments, 'PosixSerialTransport') as posix:
                 instruments.create_serial_transport('/dev/ttyUSB0', 9600)
-                posix.assert_called_once_with('/dev/ttyUSB0', 9600)
+                posix.assert_called_once_with('/dev/ttyUSB0', 9600, discard_input=True)
 
     def test_both_adapters_select_windows_transport_without_client_changes(self):
         service = SessionService()
@@ -314,6 +323,7 @@ class WindowsSerialTransportTests(unittest.TestCase):
             self.assertIsInstance(adapter.transport, instruments.WindowsSerialTransport)
         self.assertIsNot(adapters[0].transport, adapters[1].transport)
         self.assertEqual([port.port for port in ports], ['COM12', 'COM13'])
+        self.assertEqual([port.input_resets for port in ports], [0, 1])
 
     def test_real_adapters_parse_com_bytes_and_preserve_raw_units(self):
         service = SessionService()

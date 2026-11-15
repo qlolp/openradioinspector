@@ -17359,6 +17359,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/stop": {
       "post": {
+        "description": "Omitted mode retains force behavior. Graceful returns while stopping; poll workers until alive=false before restarting. A force request escalates graceful.",
         "operationId": "post_api_v1_sessions_id_streams_stream_id_stop",
         "parameters": [
           {
@@ -17382,7 +17383,20 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JSONObject"
+                "additionalProperties": true,
+                "properties": {
+                  "mode": {
+                    "default": "force",
+                    "description": "graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.",
+                    "enum": [
+                      "graceful",
+                      "force"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
               }
             }
           },
@@ -17400,7 +17414,38 @@
                     {
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/JSONObject"
+                          "additionalProperties": true,
+                          "properties": {
+                            "alive": {
+                              "type": "boolean"
+                            },
+                            "session_id": {
+                              "type": "string"
+                            },
+                            "stop_mode": {
+                              "enum": [
+                                "graceful",
+                                "force",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "stopping": {
+                              "type": "boolean"
+                            },
+                            "stream_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "session_id",
+                            "stream_id",
+                            "alive"
+                          ],
+                          "type": "object"
                         }
                       }
                     }
@@ -20021,7 +20066,38 @@
                       "properties": {
                         "data": {
                           "items": {
-                            "$ref": "#/components/schemas/JSONObject"
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
                           },
                           "type": "array"
                         }
@@ -20288,6 +20364,7 @@
     },
     "/api/v1/sessions/{id}/workers/stop": {
       "post": {
+        "description": "Omitted mode retains force behavior. Graceful returns while stopping; poll workers until alive=false before restarting. A force request escalates graceful.",
         "operationId": "post_api_v1_sessions_id_workers_stop",
         "parameters": [
           {
@@ -20303,7 +20380,20 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JSONObject"
+                "additionalProperties": true,
+                "properties": {
+                  "mode": {
+                    "default": "force",
+                    "description": "graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.",
+                    "enum": [
+                      "graceful",
+                      "force"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
               }
             }
           },
@@ -20321,7 +20411,41 @@
                     {
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/JSONObject"
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
                         }
                       }
                     }
@@ -21139,7 +21263,38 @@
                       "properties": {
                         "data": {
                           "items": {
-                            "$ref": "#/components/schemas/JSONObject"
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
                           },
                           "type": "array"
                         }

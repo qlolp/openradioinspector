@@ -1,10 +1,11 @@
 // swift-tools-version: 6.4
 import PackageDescription
 
-// macOS-only regression tests for the app's session and transport code.
+// Local app implementation and monitoring controls shared by the launcher and tests.
 let package = Package(
-    name: "DvoynoyObzorChecks",
+    name: "DvoynoyObzorKit",
     platforms: [.macOS(.v14)],
+    products: [.library(name: "DvoynoyObzorSession", targets: ["DvoynoyObzorSession"])],
     dependencies: [.package(path: "SpektrKomandy")],
     targets: [
         .target(name: "DvoynoyObzorSession", dependencies: ["SpektrKomandy"],

@@ -19,13 +19,13 @@ struct NativeConnectionPane: View {
             HStack {
                 Text("Двойной обзор").font(.title2.weight(.semibold))
                 Spacer()
-                Label(model.connected ? "Ядро подключено" : "Нет подключения", systemImage: model.connected ? "network" : "network.slash")
-                    .foregroundStyle(model.connected ? Color.green : Color.secondary)
+                Label(model.coreReachable ? "Ядро доступно" : (model.connected ? "Связь с ядром потеряна" : "Нет подключения"), systemImage: model.coreReachable ? "network" : "network.slash")
+                    .foregroundStyle(model.coreReachable ? Color.green : Color.secondary)
             }
             HStack {
                 TextField("Адрес ядра", text: $model.serverURL).textFieldStyle(.roundedBorder).disabled(localServiceRequired || model.connected || connection.isBusy)
                 if model.connected {
-                    Button("Отключить UI") { connection.cancel(); model.disconnect() }
+                    Button("Отключить интерфейс") { connection.cancel(); model.disconnect() }
                     Button("Обновить") { Task { await model.reloadSessions() } }
                 } else {
                     Button("Подключить") {
@@ -49,17 +49,17 @@ struct NativeConnectionPane: View {
             }
             DisclosureGroup("Сеанс и приборы") {
                 HStack {
-                    Button("Новый draft") { model.createSession(simulated: false) }
-                    Button("Новый с симуляторами") { model.createSession(simulated: true) }
-                    Button("Новый serial…") { model.showSerialForm = true }
+                    Button("Пустой сеанс") { model.createSession(simulated: false) }
+                    Button("Учебный сеанс") { model.createSession(simulated: true) }
+                    Button("Подключить приборы…") { model.showSerialForm = true }
                     Spacer()
-                    Button("tinySA · lab / экран") { model.showTinySAControl = true }.disabled(model.analyzer == nil)
+                    Button("Экран и управление tinySA") { model.showTinySAControl = true }.disabled(model.analyzer == nil)
                 }.disabled(!model.connected || model.busy)
                 HStack {
                     Button("Запустить сеанс") { model.startSession() }
                     Button("Остановить сеанс") { model.stopSession() }
-                    Button(model.session?.streams.count == 1 ? "Запустить поток" : "Запустить оба потока") { model.startWorkers() }
-                    Button(model.session?.streams.count == 1 ? "Остановить поток" : "Остановить оба потока") { model.stopWorkers() }
+                    Button(model.session?.streams.count == 1 ? "Начать приём" : "Начать приём на обоих") { model.startWorkers() }
+                    Button(model.session?.streams.count == 1 ? "Завершить приём" : "Завершить приём на обоих") { model.stopWorkers() }
                 }.disabled(model.session == nil || model.busy)
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
             }

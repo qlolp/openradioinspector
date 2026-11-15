@@ -13,23 +13,31 @@ struct RemoteStreamControls: View {
     var busy: Bool
     var onStart: () -> Void
     var onStop: () -> Void
+    var onForceStop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(stream.map { "\($0.device) · \($0.id)" } ?? "Подходящий поток не найден")
+            Text(stream?.device ?? "Прибор не добавлен в сеанс")
                 .font(.caption)
                 .textSelection(.enabled)
             HStack {
-                Label(worker?.state ?? stream?.state ?? "—", systemImage: worker?.alive == true ? "circle.fill" : "circle")
+                Label(worker?.stopping == true ? "Завершаю текущее измерение…" : NativeDeviceStatus.title(worker?.state ?? stream?.state ?? "disconnected"), systemImage: worker?.alive == true ? "circle.fill" : "circle")
                     .foregroundStyle(worker?.alive == true ? .green : .secondary)
                 Spacer()
-                Button("Запустить поток", action: onStart)
-                    .disabled(stream == nil || busy)
-                Button("Остановить поток", action: onStop)
-                    .disabled(stream == nil || busy)
+                Button("Начать приём", action: onStart)
+                    .disabled(stream == nil || busy || worker?.alive == true)
+                Button("Завершить приём", action: onStop)
+                    .disabled(stream == nil || busy || worker?.alive != true || worker?.stopping == true)
+                Menu("Ещё") {
+                    Button("Прервать измерение", role: .destructive, action: onForceStop)
+                        .disabled(stream == nil || busy || worker?.alive != true)
+                }
             }
             if let error = worker?.lastError, !error.isEmpty {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Label("Приём остановлен. Проверьте подключение прибора и повторите запуск.", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
+                DisclosureGroup("Технические подробности") {
+                    Text(error).font(.caption).textSelection(.enabled)
+                }
             }
         }
     }
@@ -42,13 +50,14 @@ struct RemoteArPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("AOR AR-DV1 · через ядро").font(.title2.weight(.semibold))
-                Text("Наблюдения и команды поступают через /api/v1. Уровень остаётся в исходных отсчётах S-метра; звук и аппаратное декодирование выполняет приёмник.")
+                Text("Уровень показан в исходных отсчётах S-метра. Звук и декодирование выполняет приёмник.")
                     .foregroundStyle(.secondary)
                 RemoteStreamControls(
                     title: "AR-DV1", stream: model.receiver,
                     worker: model.worker(for: model.receiver?.id), busy: model.busy,
                     onStart: { model.startStream(model.receiver) },
-                    onStop: { model.stopStream(model.receiver) }
+                    onStop: { model.stopStream(model.receiver) },
+                    onForceStop: { model.stopStream(model.receiver, mode: .force) }
                 )
                 HStack {
                     Picker("Режим", selection: $model.mode) {
@@ -71,7 +80,7 @@ struct RemoteArPane: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
-                    Text("Наблюдений receiver пока нет").foregroundStyle(.secondary)
+                    Text("Измерений приёмника пока нет").foregroundStyle(.secondary)
                 }
                 Text("Перестройка AR-DV1 не останавливает tinySA. Прежняя частота автоматически не восстанавливается.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -100,22 +109,26 @@ struct RemoteUltraPane: View {
                     title: "tinySA", stream: model.analyzer,
                     worker: model.worker(for: model.analyzer?.id), busy: model.busy,
                     onStart: { model.startStream(model.analyzer) },
-                    onStop: { model.stopStream(model.analyzer) }
+                    onStop: { model.stopStream(model.analyzer) },
+                    onForceStop: { model.stopStream(model.analyzer, mode: .force) }
                 )
                 HStack {
                     TextField("Порог, dBm", text: $model.threshold)
                         .textFieldStyle(.roundedBorder).frame(width: 140)
                     Text(model.live).font(.caption).foregroundStyle(.secondary)
                 }
+                NativeMeasurementStatus(model: model)
                 TraceChart(
-                    current: model.current, minimum: model.minimum, maximum: model.maximum,
-                    threshold: model.thresholdDbm, yTitle: "дБм (исходные)", displayScale: model.spectrumPresentation.scale
+                    current: model.displayCurrent, minimum: model.displayMinimum, maximum: model.displayMaximum,
+                    threshold: model.thresholdDbm, yTitle: "дБм (исходные)", displayScale: model.displaySpectrumScale
                 )
                 HStack {
-                    Button(model.spectrumPresentation.paused ? "Live" : "Pause view") { model.toggleSpectrumPause() }
-                    Button("Fit") { model.fitSpectrum() }
-                    TextField("Min", text: $model.spectrumLower).frame(width: 85)
-                    TextField("Max", text: $model.spectrumUpper).frame(width: 85)
+                    Button(model.spectrumPresentation.paused ? "Продолжить показ" : "Пауза графика") { model.toggleSpectrumPause() }
+                    Button("Автомасштаб") { model.fitSpectrum() }
+                }.disabled(model.spectrumPresentation.sweeps.isEmpty)
+                HStack {
+                    TextField("Низ, дБм", text: $model.spectrumLower).frame(width: 85)
+                    TextField("Верх, дБм", text: $model.spectrumUpper).frame(width: 85)
                     Button("Применить") { model.applySpectrumBounds() }
                 }.disabled(model.spectrumPresentation.sweeps.isEmpty)
                 Text("Границы: десятичная точка / e; обрезано отсчётов: \(model.spectrumClippedCount)").font(.caption)
@@ -124,10 +137,10 @@ struct RemoteUltraPane: View {
                     Text("Шкала: \(String(scale.lower)) … \(String(scale.upper)) dBm").font(.caption)
                 }
                 if let sweep = model.spectrumPresentation.sweeps.last {
-                    Text("\(model.spectrumPresentation.paused ? "Pause view" : "Live") · \(sweep.id) · \(sweep.interval.startedAt) → \(sweep.interval.endedAt)").font(.caption)
+                    Text("\(model.spectrumPresentation.paused ? "Пауза графика" : "Текущий спектр") · \(sweep.id) · \(sweep.interval.startedAt) → \(sweep.interval.endedAt)").font(.caption)
                     Text("Исходные уровни: \(sweep.levels.min().map { String($0) } ?? "—") … \(sweep.levels.max().map { String($0) } ?? "—") dBm").font(.caption)
-                } else { Text("Спектр недоступен") }
-                WaterfallView(history: model.waterfall, revision: model.waterfallRevision, unitTitle: "дБм", displayScale: model.spectrumPresentation.scale)
+                } else if model.displayCurrent.isEmpty { Text("Измерений пока нет — начните приём") }
+                WaterfallView(history: model.displayWaterfall, revision: model.displayWaterfallRevision, unitTitle: "дБм", displayScale: model.displaySpectrumScale)
                 Text("Строки: порядок свипов, новые сверху, не шкала времени. Столбцы: порядок bins; интервалы частот могут быть неравными.").font(.caption)
                 Text("Пауза замораживает только графики. Опрос и состояние сбора/записи не меняются; панели анализа независимы.").font(.caption)
                 if research {

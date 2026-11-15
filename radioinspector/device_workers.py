@@ -36,6 +36,10 @@ class WorkerError(RuntimeError):
     """Ошибка запуска, команды или остановки исполнителя."""
 
 
+class WorkerCancelled(WorkerError):
+    """An explicitly cancelled transport operation, not a device fault."""
+
+
 class WorkerCommandTimeout(WorkerError):
     def __init__(self,message,*,uncertain):
         super().__init__(message)
@@ -368,6 +372,7 @@ class DeviceWorker:
         self._clock = clock
         self._commands: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stop_event = threading.Event()
+        self._stop_mode = None
         self._lock = threading.RLock()
         self._thread: Optional[threading.Thread] = None
         self._state = DeviceState.DISCONNECTED
@@ -392,6 +397,7 @@ class DeviceWorker:
             if self._thread and self._thread.is_alive():
                 raise WorkerError(f"Исполнитель уже запущен: {self.stream_id}")
             self._stop_event.clear()
+            self._stop_mode = None
             self._finished = False
             self._terminal_state = DeviceState.DISCONNECTED
             self._last_error = None
@@ -406,18 +412,22 @@ class DeviceWorker:
             self._set_state(DeviceState.READY)
             self._thread.start()
 
-    def stop(self, *, timeout: float = 5.0) -> None:
+    def stop(self, *, timeout: float = 5.0, mode: str = "force") -> None:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         with self._lock:
             thread = self._thread
+            if self._stop_mode != "force":
+                self._stop_mode = mode
             self._stop_event.set()
             self._reject_pending_commands()
         if thread is None or not thread.is_alive():
             return
         request_stop = getattr(self.adapter, "request_stop", None)
-        if request_stop is not None:
+        if mode == "force" and request_stop is not None:
             request_stop()
         self._commands.put({"command": "__wake__"})
-        if thread is not threading.current_thread():
+        if mode == "force" and thread is not threading.current_thread():
             thread.join(timeout=timeout)
             if thread.is_alive():
                 raise WorkerError(f"Исполнитель не остановился за {timeout} с: {self.stream_id}")
@@ -463,6 +473,8 @@ class DeviceWorker:
                 "adapter": self.adapter.adapter_name,
                 "state": self._state.value,
                 "alive": bool(self._thread and self._thread.is_alive()),
+                "stopping": self._stop_event.is_set() and bool(self._thread and self._thread.is_alive()),
+                "stop_mode": self._stop_mode,
                 "measurements": self._measurements,
                 "commands_completed": self._commands_completed,
                 "consecutive_errors": self._consecutive_errors,
@@ -494,6 +506,8 @@ class DeviceWorker:
                     continue
                 try:
                     measurement = self.adapter.poll()
+                    if self._stop_event.is_set() and self._stop_mode == "force":
+                        break
                     from .tinysa.artifacts import InstrumentSample
                     if isinstance(measurement, InstrumentSample):
                         self.sessions.save_instrument_artifact(self.session_id,self.stream_id,measurement.artifact)
@@ -502,6 +516,8 @@ class DeviceWorker:
                     else:
                         self.sessions.ingest_observation(measurement)
                 except Exception as exc:  # ошибка одного прибора изолирована от остальных
+                    if isinstance(exc, WorkerCancelled) and self._stop_event.is_set():
+                        break
                     self._consecutive_errors += 1
                     self._last_error = str(exc)
                     self._set_state(DeviceState.DEGRADED)
@@ -652,6 +668,7 @@ class DeviceWorkerManager:
 
     def capabilities(self) -> dict[str, Any]:
         return {
+            "graceful_device_stop": True,
             "simulated_device_workers": True,
             "independent_worker_commands": True,
             "continuous_simulated_monitoring": True,
@@ -857,7 +874,7 @@ class DeviceWorkerManager:
         return results
 
     def _stop_worker(
-        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, *, timeout: float = 5.0
+        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, *, timeout: float = 5.0, mode: str = "force"
     ) -> Optional[DeviceWorker]:
         deadline = time.monotonic() + timeout
         with self._lock:
@@ -868,23 +885,27 @@ class DeviceWorkerManager:
             with self._lock:
                 worker = self._workers.get(key)
             if worker is not None:
-                worker.stop(timeout=max(0.0, deadline - time.monotonic()))
+                worker.stop(timeout=max(0.0, deadline - time.monotonic()), mode=mode)
             return worker
         finally:
             lifecycle.lock.release()
 
     def stop_stream(
-        self, session_id: str, stream_id: str, *, timeout: float = 5.0
+        self, session_id: str, stream_id: str, *, timeout: float = 5.0, mode: str = "force"
     ) -> dict[str, Any]:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         self._stream(self.sessions.get_session(session_id), stream_id)
         key = (session_id, stream_id)
-        worker = self._stop_worker(key, self._lifecycle(key), timeout=timeout)
+        worker = self._stop_worker(key, self._lifecycle(key), timeout=timeout, mode=mode)
         if worker is None:
             session = self.sessions.get_session(session_id)
             return self._static_status(session, self._stream(session, stream_id))
         return worker.status()
 
-    def stop_session(self, session_id: str) -> list[dict[str, Any]]:
+    def stop_session(self, session_id: str, *, mode: str = "force") -> list[dict[str, Any]]:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         self.sessions.get_session(session_id)
         with self.stopping_session(session_id):
             with self._lock:
@@ -895,7 +916,7 @@ class DeviceWorkerManager:
             first_error: Optional[Exception] = None
             for key, lifecycle in lifecycles:
                 try:
-                    self._stop_worker(key, lifecycle)
+                    self._stop_worker(key, lifecycle, mode=mode)
                 except Exception as exc:
                     if first_error is None:
                         first_error = exc
@@ -961,6 +982,8 @@ class DeviceWorkerManager:
             "adapter": stream.settings.get("adapter"),
             "state": stream.state.value,
             "alive": False,
+            "stopping": False,
+            "stop_mode": None,
             "measurements": 0,
             "commands_completed": 0,
             "consecutive_errors": 0,

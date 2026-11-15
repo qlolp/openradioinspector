@@ -419,11 +419,17 @@ public struct PlatformSession: Decodable, Identifiable, Equatable, Sendable {
     public let streams: [PlatformStream]
 }
 
+public enum PlatformStopMode: String, Encodable, Sendable {
+    case graceful, force
+}
+
 public struct PlatformWorker: Decodable, Equatable, Sendable {
     public let streamId: String
     public let state: String
     public let alive: Bool
     public let lastError: String?
+    public let stopping: Bool?
+    public let stopMode: String?
 }
 
 public struct PlatformSweep: Decodable, Identifiable, Equatable, Sendable {
@@ -972,6 +978,31 @@ public final class PlatformClient: Sendable {
 
     public func stopStream(sessionID: String, streamID: String) async throws -> PlatformWorker {
         try await post(Self.streamPath(sessionID: sessionID, streamID: streamID, action: "stop"), body: EmptyBody())
+    }
+
+    /// Graceful stop completes the active measurement; force interrupts it.
+    public func stopStream(sessionID: String, streamID: String, mode: PlatformStopMode) async throws -> PlatformWorker {
+        try await requireStopMode(mode)
+        struct StopBody: Encodable { let mode: PlatformStopMode }
+        return try await post(Self.streamPath(sessionID: sessionID, streamID: streamID, action: "stop"), body: StopBody(mode: mode))
+    }
+
+    public func stopWorkers(_ id: String, mode: PlatformStopMode) async throws -> [PlatformWorker] {
+        try await requireStopMode(mode)
+        struct StopBody: Encodable { let mode: PlatformStopMode }
+        return try await post("/sessions/\(Self.segment(id))/workers/stop", body: StopBody(mode: mode))
+    }
+
+    private func requireStopMode(_ mode: PlatformStopMode) async throws {
+        guard mode == .graceful else { return }
+        struct StopCapabilities: Decodable {
+            struct Features: Decodable { let gracefulDeviceStop: Bool? }
+            let features: Features
+        }
+        let capabilities: StopCapabilities = try await get("/capabilities")
+        guard capabilities.features.gracefulDeviceStop == true else {
+            throw PlatformError.invalidResponse("Ядро не поддерживает завершение текущего измерения. Обновите ядро или явно выберите «Прервать измерение».")
+        }
     }
 
     public func tune(
