@@ -26,3 +26,24 @@ contain no tune, watch, generator or detector actions.
 Capabilities `frequency_history` and `frequency_bookmarks` are independent.
 Servers without them retain their existing receive/archive behavior. These
 endpoints do not acquire measurements or schedule hardware commands.
+
+## macOS workbench
+
+Open **История уровней**, enter up to four frequencies in MHz and choose the UTC
+window. **Показать** replaces the snapshot; **Ещё 100 свипов** loads its next
+page. Rendering stops at 1,000 source sweeps, with an explicit limit message.
+Automatic refresh every five seconds is optional and replaces the snapshot;
+collection remains in the core. Each chart mark spans the full source interval,
+so the display never joins separate sweeps into continuous coverage. Axis labels
+and source-table timestamps are UTC, independently of the Mac's time zone.
+
+The marker action **История → Следить за уровнем маркера** and the selected
+candidate action seed this view without tuning. **Открыть исходник** opens the
+original archived spectrum. **Эталоны и сравнение** reuses the existing core-owned
+comparison and reference catalogue; it performs no client-side subtraction.
+
+Saved sets are session-scoped. A portable JSON file contains only
+`schema_version: 1`, `name`, and `entries`; import is limited to 8 KiB and rejects
+unknown fields and commands. Saving a changed set creates a version; importing
+or selecting one does not apply radio settings. Unsupported servers show the
+missing history capability and keep existing acquisition controls available.

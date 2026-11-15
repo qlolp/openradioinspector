@@ -15,6 +15,9 @@ struct NativeSignalsPage: View {
                 Spacer()
                 Button("Добавить текущий пик") { model.createCandidateFromLatestPeak() }
                     .disabled(!model.connected || model.spectrumPresentation.sweeps.isEmpty || model.busy)
+                Button("Следить за уровнем") {
+                    if let candidate = model.selectedCandidate { model.followFrequency(candidate.centerFrequencyHz) }
+                }.disabled(model.selectedCandidate == nil || model.selectedCandidate?.sourceStreamId != model.analyzer?.id)
                 Button("Исходный свип") { openSource() }
                     .disabled(model.selectedCandidate == nil || sourceBusy)
                 Button("В очередь AR-DV1") { model.enqueueSelectedCandidate() }

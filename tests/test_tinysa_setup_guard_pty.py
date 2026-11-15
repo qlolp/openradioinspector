@@ -25,6 +25,12 @@ from tests.test_tinysa_setup_guard import (
 @unittest.skipUnless(os.name == "posix", "POSIX pseudo terminals required")
 class TinySASetupPTYTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Darwin reuses PTY paths between tests. Each newly created synthetic
+        # device needs its own taint registry; reconnects inside this test still
+        # share the registry and must drain the previous transaction.
+        registry = patch('radioinspector.serial_instruments._TINYSA_PENDING_UNTIL', {})
+        registry.start()
+        self.addCleanup(registry.stop)
         self.master, self.slave = pty.openpty()
         self.addCleanup(os.close, self.master)
         self.addCleanup(os.close, self.slave)

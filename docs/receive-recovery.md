@@ -25,3 +25,9 @@
 Это диагностика и безопасная попытка переподключения, не установленная причина
 таймаута из `continuous-spectrum-validation.md`. ASCII `scan` остаётся штатным
 режимом. Бинарный scanraw испытывается отдельно на закреплённом профиле прошивки.
+
+In macOS, open **Тракт / Наблюдение → Диагностика обмена и восстановление**.
+The panel shows bounded metadata for the current and previous connection.
+**Восстановить остановленный поток** is available only when the server declares
+`explicit_stream_recovery` and the worker is stopped. It does not label old data
+as fresh. A new committed measurement must arrive before reception is confirmed.
