@@ -635,7 +635,7 @@ HTTP 507 `archive_capacity_exceeded`; весь пакет и его событи
 ## Именованные эталоны
 
 `features.named_sweep_references` включает каталог ссылок на архивные sweeps.
-Он сохраняется в файловом SQLite schema v3, в memory-режиме и SQLite `:memory:`
+Он сохраняется в файловом SQLite schema v6, в memory-режиме и SQLite `:memory:`
 временный (`persistent: false`). POST создаёт
 запись и событие `sweep_reference.created`; точный повтор возвращает прежнюю
 запись без нового события. Нет удаления/перезаписи. Контракт и миграция:
