@@ -196,6 +196,7 @@ extension RemoteDualModel {
     }
 
     func resetComparisonScope() {
+        selectedScanBand = ""
         clearSpectrumPresentation()
         sweepAverage.reset()
         threeSweepThresholds.reset()

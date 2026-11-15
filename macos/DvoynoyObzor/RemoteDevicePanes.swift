@@ -130,6 +130,7 @@ struct RemoteArPane: View {
 struct RemoteUltraPane: View {
     @ObservedObject var model: RemoteDualModel
     var research = true
+    var scanBands: [MonitoringValue] = []
     @State private var detailsExpanded = false
 
     var body: some View {
@@ -151,6 +152,18 @@ struct RemoteUltraPane: View {
             NativeMeasurementStatus(model: model)
             NativeAnalyzerControls(model: model)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+            if !scanBands.isEmpty || !model.availableScanBandIDs.isEmpty {
+                Picker("Поддиапазон графика", selection: Binding(get: { model.selectedScanBand }, set: model.selectScanBand)) {
+                    if model.selectedScanBand.isEmpty { Text("Ожидание измерения").tag("") }
+                    if scanBands.isEmpty {
+                        ForEach(model.availableScanBandIDs, id: \.self) { id in Text(id).tag(id) }
+                    } else {
+                        ForEach(scanBands, id: \.exactID) { band in
+                            Text(band["name"].text).tag(band["id"].text)
+                        }
+                    }
+                }.controlSize(.small).disabled(!model.coreReachable)
+            }
             NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
@@ -160,7 +173,8 @@ struct RemoteUltraPane: View {
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
                                     reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
                                     onFollowFrequency: { model.followFrequency($0) })
-                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
+                     PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
                 .frame(minHeight: 370).layoutPriority(1)
             HStack {
                 Button("Автомасштаб") { model.fitSpectrum() }

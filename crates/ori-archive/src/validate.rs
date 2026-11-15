@@ -12,6 +12,7 @@ pub(crate) const KINDS: &[&str] = &[
     "quality",
     "source-search",
     "position-mark",
+    "scan-plan",
 ];
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value

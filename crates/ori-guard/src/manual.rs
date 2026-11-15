@@ -349,6 +349,33 @@ impl GuardService {
         let target = Self::target(&r, stream);
         self.control.stop_stream(&target).await?;
         let started = self.clock.now();
+        let project = self.project(id).await?;
+        let plan = crate::scan_plan::configured_plan(&project)?;
+        let contexts = if let Some(plan) = &plan {
+            plan.bands
+                .iter()
+                .map(|band| {
+                    Ok((
+                        band.id.clone(),
+                        s(&project["band_baselines"], &band.id)?.to_owned(),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![(String::new(), s(&project, "baseline_id")?.to_owned())]
+        };
+        let mut expected = std::collections::BTreeMap::new();
+        for (band, baseline_id) in contexts {
+            let baseline = self.get_record("baseline", &baseline_id, Some(id)).await?;
+            if plan.is_some()
+                && (baseline["scan_plan_id"] != project["scan_plan"]["id"]
+                    || baseline["scan_band_id"] != band)
+            {
+                return Err(invalid("Эталон не относится к текущему поддиапазону"));
+            }
+            expected.insert(band, s(&baseline, "fingerprint")?.to_owned());
+        }
+        let mut verified = std::collections::BTreeSet::new();
         let current = self
             .runtime_snapshot(id)?
             .filter(|r| r.token == token && !r.stopped)
@@ -358,6 +385,9 @@ impl GuardService {
             .get_session(&current.sid)
             .await?
             .ok_or(GuardError::NotFound)?;
+        // UTC alone can equal an old frame at clock resolution. Only commits
+        // after the stopped stream's ingestion boundary prove this restart.
+        let mut after = self.archive.sweep_ingestion_boundary(&current.sid).await?;
         self.control
             .start_stream(
                 &decode::<ori_contracts::Session>(&session)?,
@@ -376,47 +406,58 @@ impl GuardService {
             }
             let sweeps = self
                 .archive
-                .list_sweeps(&current.sid, Some(stream), 1)
+                .sweeps_after_ingestion(&current.sid, Some(stream), after, expected.len())
                 .await?;
-            if let Some(raw) = sweeps.last() {
+            for (sequence, raw) in &sweeps {
+                after = *sequence;
                 let sweep: ori_contracts::Sweep = decode(raw)?;
                 if sweep.interval.started_at >= started {
-                    let p = self.project(id).await?;
-                    let b = self
-                        .get_record("baseline", s(&p, "baseline_id")?, Some(id))
-                        .await?;
-                    if ori_monitoring::fingerprint(&sweep)? != s(&b, "fingerprint")? {
+                    let band = if plan.is_some() {
+                        if raw["settings"]["scan_plan_id"] != project["scan_plan"]["id"] {
+                            return Err(invalid("Измерение не относится к текущему плану обзора"));
+                        }
+                        s(&raw["settings"], "scan_band_id")?
+                    } else {
+                        ""
+                    };
+                    let fingerprint = expected
+                        .get(band)
+                        .ok_or_else(|| invalid("Неизвестный поддиапазон обзора"))?;
+                    if ori_monitoring::fingerprint(&sweep)? != *fingerprint {
                         return Err(invalid("Профиль широкого обзора не совпал с эталоном"));
                     }
-                    let _tx = self.coordinator.lock().await;
-                    let mut p = self.project(id).await?;
-                    let current = self.runtime_snapshot(id)?.ok_or(ControlError::Denied)?;
-                    if current.token != token
-                        || current.stopped
-                        || !current.manual.get(stream).is_some_and(|m| m.returning)
+                    verified.insert(band.to_owned());
+                }
+            }
+            if verified.len() == expected.len() {
+                let _tx = self.coordinator.lock().await;
+                let mut p = self.project(id).await?;
+                let current = self.runtime_snapshot(id)?.ok_or(ControlError::Denied)?;
+                if current.token != token
+                    || current.stopped
+                    || !current.manual.get(stream).is_some_and(|m| m.returning)
+                {
+                    return Err(ControlError::Denied.into());
+                }
+                p["state"] = json!("armed");
+                p["coverage"] = json!("wide");
+                reset_detectors(&mut p);
+                p["last_error"] = Value::Null;
+                self.archive.put_monitoring("project", p.clone()).await?;
+                self.update_runtime(id, |runtime| {
+                    if runtime.token != token
+                        || runtime.stopped
+                        || !runtime.manual.get(stream).is_some_and(|m| m.returning)
                     {
                         return Err(ControlError::Denied.into());
                     }
-                    p["state"] = json!("armed");
-                    p["coverage"] = json!("wide");
-                    p["detector_state"] = Value::Null;
-                    p["last_error"] = Value::Null;
-                    self.archive.put_monitoring("project", p.clone()).await?;
-                    self.update_runtime(id, |runtime| {
-                        if runtime.token != token
-                            || runtime.stopped
-                            || !runtime.manual.get(stream).is_some_and(|m| m.returning)
-                        {
-                            return Err(ControlError::Denied.into());
-                        }
-                        runtime.manual.remove(stream);
-                        runtime.search = None;
-                        runtime.search_error = None;
-                        runtime.cached_project = p.clone();
-                        Ok(())
-                    })?;
-                    return Ok(());
-                }
+                    runtime.manual.remove(stream);
+                    runtime.search = None;
+                    runtime.search_error = None;
+                    runtime.cached_project = p.clone();
+                    Ok(())
+                })?;
+                return Ok(());
             }
             if self.clock.monotonic() >= deadline {
                 return Err(GuardError::Conflict(

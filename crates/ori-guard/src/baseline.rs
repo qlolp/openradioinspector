@@ -2,7 +2,7 @@ use crate::{GuardError, GuardService, Result, util::*};
 use ori_contracts::Sweep;
 use ori_monitoring::{AllowedSignal, Baseline, Detector, Parameters, build_baseline};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 impl GuardService {
     pub async fn create_baseline(&self, id: &str, payload: Value) -> Result<Value> {
@@ -10,7 +10,7 @@ impl GuardService {
         self.ensure_open()?;
         // The public Python resource resolves the project before confirmation.
         let project = self.project(id).await?;
-        fields(&payload, &["name", "location", "confirm"], false)
+        fields(&payload, &["name", "location", "confirm", "band_id"], false)
             .map_err(|_| invalid("Подтвердите пригодность эталона обычной обстановки"))?;
         if payload["confirm"] != true {
             return Err(invalid(
@@ -22,13 +22,37 @@ impl GuardService {
         {
             return Err(invalid("Снимите проект с охраны перед заменой эталона"));
         }
-        let selection = self
-            .archive
-            .baseline_selection(
-                s(&project, "active_session_id")?,
-                s(&project, "analyzer_stream_id")?,
+        let band = if let Some(plan) = crate::scan_plan::configured_plan(&project)? {
+            let requested = s(&payload, "band_id")?;
+            Some(
+                plan.bands
+                    .into_iter()
+                    .find(|b| b.id == requested)
+                    .ok_or_else(|| invalid("Неизвестный поддиапазон эталона"))?,
             )
-            .await?;
+        } else {
+            if payload.get("band_id").is_some() {
+                return Err(invalid("Поддиапазон требует сохранённый план обзора"));
+            }
+            None
+        };
+        let selection = if let Some(band) = &band {
+            self.archive
+                .baseline_selection_for_scan_band(
+                    s(&project, "active_session_id")?,
+                    s(&project, "analyzer_stream_id")?,
+                    s(&project["scan_plan"], "id")?,
+                    &band.id,
+                )
+                .await?
+        } else {
+            self.archive
+                .baseline_selection(
+                    s(&project, "active_session_id")?,
+                    s(&project, "analyzer_stream_id")?,
+                )
+                .await?
+        };
         let mut sweeps = Vec::with_capacity(selection.sweep_ids.len());
         for source in &selection.sweep_ids {
             sweeps.push(decode::<Sweep>(
@@ -38,6 +62,16 @@ impl GuardService {
                     .await?
                     .ok_or(GuardError::NotFound)?,
             )?);
+        }
+        if let Some(band) = &band {
+            for sweep in &sweeps {
+                if sweep.frequencies_hz.first() != Some(&band.start_hz)
+                    || sweep.frequencies_hz.last() != Some(&band.stop_hz)
+                    || sweep.frequencies_hz.len() != band.points as usize
+                {
+                    return Err(invalid("Исходник не совпадает с сеткой поддиапазона"));
+                }
+            }
         }
         let name = text_with_label(&payload, "name", "Название эталона", 200)?;
         let location = text_with_label(&payload, "location", "Место", 200)?;
@@ -52,6 +86,11 @@ impl GuardService {
         baseline["confirmed"] = json!(true);
         baseline["sweep_period_seconds"] = json!(selection.sweep_period_seconds);
         baseline["sample_strategy"] = json!("uniform_window_plus_latest_twenty");
+        if let Some(band) = &band {
+            baseline["scan_band_id"] = json!(band.id);
+            baseline["scan_plan_id"] = project["scan_plan"]["id"].clone();
+            baseline["scan_plan_revision"] = project["scan_plan"]["revision"].clone();
+        }
         baseline["preparation"] = project
             .get("preparation")
             .cloned()
@@ -68,9 +107,33 @@ impl GuardService {
                 "Проект изменился во время построения эталона".into(),
             ));
         }
-        current["baseline_id"] = baseline["id"].clone();
-        current["state"] = json!("ready");
-        current["detector_state"] = Value::Null;
+        if let Some(band) = &band {
+            current["band_baselines"][&band.id] = baseline["id"].clone();
+            current["band_detectors"] = json!({});
+            let plan =
+                crate::scan_plan::configured_plan(&current)?.ok_or_else(|| invalid("scan plan"))?;
+            if plan.bands.first().is_some_and(|b| b.id == band.id) {
+                current["baseline_id"] = baseline["id"].clone();
+            }
+            current["state"] = json!(if crate::scan_plan::all_baselines_ready(&current)? {
+                "ready"
+            } else {
+                "draft"
+            });
+            if self
+                .runtime
+                .lock()
+                .map_err(|_| invalid("guard runtime"))?
+                .preparing
+                .contains_key(id)
+            {
+                current["state"] = json!("collecting");
+            }
+        } else {
+            current["baseline_id"] = baseline["id"].clone();
+            current["state"] = json!("ready");
+        }
+        reset_detectors(&mut current);
         current["detector_cursor"] = sweeps.last().map(|s| json!(s.id)).unwrap_or(Value::Null);
         current["detector_rowid"] = json!(rowid);
         self.archive
@@ -175,23 +238,53 @@ impl GuardService {
     pub(crate) async fn analyze_locked(&self, id: &str) -> Result<Value> {
         self.ensure_open()?;
         let mut project = self.project(id).await?;
-        let baseline_id = project["baseline_id"]
-            .as_str()
-            .ok_or_else(|| invalid("Нужен подтверждённый эталон"))?
-            .to_owned();
-        let baseline_value = self
-            .detection_baseline(self.get_record("baseline", &baseline_id, Some(id)).await?)
-            .await?;
-        let baseline: Baseline = decode(&baseline_value)?;
+        let scan_plan = crate::scan_plan::configured_plan(&project)?;
+        let contexts = if let Some(plan) = &scan_plan {
+            if !crate::scan_plan::all_baselines_ready(&project)? {
+                return Err(invalid("Подтвердите эталон каждого поддиапазона"));
+            }
+            plan.bands
+                .iter()
+                .map(|b| {
+                    Ok((
+                        b.id.clone(),
+                        s(&project["band_baselines"], &b.id)?.to_owned(),
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![(
+                String::new(),
+                project["baseline_id"]
+                    .as_str()
+                    .ok_or_else(|| invalid("Нужен подтверждённый эталон"))?
+                    .to_owned(),
+            )]
+        };
         let parameters: Parameters = decode(&project["parameters"])?;
-        let mut detector = Detector::new(
-            baseline,
-            parameters,
-            project
-                .get("detector_state")
-                .filter(|v| !v.is_null())
-                .cloned(),
-        )?;
+        let mut detectors = BTreeMap::new();
+        for (band, baseline_id) in contexts {
+            let baseline_value = self
+                .detection_baseline(self.get_record("baseline", &baseline_id, Some(id)).await?)
+                .await?;
+            if scan_plan.is_some()
+                && (baseline_value["scan_band_id"] != band
+                    || baseline_value["scan_plan_id"] != project["scan_plan"]["id"])
+            {
+                return Err(invalid("Эталон принадлежит другому плану/поддиапазону"));
+            }
+            let checkpoint = if scan_plan.is_some() {
+                project["band_detectors"].get(&band)
+            } else {
+                project.get("detector_state")
+            };
+            let detector = Detector::new(
+                decode::<Baseline>(&baseline_value)?,
+                parameters.clone(),
+                checkpoint.filter(|v| !v.is_null()).cloned(),
+            )?;
+            detectors.insert(band, (baseline_id, detector));
+        }
         let allowed = self
             .archive
             .list_monitoring(
@@ -226,10 +319,28 @@ impl GuardService {
                     .await?
                     .ok_or(GuardError::NotFound)?,
             )?;
+            let band = if scan_plan.is_some() {
+                let settings = sweep
+                    .settings
+                    .as_ref()
+                    .ok_or_else(|| invalid("Нет контекста плана обзора"))?;
+                if settings.get("scan_plan_id") != project["scan_plan"].get("id") {
+                    return Err(invalid("Исходник относится к другой версии плана обзора"));
+                }
+                settings
+                    .get("scan_band_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| invalid("Нет поддиапазона исходника"))?
+            } else {
+                ""
+            };
+            let (baseline_id, detector) = detectors
+                .get_mut(band)
+                .ok_or_else(|| invalid("Неизвестный поддиапазон исходника"))?;
             let step = detector.step(&sweep, &allowed)?;
             let mut opens = self
                 .archive
-                .open_events(id, &sweep.session_id, &baseline_id)
+                .open_events(id, &sweep.session_id, baseline_id)
                 .await?;
             let mut mutations = vec![];
             if let Some(quality) = detector.take_quality_issue() {
@@ -305,6 +416,11 @@ impl GuardService {
                     fields["source_count"] = json!(0);
                     fields["source_refs"] = json!([]);
                     fields["baseline_id"] = json!(baseline_id);
+                    if scan_plan.is_some() {
+                        fields["scan_band_id"] = json!(band);
+                        fields["scan_plan_id"] = project["scan_plan"]["id"].clone();
+                        fields["scan_plan_revision"] = project["scan_plan"]["revision"].clone();
+                    }
                     fields["detector_version"] = json!(ori_monitoring::VERSION);
                     fields["detector_parameters"] = project["parameters"].clone();
                     self.record(Some(id), fields)?
@@ -404,12 +520,14 @@ impl GuardService {
             }
             let expected_cursor = project.get("detector_cursor").cloned();
             let expected_state = project.get("detector_state").cloned();
+            let expected_band_states = project.get("band_detectors").cloned();
             let expected_rowid = project.get("detector_rowid").cloned();
             let _tx = self.coordinator.lock().await;
             self.ensure_open()?;
             let current = self.project(id).await?;
             if current.get("detector_cursor") != expected_cursor.as_ref()
                 || current.get("detector_state") != expected_state.as_ref()
+                || current.get("band_detectors") != expected_band_states.as_ref()
                 || current.get("detector_rowid") != expected_rowid.as_ref()
                 || current["baseline_id"] != project["baseline_id"]
             {
@@ -420,7 +538,11 @@ impl GuardService {
             project = current;
             project["detector_cursor"] = json!(sweep.id);
             project["detector_rowid"] = json!(capture.rowid);
-            project["detector_state"] = detector.checkpoint()?;
+            if scan_plan.is_some() {
+                project["band_detectors"][band] = detector.checkpoint()?;
+            } else {
+                project["detector_state"] = detector.checkpoint()?;
+            }
             mutations.push(Self::mutation("project", project.clone()));
             self.archive.apply(mutations).await?;
             processed += 1;

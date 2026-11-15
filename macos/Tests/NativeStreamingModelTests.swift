@@ -93,9 +93,13 @@ final class NativeStreamingModelTests: XCTestCase {
     }
     final class Responses: @unchecked Sendable {
         private let timeline: Timeline?
+        private let scanBands: [String]
         let host = "native-stream-\(UUID().uuidString.lowercased()).example.test"
         var endpoint: String { "https://\(host)" }
-        init(timeline: Timeline? = nil) { self.timeline = timeline }
+        init(timeline: Timeline? = nil, scanBands: [String] = []) {
+            self.timeline = timeline
+            self.scanBands = scanBands
+        }
         deinit { retire() }
         func install() {
             Stub.install(host: host) { [weak self] stub in
@@ -174,7 +178,17 @@ final class NativeStreamingModelTests: XCTestCase {
                     timeline?.mark("metadata request held=\(holdMetadata)")
                     if holdMetadata { holdMetadata = false; heldMetadata = (stub, session) }
                     else { stub.json(session) }
-                case "/api/v1/sessions/s/sweeps": reads += 1; stub.json([Self.sweep(id: snapshotID, levels: snapshotLevels)])
+                case "/api/v1/sessions/s/sweeps":
+                    reads += 1
+                    if scanBands.isEmpty {
+                        stub.json([Self.sweep(id: snapshotID, levels: snapshotLevels)])
+                    } else {
+                        stub.json(scanBands.map { band in
+                            var sweep = Self.sweep(id: "sweep-\(band)", levels: snapshotLevels)
+                            sweep["settings"] = ["scan_band_id": band, "scan_plan_id": "plan"]
+                            return sweep
+                        })
+                    }
                 case "/api/v1/sessions/s/audio/status":
                     stub.json(["session_id": "s", "stream_id": "a", "subscribers": 1, "max_subscribers": 4, "queued_blocks": 2, "dropped_blocks": 0])
                 case "/api/v1/sessions/s/phonogram/status":
@@ -309,6 +323,18 @@ final class NativeStreamingModelTests: XCTestCase {
         model.toggleSpectrumPause()
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "while-paused")
+    }
+    @MainActor func testResumeKeepsOnlyTheSelectedScanBand() async throws {
+        let responses = Responses(scanBands: ["fm", "air"])
+        let model = try await connected(responses)
+        defer { model.disconnect(); responses.retire() }
+        model.selectScanBand("fm")
+        try await wait { model.spectrumPresentation.sweeps.map(\.id) == ["sweep-fm"] }
+
+        model.toggleSpectrumPause()
+        XCTAssertTrue(model.spectrumPresentation.paused)
+        model.toggleSpectrumPause()
+        XCTAssertEqual(model.spectrumPresentation.sweeps.map(\.id), ["sweep-fm"])
     }
     @MainActor func testMetadataRefreshUsesFramesAppliedWhileItsRequestWasInFlight() async throws {
         let timeline = Timeline(), responses = Responses(timeline: timeline)

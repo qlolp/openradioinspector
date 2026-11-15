@@ -109,3 +109,22 @@ it('retains a visible first peak even when two clipped boundary vertices consume
   expect(points.length).toBeLessThanOrEqual(8);
   expect(Array.from(points).filter((_, i) => i % 2 === 0)).toContain(-0.25);
 });
+
+it('keeps immutable scan provenance when preparing a display frame', () => {
+  const raw = {
+    id: 'a',
+    session_id: 's',
+    stream_id: 'r',
+    interval: { started_at: '2026-11-14T00:00:00Z', ended_at: '2026-11-14T00:00:01Z' },
+    frequencies_hz: [100000000, 100010000],
+    levels: [-90, -40],
+    level_unit: 'dBm',
+    settings: { scan_plan_id: 'plan-1', scan_plan_revision: 1, scan_band_id: 'fm' },
+  };
+  expect(decimate(raw)).toMatchObject({ scan_context: { plan_id: 'plan-1', band_id: 'fm' } });
+  expect(raw.settings).toEqual({
+    scan_plan_id: 'plan-1',
+    scan_plan_revision: 1,
+    scan_band_id: 'fm',
+  });
+});

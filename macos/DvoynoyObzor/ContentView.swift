@@ -1,4 +1,5 @@
 import SwiftUI
+import SpektrKomandy
 import AppKit
 
 struct ContentView: View {
@@ -62,7 +63,7 @@ struct ContentView: View {
             ZStack {
                 devicesPage.workbenchVisible(tab == "devices")
                 HSplitView {
-                    RemoteUltraPane(model: model, research: true).frame(minWidth: 640)
+                    RemoteUltraPane(model: model, research: true, scanBands: currentScanBands).frame(minWidth: 640)
                     if showReceiver, model.receiver != nil {
                         RemoteArPane(model: model).frame(minWidth: 280, idealWidth: 300, maxWidth: 420)
                     }
@@ -127,6 +128,13 @@ struct ContentView: View {
             model.observeVerifiedRuntimeOwner(owner)
             if owner != nil { connectLocalService() }
         }
+    }
+
+    private var currentScanBands: [MonitoringValue] {
+        let project = workspace.project
+        guard !model.selectedSessionID.isEmpty,
+              PlatformExactID.same(project["active_session_id"].text, model.selectedSessionID) else { return [] }
+        return project["scan_plan"]["config"]["bands"].items
     }
 
     private var devicesPage: some View {

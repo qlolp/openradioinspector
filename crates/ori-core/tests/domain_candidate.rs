@@ -373,3 +373,45 @@ async fn armed_cutover_requires_ack_and_preserves_opt_in_intent_before_releasing
     );
     archive.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn scan_plan_http_is_versioned_bounded_and_never_opens_devices() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = Server::start(directory.path()).await;
+    setup(&server).await;
+    let id = project(&server).await;
+    let route = format!("/api/v1/monitoring-projects/{id}/scan-plan");
+    let config = json!({"name":"Survey","bands":[
+        {"id":"fm","name":"FM","start_hz":88000000,"stop_hz":108000000,"points":201,"rbw_hz":10000,"max_revisit_seconds":15.0},
+        {"id":"uhf","name":"UHF","start_hz":430000000,"stop_hz":440000000,"points":101,"rbw_hz":30000,"max_revisit_seconds":15.0}]});
+    let (status, value) = server.request("POST", &route, Some(&config)).await;
+    assert_eq!(status, 201, "{value}");
+    assert_eq!(value["data"]["revision"], 1);
+    let (_, stored) = server.request("GET", &route, None).await;
+    assert_eq!(stored, value);
+    let mut invalid = config.clone();
+    invalid["bands"][0]["output"] = json!(true);
+    assert_eq!(server.request("POST", &route, Some(&invalid)).await.0, 400);
+    assert_eq!(server.request("GET", &route, None).await.1, stored);
+    let (_, capabilities) = server.request("GET", "/api/v1/capabilities", None).await;
+    assert_eq!(
+        capabilities["data"]["features"]["monitoring_scan_plans"],
+        true
+    );
+    let (worker_status, workers) = server
+        .request("GET", "/api/v1/sessions/domain/workers", None)
+        .await;
+    assert_eq!(worker_status, 200, "{workers}");
+    assert!(!workers.to_string().contains("\"alive\":true"));
+    server.stop().await;
+    let restarted = Server::start(directory.path()).await;
+    let (status, recovered) = restarted.request("GET", &route, None).await;
+    assert_eq!(status, 200, "{recovered}");
+    assert_eq!(recovered, stored);
+    let (status, workers) = restarted
+        .request("GET", "/api/v1/sessions/domain/workers", None)
+        .await;
+    assert_eq!(status, 200, "{workers}");
+    assert!(!workers.to_string().contains("\"alive\":true"));
+    restarted.stop().await;
+}

@@ -1,8 +1,5 @@
-#[path = "../tests/common/mod.rs"]
-mod common;
-
 use super::*;
-use common::Harness;
+use crate::test_common::Harness;
 use std::{
     future::{Future, poll_fn},
     pin::Pin,

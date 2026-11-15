@@ -11,6 +11,7 @@ import type { DisplaySweep, Observation, Sweep } from './types';
 import type { PresentationReceipt } from './live-presentation';
 
 export interface LiveSnapshot {
+  scanPresentations?: ReadonlyMap<string, PresentationReceipt>;
   rows: DisplaySweep[];
   presentation: PresentationReceipt;
   observation?: Observation;
@@ -54,6 +55,7 @@ export class LiveStore {
   private status = 'Connecting';
   private gaps = 0;
   private presentation: PresentationReceipt = { epoch: {}, total: 0n };
+  private scanPresentations = new Map<string, PresentationReceipt>();
   private snapshot: LiveSnapshot = {
     rows: [],
     presentation: this.presentation,
@@ -233,8 +235,20 @@ export class LiveStore {
       }
       const previous = this.buffer.rows;
       this.buffer.append(frame.sweep);
-      if (this.buffer.rows !== previous)
+      if (this.buffer.rows !== previous) {
         this.presentation = { epoch: this.presentation.epoch, total: this.presentation.total + 1n };
+        if (frame.sweep.scan_context) {
+          const context = frame.sweep.scan_context;
+          const key = JSON.stringify([context.plan_id, context.band_id]);
+          const prior = this.scanPresentations.get(key);
+          if (!prior && this.scanPresentations.size >= 16)
+            this.scanPresentations.delete(this.scanPresentations.keys().next().value!);
+          this.scanPresentations.set(key, {
+            epoch: prior?.epoch ?? {},
+            total: (prior?.total ?? 0n) + 1n,
+          });
+        }
+      }
     }
     if (
       frame.unsupported?.session_id === this.session &&
@@ -267,6 +281,9 @@ export class LiveStore {
       this.snapshot = {
         rows: this.buffer.rows,
         presentation: this.presentation,
+        ...(this.scanPresentations.size
+          ? { scanPresentations: new Map(this.scanPresentations) }
+          : {}),
         observation: this.observation,
         unsupported: this.unsupported,
         sequence: this.gate.last,
@@ -303,6 +320,7 @@ export class LiveStore {
   }
   private fencePresentation() {
     this.presentation = { epoch: {}, total: 0n };
+    this.scanPresentations.clear();
   }
   dispose() {
     this.disposed = true;

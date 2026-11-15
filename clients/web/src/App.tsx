@@ -1,11 +1,13 @@
 import { t, useLocale } from './i18n';
 import { LocaleControls } from './LocaleControls';
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { Spectrum, Waterfall } from './charts';
 import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
 import { Research } from './Research';
+import { ScanPlan } from './ScanPlan';
+import { scanChoices, scanKey } from './scan-plan';
 import { remember, save, useDesk, type Desk } from './useDesk';
 import type { Connection } from './transport';
 import type { MonitoringEvent, Page, Sweep } from './types';
@@ -73,10 +75,16 @@ function PreparationPanel({ desk }: { desk: Desk }) {
             : t('Baseline not confirmed')}
         </strong>
         <span className="mono">
-          {progress?.sweeps || 0}
-          {' ' + t('sweeps ·') + ' '}
-          {(progress?.elapsed_seconds || 0).toFixed(1)}
-          {' ' + t('s')}
+          {progress?.bands ? (
+            'Подтвердите эталоны поддиапазонов в плане обзора'
+          ) : (
+            <>
+              {progress?.sweeps || 0}
+              {' ' + t('sweeps ·') + ' '}
+              {(progress?.elapsed_seconds || 0).toFixed(1)}
+              {' ' + t('s')}
+            </>
+          )}
         </span>
       </div>
       <p className="muted">
@@ -138,7 +146,12 @@ function PreparationPanel({ desk }: { desk: Desk }) {
         </label>
         <button
           disabled={
-            desk.busy || !desk.project || desk.guard?.active || !progress?.ready || !confirm
+            desk.busy ||
+            !desk.project ||
+            desk.guard?.active ||
+            !progress?.ready ||
+            !confirm ||
+            !!desk.project?.scan_plan
           }
         >
           {t('Confirm baseline')}
@@ -308,6 +321,7 @@ export function App({
   const desk = useDesk(transport);
   const [workspace, setWorkspace] = useState(() => remember('workspace', 'monitoring'));
   const [theme, setTheme] = useState(() => remember('theme', 'system'));
+  const [scanBand, setScanBand] = useState('');
   const [wizard, setWizard] = useState(false),
     [event, setEvent] = useState<MonitoringEvent>(),
     [original, setOriginal] = useState<Sweep>();
@@ -319,9 +333,23 @@ export function App({
   const audio = useRef<HTMLAudioElement>(null),
     dialogGeneration = useRef(0),
     dialogAbort = useRef(new AbortController());
-  const p = desk.project,
-    unavailable = desk.live.unsupported,
-    latest = unavailable ? undefined : desk.live.rows.at(-1),
+  const p = desk.project;
+  const scanBands = scanChoices(desk.live.rows, p);
+  const selectedBand = scanBands.some((b) => b.key === scanBand)
+    ? scanBand
+    : (scanBands[0]?.key ?? '');
+  const displayRows = selectedBand
+    ? desk.live.rows.filter((row) => scanKey(row) === selectedBand)
+    : desk.live.rows;
+  const emptyBandReceipt = useMemo(
+    () => ({ epoch: {}, total: 0n }),
+    [selectedBand, desk.live.presentation.epoch],
+  );
+  const presentation = selectedBand
+    ? (desk.live.scanPresentations?.get(selectedBand) ?? emptyBandReceipt)
+    : desk.live.presentation;
+  const unavailable = desk.live.unsupported,
+    latest = unavailable ? undefined : displayRows.at(-1),
     receiver = desk.live.observation;
   const receiverWorker = desk.guard?.workers.find(
     (worker) => worker.stream_id === p?.receiver_stream_id,
@@ -738,10 +766,24 @@ export function App({
                 </button>
               </div>
             ) : (
-              <Spectrum
-                sweep={latest}
-                liveSources={{ rows: desk.live.rows, presentation: desk.live.presentation }}
-              />
+              <>
+                {scanBands.length > 0 && (
+                  <label>
+                    {t('Поддиапазон графика')}
+                    <select
+                      value={selectedBand}
+                      onChange={(event) => setScanBand(event.target.value)}
+                    >
+                      {scanBands.map((band) => (
+                        <option key={band.key} value={band.key}>
+                          {band.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <Spectrum sweep={latest} liveSources={{ rows: displayRows, presentation }} />
+              </>
             )}
             <div className="chart-caption" role="group" aria-label={t('Latest saved measurement')}>
               <span>{t('Frequency · MHz')}</span>
@@ -750,7 +792,7 @@ export function App({
                 {' ' + t('original points · display only')}
               </span>
             </div>
-            <Waterfall rows={desk.live.rows} />
+            <Waterfall key={selectedBand} rows={displayRows} />
             <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
               <span data-testid="source-id">
                 {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
@@ -927,6 +969,7 @@ export function App({
           </Panel>
           <div className="preparation-grid">
             <PreparationPanel desk={desk} />
+            <ScanPlan desk={desk} />
             <AllowedPanel desk={desk} />
           </div>
         </section>

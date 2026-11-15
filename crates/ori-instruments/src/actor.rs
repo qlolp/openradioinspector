@@ -32,6 +32,7 @@ pub enum TinySaRequest {
     Prepare,
     Inspect,
     Poll,
+    PollBand(ReceiveConfig),
     AcquireRaw(RawScanConfig),
     CaptureScreen,
     Control(TinySaControl),
@@ -107,6 +108,9 @@ impl TinySaActor {
                     TinySaRequest::Prepare => adapter.prepare().await.map(|_| TinySaReply::Ready),
                     TinySaRequest::Inspect => adapter.inspect().await.map(TinySaReply::Inspection),
                     TinySaRequest::Poll => adapter.poll_spectrum().await.map(TinySaReply::Spectrum),
+                    TinySaRequest::PollBand(config) => {
+                        adapter.poll_band(config).await.map(TinySaReply::Spectrum)
+                    }
                     TinySaRequest::AcquireRaw(config) => adapter
                         .acquire_raw(config)
                         .await

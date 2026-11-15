@@ -31,11 +31,21 @@ final class RemoteDualModel: ObservableObject {
     @Published var reviewedSweep: PlatformSweep?
     @Published var showTinySAControl = false
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { coreReachable = false; lastCoreContactAt = nil; resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
+        didSet {
+            guard !PlatformExactID.same(serverURL, oldValue) else { return }
+            selectedScanBand = ""
+            coreReachable = false; lastCoreContactAt = nil; resetMeasurementHealth()
+            resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil)
+        }
     }
     @Published var sessions: [PlatformSession] = []
     @Published var selectedSessionID = "" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
+        didSet {
+            guard !PlatformExactID.same(selectedSessionID, oldValue) else { return }
+            selectedScanBand = ""
+            resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset()
+            configureAuxiliaryStreams(client: nil, session: nil)
+        }
     }
     @Published var session: PlatformSession? {
         didSet {
@@ -72,6 +82,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var mode = "FM"
     @Published var threshold = "-80"
     @Published var spectrumPresentation = PlatformSpectrumPresentation()
+    @Published var selectedScanBand = ""
     @Published var spectrumClippedCount = 0
     @Published var spectrumLower = ""
     @Published var spectrumUpper = ""
@@ -948,7 +959,8 @@ final class RemoteDualModel: ObservableObject {
     func toggleSpectrumPause() {
         if archiveCacheVerified, spectrumPresentation.paused, let cache = measurementStream.measurements, let stream = analyzer?.id,
            PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL) {
-            spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: cache.sweeps)
+            spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                                        sweeps: scanBandSweeps(in: cache.sweeps))
             if spectrumPresentation.paused { spectrumPresentation.togglePause() }
         } else { spectrumPresentation.togglePause() }
         renderSpectrumPresentation()
@@ -956,17 +968,42 @@ final class RemoteDualModel: ObservableObject {
     func fitSpectrum() { spectrumRenderRevision += 1; spectrumPresentation.fit(); spectrumClippedCount = spectrumPresentation.clippedCount }
     func applySpectrumBounds() { spectrumRenderRevision += 1; spectrumPresentation.setBounds(lower: spectrumLower, upper: spectrumUpper); spectrumClippedCount = spectrumPresentation.clippedCount }
     func clearSpectrumPresentation() { spectrumPresentation.reset(); renderSpectrumPresentation() }
+
+    private static func scanContext(_ sweep: PlatformSweep) -> (band: String, plan: String)? {
+        guard let bandValue = sweep.settings?["scan_band_id"], case .string(let band) = bandValue,
+              let planValue = sweep.settings?["scan_plan_id"], case .string(let plan) = planValue,
+              !band.isEmpty, band.utf8.count <= 64, !plan.isEmpty, plan.utf8.count <= 800 else { return nil }
+        return (band, plan)
+    }
+    var availableScanBandIDs: [String] {
+        Array(Set((measurementSnapshot?.sweeps ?? []).compactMap { Self.scanContext($0)?.band })).sorted()
+    }
+    func selectScanBand(_ id: String) {
+        guard !PlatformExactID.same(id, selectedScanBand) else { return }
+        selectedScanBand = id
+        lastRenderedFrame = nil
+        lastRenderedSweeps = []
+        clearSpectrumPresentation()
+        let sourceGeneration = generation, sourceClient = client
+        Task { [weak self] in
+            guard let self, self.generation == sourceGeneration, self.client === sourceClient,
+                  PlatformExactID.same(self.selectedScanBand, id), let snapshot = self.measurementSnapshot else { return }
+            _ = await self.applyMeasurements(snapshot)
+        }
+    }
     private func renderSpectrumPresentation() {
         spectrumRenderRevision += 1
         spectrumClippedCount = spectrumPresentation.clippedCount
         if let frame = try? NativeSpectrumFrame(sweeps: spectrumPresentation.sweeps, threshold: thresholdDbm ?? -80) { publish(frame) }
     }
     private func prepareSpectrum(scope: PlatformSpectrumPresentation.Scope?, incoming: [PlatformSweep]) async -> Bool {
+        if selectedScanBand.isEmpty { selectedScanBand = incoming.compactMap { Self.scanContext($0)?.band }.first ?? "" }
+        let visible = scanBandSweeps(in: incoming)
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
         let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
             var next = previous
-            if let scope { next.update(scope: scope, sweeps: incoming) } else { next.reset() }
+            if let scope { next.update(scope: scope, sweeps: visible) } else { next.reset() }
             let frame = next.paused ? nil : try NativeSpectrumFrame(sweeps: next.sweeps, threshold: threshold)
             return (next, frame, next.clippedCount)
         }
@@ -975,6 +1012,13 @@ final class RemoteDualModel: ObservableObject {
         spectrumPresentation = next; spectrumClippedCount = clipped
         if let frame { publish(frame) }
         return true
+    }
+
+    private func scanBandSweeps(in sweeps: [PlatformSweep]) -> [PlatformSweep] {
+        guard !selectedScanBand.isEmpty else { return sweeps }
+        let selected = sweeps.filter { PlatformExactID.same(Self.scanContext($0)?.band, selectedScanBand) }
+        guard let newestPlan = selected.last.flatMap(Self.scanContext)?.plan else { return selected }
+        return selected.filter { PlatformExactID.same(Self.scanContext($0)?.plan, newestPlan) }
     }
 
     private func publish(_ frame: NativeSpectrumFrame) {

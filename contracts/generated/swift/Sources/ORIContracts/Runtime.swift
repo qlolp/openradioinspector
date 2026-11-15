@@ -91,6 +91,15 @@ public enum PairingInputClient: String, Sendable, Codable, CaseIterable {
     public var json: JSONValue { .string(rawValue) }
 }
 
+public enum ScanPlanRevisionHardwareValidation: String, Sendable, Codable, CaseIterable {
+    case not_run = "not_run"
+    public init(json: JSONValue) throws {
+        guard let value = Self(rawValue: try json.requireString()) else { throw ContractError.invalid("Unknown enum value") }
+        self = value
+    }
+    public var json: JSONValue { .string(rawValue) }
+}
+
 public enum SecurityStatusMode: String, Sendable, Codable, CaseIterable {
     case legacy_loopback = "legacy_loopback"
     case lan_tls = "lan_tls"
@@ -853,6 +862,131 @@ public struct PairingInput: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct ScanBand: ContractModel, Equatable, Sendable {
+    public var id: String
+    public var max_revisit_seconds: Double
+    public var name: String
+    public var points: UInt64
+    public var rbw_hz: UInt64
+    public var start_hz: UInt64
+    public var stop_hz: UInt64
+    public var extra: JSONObject
+    public init(id: String, max_revisit_seconds: Double, name: String, points: UInt64, rbw_hz: UInt64, start_hz: UInt64, stop_hz: UInt64, extra: JSONObject = [:]) {
+        self.id = id
+        self.max_revisit_seconds = max_revisit_seconds
+        self.name = name
+        self.points = points
+        self.rbw_hz = rbw_hz
+        self.start_hz = start_hz
+        self.stop_hz = stop_hz
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let max_revisit_secondsValue = object.removeValue(forKey: "max_revisit_seconds") else { throw ContractError.invalid("Missing max_revisit_seconds") }
+        max_revisit_seconds = try max_revisit_secondsValue.requireDouble()
+        guard let nameValue = object.removeValue(forKey: "name") else { throw ContractError.invalid("Missing name") }
+        name = try nameValue.requireString()
+        guard let pointsValue = object.removeValue(forKey: "points") else { throw ContractError.invalid("Missing points") }
+        points = try pointsValue.requireUInt64()
+        guard let rbw_hzValue = object.removeValue(forKey: "rbw_hz") else { throw ContractError.invalid("Missing rbw_hz") }
+        rbw_hz = try rbw_hzValue.requireUInt64()
+        guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
+        start_hz = try start_hzValue.requireUInt64()
+        guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
+        stop_hz = try stop_hzValue.requireUInt64()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["id"] = .string(id)
+        object["max_revisit_seconds"] = .number(max_revisit_seconds)
+        object["name"] = .string(name)
+        object["points"] = .integer(String(points))
+        object["rbw_hz"] = .integer(String(rbw_hz))
+        object["start_hz"] = .integer(String(start_hz))
+        object["stop_hz"] = .integer(String(stop_hz))
+        return .object(object)
+    }
+}
+
+public struct ScanPlanConfig: ContractModel, Equatable, Sendable {
+    public var bands: [ScanBand]
+    public var name: String
+    public var extra: JSONObject
+    public init(bands: [ScanBand], name: String, extra: JSONObject = [:]) {
+        self.bands = bands
+        self.name = name
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let bandsValue = object.removeValue(forKey: "bands") else { throw ContractError.invalid("Missing bands") }
+        bands = try bandsValue.requireArray().map { try ScanBand(json: $0) }
+        guard let nameValue = object.removeValue(forKey: "name") else { throw ContractError.invalid("Missing name") }
+        name = try nameValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["bands"] = .array(bands.map { $0.json })
+        object["name"] = .string(name)
+        return .object(object)
+    }
+}
+
+public struct ScanPlanRevision: ContractModel, Equatable, Sendable {
+    public var config: ScanPlanConfig
+    public var created_at: UtcTimestamp
+    public var hardware_validation: ScanPlanRevisionHardwareValidation
+    public var id: String
+    public var project_id: String
+    public var revision: UInt64
+    public var schema_version: UInt64
+    public var extra: JSONObject
+    public init(config: ScanPlanConfig, created_at: UtcTimestamp, hardware_validation: ScanPlanRevisionHardwareValidation, id: String, project_id: String, revision: UInt64, schema_version: UInt64, extra: JSONObject = [:]) {
+        self.config = config
+        self.created_at = created_at
+        self.hardware_validation = hardware_validation
+        self.id = id
+        self.project_id = project_id
+        self.revision = revision
+        self.schema_version = schema_version
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let configValue = object.removeValue(forKey: "config") else { throw ContractError.invalid("Missing config") }
+        config = try ScanPlanConfig(json: configValue)
+        guard let created_atValue = object.removeValue(forKey: "created_at") else { throw ContractError.invalid("Missing created_at") }
+        created_at = try UtcTimestamp(json: created_atValue)
+        guard let hardware_validationValue = object.removeValue(forKey: "hardware_validation") else { throw ContractError.invalid("Missing hardware_validation") }
+        hardware_validation = try ScanPlanRevisionHardwareValidation(json: hardware_validationValue)
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let project_idValue = object.removeValue(forKey: "project_id") else { throw ContractError.invalid("Missing project_id") }
+        project_id = try project_idValue.requireString()
+        guard let revisionValue = object.removeValue(forKey: "revision") else { throw ContractError.invalid("Missing revision") }
+        revision = try revisionValue.requireUInt64()
+        guard let schema_versionValue = object.removeValue(forKey: "schema_version") else { throw ContractError.invalid("Missing schema_version") }
+        schema_version = try schema_versionValue.requireUInt64()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["config"] = config.json
+        object["created_at"] = created_at.json
+        object["hardware_validation"] = hardware_validation.json
+        object["id"] = .string(id)
+        object["project_id"] = .string(project_id)
+        object["revision"] = .integer(String(revision))
+        object["schema_version"] = .integer(String(schema_version))
+        return .object(object)
+    }
+}
+
 public struct SecurityStatus: ContractModel, Equatable, Sendable {
     public var mode: SecurityStatusMode
     public var pairing_required: Bool
@@ -932,6 +1066,8 @@ RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_preparation",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/preparation",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_preparation_start",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/preparation/start",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_preparation_stop",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/preparation/stop",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
+RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_scan_plan",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/scan-plan",backends: ["rust-candidate"],features: ["monitoring_scan_plans"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
+RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_scan_plan",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/scan-plan",backends: ["rust-candidate"],features: ["monitoring_scan_plans"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_search_mark",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/search/mark",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "post_api_v1_monitoring_projects_project_id_search_start",method: "POST",path: "/api/v1/monitoring-projects/{project_id}/search/start",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: 65536),
 RuntimeOperationDescriptor(operationId: "get_api_v1_monitoring_projects_project_id_search_status",method: "GET",path: "/api/v1/monitoring-projects/{project_id}/search/status",backends: ["python-legacy", "rust-candidate"],features: ["monitoring_projects"],capabilities: [], requestFeatures: [], query: [], pathParameters: ["project_id"], maxRequestBytes: nil),

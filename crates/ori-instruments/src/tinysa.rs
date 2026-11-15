@@ -225,6 +225,32 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             "generator_output_readback":false,"device_mode":self.device_mode,"device_mode_readback":false,
             "hardware_validation":"not_run","instrument_settings":self.settings})
     }
+    /// Switch only verified receive settings on the existing owned connection.
+    /// Unknown/output/lab state is rejected before any reconfiguration I/O.
+    pub async fn poll_band(&mut self, config: ReceiveConfig) -> Result<SpectrumSample> {
+        validate_receive(config)?;
+        self.connection.ensure()?;
+        if !self.ready {
+            return Err(InstrumentError::UnsafeState(
+                "scan plan requires explicit receive preparation".into(),
+            ));
+        }
+        self.require_input()?;
+        if self.control_mode != ControlMode::Monitoring {
+            return Err(InstrumentError::UnsafeState(
+                "scan plan is paused in lab mode".into(),
+            ));
+        }
+        if self.receive.rbw_hz != config.rbw_hz {
+            self.ack(&format!("rbw {}", config.rbw_hz / 1000)).await?;
+        }
+        self.receive = config;
+        self.settings["start_hz"] = json!(config.start_hz);
+        self.settings["stop_hz"] = json!(config.stop_hz);
+        self.settings["points"] = json!(config.points);
+        self.settings["rbw_hz"] = json!(config.rbw_hz);
+        self.poll_spectrum().await
+    }
     pub async fn poll_spectrum(&mut self) -> Result<SpectrumSample> {
         self.connection.ensure()?;
         if !self.ready {

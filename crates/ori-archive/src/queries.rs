@@ -1,6 +1,8 @@
 use crate::*;
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
-use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
+use rusqlite::{
+    Connection, OptionalExtension, named_params, params, params_from_iter, types::Value as SqlValue,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -226,9 +228,12 @@ fn baseline_sources(
     session: &str,
     stream: &str,
     maximum: usize,
+    band: Option<&str>,
+    plan: Option<&str>,
 ) -> Result<BaselineSelection> {
-    let (count, first, last) = db.query_row("SELECT COUNT(*),MIN(i.started_at),MAX(i.ended_at) FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=? AND s.stream_id=?",
-        params![session, stream], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)))?;
+    let scope = " AND (:band IS NULL OR json_extract(s.settings_json,'$.scan_band_id')=:band) AND (:plan IS NULL OR json_extract(s.settings_json,'$.scan_plan_id')=:plan)";
+    let (count, first, last) = db.query_row(&format!("SELECT COUNT(*),MIN(i.started_at),MAX(i.ended_at) FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=:session AND s.stream_id=:stream{scope}"),
+        named_params!{":session":session,":stream":stream,":band":band,":plan":plan}, |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)))?;
     let first = first.map(|value| validate::utc(&value)).transpose()?;
     let last = last.map(|value| validate::utc(&value)).transpose()?;
     let elapsed_seconds = match (&first, &last) {
@@ -244,8 +249,9 @@ fn baseline_sources(
     };
     // Deliberately mirror SQLiteSessionStore.list_sweeps' original recent-source
     // ordering, including historical raw offset text/native UTF-16 ID ties.
-    let mut statement = db.prepare("SELECT id,started_at,ended_at,CASE WHEN instr(started_at,'.')=0 THEN replace(started_at,'Z','.000000Z') ELSE started_at END AS sort_started_at FROM sweeps WHERE session_id=? AND stream_id=? ORDER BY sort_started_at DESC,id DESC LIMIT 20")?;
-    let mut rows = statement.query(params![session, stream])?;
+    let mut statement = db.prepare(&format!("SELECT id,started_at,ended_at,CASE WHEN instr(started_at,'.')=0 THEN replace(started_at,'Z','.000000Z') ELSE started_at END AS sort_started_at FROM sweeps s WHERE session_id=:session AND stream_id=:stream{scope} ORDER BY sort_started_at DESC,id DESC LIMIT 20"))?;
+    let mut rows = statement
+        .query(named_params! {":session":session,":stream":stream,":band":band,":plan":plan})?;
     let mut recent = Vec::new();
     let mut remaining = maximum;
     while let Some(row) = rows.next()? {
@@ -285,12 +291,8 @@ fn baseline_sources(
         .ended_at
         .checked_sub_signed(TimeDelta::seconds(60))
         .ok_or_else(|| error::invalid("baseline target time"))?;
-    let mut statement = db.prepare("SELECT s.id,i.started_at,i.ended_at FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=? AND s.stream_id=? AND i.started_at<=? ORDER BY i.started_at DESC,s.id DESC LIMIT 1")?;
-    let mut rows = statement.query(params![
-        session,
-        stream,
-        target.to_rfc3339_opts(SecondsFormat::Micros, true)
-    ])?;
+    let mut statement = db.prepare(&format!("SELECT s.id,i.started_at,i.ended_at FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=:session AND s.stream_id=:stream AND i.started_at<=:target{scope} ORDER BY i.started_at DESC,s.id DESC LIMIT 1"))?;
+    let mut rows = statement.query(named_params!{":session":session,":stream":stream,":band":band,":plan":plan,":target":target.to_rfc3339_opts(SecondsFormat::Micros, true)})?;
     let older = rows.next()?.map(|row| sample(row, maximum)).transpose()?;
     let start = older.map_or(recent[0].started_at, |older| {
         recent[0].started_at.min(older.started_at)
@@ -303,14 +305,14 @@ fn baseline_sources(
         charge(&source.id, &mut remaining)?;
         selected.insert(source.id.clone(), source.started_at);
     }
-    let mut statement = db.prepare("SELECT s.id,i.started_at,i.ended_at FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=? AND s.stream_id=? AND i.started_at>=? AND i.started_at<=? ORDER BY i.started_at,s.id LIMIT 1")?;
+    let mut statement = db.prepare(&format!("SELECT s.id,i.started_at,i.ended_at FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=:session AND s.stream_id=:stream AND i.started_at>=:start AND i.started_at<=:end{scope} ORDER BY i.started_at,s.id LIMIT 1"))?;
     let end_stamp = end.to_rfc3339_opts(SecondsFormat::Micros, true);
     for index in 0..236 {
         let stamp = start
             .checked_add_signed(TimeDelta::microseconds(sample_offset_micros(span, index)))
             .ok_or_else(|| error::invalid("baseline target time"))?
             .to_rfc3339_opts(SecondsFormat::Micros, true);
-        let mut rows = statement.query(params![session, stream, stamp, end_stamp])?;
+        let mut rows = statement.query(named_params!{":session":session,":stream":stream,":band":band,":plan":plan,":start":stamp,":end":end_stamp})?;
         if let Some(row) = rows.next()? {
             let source = sample(row, maximum)?;
             if let std::collections::hash_map::Entry::Vacant(entry) = selected.entry(source.id) {
@@ -680,7 +682,33 @@ impl Archive {
         let stream = stream.to_owned();
         let maximum = self.inner.config.max_response_bytes;
         self.inner
-            .read(move |db| baseline_sources(db, &session, &stream, maximum))
+            .read(move |db| baseline_sources(db, &session, &stream, maximum, None, None))
+            .await
+    }
+
+    /// Scope all baseline statistics and samples to the immutable plan and band.
+    /// The legacy ordering and bounded uniform-window sampling remain identical.
+    pub async fn baseline_selection_for_scan_band(
+        &self,
+        session: &str,
+        stream: &str,
+        plan: &str,
+        band: &str,
+    ) -> Result<BaselineSelection> {
+        if plan.is_empty() || plan.len() > 200 || band.is_empty() || band.len() > 64 {
+            return Err(error::invalid("scan baseline scope"));
+        }
+        let (session, stream, plan, band) = (
+            session.to_owned(),
+            stream.to_owned(),
+            plan.to_owned(),
+            band.to_owned(),
+        );
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner
+            .read(move |db| {
+                baseline_sources(db, &session, &stream, maximum, Some(&band), Some(&plan))
+            })
             .await
     }
 
@@ -758,6 +786,20 @@ impl Archive {
             let mut output = Vec::new();
             while let Some(row) = rows.next()? { push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?; }
             Ok(output)
+        }).await
+    }
+
+    pub async fn latest_scan_baseline(
+        &self,
+        project: &str,
+        plan: &str,
+        band: &str,
+    ) -> Result<Option<Value>> {
+        let (project, plan, band) = (project.to_owned(), plan.to_owned(), band.to_owned());
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner.read(move|db|{
+            let raw:Option<String>=db.query_row("SELECT payload FROM monitoring_records WHERE kind='baseline' AND project_id=? AND json_extract(payload,'$.scan_plan_id')=? AND json_extract(payload,'$.scan_band_id')=? ORDER BY created_at DESC,id DESC LIMIT 1",params![project,plan,band],|row|row.get(0)).optional()?;
+            raw.map(|raw|{if raw.len()>maximum{return Err(ArchiveError::QueryBudget)}rows::object(raw)}).transpose()
         }).await
     }
 

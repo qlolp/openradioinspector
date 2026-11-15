@@ -4,6 +4,7 @@ pub(crate) mod control;
 mod receipt;
 pub(crate) use receipt::RetainedWorkerHandle;
 mod acquisition;
+mod scan;
 mod simulator;
 pub(crate) use acquisition::AcquisitionHealth;
 #[cfg(test)]
@@ -315,6 +316,7 @@ pub(crate) struct DeviceManager {
 impl DeviceManager {
     pub fn validate_profiles(&self, session: &Session) -> DeviceResult<()> {
         for stream in &session.streams {
+            scan::Plan::read(stream)?;
             let settings = stream.settings.clone().unwrap_or_default();
             simulator::period(&settings)?;
             simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
@@ -632,6 +634,7 @@ impl DeviceManager {
         }
         let settings = stream.settings.clone().unwrap_or_default();
         let period = simulator::period(&settings)?;
+        let scan_plan = scan::Plan::read(&stream)?;
         let max_errors = simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
         let adapter_name = settings
             .get("adapter")
@@ -728,6 +731,8 @@ impl DeviceManager {
             preparation: Mutex::new(None),
             period,
             max_errors,
+            scan_plan,
+            scan_coverage: Mutex::new(scan::Coverage::default()),
             lifecycle: ticket.lifecycle.clone(),
             start_generation: ticket.generation,
         });
@@ -1099,6 +1104,8 @@ struct Worker {
     preparation: Mutex<Option<PrepareReport>>,
     period: Duration,
     max_errors: u64,
+    scan_plan: Option<scan::Plan>,
+    scan_coverage: Mutex<scan::Coverage>,
     lifecycle: Arc<Lifecycle>,
     start_generation: u64,
 }
@@ -1156,6 +1163,16 @@ impl Worker {
             self.control.project(Some(native), &mut status.current);
         }
         status.worker_instance = Some(self.instance.clone());
+        if let Some(plan) = &self.scan_plan {
+            status.current["scan_coverage"] = self
+                .scan_coverage
+                .lock()
+                .expect("scan coverage poisoned")
+                .report(
+                    plan,
+                    self.stopping.load(Ordering::Acquire) || self.control.paused(),
+                );
+        }
         status
     }
     fn preparation(&self) -> Option<PrepareReport> {
@@ -1341,18 +1358,38 @@ impl Worker {
             }
         }
     }
-    async fn poll(self: &Arc<Self>, adapter: &mut Adapter) -> DeviceResult<Value> {
+    async fn poll(
+        self: &Arc<Self>,
+        adapter: &mut Adapter,
+        band: Option<&ori_guard::ScanBand>,
+    ) -> DeviceResult<Value> {
         self.live()?;
         match adapter {
-            Adapter::Simulated(simulator) => simulator.poll(&self.stream),
+            Adapter::Simulated(simulator) => {
+                if let Some(band) = band {
+                    simulator.select_band(band)?;
+                }
+                simulator.poll(&self.stream)
+            }
             Adapter::Native(Native::Analyzer(actor)) => {
                 let worker = self.clone();
                 match actor
-                    .enqueue_guarded(TinySaRequest::Poll, move || {
-                        worker
-                            .live()
-                            .map_err(|_| ori_instruments::InstrumentError::PolicyDenied)
-                    })?
+                    .enqueue_guarded(
+                        band.map(|band| {
+                            TinySaRequest::PollBand(ReceiveConfig {
+                                start_hz: band.start_hz,
+                                stop_hz: band.stop_hz,
+                                points: band.points,
+                                rbw_hz: band.rbw_hz,
+                            })
+                        })
+                        .unwrap_or(TinySaRequest::Poll),
+                        move || {
+                            worker
+                                .live()
+                                .map_err(|_| ori_instruments::InstrumentError::PolicyDenied)
+                        },
+                    )?
                     .result()
                     .await?
                 {
@@ -1568,6 +1605,7 @@ impl Worker {
         self.control.refresh(self.native.as_ref());
         self.acquisition_ready();
         let _ = initialized.send(Ok(()));
+        let mut scan_index = 0usize;
         'running: loop {
             if self.stopping.load(Ordering::Acquire) {
                 break;
@@ -1598,7 +1636,14 @@ impl Worker {
             }
             self.active_io.store(true, Ordering::Release);
             self.acquisition_poll_started();
-            let result = self.poll(&mut adapter).await;
+            let band = self.scan_plan.as_ref().map(|p| &p.config.bands[scan_index]);
+            let observed_at = std::time::Instant::now();
+            let result = self.poll(&mut adapter, band).await.and_then(|mut source| {
+                if let (Some(plan), Some(band)) = (&self.scan_plan, band) {
+                    plan.stamp(band, &mut source)?;
+                }
+                Ok(source)
+            });
             self.acquisition_poll_finished();
             self.active_io.store(false, Ordering::Release);
             if self.stopping.load(Ordering::Acquire) {
@@ -1629,6 +1674,13 @@ impl Worker {
             match committed {
                 Ok(committed) => {
                     let source = &committed.items[0];
+                    if let Some(plan) = &self.scan_plan {
+                        self.scan_coverage
+                            .lock()
+                            .expect("scan coverage poisoned")
+                            .committed(scan_index, observed_at, source);
+                        scan_index = (scan_index + 1) % plan.config.bands.len();
+                    }
                     {
                         let mut status = self.status.lock().expect("worker status poisoned");
                         status.measurements += 1;

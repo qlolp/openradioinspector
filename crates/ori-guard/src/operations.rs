@@ -18,13 +18,19 @@ fn archive_defaults() -> Value {
 }
 impl GuardService {
     pub async fn configure(&self, id: &str, payload: Value) -> Result<Value> {
-        fields(&payload, &["audio", "receiver_mode"], false)?;
+        fields(&payload, &["audio", "receiver_mode", "scan_plan"], false)?;
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
         let mut p = self.project(id).await?;
-        if self.runtime_snapshot(id)?.is_some() {
+        if self.runtime_snapshot(id)?.is_some()
+            || (payload.get("scan_plan").is_some() && self.project_owned(id)?)
+        {
             return Err(invalid("Сначала снимите проект с охраны"));
         }
+        let scan_plan = payload
+            .get("scan_plan")
+            .map(|config| self.scan_plan_record(&p, config.clone()))
+            .transpose()?;
         if let Some(mode) = payload.get("receiver_mode") {
             if !mode
                 .as_str()
@@ -69,9 +75,23 @@ impl GuardService {
                 current[key] = p[key].clone();
             }
         }
-        self.archive
-            .put_monitoring("project", current.clone())
-            .await?;
+        let mut mutations = vec![];
+        if let Some(plan) = scan_plan {
+            current["scan_plan"] = plan.clone();
+            current["baseline_id"] = Value::Null;
+            current["band_baselines"] = json!({});
+            current["band_detectors"] = json!({});
+            reset_detectors(&mut current);
+            current["state"] = json!("draft");
+            current["profile"]["analyzer"]["settings"]["scan_plan"] = plan.clone();
+            for key in ["start_hz", "stop_hz", "points", "rbw_hz"] {
+                current["profile"]["analyzer"]["settings"][key] =
+                    plan["config"]["bands"][0][key].clone();
+            }
+            mutations.push(Self::mutation("scan-plan", plan));
+        }
+        mutations.push(Self::mutation("project", current.clone()));
+        self.archive.apply(mutations).await?;
         Ok(current)
     }
     pub async fn audio_inputs(&self) -> Result<Value> {
@@ -181,7 +201,7 @@ impl GuardService {
                 return Err(invalid("Импульс/гистерезис не согласованы с порогом"));
             }
             p["parameters"] = parameters;
-            p["detector_state"] = Value::Null;
+            reset_detectors(&mut p);
         }
         if let Some(config) = payload.get("webhook") {
             fields(config, &["enabled", "url", "secret"], false)?;
@@ -246,7 +266,7 @@ impl GuardService {
             }
         }
         if payload.get("detector").is_some() {
-            current["detector_state"] = Value::Null;
+            reset_detectors(&mut current);
         }
         let mut mutations = vec![];
         if let Some(h) = hook_mutation {

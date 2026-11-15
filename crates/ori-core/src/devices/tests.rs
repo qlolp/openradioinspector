@@ -699,11 +699,98 @@ async fn processed_or_zero_span_device_output_cannot_be_relabelled_as_a_raw_moni
         .await
         .unwrap();
     let result = worker
-        .poll(&mut Adapter::Native(Native::Analyzer(actor)))
+        .poll(&mut Adapter::Native(Native::Analyzer(actor)), None)
         .await;
     assert!(
         result.is_err(),
         "a processed artifact must never enter raw sweep/detector ingestion"
     );
     core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cyclic_scan_plan_commits_each_band_with_immutable_context_and_keeps_receiver_independent()
+{
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.pause_poll.store(true, Ordering::Release);
+    let mut config = CoreConfig::replay(directory.path());
+    config.devices.transport = Some(factory.clone());
+    let core = Core::open(config).await.unwrap();
+    let mut source = session("plan");
+    source["streams"][1]["settings"] = json!({"adapter":"tinysa-sim","start_hz":100000,"stop_hz":100020,"points":3,"period_s":0.01,
+    "scan_plan":{"id":"immutable-plan-1","revision":1,"config":{"name":"Cycle","bands":[
+        {"id":"low","name":"Low","start_hz":100000,"stop_hz":100020,"points":3,"rbw_hz":10000,"max_revisit_seconds":1.0},
+        {"id":"high","name":"High","start_hz":200000,"stop_hz":200020,"points":3,"rbw_hz":30000,"max_revisit_seconds":1.0}
+    ]}}});
+    core.archive()
+        .unwrap()
+        .create_session(source)
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    manager
+        .start_stream("plan", "r", manager.public_gate(Target::new("plan", "r")))
+        .await
+        .unwrap();
+    until(|| factory.poll_started.load(Ordering::Acquire) > 0).await;
+    manager
+        .start_stream("plan", "a", manager.public_gate(Target::new("plan", "a")))
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if manager
+                .list(Some("plan"))
+                .await
+                .unwrap()
+                .iter()
+                .any(|s| s.stream_id == "a" && s.measurements >= 6)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    manager.stop_stream("plan", "a").await.unwrap();
+    let mut sources = core
+        .archive()
+        .unwrap()
+        .list_sweeps("plan", Some("a"), 64)
+        .await
+        .unwrap();
+    sources.sort_by_key(|s| s["settings"]["sequence"].as_u64().unwrap());
+    factory.pause_poll.store(false, Ordering::Release);
+    factory.poll_release.add_permits(1);
+    core.close().await.unwrap();
+    assert_eq!(
+        factory.opens.load(Ordering::Acquire),
+        1,
+        "only the explicitly selected receiver transport may open"
+    );
+    assert!(sources.len() >= 6);
+    for (index, sweep) in sources.iter().enumerate() {
+        let high = index % 2 == 1;
+        assert_eq!(
+            sweep["frequencies_hz"][0],
+            if high { 200000 } else { 100000 }
+        );
+        assert_eq!(
+            sweep["frequencies_hz"][2],
+            if high { 200020 } else { 100020 }
+        );
+        assert_eq!(
+            sweep["settings"]["rbw_hz"],
+            if high { 30000 } else { 10000 }
+        );
+        assert_eq!(
+            sweep["settings"]["scan_band_id"],
+            if high { "high" } else { "low" }
+        );
+        assert_eq!(sweep["settings"]["scan_plan_id"], "immutable-plan-1");
+        assert_eq!(sweep["settings"]["scan_plan_revision"], 1);
+        assert_eq!(sweep["settings"]["simulated"], true);
+    }
 }

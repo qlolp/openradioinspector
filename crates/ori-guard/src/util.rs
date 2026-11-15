@@ -6,6 +6,13 @@ use serde_json::{Map, Value};
 pub(crate) fn invalid(message: impl Into<String>) -> GuardError {
     GuardError::Invalid(message.into())
 }
+
+pub(crate) fn reset_detectors(project: &mut Value) {
+    project["detector_state"] = Value::Null;
+    if project.get("scan_plan").is_some_and(|plan| !plan.is_null()) {
+        project["band_detectors"] = serde_json::json!({});
+    }
+}
 pub(crate) fn fields<'a>(
     value: &'a Value,
     allowed: &[&str],
