@@ -19,7 +19,8 @@ macOS встраивает общую панель в WKWebView; измерит�
 | Частоты, center/span/zero span, RBW 200 Гц–850 кГц/auto, 2–450 точек, время, repeat, accuracy | Типизированные настройки; бинарный scanraw отдельно до 65 536 точек |
 | Attenuator/LNA, Ultra, spur, external gain, trigger | Типизированные настройки с проверкой сочетаний и диапазона до отправки |
 | Calc/min/max/average/quasi, display units/ref/scale, четыре traces, восемь markers | Настройки и формы trace/marker; обработанные значения архивируются отдельно |
-| VBW, multiband/alternating, waterfall, остальные DISPLAY и MARKER пункты | Настоящий интерактивный экран в lab; без придуманных shell-команд |
+| VBW, многополосное наблюдение | Приёмная панель macOS + общий исполнитель: [контракт и ограничения](continuous-spectrum-monitoring.md) |
+| Встроенные multiband/alternating, waterfall, остальные DISPLAY и MARKER пункты | Интерактивный экран в lab; встроенный multiband не подменяет расписание ядра |
 | Встроенные MEASURE: гармоники, AM/FM, IMD/OIP3, phase noise, SNR, NF, channel power и другие | Live screen + сохранение результата/SD; набор проверяется на фактической прошивке |
 | Измерения ядра: sampled peak, occupied bandwidth, −3 dB bandwidth, centroid, channel power estimate | По исходному scanraw, с исходными массивами, UTC-интервалом, единицами и предупреждениями |
 | SD/CSV/PNG/LOAD CMD, пресеты | Native SD list/read/delete, slots0–4, переносимый JSON приёмных настроек; CSV/командные файлы/SD preset импортируются штатным меню в lab |

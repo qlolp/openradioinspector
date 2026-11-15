@@ -30,6 +30,15 @@ struct NativeMeasurementStatus: View {
                         Text("Последнее измерение: \(max(0, Int(context.date.timeIntervalSince(date)))) с назад")
                     }
                 }
+                if let worker = model.worker(for: model.analyzer?.id) {
+                    HStack {
+                        Text("Измерений: \(worker.measurements ?? 0) · ошибок подряд: \(worker.consecutiveErrors ?? 0)")
+                        if let stamp = worker.startedAt, let start = NativeSpectrumTimeline.date(stamp), worker.alive {
+                            Text("· сеанс \(Int(max(0, context.date.timeIntervalSince(start)))) с")
+                        }
+                        if !worker.alive { Text("· обнаружение новых сигналов остановлено").foregroundStyle(.orange) }
+                    }
+                }
                 if model.spectrumPresentation.paused {
                     Text("Показ зафиксирован. Пауза графика не управляет приёмом.")
                         .foregroundStyle(.orange)

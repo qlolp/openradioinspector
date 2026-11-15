@@ -29,6 +29,7 @@ SETTINGS = {
     'lna': dict(label='LNA', command='lna', type='boolean'),
     'ultra': dict(label='Ultra (расширенный диапазон)', command='ultra', type='boolean'),
     'spur': dict(label='Подавление spur', command='spur', type='choice', choices=['off','on','auto']),
+    'vbw_ratio': dict(label='VBW/RBW (повторы прошивки)', command='repeat', type='choice', choices=['auto','1','1/3','1/10','1/30','1/100']),
     'repeat': dict(label='Повторов на частоту', command='repeat', type='integer', min=1, max=1000),
     'sweep_accuracy':dict(label='Точность sweep',command='sweep',type='choice',choices=['normal','precise','fast','noise']),
     'sweep_seconds': dict(label='Время sweep, с (0=auto)', command='sweeptime', type='number', min=0, max=60),
@@ -74,6 +75,8 @@ def setting_command(name: str, value) -> Command:
         if not spec['min'] <= value <= spec['max']:
             raise ValueError('Значение вне диапазона профиля')
         token = str(value) if type(value) is int else format(value,'.12g')
+    if name == 'vbw_ratio':
+        token = str({'auto':1,'1':1,'1/3':3,'1/10':10,'1/30':30,'1/100':100}[value])
     if name == 'rbw_hz' and value != 'auto':
         token = format(value/1000,'.12g')
     return Command(spec['command']+' '+token, bool(spec.get('lab')))

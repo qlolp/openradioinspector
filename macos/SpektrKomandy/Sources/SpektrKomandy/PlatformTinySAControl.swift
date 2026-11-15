@@ -50,15 +50,38 @@ extension PlatformClient {
         return try await tinySAOperationResult(path: path, job: job)
     }
 
-    private func tinySAOperationResult(path: String, job: MonitoringValue) async throws -> MonitoringValue {
+    public func tinySAOperation(sessionID: String, streamID: String, operation: String,
+                                parameters: [String: MonitoringValue], revision: Int64? = nil) async throws -> MonitoringValue {
+        let path = "/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument"
+        var body: [String: MonitoringValue] = ["operation": .string(operation), "parameters": .object(parameters), "request_id": .string(UUID().uuidString)]
+        if let revision { body["expected_revision"] = .integer(revision) }
+        let job: MonitoringValue = try await post(path + "/operations", body: body)
+        return try await tinySAOperationResult(path: path, job: job, requireStatus: false)
+    }
+
+    public func tinySACachedStatus(sessionID: String, streamID: String) async throws -> MonitoringValue {
+        try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/settings")
+    }
+
+    public func tinySAArtifacts(sessionID: String, streamID: String, offset: Int = 0) async throws -> MonitoringValue {
+        try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/artifacts",
+                      query: [URLQueryItem(name: "limit", value: "50"), URLQueryItem(name: "offset", value: String(offset))])
+    }
+
+    public func tinySAArtifactJSON(sessionID: String, streamID: String, id: String) async throws -> MonitoringValue {
+        try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/artifacts/\(Self.segment(id))/json")
+    }
+
+    private func tinySAOperationResult(path: String, job: MonitoringValue, requireStatus: Bool = true) async throws -> MonitoringValue {
         let id = job["operation_id"].text
         guard !id.isEmpty else { throw PlatformError.invalidResponse("Нет идентификатора операции tinySA") }
-        for _ in 0..<240 {
+        for _ in 0..<600 {
             try Task.checkCancellation()
             let result: MonitoringValue = try await get(path + "/operations/\(Self.segment(id))")
             guard result["context_current"].bool != false else { throw PlatformError.invalidResponse("Соединение tinySA изменилось") }
             switch result["state"].text {
             case "succeeded":
+                if !requireStatus { return result["result"] }
                 let status = result["result"]["status"] == .null ? result["result"] : result["result"]["status"]
                 guard status["revision"].integer != nil else {
                     throw PlatformError.invalidResponse("Ядро не вернуло ревизию подтверждённой настройки")

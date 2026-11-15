@@ -388,6 +388,10 @@
       "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/content"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations/{operation_id}/cancel"
     },

@@ -124,6 +124,7 @@ struct RemoteUltraPane: View {
             NativeSpectrumInspector(sweeps: model.spectrumPresentation.sweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
+                                    liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
                                     reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
                 .frame(minHeight: 370).layoutPriority(1)

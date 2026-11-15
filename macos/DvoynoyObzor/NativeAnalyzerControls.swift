@@ -14,6 +14,7 @@ struct NativeAnalyzerControls: View {
     @AppStorage("native.receive.profile") private var savedProfile = Data()
     @State private var profileName = "Обзор"
     @State private var profilePanel = false
+    @State private var receivePanel = false
 
     private let bandwidths = ["auto", "200", "1000", "3000", "10000", "30000", "100000", "300000", "600000", "850000"]
 
@@ -26,7 +27,7 @@ struct NativeAnalyzerControls: View {
                     HStack(spacing: 8) { actionButtons }
                 }
             }.controlSize(.small).disabled(applying)
-            Text(message.isEmpty ? "Поля: МГц · применение по кнопке · VBW не поддерживается профилем прибора" : message)
+            Text(message.isEmpty ? "Поля: МГц · применение по кнопке · VBW и режимы: «Тракт / Наблюдение»" : message)
                 .font(.caption2).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
         .onChange(of: model.spectrumPresentation.sweeps.last?.id, initial: true) { _, _ in
@@ -39,6 +40,10 @@ struct NativeAnalyzerControls: View {
             }
         }
         .onDisappear { operation?.cancel() }
+        .onChange(of: model.worker(for: model.analyzer?.id)?.state) { old, new in
+            if old != new && new == "running" && !applying { message = "" }
+        }
+        .sheet(isPresented: $receivePanel) { NativeReceiveWorkbench(model: model) }
     }
     private var frequencyFields: some View {
         Group {
@@ -54,8 +59,8 @@ struct NativeAnalyzerControls: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("VBW").font(.caption2)
-                    Text("Недоступно").font(.caption).foregroundStyle(.secondary).frame(height: 22)
-                        .help("VBW прибора не поддерживается проверенным API ядра. Программное сглаживание не подменяет VBW.")
+                    Text("В тракте").font(.caption).foregroundStyle(.secondary).frame(height: 22)
+                        .help("Эквивалент VBW/RBW через повторные измерения прошивки доступен в настройках тракта.")
                 }
         }
     }
@@ -63,6 +68,7 @@ struct NativeAnalyzerControls: View {
         Group {
                 Button(applying ? "Применение…" : "Применить") { apply() }
                     .disabled(applying || model.busy || model.worker(for: model.analyzer?.id)?.alive != true)
+                Button("Тракт / Наблюдение") { receivePanel = true }
                 Button("Считать") { load() }.disabled(applying || model.analyzer == nil)
                 Button("Профиль") { profilePanel = true }
                     .popover(isPresented: $profilePanel) {
@@ -141,26 +147,21 @@ struct NativeAnalyzerControls: View {
         let requested = draft, session = model.selectedSessionID
         applying = true; message = "Ожидание подтверждения ядра…"
         operation = Task { @MainActor in
-            var applied = 0
             defer { applying = false }
             do {
-                var status = try await client.tinySASettings(sessionID: session, streamID: stream.id)
-                guard status["mode"].text == "monitoring", let oldStop = status["settings"]["stop_hz"].integer else {
+                let status = try await client.tinySASettings(sessionID: session, streamID: stream.id)
+                guard status["mode"].text == "monitoring", status["settings"]["stop_hz"].integer != nil else {
                     throw NativeAnalyzerDraft.DraftError.invalid("Нужен подключённый tinySA в режиме monitoring без лабораторной аренды.")
                 }
                 let start = try NativeAnalyzerDraft.hz(requested.start), stop = try NativeAnalyzerDraft.hz(requested.stop)
-                // Move the outer edge first so every intermediate range remains valid.
-                let edges: [(String, Int64)] = start >= oldStop ? [("stop_hz", stop), ("start_hz", start)] : [("start_hz", start), ("stop_hz", stop)]
-                let settings = edges.map { ($0.0, MonitoringValue.integer($0.1)) } + [("rbw_hz", requested.rbw == "auto" ? .string("auto") : .integer(Int64(requested.rbw) ?? 10_000))]
-                for (name, value) in settings {
-                    try Task.checkCancellation()
-                    guard client === model.client, session == model.selectedSessionID, stream.id == model.analyzer?.id,
-                          let revision = status["revision"].integer else { throw NativeAnalyzerDraft.DraftError.invalid("Контекст прибора изменился; применение остановлено.") }
-                    status = try await client.setTinySASetting(sessionID: session, streamID: stream.id, name: name, value: value, revision: revision)
-                    applied += 1
-                }
-                message = "3 настройки подтверждены ядром. Проверяйте диапазон нового свипа; RBW остаётся заданным до readback."
-            } catch { message = "Применено \(applied)/3. \(error.localizedDescription)" }
+                let values: [String: MonitoringValue] = ["start_hz": .integer(start), "stop_hz": .integer(stop),
+                    "rbw_hz": requested.rbw == "auto" ? .string("auto") : .integer(Int64(requested.rbw) ?? 10_000)]
+                try Task.checkCancellation()
+                guard client === model.client, session == model.selectedSessionID, stream.id == model.analyzer?.id else { return }
+                _ = try await client.tinySAOperation(sessionID: session, streamID: stream.id, operation: "receive.configure", parameters: values, revision: status["revision"].integer)
+                try Task.checkCancellation()
+                message = "Диапазон и RBW подтверждены ядром. Проверьте новый свип; аппаратный readback не заявлен."
+            } catch { message = "Применение не завершено: \(error.localizedDescription). Считайте состояние перед повтором." }
         }
     }
 }

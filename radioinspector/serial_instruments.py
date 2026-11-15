@@ -596,6 +596,9 @@ class TinySASerialAdapter(SimulatedAdapter):
             self._instrument=Controller(self)
         return self._instrument.execute(payload)
 
+    def after_committed_sweep(self, sweep):
+        return self._instrument.after_committed_sweep(sweep) if self._instrument is not None else []
+
     def instrument_idle(self) -> bool:
         return self._instrument is not None and not self._instrument.before_poll()
 

@@ -9,6 +9,7 @@ struct NativeSpectrumInspector: View {
     var client: PlatformClient? = nil
     var sessionID = ""
     var streamID = ""
+    var liveReceiving = true
     var reviewedSweep: PlatformSweep? = nil
     var reviewRequest = UUID()
     @AppStorage("native.plot.split") private var split = 0.50
@@ -38,6 +39,10 @@ struct NativeSpectrumInspector: View {
     @State private var selectionStart: CGPoint?
     @State private var selectionEnd: CGPoint?
     @State private var selectBand = false
+    @State private var trackingPeak = false
+    @State private var tuning = false
+    @State private var tuneTask: Task<Void, Never>?
+    @State private var tuneMessage = ""
 
     private var source: [PlatformSweep] { frozen ?? sweeps }
     private var window: ClosedRange<Date> {
@@ -66,7 +71,17 @@ struct NativeSpectrumInspector: View {
                 Button("→") { pan(0.25) }
                 Button("Весь диапазон") { zoom = nil }
                 Toggle("Полоса", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
+                Menu("Измерить") {
+                    Button("Измерить видимый участок") { measureRange(range) }
+                    Button("Маркер → центр") {
+                        if let marker = markers.last ?? cursor {
+                            let half = (range.upperBound - range.lowerBound) / 2
+                            measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
+                        }
+                    }.disabled(markers.isEmpty && cursor == nil)
+                }.disabled(client == nil || tuning || !liveReceiving || frozen != nil)
                 Button("Пик") { choosePeak(next: true) }
+                Toggle("Следить", isOn: $trackingPeak).toggleStyle(.button)
                 Toggle("Min", isOn: $showMinimum).toggleStyle(.button)
                 Toggle("Max", isOn: $showMaximum).toggleStyle(.button)
                 Button("Шкала") { inspectionScale = PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
@@ -77,8 +92,9 @@ struct NativeSpectrumInspector: View {
                     Button("Удалить с графика") { reference = nil }
                 }
                 Spacer(minLength: 0)
-                Text(frozen == nil ? "LIVE" : "ИСТОРИЯ").foregroundStyle(frozen == nil ? .green : .yellow)
+                Text(frozen != nil ? "ИСТОРИЯ" : liveReceiving ? "LIVE" : "ПРИЁМ ОСТАНОВЛЕН").foregroundStyle(frozen == nil && liveReceiving ? .green : .yellow)
             }.controlSize(.small).font(.caption)
+            if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
             GeometryReader { geometry in
                 let layout = NativeSpectrumPlotLayout(size: geometry.size, spectrumFraction: split)
                 if threeDimensional {
@@ -202,15 +218,37 @@ struct NativeSpectrumInspector: View {
         .onChange(of: seconds) { _, _ in
             archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
         }
-        .onDisappear { archiveTask?.cancel() }
+        .onDisappear { archiveTask?.cancel(); tuneTask?.cancel() }
         .onChange(of: sweeps.isEmpty) { _, empty in
             if empty { archiveTask?.cancel(); archive.reset(); timeEnd = nil; reference = nil; frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inGap = false }
         }
         .onChange(of: sweeps.last?.id) { _, _ in
+            if trackingPeak, frozen == nil, let latest = sweeps.last,
+               let peak = NativeSpectrumInspection.peaks(in: latest, range: range, limit: 1).first {
+                cursor = NativeSpectrumSample(sweep: latest, bin: peak)
+            }
             if frozen == nil, let cursor, !sweeps.contains(where: { $0.id == cursor.sweep.id }) { self.cursor = nil }
         }
         .onChange(of: sweeps.last?.frequenciesHz) { old, new in
-            if frozen == nil, old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil }
+            if frozen == nil, old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(sweeps.last?.levels ?? []) }
+        }
+    }
+
+    private func measureRange(_ target: ClosedRange<Double>) {
+        guard let client, !tuning else { return }
+        let low = Int64(target.lowerBound.rounded()), high = Int64(target.upperBound.rounded())
+        guard low < high else { return }
+        tuning = true; tuneMessage = "Ожидание перестройки…"
+        tuneTask = Task { @MainActor in
+            defer { tuning = false }
+            do {
+                let status = try await client.tinySASettings(sessionID: sessionID, streamID: streamID)
+                try Task.checkCancellation()
+                _ = try await client.tinySAOperation(sessionID: sessionID, streamID: streamID, operation: "receive.configure",
+                    parameters: ["start_hz": .integer(low), "stop_hz": .integer(high)], revision: status["revision"].integer)
+                try Task.checkCancellation()
+                tuneMessage = "Диапазон применён: \(low)–\(high) Гц. Ожидание нового измерения."
+            } catch { if !Task.isCancelled { tuneMessage = error.localizedDescription } }
         }
     }
 

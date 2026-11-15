@@ -36,6 +36,10 @@ class WorkerError(RuntimeError):
     """Ошибка запуска, команды или остановки исполнителя."""
 
 
+class CommittedAnalysisError(WorkerError):
+    """A committed sweep could not be analyzed/journaled; never silently continue."""
+
+
 class WorkerCancelled(WorkerError):
     """An explicitly cancelled transport operation, not a device fault."""
 
@@ -513,6 +517,13 @@ class DeviceWorker:
                         self.sessions.save_instrument_artifact(self.session_id,self.stream_id,measurement.artifact)
                     elif isinstance(measurement, Sweep):
                         self.sessions.ingest_sweep(measurement)
+                        after_commit = getattr(self.adapter, "after_committed_sweep", None)
+                        if after_commit is not None:
+                            try:
+                                for artifact in after_commit(measurement):
+                                    self.sessions.save_instrument_artifact(self.session_id, self.stream_id, artifact)
+                            except Exception as exc:
+                                raise CommittedAnalysisError(f"Наблюдение остановлено: анализ/журнал исходного свипа {measurement.id}: {exc}") from exc
                     else:
                         self.sessions.ingest_observation(measurement)
                 except Exception as exc:  # ошибка одного прибора изолирована от остальных
@@ -531,7 +542,7 @@ class DeviceWorker:
                             "consecutive_errors": self._consecutive_errors,
                         },
                     )
-                    if self._consecutive_errors >= self.adapter.max_consecutive_errors:
+                    if isinstance(exc, CommittedAnalysisError) or self._consecutive_errors >= self.adapter.max_consecutive_errors:
                         self._terminal_state = DeviceState.ERROR
                         break
                 else:

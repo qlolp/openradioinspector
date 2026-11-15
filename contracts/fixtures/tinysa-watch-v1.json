@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "evidence": "authored_synthetic_sweeps",
+  "hardware_validation": "not_run",
+  "request": {
+    "operation": "watch.start",
+    "plan": {
+      "bands": [{"name": "Synthetic", "start_hz": 100000000, "stop_hz": 100080000, "rbw_hz": 10000, "points": 9}],
+      "margin_db": 6,
+      "impulse_db": 12,
+      "confirmations": 3,
+      "window_sweeps": 5,
+      "baseline_sweeps": 20,
+      "baseline_seconds": 60,
+      "allowed": []
+    }
+  },
+  "source": {"session_id": "s", "stream_id": "a", "level_unit": "dBm", "period_seconds": 4, "sweep_duration_seconds": 1},
+  "baseline": {"count": 20, "levels": [-100, -100, -100, -100, -100, -100, -100, -100, -100]},
+  "changed": {"count": 3, "levels": [-100, -100, -100, -100, -92, -100, -100, -100, -100]},
+  "expected_event": {
+    "transition": "opened",
+    "kind": "persistent",
+    "center_frequency_hz": 100040000,
+    "peak_level": -92,
+    "peak_excess_db": 8,
+    "source": {"session_id": "s", "stream_id": "a", "sweep_id": "sweep-22"},
+    "detector_version": "robust-city-v1"
+  },
+  "wire_contract": "Encode request.plan as a JSON string in watch.start parameters.document; poll existing instrument operation ID. Event JSON retains source IDs; no RF identity inference."
+}
