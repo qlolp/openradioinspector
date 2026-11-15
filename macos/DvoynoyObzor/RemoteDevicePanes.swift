@@ -46,7 +46,21 @@ struct RemoteStreamControls: View {
 }
 
 struct RemoteArPane: View {
+    private struct ScopeTarget: Identifiable {
+        let id = UUID()
+        let client: PlatformClient
+        let port: String
+    }
+
     @ObservedObject var model: RemoteDualModel
+    @State private var scopeTarget: ScopeTarget?
+
+    private var receiverPort: String? {
+        guard let receiver = model.receiver, ["AR-DV1", "AOR AR-DV1"].contains(receiver.device),
+              receiver.levelUnit == "s_meter_count", let port = receiver.port,
+              !port.isEmpty, !port.lowercased().hasPrefix("sim://") else { return nil }
+        return port
+    }
 
     var body: some View {
         ScrollView {
@@ -54,20 +68,30 @@ struct RemoteArPane: View {
                 Text("AOR AR-DV1 · через ядро").font(.title2.weight(.semibold))
                 Text("Уровень показан в исходных отсчётах S-метра. Звук и декодирование выполняет приёмник.")
                     .foregroundStyle(.secondary)
-                RemoteStreamControls(
-                    title: "AR-DV1", stream: model.receiver,
-                    worker: model.worker(for: model.receiver?.id), busy: model.busy,
-                    onStart: { model.startStream(model.receiver) },
-                    onStop: { model.stopStream(model.receiver) },
-                    onForceStop: { model.stopStream(model.receiver, mode: .force) }
-                )
-                HStack {
-                    Picker("Режим", selection: $model.mode) {
-                        ForEach(model.receiver?.tuneModes ?? ["FM", "AM"], id: \.self) { Text($0) }
+                if model.receiver?.capabilities.contains("ardv1_sampled_scope") != true {
+                    RemoteStreamControls(
+                        title: "AR-DV1", stream: model.receiver,
+                        worker: model.worker(for: model.receiver?.id), busy: model.busy,
+                        onStart: { model.startStream(model.receiver) },
+                        onStop: { model.stopStream(model.receiver) },
+                        onForceStop: { model.stopStream(model.receiver, mode: .force) }
+                    )
+                    HStack {
+                        Picker("Режим", selection: $model.mode) {
+                            ForEach(model.receiver?.tuneModes ?? ["FM", "AM"], id: \.self) { Text($0) }
+                        }
+                        .frame(width: 180)
+                        Button("Перестроить на фактический пик") { model.tuneLatestPeak() }
+                            .disabled(model.receiver == nil || model.current.isEmpty || model.busy || model.spectrumPresentation.paused)
                     }
-                    .frame(width: 180)
-                    Button("Перестроить на фактический пик") { model.tuneLatestPeak() }
-                        .disabled(model.receiver == nil || model.current.isEmpty || model.busy || model.spectrumPresentation.paused)
+                }
+                if let receiverPort {
+                    Button("Обзор диапазона…") {
+                        guard let client = model.client else { return }
+                        scopeTarget = ScopeTarget(client: client, port: receiverPort)
+                    }
+                    .disabled(!model.coreReachable || model.busy || model.worker(for: model.receiver?.id)?.alive == true)
+                    .help("Для обзора завершите текущий приём AR-DV1. tinySA может продолжать измерения.")
                 }
                 if let observation = model.latestObservation {
                     GroupBox("Последнее наблюдение ядра") {
@@ -89,6 +113,12 @@ struct RemoteArPane: View {
                 ErrorLine(text: model.errorText)
             }
             .padding(16)
+        }
+        .sheet(item: $scopeTarget) { target in
+            NativeARDV1ScopePane(client: target.client, port: target.port) {
+                guard model.client === target.client else { return }
+                await model.reloadSessions()
+            }
         }
     }
 

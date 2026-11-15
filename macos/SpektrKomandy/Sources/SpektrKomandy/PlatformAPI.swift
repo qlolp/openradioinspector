@@ -402,6 +402,18 @@ public struct PlatformStream: Decodable, Identifiable, Equatable, Sendable {
     public let levelUnit: String
     public let state: String
     public let capabilities: [String]
+    public let port: String?
+
+    public init(id: String, device: String, role: String, levelUnit: String, state: String,
+                capabilities: [String], port: String? = nil) {
+        self.id = id
+        self.device = device
+        self.role = role
+        self.levelUnit = levelUnit
+        self.state = state
+        self.capabilities = capabilities
+        self.port = port
+    }
 
     public var isReceiver: Bool { role == "receiver" }
     public var isDbmAnalyzer: Bool {
@@ -670,6 +682,7 @@ public enum PlatformSettingValue: Encodable, Equatable, Sendable {
     case integer(Int)
     case floating(Double)
     case boolean(Bool)
+    case object([String: PlatformSettingValue])
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
@@ -678,6 +691,7 @@ public enum PlatformSettingValue: Encodable, Equatable, Sendable {
         case .integer(let value): try container.encode(value)
         case .floating(let value): try container.encode(value)
         case .boolean(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
         }
     }
 }
@@ -962,6 +976,42 @@ public final class PlatformClient: Sendable {
 
     public func startSession(_ id: String) async throws -> PlatformSession {
         try await post("/sessions/\(Self.segment(id))/start", body: EmptyBody())
+    }
+
+    public func createARDV1Scope(
+        port: String, configuration: PlatformARDV1ScopeConfiguration
+    ) async throws -> PlatformSession {
+        let selectedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedPort.isEmpty, !selectedPort.lowercased().hasPrefix("sim://") else {
+            throw PlatformError.invalidCommand("Выберите физический порт AR-DV1.")
+        }
+        guard try await supportsARDV1Scope() else {
+            throw PlatformError.invalidResponse("Подключённое ядро не поддерживает обзор диапазона AR-DV1.")
+        }
+        let receiver = StreamDraft(
+            device: "AR-DV1", role: "receiver", levelUnit: "s_meter_count",
+            port: selectedPort, capabilities: ["receiver", "ardv1_sampled_scope"], settings: [
+                "adapter": .string("ardv1-serial"),
+                "receiver_profile": .string("ardv1-monitor-v1"),
+                "mode": .string("FM"), "period_s": .integer(0),
+                "fast_scan": .object([
+                    "start_hz": .integer(configuration.startHz),
+                    "stop_hz": .integer(configuration.stopHz),
+                    "step_hz": .integer(configuration.stepHz),
+                    "settle_s": .floating(0.015),
+                ]),
+            ]
+        )
+        let session: PlatformSession = try await post(
+            "/sessions", body: SessionDraft(name: "Обзор диапазона AR-DV1", streams: [receiver])
+        )
+        guard !session.id.isEmpty, session.streams.count == 1,
+              let stream = session.streams.first, !stream.id.isEmpty, stream.isReceiver,
+              stream.capabilities.contains("ardv1_sampled_scope"),
+              stream.levelUnit == "s_meter_count", PlatformExactID.same(stream.port, selectedPort) else {
+            throw PlatformError.invalidResponse("Ядро вернуло неожиданный поток для обзора диапазона.")
+        }
+        return session
     }
 
     public func stopSession(_ id: String) async throws -> PlatformSession {
