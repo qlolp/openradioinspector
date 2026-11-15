@@ -151,18 +151,18 @@ struct RemoteUltraPane: View {
             NativeMeasurementStatus(model: model)
             NativeAnalyzerControls(model: model)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
-            NativeSpectrumInspector(sweeps: model.spectrumPresentation.sweeps,
+            NativeSpectrumInspector(sweeps: model.displayInspectorSweeps,
                                     scale: model.displaySpectrumScale, threshold: model.thresholdDbm,
                                     client: model.client, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
                                     liveReceiving: model.worker(for: model.analyzer?.id)?.alive == true && model.coreReachable && !model.measurementsStale,
-                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest)
+                                    measurementsStale: model.measurementsStale,
+                                    presentationPaused: model.spectrumPresentation.paused,
+                                    setPresentationPaused: { model.setSpectrumPaused($0) },
+                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
+                                    onFollowFrequency: { model.followFrequency($0) })
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
                 .frame(minHeight: 370).layoutPriority(1)
             HStack {
-                Button { model.toggleSpectrumPause() } label: {
-                    Label(model.spectrumPresentation.paused ? "Продолжить показ" : "Пауза показа",
-                          systemImage: model.spectrumPresentation.paused ? "play.fill" : "pause.fill")
-                }
                 Button("Автомасштаб") { model.fitSpectrum() }
                 Text("Порог показа, дБм").font(.caption)
                 TextField("дБм", text: $model.threshold).frame(width: 65)

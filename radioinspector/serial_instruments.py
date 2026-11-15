@@ -13,6 +13,7 @@ import re
 import select
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -106,14 +107,19 @@ class _SerialFraming:
         # echoes scan immediately, then can measure silently for many seconds.
         # The same applies to gaps between rows and fragments of the prompt.
         deadline = time.monotonic() + maximum
+        self._last_reply_stats = dict(received_bytes=0, complete_lines=0, last_byte_monotonic=None,
+                                      terminal_received=False)
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
             chunk = self._read_once(min(quiet, max(0.0, remaining)), label)
             if chunk:
+                self._last_reply_stats.update(received_bytes=len(self._stash),
+                    complete_lines=self._stash.count(b'\n'), last_byte_monotonic=time.monotonic())
                 if len(self._stash) > 1024 * 1024:
                     raise WorkerError(f"Превышен размер текстового ответа: {label}")
                 text = self._stash.decode("utf-8", errors="replace")
                 if text.strip().endswith("ch>"):
+                    self._last_reply_stats['terminal_received'] = True
                     self._stash.clear()
                     return text
         if not self._stash:
@@ -501,6 +507,9 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
         self._synchronized = False
+        self._transactions = deque(maxlen=64)
+        self._transaction_lock = threading.Lock()
+        self._previous_transactions = []
         from .serial_ports import serial_port_identity
         path = getattr(transport, "path", None)
         identity = serial_port_identity(path) if path else None
@@ -523,6 +532,27 @@ class TinySASerialAdapter(SimulatedAdapter):
         )
 
     def _transact(self, text: str, maximum: float, *, allow_leading_prompt: bool = False) -> str:
+        started = time.monotonic()
+        record = dict(command=text.split()[0], started_at=format_time(self._clock()),
+                      deadline_seconds=maximum, outcome='failed', stage='synchronize',
+                      received_bytes=0, complete_lines=0, terminal_received=False)
+        self.transport._last_reply_stats = {}
+        try:
+            result = self._exchange(text, maximum, allow_leading_prompt=allow_leading_prompt, record=record)
+            record['outcome'] = 'completed'
+            return result
+        finally:
+            stats = dict(getattr(self.transport, '_last_reply_stats', {}))
+            last = stats.pop('last_byte_monotonic', None)
+            record.update(stats)
+            record['elapsed_seconds'] = max(0, time.monotonic() - started)
+            record['last_byte_after_seconds'] = None if last is None else max(0, last - started)
+            # No command arguments, serial paths, response bodies or exception
+            # messages: the recorder can be attached to a bug report safely.
+            with self._transaction_lock:
+                self._transactions.append(record)
+
+    def _exchange(self, text, maximum, *, allow_leading_prompt, record):
         if not self._synchronized:
             synchronize = getattr(self.transport, "synchronize_tinysa", None)
             if synchronize is not None:
@@ -534,7 +564,10 @@ class TinySASerialAdapter(SimulatedAdapter):
             with _TINYSA_PENDING_LOCK:
                 _TINYSA_PENDING_UNTIL[self._port_identity] = time.monotonic() + maximum
         self.transport.send(_command(text))
+        record['stage'] = 'reply'
         raw = self.transport.read_until_quiet(quiet=0.25, maximum=maximum, label=text)
+        record.update(received_bytes=len(raw.encode('utf-8')), complete_lines=raw.count('\n'),
+                      terminal_received=raw.strip().endswith('ch>'), stage='framing')
         # A quiet interval alone is not a completed command. Accept only the
         # supported shell frame: optional exact echo, body, one terminal ch>.
         # Apply framing to identity/scan too, so their partial responses cannot
@@ -665,7 +698,11 @@ class TinySASerialAdapter(SimulatedAdapter):
         )
 
     def details(self) -> dict[str, Any]:
+        with self._transaction_lock:
+            transactions = [dict(item) for item in self._transactions]
         result = {
+            "transactions": transactions,
+            "previous_transactions": [dict(item) for item in self._previous_transactions],
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,

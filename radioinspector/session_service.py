@@ -140,6 +140,7 @@ class SessionService:
         self._sweep_sequence = 0
         self._ingestion: dict[tuple[str, Optional[str]], list[tuple[int, Sweep]]] = {}
         self._sweep_references: list[dict[str, Any]] = []
+        self._frequency_bookmarks: list[dict[str, Any]] = []
         self._observations: list[ReceiverObservation] = []
         self._candidates: dict[str, Candidate] = {}
         self._investigations: dict[str, Investigation] = {}
@@ -218,6 +219,8 @@ class SessionService:
                 "measurement_ingest": True,
                 "measurement_archive": True,
                 "sweep_summaries": True,
+                "frequency_history": True,
+                "frequency_bookmarks": True,
                 "audio_segment_ingest": True,
                 "sweep_comparison": True,
                 "adaptive_sweep_threshold": True,
@@ -1084,6 +1087,51 @@ class SessionService:
         # Source rows are immutable; the independent read transaction fixes the
         # ingestion watermark without holding the application's writer lock.
         return sqlite_page(self._store, filters, digest, cursor, limit)
+
+    def frequency_history(self, session_id, payload):
+        from .frequency_history import history_request, history_item
+        query, frequencies = history_request(payload)
+        page = self.sweep_summaries(session_id, **query)
+        items = []
+        # Read one immutable original at a time, never retain whole source arrays
+        # for every row in a page. Missing frequencies remain explicit gaps.
+        for item in page['items']:
+            with self._lock:
+                sweep = self._get_sweep_locked(session_id, item['id'])
+                items.append(history_item(sweep, frequencies))
+        return dict(session_id=session_id, stream_id=query['stream_id'],
+                    frequencies_hz=frequencies, start=query['start'], end=query['end'],
+                    items=items, next_cursor=page['next_cursor'])
+
+    def list_frequency_bookmarks(self, session_id):
+        from .frequency_history import MAX_BOOKMARK_VERSIONS
+        with self._lock:
+            self._validate_stream_query_locked(session_id, None)
+            if self._store is not None:
+                items = self._store.list_frequency_bookmarks(session_id)
+            else:
+                items = [item for item in reversed(self._frequency_bookmarks) if item['session_id']==session_id]
+            return copy.deepcopy(dict(session_id=session_id, items=items, limit=MAX_BOOKMARK_VERSIONS))
+
+    def save_frequency_bookmarks(self, session_id, payload):
+        from .frequency_history import bookmark_request, MAX_BOOKMARK_VERSIONS
+        value = bookmark_request(payload)
+        with self._lock:
+            items = self.list_frequency_bookmarks(session_id)['items']
+            previous = next((item for item in items if item['name']==value['name']),None)
+            if previous and previous['entries']==value['entries']:
+                return previous
+            if len(items)>=MAX_BOOKMARK_VERSIONS:
+                raise ValueError('Достигнут предел версий наборов частот в сеансе')
+            item = dict(value, id=new_id(), session_id=session_id, schema_version=1,
+                revision=previous['revision']+1 if previous else 1, created_at=to_primitive(self._clock()))
+            event = self._make_event_locked('frequency_bookmarks.saved', session_id=session_id, payload={'bookmarks':item})
+            if self._store is not None:
+                self._store.save_frequency_bookmarks(item,event=event)
+            else:
+                self._frequency_bookmarks.append(copy.deepcopy(item))
+            self._publish_event_locked(event)
+            return copy.deepcopy(item)
 
     def list_sweeps(
         self, session_id: str, *, stream_id: Optional[str] = None, limit: Optional[int] = 100

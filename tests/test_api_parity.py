@@ -655,7 +655,7 @@ class OwnedProducerTests(unittest.TestCase):
             self.assertTrue(result["producer_sanity"]["successful"],result)
             self.assertGreaterEqual(result["producer_sanity"]["compared_cases"],140)
             self.assertTrue(result["producer_sanity"]["async_protocol_verified"])
-            self.assertEqual(result["inventory"]["published_v1_operations"],137)
+            self.assertEqual(result["inventory"]["published_v1_operations"],141)
             self.assertTrue(all(node["joined"] for node in result["nodes"]))
         except BaseException:
             print("Retained failed public API parity fixture:",directory)

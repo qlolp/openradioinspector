@@ -45,6 +45,10 @@ RInspectorWiFi и описание IQ_ProcessPRO.
 
 ## Возможности
 
+[Инвентарь возможностей RInspectorRT по работающей программе](docs/rinspectorrt-light-runtime-inventory.md):
+наблюдение интерфейса RadioInspector Light со снимками экрана, сверка с
+[статическим инвентарём пакета 32314](docs/capabilities-light-32314.md).
+
 [Сравнение архивных свипов с эталоном](docs/sweep-comparison.md): общий read-only
 расчёт разности `dB` и явное действие в WebUI, Windows Tk и macOS SwiftUI.
 Исходные измерения `dBm` сохраняются без изменений.
