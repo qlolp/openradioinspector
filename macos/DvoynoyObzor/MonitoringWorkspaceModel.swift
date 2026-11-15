@@ -101,7 +101,21 @@ final class MonitoringWorkspaceModel: ObservableObject {
     var canSaveConfiguration: Bool {
         canConfigure && (!audioEnabled || (audioInputs["available"].bool == true && chosenDevice != nil && audioConfirmed))
     }
-    var canArm: Bool { canConfigure && !configurationDirty && !project["baseline_id"].text.isEmpty && (preparationSimulation || (savedPreparationReady && !preparationDirty)) }
+    var canArm: Bool {
+        canConfigure && !configurationDirty && baselinesReady &&
+        (preparationSimulation || (savedPreparationReady && !preparationDirty))
+    }
+    private var baselinesReady: Bool {
+        guard !project["baseline_id"].text.isEmpty else { return false }
+        let plan = project["scan_plan"]
+        guard plan != .null else { return true }
+        let bands = plan["config"]["bands"].items
+        let baselines = project["band_baselines"]
+        return !bands.isEmpty && bands.allSatisfy { band in
+            let id = band["id"].text
+            return !id.isEmpty && !baselines[id].text.isEmpty
+        }
+    }
     var isCollecting: Bool { project["state"].text == "collecting" || project["coverage"].text == "preparation" }
     var canEditPreparation: Bool { canConfigure && !isCollecting }
     var preparationSimulation: Bool {
