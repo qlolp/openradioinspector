@@ -8,7 +8,7 @@ private struct HistoryFrequency: Identifiable {
     let id = UUID()
     var label: String
     var mhz: String
-    init(label: String = "Частота", hz: Int64 = 100_000_000) { self.label = label; mhz = NativeAnalyzerDraft.mhz(hz) }
+    init(label: String = "Частота", hz: Int64 = 100_000_000) { self.label = label; mhz = NativeHistoryFrequencyInput.mhz(hz) }
 }
 
 struct NativeFrequencyHistoryPane: View {
@@ -76,7 +76,7 @@ struct NativeFrequencyHistoryPane: View {
                 TableColumn("Фактические бины и уровни") { row in
                     Text(row.samples.map { sample in
                         guard let hz = sample.frequencyHz, let level = sample.level else { return "—" }
-                        return "\(NativeAnalyzerDraft.mhz(hz)) МГц: \(String(format:"%.2f",level)) \(row.levelUnit)"
+                        return "\(NativeHistoryFrequencyInput.mhz(hz)) МГц: \(String(format:"%.2f",level)) \(row.levelUnit)"
                     }.joined(separator:" · ")).font(.caption)
                 }
             }.frame(minHeight:100)
@@ -141,7 +141,7 @@ struct NativeFrequencyHistoryPane: View {
         }.chartXAxisLabel("UTC · интервалы свипов").environment(\.timeZone,.gmt)
     }
     private func entries() throws -> [PlatformFrequencyBookmarkEntry] {
-        try frequencies.map { .init(label:$0.label.trimmingCharacters(in:.whitespacesAndNewlines),frequencyHz:try NativeAnalyzerDraft.hz($0.mhz)) }
+        try frequencies.map { .init(label:$0.label.trimmingCharacters(in:.whitespacesAndNewlines),frequencyHz:try NativeHistoryFrequencyInput.hz($0.mhz)) }
     }
     private func apply(_ title: String, entries: [PlatformFrequencyBookmarkEntry]) {
         request?.cancel(); browser.reset(); busy = false; live = false; loadedQuery = ""; selection = nil

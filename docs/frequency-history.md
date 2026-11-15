@@ -4,7 +4,8 @@
 Supply `stream_id`, one to four unique `frequencies_hz` (integer Hz), `start` and
 `end` (UTC). Selection uses sweep start in `[start, end)`, newest first. `limit`
 is 1–100; `after` is an opaque cursor bound to the session, stream, time range
-and exact frequency selection. It fixes the ingestion watermark, including
+and exact frequency selection. Timestamp validation and ordering retain microseconds;
+rendering alone uses display dates. It fixes the ingestion watermark, including
 late-arriving records. A refresh starts a new snapshot.
 
 Every row retains its source sweep ID, complete acquisition interval and original
@@ -41,6 +42,10 @@ The marker action **История → Следить за уровнем мар
 candidate action seed this view without tuning. **Открыть исходник** opens the
 original archived spectrum. **Эталоны и сравнение** reuses the existing core-owned
 comparison and reference catalogue; it performs no client-side subtraction.
+
+Archive frequencies use the metadata contract range (0–9,007,199,254,740,991 Hz),
+not a device tuning range. MHz editing and formatting retain exact integer Hz,
+including frequencies above 800 MHz. This does not enable hardware tuning.
 
 Saved sets are session-scoped. A portable JSON file contains only
 `schema_version: 1`, `name`, and `entries`; import is limited to 8 KiB and rejects

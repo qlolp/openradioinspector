@@ -329,7 +329,7 @@ fn runtime_backend_and_request_features_fail_closed() {
         select_operations("python-legacy", &[], &[], &empty)
             .unwrap()
             .len(),
-        136
+        141
     );
     let available = select_operations("rust-candidate", &[], &[], &empty).unwrap();
     assert!(

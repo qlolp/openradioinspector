@@ -115,7 +115,7 @@ extension PlatformClient {
         let document = PlatformFrequencyBookmarkDocument(name:"History", entries: frequencies.map { .init(label:"Frequency",frequencyHz:$0) })
         try document.validate()
         guard !sessionID.isEmpty, !streamID.isEmpty, streamID.count <= 128,
-              let from = Self.historyDate(start), let to = Self.historyDate(end), from < to,
+              let from = Self.historyTime(start), let to = Self.historyTime(end), from < to,
               after == nil || (1...16384).contains(after!.utf8.count) else {
             throw PlatformError.invalidCommand("Проверьте поток, интервал UTC и курсор")
         }
@@ -125,16 +125,16 @@ extension PlatformClient {
                 _ = try ORIContracts.FrequencyHistoryPage(json: StrictJSON.parse($0).requireObject()["data"] ?? .null)
             })
         guard PlatformExactID.same(page.sessionId,sessionID), PlatformExactID.same(page.streamId,streamID),
-              page.frequenciesHz == frequencies, Self.historyDate(page.start) == from, Self.historyDate(page.end) == to,
+              page.frequenciesHz == frequencies, Self.historyTime(page.start) == from, Self.historyTime(page.end) == to,
               page.items.count <= 100, Set(page.items.map { PlatformExactID($0.sweepId) }).count == page.items.count,
               page.nextCursor == nil || ((1...16384).contains(page.nextCursor!.utf8.count) && !page.items.isEmpty && page.nextCursor != after) else {
             throw PlatformError.invalidResponse("История вернула другую выборку или некорректную страницу")
         }
-        var previous: (Date, [UInt8])?
+        var previous: (PlatformTimestamp, [UInt8])?
         for row in page.items {
             guard !row.sweepId.isEmpty, !row.levelUnit.isEmpty, row.levelUnit.count <= 80,
                   row.segmentId.count == 64, row.segmentId.allSatisfy({ "0123456789abcdef".contains($0) }),
-                  let began = Self.historyDate(row.interval.startedAt), let ended = Self.historyDate(row.interval.endedAt),
+                  let began = Self.historyTime(row.interval.startedAt), let ended = Self.historyTime(row.interval.endedAt),
                   began <= ended, began >= from, began < to, row.samples.map(\.requestedHz) == frequencies,
                   row.samples.allSatisfy({ ($0.frequencyHz == nil && $0.level == nil) ||
                     ($0.frequencyHz.map { (0...9_007_199_254_740_991).contains($0) } == true && $0.level?.isFinite == true) }) else {
@@ -172,15 +172,13 @@ extension PlatformClient {
     }
     private static func validateBookmark(_ item: PlatformFrequencyBookmarkSet, sessionID: String) throws {
         guard item.schemaVersion == 1, item.revision >= 1, !item.id.isEmpty,
-              PlatformExactID.same(item.sessionId,sessionID), historyDate(item.createdAt) != nil else {
+              PlatformExactID.same(item.sessionId,sessionID), historyTime(item.createdAt) != nil else {
             throw PlatformError.invalidResponse("Некорректная версия набора частот")
         }
         try PlatformFrequencyBookmarkDocument(name:item.name,entries:item.entries).validate()
     }
-    private static func historyDate(_ text: String) -> Date? {
+    private static func historyTime(_ text: String) -> PlatformTimestamp? {
         guard text.hasSuffix("Z") || text.hasSuffix("+00:00") else { return nil }
-        let parser = ISO8601DateFormatter(); parser.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
-        if let result = parser.date(from:text) { return result }
-        parser.formatOptions = [.withInternetDateTime]; return parser.date(from:text)
+        return try? PlatformTimestamp(text)
     }
 }

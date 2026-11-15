@@ -109,4 +109,29 @@ import Testing
         let result = try await client.frequencyHistory(sessionID:"s",streamID:"t",frequencies:[150,450],start:start,end:end)
         #expect(Set(result.items.map(\.id)).count == 2)
     }
+    @Test func submillisecondSourceOrderAndIntervalsRemainExact() async throws {
+        let (client, session) = try api(); defer { session.invalidateAndCancel(); Stub.handler = nil }
+        var payload = page
+        let sourceRows = try #require(payload["items"] as? [[String:Any]])
+        var newer = sourceRows[0], older = sourceRows[0]
+        newer["sweep_id"] = "a"; older["sweep_id"] = "z"
+        newer["interval"] = ["started_at":"2026-11-15T00:00:00.000900Z","ended_at":"2026-11-15T00:00:00.000950Z"]
+        older["interval"] = ["started_at":"2026-11-15T00:00:00.000100Z","ended_at":"2026-11-15T00:00:00.000150Z"]
+        payload["items"] = [newer,older]; let valid = payload
+        Stub.handler = { _ in valid }
+        let result = try await client.frequencyHistory(sessionID:"s",streamID:"t",frequencies:[150,450],start:start,end:end)
+        #expect(result.items.map(\.sweepId) == ["a","z"])
+        newer["interval"] = ["started_at":"2026-11-15T00:00:00.000900Z","ended_at":"2026-11-15T00:00:00.000100Z"]
+        payload["items"] = [newer]; let inverted = payload
+        Stub.handler = { _ in inverted }
+        await #expect(throws:(any Error).self) {
+            try await client.frequencyHistory(sessionID:"s",streamID:"t",frequencies:[150,450],start:start,end:end)
+        }
+        payload = valid; payload["start"] = "2026-11-15T00:00:00.000001Z"; let shiftedWindow = payload
+        Stub.handler = { _ in shiftedWindow }
+        await #expect(throws:(any Error).self) {
+            try await client.frequencyHistory(sessionID:"s",streamID:"t",frequencies:[150,450],start:start,end:end)
+        }
+    }
+
 }
