@@ -704,6 +704,13 @@ pub const OPERATIONS: &[Operation] = &[
         max_request_bytes: None,
     },
     Operation {
+        operation_id: "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_json",
+        method: "GET",
+        path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json",
+        query: &[],
+        max_request_bytes: None,
+    },
+    Operation {
         operation_id: "get_api_v1_sessions_id_streams_stream_id_instrument_capabilities",
         method: "GET",
         path: "/api/v1/sessions/{id}/streams/{stream_id}/instrument/capabilities",

@@ -3324,6 +3324,24 @@ export const runtimeOperations = [
     "features": [],
     "max_request_bytes": null,
     "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_json",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json",
+    "path_parameters": [
+      "id",
+      "stream_id",
+      "artifact_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": null,
+    "method": "GET",
     "operation_id": "get_api_v1_sessions_id_streams_stream_id_instrument_capabilities",
     "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/capabilities",
     "path_parameters": [
