@@ -128,7 +128,8 @@ struct RemoteUltraPane: View {
                                     measurementsStale: model.measurementsStale,
                                     presentationPaused: model.spectrumPresentation.paused,
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
-                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest)
+                                    reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
+                                    onFollowFrequency: { model.followFrequency($0) })
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
                 .frame(minHeight: 370).layoutPriority(1)
             HStack {

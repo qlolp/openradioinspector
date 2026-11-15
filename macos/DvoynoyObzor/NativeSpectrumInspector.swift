@@ -15,6 +15,7 @@ struct NativeSpectrumInspector: View {
     var setPresentationPaused: (@MainActor (Bool) -> Void)? = nil
     var reviewedSweep: PlatformSweep? = nil
     var reviewRequest = UUID()
+    var onFollowFrequency: ((Int64) -> Void)?
     @AppStorage("native.plot.split") private var split = 0.50
     @AppStorage("native.plot.seconds") private var seconds = 120.0
     @AppStorage("native.plot.minimum") private var showMinimum = true
@@ -91,6 +92,11 @@ struct NativeSpectrumInspector: View {
                         }
                     }.disabled(markers.isEmpty && cursor == nil)
                 }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
+                Menu("История") {
+                    Button("Следить за уровнем маркера") {
+                        if let marker = markers.last ?? cursor { onFollowFrequency?(marker.frequency) }
+                    }.disabled(onFollowFrequency == nil || (markers.isEmpty && cursor == nil))
+                }
                 Button("Пик") { choosePeak(next: true) }
                 Toggle("Следить", isOn: $trackingPeak).toggleStyle(.button)
                 Toggle("Min", isOn: $showMinimum).toggleStyle(.button)

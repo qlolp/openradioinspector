@@ -51,6 +51,7 @@ struct ContentView: View {
                     Text("Охрана и исследование").tag("guard")
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
                 Spacer(minLength: 0)
+                Button("История уровней") { model.showFrequencyHistory = true }.disabled(!model.connected || model.analyzer == nil)
                 if tab == "range" {
                     Toggle("AR-DV1", isOn: $showReceiver).toggleStyle(.button).disabled(model.receiver == nil)
                 }
@@ -88,6 +89,8 @@ struct ContentView: View {
         .frame(minWidth: 1000, minHeight: 700)
         .onChange(of: setupExpanded) { _, expanded in if expanded { tab = "devices"; setupExpanded = false } }
         .onChange(of: model.coreReachable) { _, reachable in if reachable, tab == "devices" { tab = "range" } }
+        .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { tab = "range" } }
+        .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model:model) }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
         .sheet(isPresented: $model.showTinySAControl) {

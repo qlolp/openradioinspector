@@ -25,6 +25,8 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
+    @Published var showFrequencyHistory = false
+    @Published var historyFrequency: Int64?
     @Published var reviewedSweepRequest = UUID()
     @Published var reviewedSweep: PlatformSweep?
     @Published var showTinySAControl = false
@@ -674,7 +676,12 @@ final class RemoteDualModel: ObservableObject {
         }
     }
 
+    func followFrequency(_ hz: Int64) {
+        historyFrequency = hz; showFrequencyHistory = true
+    }
+
     private func resetMeasurementHealth() {
+        historyFrequency = nil
         reviewedSweep = nil
         reviewedSweepRequest = UUID()
         if staleSpectrum != nil { waterfallRevision += 1 }

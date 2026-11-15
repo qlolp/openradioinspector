@@ -66,7 +66,7 @@ test('runtime backend and request feature selection fails closed', () => {
     assert.deepEqual(runtimeOperations.find(op=>op.operation_id==='get_api_v1_events_ws')!.query,['after']);
     const ids=(backend:string,features:string[]=[],capabilities:string[]=[],request:any={})=>selectRuntimeOperations(backend,features,capabilities,request).map(op=>op.operation_id);
     assert.throws(()=>ids('unknown'));
-    assert.equal(ids('python-legacy').length,137);
+    assert.equal(ids('python-legacy').length,141);
     assert.ok(!ids('rust-candidate').includes('post_api_v1_sessions_id_field_strength_rms_v2'));
     assert.ok(ids('rust-candidate',['field_strength_rms_v2']).includes('post_api_v1_sessions_id_field_strength_rms_v2'));
     assert.ok(!ids('python-legacy').includes('get_api_v1_security_status'));

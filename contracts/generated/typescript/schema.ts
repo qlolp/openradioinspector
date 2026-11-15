@@ -641,6 +641,213 @@ export const schemas = {
     ],
     "type": "object"
   },
+  "FrequencyBookmarkEntry": {
+    "additionalProperties": false,
+    "properties": {
+      "frequency_hz": {
+        "format": "int64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "label": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "label",
+      "frequency_hz"
+    ],
+    "type": "object"
+  },
+  "FrequencyBookmarkPage": {
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "#/components/schemas/FrequencyBookmarkSet"
+        },
+        "maxItems": 256,
+        "type": "array"
+      },
+      "limit": {
+        "const": 256,
+        "type": "integer"
+      },
+      "session_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "items",
+      "limit"
+    ],
+    "type": "object"
+  },
+  "FrequencyBookmarkSet": {
+    "additionalProperties": false,
+    "properties": {
+      "created_at": {
+        "type": "string"
+      },
+      "entries": {
+        "items": {
+          "$ref": "#/components/schemas/FrequencyBookmarkEntry"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array"
+      },
+      "id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "revision": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "schema_version": {
+        "const": 1,
+        "type": "integer"
+      },
+      "session_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "session_id",
+      "schema_version",
+      "name",
+      "revision",
+      "created_at",
+      "entries"
+    ],
+    "type": "object"
+  },
+  "FrequencyHistoryPage": {
+    "additionalProperties": false,
+    "properties": {
+      "end": {
+        "type": "string"
+      },
+      "frequencies_hz": {
+        "items": {
+          "format": "int64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "items": {
+        "items": {
+          "$ref": "#/components/schemas/FrequencyHistoryRow"
+        },
+        "maxItems": 100,
+        "type": "array"
+      },
+      "next_cursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "session_id": {
+        "type": "string"
+      },
+      "start": {
+        "type": "string"
+      },
+      "stream_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "stream_id",
+      "frequencies_hz",
+      "start",
+      "end",
+      "items",
+      "next_cursor"
+    ],
+    "type": "object"
+  },
+  "FrequencyHistoryRow": {
+    "additionalProperties": false,
+    "properties": {
+      "interval": {
+        "$ref": "#/components/schemas/TimeInterval"
+      },
+      "level_unit": {
+        "type": "string"
+      },
+      "samples": {
+        "items": {
+          "$ref": "#/components/schemas/FrequencyHistorySample"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array"
+      },
+      "segment_id": {
+        "type": "string"
+      },
+      "sweep_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "sweep_id",
+      "interval",
+      "level_unit",
+      "segment_id",
+      "samples"
+    ],
+    "type": "object"
+  },
+  "FrequencyHistorySample": {
+    "additionalProperties": false,
+    "properties": {
+      "frequency_hz": {
+        "format": "int64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "level": {
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "requested_hz": {
+        "format": "int64",
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "requested_hz",
+      "frequency_hz",
+      "level"
+    ],
+    "type": "object"
+  },
   "Investigation": {
     "additionalProperties": true,
     "properties": {
@@ -1386,6 +1593,12 @@ export const operations = {
     "path": "/api/v1/sessions/{id}/candidates/{candidate_id}",
     "query": []
   },
+  "get_api_v1_sessions_id_frequency_bookmarks": {
+    "max_request_bytes": null,
+    "method": "GET",
+    "path": "/api/v1/sessions/{id}/frequency-bookmarks",
+    "query": []
+  },
   "get_api_v1_sessions_id_investigations": {
     "max_request_bytes": null,
     "method": "GET",
@@ -1776,10 +1989,22 @@ export const operations = {
     "path": "/api/v1/sessions/{id}/field-strength-rms-v2",
     "query": []
   },
+  "post_api_v1_sessions_id_frequency_bookmarks": {
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "path": "/api/v1/sessions/{id}/frequency-bookmarks",
+    "query": []
+  },
   "post_api_v1_sessions_id_frequency_counter": {
     "max_request_bytes": 8192,
     "method": "POST",
     "path": "/api/v1/sessions/{id}/frequency-counter",
+    "query": []
+  },
+  "post_api_v1_sessions_id_frequency_history": {
+    "max_request_bytes": 24576,
+    "method": "POST",
+    "path": "/api/v1/sessions/{id}/frequency-history",
     "query": []
   },
   "post_api_v1_sessions_id_frequency_rounding": {
@@ -1900,6 +2125,12 @@ export const operations = {
     "max_request_bytes": 65536,
     "method": "POST",
     "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",
+    "query": []
+  },
+  "post_api_v1_sessions_id_streams_stream_id_recover": {
+    "max_request_bytes": 65536,
+    "method": "POST",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/recover",
     "query": []
   },
   "post_api_v1_sessions_id_streams_stream_id_start": {

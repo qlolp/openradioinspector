@@ -21,6 +21,7 @@ struct NativeReceiveWorkbench: View {
     @State private var artifactOffset = 0
     @State private var selectedArtifact: MonitoringValue = .null
     @State private var loaded = false
+    @State private var recoverySupported = false
     private var running: Bool { model.worker(for: model.analyzer?.id)?.alive == true }
     private var watching: Bool { status["watch"] != .null }
 
@@ -37,6 +38,22 @@ struct NativeReceiveWorkbench: View {
                 Text("\(status["profile"].text) · ревизия \(status["revision"].scalar)").font(.caption)
             }
             if let error = model.worker(for: model.analyzer?.id)?.lastError { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
+            DisclosureGroup("Диагностика обмена и восстановление") {
+                VStack(alignment: .leading, spacing: 6) {
+                    if recoverySupported {
+                        Button("Восстановить остановленный поток") { recover() }
+                            .disabled(running || busy || model.worker(for: model.analyzer?.id)?.stopping == true)
+                    }
+                    Text("Новая попытка соединения сохраняет диагностику. Наблюдение и ручное управление нужно запускать заново; приём подтверждается новым измерением.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ScrollView {
+                        VStack(alignment: .leading) {
+                            diagnostics(status["transactions"].items, title: "Текущее соединение")
+                            diagnostics(status["previous_transactions"].items, title: "Предыдущее соединение")
+                        }
+                    }.frame(maxHeight: 120)
+                }
+            }
             Picker("Раздел", selection: $tab) {
                 Text("Тракт и развёртка").tag(0)
                 Text("Наблюдение и события").tag(1)
@@ -59,7 +76,15 @@ struct NativeReceiveWorkbench: View {
             Text("При потере USB наблюдение останавливается. После нового соединения фон собирается заново. Генератор в этом сценарии не включается.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(18).frame(minWidth: 860, idealWidth: 940, minHeight: 620)
-            .task {
+            .task(id: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? ""].map { PlatformExactID($0) }) {
+                task?.cancel(); busy = false; loaded = false; status = .null; recoverySupported = false
+                if let client = model.client {
+                    let session = model.selectedSessionID, stream = model.analyzer?.id
+                    let features = try? await client.workbenchFeatures()
+                    if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream {
+                        recoverySupported = features?.contains("explicit_stream_recovery") == true
+                    }
+                }
                 await refresh(initialize: true)
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(3)) } catch { return }
@@ -67,6 +92,33 @@ struct NativeReceiveWorkbench: View {
                 }
             }
             .onDisappear { task?.cancel() }
+    }
+
+    private func diagnostics(_ rows: [MonitoringValue], title: String) -> some View {
+        VStack(alignment: .leading) {
+            Text("\(title): \(rows.count) обменов").font(.caption.bold())
+            ForEach(Array(rows.suffix(64).reversed().enumerated()), id: \.offset) { _, row in
+                Text("\(row["started_at"].text) · \(row["command"].text) · \(row["stage"].text) / \(row["outcome"].text) · \(row["received_bytes"].scalar) байт, \(row["complete_lines"].scalar) строк · \(row["elapsed_seconds"].scalar) с / \(row["deadline_seconds"].scalar) с · prompt: \(row["terminal_received"].scalar)")
+                    .font(.caption2.monospaced()).textSelection(.enabled)
+            }
+        }
+    }
+
+    private func recover() {
+        guard recoverySupported, !running, !busy, let client = model.client, let stream = model.analyzer?.id else { return }
+        let session = model.selectedSessionID; busy = true; message = "Пересоздание соединения…"
+        task = Task { @MainActor in
+            defer { if model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream { busy = false } }
+            do {
+                _ = try await client.recoverStream(sessionID: session, streamID: stream)
+                try Task.checkCancellation()
+                guard model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream else { return }
+                message = "Новая попытка запущена. Дождитесь нового измерения; наблюдение не возобновляется автоматически."
+                await refresh()
+            } catch {
+                if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream { message = error.localizedDescription }
+            }
+        }
     }
 
     private var receiveControls: some View {

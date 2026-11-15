@@ -680,6 +680,7 @@ class DeviceWorkerManager:
     def capabilities(self) -> dict[str, Any]:
         return {
             "graceful_device_stop": True,
+            "explicit_stream_recovery": True,
             "simulated_device_workers": True,
             "independent_worker_commands": True,
             "continuous_simulated_monitoring": True,
@@ -814,6 +815,8 @@ class DeviceWorkerManager:
 
             try:
                 adapter = create_device_adapter(stream, clock=self._clock)
+                if existing and hasattr(adapter, '_previous_transactions'):
+                    adapter._previous_transactions = existing.adapter.details().get('transactions', [])[-64:]
             except (ValueError, TypeError, OSError) as exc:
                 raise WorkerError(str(exc)) from exc
             worker: Optional[DeviceWorker] = None
@@ -934,6 +937,31 @@ class DeviceWorkerManager:
             if first_error is not None:
                 raise first_error
             return self.list_workers(session_id)
+
+    def recover_stream(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        """Explicit new connection after failure/stop; never bypass synchronization.
+
+        A live worker (including a manual lease or a pending graceful stop) must
+        first be stopped explicitly. Its detector/lease is not transferred.
+        Concurrent stop invalidates the start ticket just as for normal starts.
+        """
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, None)
+        self._stream(self.sessions.get_session(session_id), stream_id)
+        key = (session_id, stream_id)
+        lifecycle = self._lifecycle(key)
+        with lifecycle.lock:
+            with self._lock:
+                old = self._workers.get(key)
+                if old is None:
+                    raise WorkerError('Нет остановленного исполнителя для восстановления')
+                if old.alive:
+                    raise WorkerError('Сначала явно остановите текущий приём')
+                generation = lifecycle.stop_generation
+                self._check_start_allowed(key, lifecycle, generation)
+        result = self._start_stream(key, lifecycle, generation)
+        result['recovery'] = dict(requires_new_measurement=True, watch_resumed=False)
+        return result
 
     def tune(
         self, session_id: str, stream_id: str, payload: dict[str, Any], *, control_owner=None
