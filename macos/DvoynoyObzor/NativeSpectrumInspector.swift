@@ -219,6 +219,16 @@ struct NativeSpectrumInspector: View {
             archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
         }
         .onDisappear { archiveTask?.cancel(); tuneTask?.cancel() }
+        .onChange(of: trackingPeak) { _, enabled in
+            if enabled {
+                let frequencyZoom = zoom
+                returnToLive()
+                zoom = frequencyZoom
+            }
+        }
+        .onChange(of: frozen != nil) { _, viewingHistory in
+            if viewingHistory { trackingPeak = false }
+        }
         .onChange(of: sweeps.isEmpty) { _, empty in
             if empty { archiveTask?.cancel(); archive.reset(); timeEnd = nil; reference = nil; frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inGap = false }
         }
