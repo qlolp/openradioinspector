@@ -165,7 +165,7 @@ struct NativeContinuityBar: View {
                         }.padding().frame(width: 380)
                     }
             }.font(.caption).lineLimit(1)
-            if model.archiveCapacity?.measurementWritesBlocked == true {
+            if model.displayArchiveCapacity?.measurementWritesBlocked == true {
                 Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
                     .font(.callout).foregroundStyle(.red)
             }

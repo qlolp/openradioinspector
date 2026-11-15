@@ -307,7 +307,7 @@ struct RemoteArchiveCapacityPane: View {
     var body: some View {
         GroupBox("Ёмкость всего архива · сервер") {
             VStack(alignment: .leading, spacing: 4) {
-                if let capacity = model.archiveCapacity {
+                if let capacity = model.displayArchiveCapacity {
                     HStack {
                         Label(stateTitle(capacity.state), systemImage: stateIcon(capacity.state))
                             .foregroundStyle(stateColor(capacity.state))
