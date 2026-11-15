@@ -6,6 +6,9 @@ export type BrowserPairingCredential = "browser_cookie";
 export type HistoryJobOperation = "export" | "summary" | "occupancy";
 export type HistoryJobPhase = "snapshot" | "running" | "completed" | "cancelled" | "failed";
 export type HistoryRequestOperation = "export" | "summary" | "occupancy";
+export type KnownSignalInputKind = "broadcast" | "aviation" | "maritime" | "rail" | "municipal" | "cellular" | "short_range" | "wifi" | "bluetooth" | "remote_control" | "satellite_navigation" | "other" | "unknown";
+export type KnownSignalRecordKind = "broadcast" | "aviation" | "maritime" | "rail" | "municipal" | "cellular" | "short_range" | "wifi" | "bluetooth" | "remote_control" | "satellite_navigation" | "other" | "unknown";
+export type KnownSignalRecordLevelUnit = "dBm";
 export type MeasurementWebSocketEncoding = "protobuf";
 export type MeasurementWebSocketSubprotocol = "ori.measurements.v1.protobuf";
 export type MeasurementWebSocketTransport = "websocket";
@@ -13,6 +16,7 @@ export type NativePairingCredential = "bearer";
 export type PairingInputClient = "browser" | "native";
 export type ScanPlanRevisionHardwareValidation = "not_run";
 export type SecurityStatusMode = "legacy_loopback" | "lan_tls";
+export type SignalRecognitionState = "new" | "similar" | "changed";
 export interface BrowserPairing {
   credential: BrowserPairingCredential;
   paired: true;
@@ -161,6 +165,39 @@ export interface HistoryViewportRow {
   [key: string]: unknown;
 }
 
+export interface KnownSignalInput {
+  event_id: string;
+  kind: KnownSignalInputKind;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface KnownSignalRecord {
+  bandwidth_hz: Integer;
+  baseline_id: string | null;
+  bin_span: Integer | null;
+  center_frequency_hz: Integer;
+  confirmed_at: string;
+  created_at: string;
+  end_frequency_hz: Integer;
+  event_id: string;
+  first_seen: string;
+  id: string;
+  kind: KnownSignalRecordKind;
+  last_seen: string;
+  level_unit: KnownSignalRecordLevelUnit;
+  name: string;
+  peak_level: number | null;
+  project_id: string;
+  scan_band_id: string | null;
+  scan_plan_id: string | null;
+  scan_plan_revision: Integer | null;
+  schema_version: Integer;
+  source_refs: Array<JSONObject>;
+  start_frequency_hz: Integer;
+  [key: string]: unknown;
+}
+
 export interface MeasurementWebSocket {
   encoding: MeasurementWebSocketEncoding;
   max_frame_bytes: Integer;
@@ -182,6 +219,13 @@ export interface PairingInput {
   client?: PairingInputClient;
   label: string;
   pairing_code: string;
+  [key: string]: unknown;
+}
+
+export interface RecognizedGuardEvent {
+  id: string;
+  peak_source?: JSONObject;
+  recognition: SignalRecognition;
   [key: string]: unknown;
 }
 
@@ -216,6 +260,27 @@ export interface ScanPlanRevision {
 export interface SecurityStatus {
   mode: SecurityStatusMode;
   pairing_required: boolean;
+  [key: string]: unknown;
+}
+
+export interface SignalBandReference {
+  applicability: string;
+  end_hz: Integer;
+  kinds: Array<string>;
+  label: string;
+  services: Array<string>;
+  source_title: string;
+  source_url: string;
+  start_hz: Integer;
+  [key: string]: unknown;
+}
+
+export interface SignalRecognition {
+  band_matches?: Array<SignalBandReference>;
+  hypotheses?: Array<JSONObject>;
+  known_matches?: Array<JSONObject>;
+  observed_features?: JSONObject;
+  state: SignalRecognitionState;
   [key: string]: unknown;
 }
 
@@ -263,6 +328,55 @@ const schemas = {...baselineSchemas, ...{
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CredentialRevocation"
+          }
+        }
+      }
+    ]
+  },
+  "GuardSignalInboxEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/RecognizedGuardEvent"
+                },
+                "type": "array"
+              },
+              "next_cursor": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "GuardSignalRecognitionEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RecognizedGuardEvent"
           }
         }
       }
@@ -982,6 +1096,280 @@ const schemas = {...baselineSchemas, ...{
     ],
     "type": "object"
   },
+  "KnownSignalEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/KnownSignalRecord"
+          }
+        }
+      }
+    ]
+  },
+  "KnownSignalInput": {
+    "additionalProperties": false,
+    "properties": {
+      "event_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "broadcast",
+          "aviation",
+          "maritime",
+          "rail",
+          "municipal",
+          "cellular",
+          "short_range",
+          "wifi",
+          "bluetooth",
+          "remote_control",
+          "satellite_navigation",
+          "other",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "event_id",
+      "name",
+      "kind"
+    ],
+    "type": "object"
+  },
+  "KnownSignalPageEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/KnownSignalRecord"
+                },
+                "type": "array"
+              },
+              "next_cursor": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "KnownSignalRecord": {
+    "additionalProperties": false,
+    "properties": {
+      "bandwidth_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "baseline_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "bin_span": {
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "center_frequency_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "confirmed_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "created_at": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "end_frequency_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "event_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "first_seen": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "broadcast",
+          "aviation",
+          "maritime",
+          "rail",
+          "municipal",
+          "cellular",
+          "short_range",
+          "wifi",
+          "bluetooth",
+          "remote_control",
+          "satellite_navigation",
+          "other",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "last_seen": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "level_unit": {
+        "enum": [
+          "dBm"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "peak_level": {
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "project_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "scan_band_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "scan_plan_id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "scan_plan_revision": {
+        "minimum": 1,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "schema_version": {
+        "type": "integer"
+      },
+      "source_refs": {
+        "items": {
+          "additionalProperties": true,
+          "properties": {
+            "session_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "stream_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "sweep_id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "sweep_id",
+            "stream_id",
+            "session_id"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "start_frequency_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "event_id",
+      "project_id",
+      "name",
+      "kind",
+      "schema_version",
+      "first_seen",
+      "last_seen",
+      "created_at",
+      "confirmed_at",
+      "start_frequency_hz",
+      "center_frequency_hz",
+      "end_frequency_hz",
+      "bandwidth_hz",
+      "bin_span",
+      "level_unit",
+      "peak_level",
+      "scan_plan_id",
+      "scan_plan_revision",
+      "scan_band_id",
+      "baseline_id",
+      "source_refs"
+    ],
+    "type": "object"
+  },
   "MeasurementWebSocket": {
     "properties": {
       "encoding": {
@@ -1095,6 +1483,50 @@ const schemas = {...baselineSchemas, ...{
     "required": [
       "pairing_code",
       "label"
+    ],
+    "type": "object"
+  },
+  "RecognizedGuardEvent": {
+    "additionalProperties": true,
+    "properties": {
+      "id": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "peak_source": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "stream_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sweep_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "stream_id",
+          "sweep_id"
+        ],
+        "type": "object"
+      },
+      "recognition": {
+        "$ref": "#/components/schemas/SignalRecognition"
+      }
+    },
+    "required": [
+      "id",
+      "recognition"
     ],
     "type": "object"
   },
@@ -1276,6 +1708,251 @@ const schemas = {...baselineSchemas, ...{
         }
       }
     ]
+  },
+  "SignalBandPlanEnvelope": {
+    "allOf": [
+      {
+        "$ref": "#/components/schemas/Envelope"
+      },
+      {
+        "properties": {
+          "data": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "$ref": "#/components/schemas/SignalBandReference"
+                },
+                "type": "array"
+              },
+              "profile": {
+                "enum": [
+                  "ru"
+                ],
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "profile",
+              "version",
+              "items"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "SignalBandReference": {
+    "additionalProperties": false,
+    "properties": {
+      "applicability": {
+        "maxLength": 500,
+        "minLength": 1,
+        "type": "string"
+      },
+      "end_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "kinds": {
+        "items": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "label": {
+        "maxLength": 200,
+        "minLength": 1,
+        "type": "string"
+      },
+      "services": {
+        "items": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "source_title": {
+        "maxLength": 500,
+        "minLength": 1,
+        "type": "string"
+      },
+      "source_url": {
+        "format": "uri",
+        "type": "string"
+      },
+      "start_hz": {
+        "maximum": 20000000000,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "start_hz",
+      "end_hz",
+      "label",
+      "services",
+      "kinds",
+      "source_url",
+      "source_title",
+      "applicability"
+    ],
+    "type": "object"
+  },
+  "SignalRecognition": {
+    "additionalProperties": false,
+    "properties": {
+      "band_matches": {
+        "items": {
+          "$ref": "#/components/schemas/SignalBandReference"
+        },
+        "type": "array"
+      },
+      "hypotheses": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "broadcast",
+                "aviation",
+                "maritime",
+                "rail",
+                "municipal",
+                "cellular",
+                "short_range",
+                "wifi",
+                "bluetooth",
+                "remote_control",
+                "satellite_navigation",
+                "other",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "label": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "known_matches": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "broadcast",
+                "aviation",
+                "maritime",
+                "rail",
+                "municipal",
+                "cellular",
+                "short_range",
+                "wifi",
+                "bluetooth",
+                "remote_control",
+                "satellite_navigation",
+                "other",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "observed_features": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmed_receiver_mode": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detected_width_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "source_sweep_count": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "detected_width_hz",
+          "source_sweep_count",
+          "confirmed_receiver_mode"
+        ],
+        "type": "object"
+      },
+      "state": {
+        "enum": [
+          "new",
+          "similar",
+          "changed"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "state"
+    ],
+    "type": "object"
   }
 }} as const;
 const validUnicode = (text: string): void => { stringifyJSON(text); };
@@ -1366,12 +2043,18 @@ export const decodeHistoryViewportQuery = (value: JSONValue): HistoryViewportQue
 export const encodeHistoryViewportQuery = (value: HistoryViewportQuery): string => stringifyJSON(walk(schemas.HistoryViewportQuery as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeHistoryViewportRow = (value: JSONValue): HistoryViewportRow => walk(schemas.HistoryViewportRow as unknown as Schema,value,false) as unknown as HistoryViewportRow;
 export const encodeHistoryViewportRow = (value: HistoryViewportRow): string => stringifyJSON(walk(schemas.HistoryViewportRow as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeKnownSignalInput = (value: JSONValue): KnownSignalInput => walk(schemas.KnownSignalInput as unknown as Schema,value,false) as unknown as KnownSignalInput;
+export const encodeKnownSignalInput = (value: KnownSignalInput): string => stringifyJSON(walk(schemas.KnownSignalInput as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeKnownSignalRecord = (value: JSONValue): KnownSignalRecord => walk(schemas.KnownSignalRecord as unknown as Schema,value,false) as unknown as KnownSignalRecord;
+export const encodeKnownSignalRecord = (value: KnownSignalRecord): string => stringifyJSON(walk(schemas.KnownSignalRecord as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeMeasurementWebSocket = (value: JSONValue): MeasurementWebSocket => walk(schemas.MeasurementWebSocket as unknown as Schema,value,false) as unknown as MeasurementWebSocket;
 export const encodeMeasurementWebSocket = (value: MeasurementWebSocket): string => stringifyJSON(walk(schemas.MeasurementWebSocket as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeNativePairing = (value: JSONValue): NativePairing => walk(schemas.NativePairing as unknown as Schema,value,false) as unknown as NativePairing;
 export const encodeNativePairing = (value: NativePairing): string => stringifyJSON(walk(schemas.NativePairing as unknown as Schema,value as unknown as JSONValue,true));
 export const decodePairingInput = (value: JSONValue): PairingInput => walk(schemas.PairingInput as unknown as Schema,value,false) as unknown as PairingInput;
 export const encodePairingInput = (value: PairingInput): string => stringifyJSON(walk(schemas.PairingInput as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeRecognizedGuardEvent = (value: JSONValue): RecognizedGuardEvent => walk(schemas.RecognizedGuardEvent as unknown as Schema,value,false) as unknown as RecognizedGuardEvent;
+export const encodeRecognizedGuardEvent = (value: RecognizedGuardEvent): string => stringifyJSON(walk(schemas.RecognizedGuardEvent as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeScanBand = (value: JSONValue): ScanBand => walk(schemas.ScanBand as unknown as Schema,value,false) as unknown as ScanBand;
 export const encodeScanBand = (value: ScanBand): string => stringifyJSON(walk(schemas.ScanBand as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeScanPlanConfig = (value: JSONValue): ScanPlanConfig => walk(schemas.ScanPlanConfig as unknown as Schema,value,false) as unknown as ScanPlanConfig;
@@ -1380,6 +2063,10 @@ export const decodeScanPlanRevision = (value: JSONValue): ScanPlanRevision => wa
 export const encodeScanPlanRevision = (value: ScanPlanRevision): string => stringifyJSON(walk(schemas.ScanPlanRevision as unknown as Schema,value as unknown as JSONValue,true));
 export const decodeSecurityStatus = (value: JSONValue): SecurityStatus => walk(schemas.SecurityStatus as unknown as Schema,value,false) as unknown as SecurityStatus;
 export const encodeSecurityStatus = (value: SecurityStatus): string => stringifyJSON(walk(schemas.SecurityStatus as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeSignalBandReference = (value: JSONValue): SignalBandReference => walk(schemas.SignalBandReference as unknown as Schema,value,false) as unknown as SignalBandReference;
+export const encodeSignalBandReference = (value: SignalBandReference): string => stringifyJSON(walk(schemas.SignalBandReference as unknown as Schema,value as unknown as JSONValue,true));
+export const decodeSignalRecognition = (value: JSONValue): SignalRecognition => walk(schemas.SignalRecognition as unknown as Schema,value,false) as unknown as SignalRecognition;
+export const encodeSignalRecognition = (value: SignalRecognition): string => stringifyJSON(walk(schemas.SignalRecognition as unknown as Schema,value as unknown as JSONValue,true));
 export {decodeSweepSummaryPage, encodeSweepSummaryPage} from './index.ts';
 export type {SweepSummaryPage} from './models.ts';
 export const runtimeOperations = [
@@ -1395,6 +2082,25 @@ export const runtimeOperations = [
     "path": "/api/v1/archive/capacity",
     "path_parameters": [],
     "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_signal_catalog"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_band_plan",
+    "path": "/api/v1/band-plan",
+    "path_parameters": [],
+    "query": [
+      "start_hz",
+      "end_hz"
+    ],
     "request_features": []
   },
   {
@@ -2007,6 +2713,25 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_signal_catalog"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_events_event_id_recognition",
+    "path": "/api/v1/monitoring-projects/{project_id}/events/{event_id}/recognition",
+    "path_parameters": [
+      "project_id",
+      "event_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy",
       "rust-candidate"
     ],
@@ -2108,6 +2833,45 @@ export const runtimeOperations = [
     "path_parameters": [
       "project_id",
       "sweep_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_signal_catalog"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_known_signals",
+    "path": "/api/v1/monitoring-projects/{project_id}/known-signals",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [
+      "before",
+      "limit"
+    ],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_signal_catalog"
+    ],
+    "max_request_bytes": null,
+    "method": "POST",
+    "operation_id": "post_api_v1_monitoring_projects_project_id_known_signals",
+    "path": "/api/v1/monitoring-projects/{project_id}/known-signals",
+    "path_parameters": [
+      "project_id"
     ],
     "query": [],
     "request_features": []
@@ -2393,6 +3157,27 @@ export const runtimeOperations = [
       "project_id"
     ],
     "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "rust-candidate"
+    ],
+    "capabilities": [],
+    "features": [
+      "monitoring_signal_catalog"
+    ],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_monitoring_projects_project_id_signal_inbox",
+    "path": "/api/v1/monitoring-projects/{project_id}/signal-inbox",
+    "path_parameters": [
+      "project_id"
+    ],
+    "query": [
+      "after",
+      "limit"
+    ],
     "request_features": []
   },
   {

@@ -1,8 +1,12 @@
 use crate::{tinysa::now, transport::Connection, *};
 use serde_json::json;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::time::Instant;
 
-/// Documented receive control only. AUTO excludes TETRA; LM remains raw counts.
+const RX_SETTLE: Duration = Duration::from_millis(25);
+
+/// Documented receive control only. AUTO excludes TETRA; levels are raw counts.
 pub struct ArDv1<T> {
     connection: Connection<T>,
     requested: ReceiverConfig,
@@ -13,6 +17,8 @@ pub struct ArDv1<T> {
     firmware: Option<String>,
     sequence: u64,
     tune_sequence: u64,
+    verify_frequency: bool,
+    settled_at: Option<Instant>,
 }
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     pub fn new(transport: T, config: ReceiverConfig, limits: IoLimits) -> Result<Self> {
@@ -28,7 +34,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             firmware: None,
             sequence: 0,
             tune_sequence: 0,
+            verify_frequency: false,
+            settled_at: None,
         })
+    }
+    pub fn with_frequency_readback(mut self) -> Result<Self> {
+        if self.requested.profile != ReceiverProfile::MonitorV1 {
+            return Err(InstrumentError::UnsupportedProfile(
+                "receiver RX readback requires ardv1-monitor-v1".into(),
+            ));
+        }
+        self.verify_frequency = true;
+        Ok(self)
     }
     pub fn cancellation_handle(&self) -> CancellationHandle {
         self.connection.cancellation_handle()
@@ -49,7 +66,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             restart_required: self.connection.tainted(),
             closed: self.connection.closed(),
             frequency_source: if unknown { "unknown" } else { self.source }.into(),
-            frequency_readback: false,
+            frequency_readback: !unknown && self.source == "receiver_RX",
             firmware: self.firmware.clone(),
             hardware_validation: "not_run".into(),
         }
@@ -58,6 +75,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.frequency = None;
         self.mode = None;
         self.source = "unknown";
+        self.settled_at = None;
     }
     fn failed<E>(&mut self, error: InstrumentError) -> Result<E> {
         self.connection.taint();
@@ -138,6 +156,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.mode = Some(mode);
         self.source = "command_acknowledged";
         self.tune_sequence += 1;
+        if self.verify_frequency {
+            self.settled_at = Some(Instant::now() + RX_SETTLE);
+        }
         Ok(())
     }
     pub async fn poll_receiver(&mut self) -> Result<ReceiverSample> {
@@ -151,38 +172,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                 "receiver frequency/mode unknown; explicit tune required".into(),
             ));
         };
-        let started_at = now();
-        let result = async {
-            let raw_level = self.transact("LM").await?;
-            let (level, squelch) = parse_level(&raw_level)?;
-            let status = if self.requested.profile == ReceiverProfile::MonitorV1 {
-                Some(self.transact("MD").await?)
-            } else {
-                None
-            };
-            if let Some(status) = &status {
-                let bytes = status.as_bytes();
-                if bytes.len() != 5
-                    || &bytes[..2] != b"MD"
-                    || !matches!(bytes[2], b'0'..=b'7')
-                    || !matches!(bytes[3], b'0'..=b'7' | b'F')
-                    || !matches!(bytes[4], b'0'..=b'6')
-                {
-                    return Err(InstrumentError::Protocol("invalid MD status".into()));
-                }
-                if mode_command(mode)[3..] != status[3..] {
-                    return Err(InstrumentError::Protocol(
-                        "receiver selected mode changed outside core".into(),
-                    ));
-                }
-            }
-            Ok((level, squelch, status))
+        if let Some(settled_at) = self.settled_at {
+            tokio::time::sleep_until(settled_at).await;
+            self.settled_at = None;
         }
-        .await;
-        let (level, squelch, status) = match result {
+        let started_at = now();
+        let result = self.read_receiver(frequency_hz, mode).await;
+        let (level, squelch, status, raw_rx) = match result {
             Ok(value) => value,
             Err(error) => return self.failed(error),
         };
+        let verified = raw_rx.is_some();
+        if verified {
+            self.source = "receiver_RX";
+        }
         self.sequence += 1;
         let decoded_mode = status
             .as_ref()
@@ -197,10 +200,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                 _ => None,
             })
             .map(str::to_owned);
-        let metadata = json!({"receiver_profile":self.requested.profile,"receiver_firmware":self.firmware,
-            "raw_mode_status":status,"decoder_source":if status.is_some(){"receiver_MD"}else{"unavailable"},"raw_squelch_status":squelch,
+        let decoder_source = if verified {
+            "receiver_RX"
+        } else if status.is_some() {
+            "receiver_MD"
+        } else {
+            "unavailable"
+        };
+        let mut metadata = json!({"receiver_profile":self.requested.profile,"receiver_firmware":self.firmware,
+            "raw_mode_status":status,"decoder_source":decoder_source,"raw_squelch_status":squelch,
             "adapter":"ardv1-serial","sequence":self.sequence,"tune_sequence":self.tune_sequence,"frequency_source":self.source,
-            "mode_source":self.source,"frequency_readback":false,"simulated":false,"hardware_validation":"not_run"});
+            "mode_source":self.source,"frequency_readback":verified,"simulated":false,"hardware_validation":"not_run"});
+        if let Some(raw) = raw_rx {
+            metadata["raw_receiver_status"] = json!(raw);
+        }
         Ok(ReceiverSample {
             frequency_hz,
             mode,
@@ -217,6 +230,36 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             metadata,
         })
     }
+    async fn read_receiver(
+        &mut self,
+        frequency_hz: u64,
+        mode: ReceiverMode,
+    ) -> Result<(u32, u8, Option<String>, Option<String>)> {
+        if self.verify_frequency {
+            let raw = self.transact("RX").await?;
+            let parts = raw.split(' ').collect::<Vec<_>>();
+            let ["RX", "VFA", frequency, step, status, level] = parts[..] else {
+                return Err(InstrumentError::Protocol("invalid RX VFO-A status".into()));
+            };
+            if frequency != frequency_command(frequency_hz)? || !valid_rx_step(step) {
+                return Err(InstrumentError::Protocol(
+                    "RX did not confirm the commanded receiver frequency and VFO".into(),
+                ));
+            }
+            verify_mode(status, mode)?;
+            let (level, squelch) = parse_level(level)?;
+            return Ok((level, squelch, Some(status.into()), Some(raw)));
+        }
+        let (level, squelch) = parse_level(&self.transact("LM").await?)?;
+        let status = if self.requested.profile == ReceiverProfile::MonitorV1 {
+            let status = self.transact("MD").await?;
+            verify_mode(&status, mode)?;
+            Some(status)
+        } else {
+            None
+        };
+        Ok((level, squelch, status, None))
+    }
     pub async fn close(&mut self) -> Result<()> {
         if self.connection.closed() {
             return Ok(());
@@ -230,6 +273,34 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         let closed = self.connection.close().await;
         result.and(closed)
     }
+}
+fn valid_rx_step(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.len() == 8
+        && &bytes[..2] == b"ST"
+        && bytes[5] == b'.'
+        && bytes[2..5]
+            .iter()
+            .chain(&bytes[6..])
+            .all(u8::is_ascii_digit)
+}
+
+fn verify_mode(status: &str, mode: ReceiverMode) -> Result<()> {
+    let bytes = status.as_bytes();
+    if bytes.len() != 5
+        || &bytes[..2] != b"MD"
+        || !matches!(bytes[2], b'0'..=b'7')
+        || !matches!(bytes[3], b'0'..=b'7' | b'F')
+        || !matches!(bytes[4], b'0'..=b'6')
+    {
+        return Err(InstrumentError::Protocol("invalid MD status".into()));
+    }
+    if mode_command(mode)[3..] != status[3..] {
+        return Err(InstrumentError::Protocol(
+            "receiver selected mode changed outside core".into(),
+        ));
+    }
+    Ok(())
 }
 fn validate_mode(profile: ReceiverProfile, mode: ReceiverMode) -> Result<()> {
     if profile == ReceiverProfile::LegacyFmAm

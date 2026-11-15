@@ -107,6 +107,8 @@ impl TransportFactory for Factory {
             let revoke_after = self.revoke_after.clone();
             tokio::spawn(async move {
                 let mut command = Vec::new();
+                let mut frequency = "RF0145.50000".to_owned();
+                let mut mode = "F0".to_owned();
                 while let Ok(byte) = device.read_u8().await {
                     if byte != b'\r' {
                         command.push(byte);
@@ -134,8 +136,8 @@ impl TransportFactory for Factory {
                         format!("{command}\r\n{body}ch> ")
                     } else {
                         match command.as_str() {
-                            "VR" => "20VR2504A\r\n",
-                            "RN" => "20RNSYNTHETIC\r\n",
+                            "VR" => "20VR2504A\r\n".into(),
+                            "RN" => "20RNSYNTHETIC\r\n".into(),
                             "LM" => {
                                 if pause.load(Ordering::Acquire) {
                                     started.fetch_add(1, Ordering::AcqRel);
@@ -145,11 +147,19 @@ impl TransportFactory for Factory {
                                         break;
                                     }
                                 }
-                                "20LM1371\r\n"
+                                "20LM1371\r\n".into()
                             }
-                            _ => "20\r\n",
+                            "RX" => format!("20RX VFA {frequency} ST010.00 MD0{mode} LM1371\r\n"),
+                            _ => {
+                                if command.starts_with("RF") {
+                                    frequency.clone_from(&command);
+                                }
+                                if let Some(selected) = command.strip_prefix("MD0") {
+                                    mode = selected.to_owned();
+                                }
+                                "20\r\n".into()
+                            }
                         }
-                        .to_owned()
                     };
                     if device.write_all(reply.as_bytes()).await.is_err() {
                         break;
@@ -520,6 +530,90 @@ async fn cleanup_failure_latches_core_and_retains_writer_ownership_even_after_tr
         ori_runtime::lease::WriterLease::acquire(directory.path()).is_err(),
         "failed cleanup must not release the process's writer lease"
     );
+}
+
+#[tokio::test]
+async fn native_rx_poll_commits_raw_readback_bound_to_the_applied_tune_receipt() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let core = core(directory.path(), factory.clone()).await;
+    let mut verified = session("verified");
+    verified["streams"][0]["id"] = json!("verified-r");
+    verified["streams"][1]["id"] = json!("verified-a");
+    verified["streams"][0]["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
+    verified["streams"][0]["settings"]["monitoring_rx_readback"] = json!(true);
+    core.archive()
+        .unwrap()
+        .create_session(verified)
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let target = Target::new("verified", "verified-r");
+    manager
+        .start_stream(
+            "verified",
+            "verified-r",
+            manager.public_gate(target.clone()),
+        )
+        .await
+        .unwrap();
+    let report = manager
+        .tune(
+            target.clone(),
+            145_600_000,
+            Some("AM".into()),
+            manager.public_gate(target.clone()),
+        )
+        .await
+        .unwrap();
+    let observation = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let samples = core
+                .archive()
+                .unwrap()
+                .list_observations("verified", Some("verified-r"), 20)
+                .await
+                .unwrap();
+            if let Some(sample) = samples
+                .into_iter()
+                .find(|s| s["frequency_hz"] == 145_600_000)
+            {
+                break sample;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    report.revalidate().unwrap();
+    let metadata = &observation["metadata"];
+    let expected = ori_guard::receiver_tune_context(
+        report.worker.worker_instance.as_deref().unwrap(),
+        report.applied_tune_revision,
+        observation["id"].as_str().unwrap(),
+    );
+    assert_eq!(metadata["receiver_tune_context"], expected);
+    assert_eq!(metadata["frequency_readback"], true);
+    assert_eq!(
+        metadata["raw_receiver_status"],
+        "RX VFA RF0145.60000 ST010.00 MD0F1 LM1371"
+    );
+    assert!(
+        observation["interval"]["started_at"].as_str().unwrap() >= report.acknowledged_at.as_str()
+    );
+    assert_eq!(observation["mode"], "AM");
+    assert_eq!(observation["level"], 137.0);
+    assert_eq!(observation["level_unit"], "s_meter_count");
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    assert!(
+        !factory
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| command == "LM")
+    );
+    core.close().await.unwrap();
 }
 
 #[tokio::test]

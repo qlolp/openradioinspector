@@ -131,6 +131,7 @@ struct RemoteUltraPane: View {
     @ObservedObject var model: RemoteDualModel
     var research = true
     var scanBands: [MonitoringValue] = []
+    var bandPlanWorkspace: MonitoringWorkspaceModel?
     @State private var detailsExpanded = false
 
     var body: some View {
@@ -172,7 +173,8 @@ struct RemoteUltraPane: View {
                                     presentationPaused: model.spectrumPresentation.paused,
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
                                     reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
-                                    onFollowFrequency: { model.followFrequency($0) })
+                                    onFollowFrequency: { model.followFrequency($0) },
+                                    bandPlanWorkspace: bandPlanWorkspace)
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
                      PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
                 .frame(minHeight: 370).layoutPriority(1)

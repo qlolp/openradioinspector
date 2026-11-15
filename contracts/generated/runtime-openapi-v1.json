@@ -894,6 +894,55 @@
         ],
         "type": "object"
       },
+      "GuardSignalInboxEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/RecognizedGuardEvent"
+                    },
+                    "type": "array"
+                  },
+                  "next_cursor": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "items",
+                  "next_cursor"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "GuardSignalRecognitionEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RecognizedGuardEvent"
+              }
+            }
+          }
+        ]
+      },
       "HistoryCancelResult": {
         "additionalProperties": true,
         "properties": {
@@ -1670,6 +1719,280 @@
         "required": [],
         "type": "object"
       },
+      "KnownSignalEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/KnownSignalRecord"
+              }
+            }
+          }
+        ]
+      },
+      "KnownSignalInput": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "broadcast",
+              "aviation",
+              "maritime",
+              "rail",
+              "municipal",
+              "cellular",
+              "short_range",
+              "wifi",
+              "bluetooth",
+              "remote_control",
+              "satellite_navigation",
+              "other",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "KnownSignalPageEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/KnownSignalRecord"
+                    },
+                    "type": "array"
+                  },
+                  "next_cursor": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "items",
+                  "next_cursor"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "KnownSignalRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "bandwidth_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "baseline_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bin_span": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "center_frequency_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "confirmed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "end_frequency_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "first_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "broadcast",
+              "aviation",
+              "maritime",
+              "rail",
+              "municipal",
+              "cellular",
+              "short_range",
+              "wifi",
+              "bluetooth",
+              "remote_control",
+              "satellite_navigation",
+              "other",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "last_seen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "level_unit": {
+            "enum": [
+              "dBm"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "peak_level": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "project_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scan_band_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scan_plan_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scan_plan_revision": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "source_refs": {
+            "items": {
+              "additionalProperties": true,
+              "properties": {
+                "session_id": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "stream_id": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sweep_id": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "sweep_id",
+                "stream_id",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "start_frequency_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "project_id",
+          "name",
+          "kind",
+          "schema_version",
+          "first_seen",
+          "last_seen",
+          "created_at",
+          "confirmed_at",
+          "start_frequency_hz",
+          "center_frequency_hz",
+          "end_frequency_hz",
+          "bandwidth_hz",
+          "bin_span",
+          "level_unit",
+          "peak_level",
+          "scan_plan_id",
+          "scan_plan_revision",
+          "scan_band_id",
+          "baseline_id",
+          "source_refs"
+        ],
+        "type": "object"
+      },
       "MeasurementWebSocket": {
         "properties": {
           "encoding": {
@@ -1933,6 +2256,50 @@
           "frequency_hz",
           "mode",
           "level_unit"
+        ],
+        "type": "object"
+      },
+      "RecognizedGuardEvent": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "peak_source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "stream_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "sweep_id": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_id",
+              "stream_id",
+              "sweep_id"
+            ],
+            "type": "object"
+          },
+          "recognition": {
+            "$ref": "#/components/schemas/SignalRecognition"
+          }
+        },
+        "required": [
+          "id",
+          "recognition"
         ],
         "type": "object"
       },
@@ -2207,6 +2574,251 @@
           "event_type",
           "occurred_at",
           "payload"
+        ],
+        "type": "object"
+      },
+      "SignalBandPlanEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Envelope"
+          },
+          {
+            "properties": {
+              "data": {
+                "additionalProperties": false,
+                "properties": {
+                  "items": {
+                    "items": {
+                      "$ref": "#/components/schemas/SignalBandReference"
+                    },
+                    "type": "array"
+                  },
+                  "profile": {
+                    "enum": [
+                      "ru"
+                    ],
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "profile",
+                  "version",
+                  "items"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "SignalBandReference": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "end_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "kinds": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "services": {
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "source_title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_url": {
+            "format": "uri",
+            "type": "string"
+          },
+          "start_hz": {
+            "maximum": 20000000000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start_hz",
+          "end_hz",
+          "label",
+          "services",
+          "kinds",
+          "source_url",
+          "source_title",
+          "applicability"
+        ],
+        "type": "object"
+      },
+      "SignalRecognition": {
+        "additionalProperties": false,
+        "properties": {
+          "band_matches": {
+            "items": {
+              "$ref": "#/components/schemas/SignalBandReference"
+            },
+            "type": "array"
+          },
+          "hypotheses": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "broadcast",
+                    "aviation",
+                    "maritime",
+                    "rail",
+                    "municipal",
+                    "cellular",
+                    "short_range",
+                    "wifi",
+                    "bluetooth",
+                    "remote_control",
+                    "satellite_navigation",
+                    "other",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "label": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "label",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "known_matches": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "broadcast",
+                    "aviation",
+                    "maritime",
+                    "rail",
+                    "municipal",
+                    "cellular",
+                    "short_range",
+                    "wifi",
+                    "bluetooth",
+                    "remote_control",
+                    "satellite_navigation",
+                    "other",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "reason": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "reason"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "observed_features": {
+            "additionalProperties": false,
+            "properties": {
+              "confirmed_receiver_mode": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "detected_width_hz": {
+                "maximum": 20000000000,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "source_sweep_count": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "detected_width_hz",
+              "source_sweep_count",
+              "confirmed_receiver_mode"
+            ],
+            "type": "object"
+          },
+          "state": {
+            "enum": [
+              "new",
+              "similar",
+              "changed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
         ],
         "type": "object"
       },
@@ -2523,6 +3135,83 @@
         "x-ori-feature-requirements": [],
         "x-ori-request-feature-requirements": [],
         "x-ori-runtime-support": "compatibility-target"
+      }
+    },
+    "/api/v1/band-plan": {
+      "get": {
+        "description": "Offline, sourced frequency-band references. An overlapping allocation is a hypothesis, not transmitter identification.",
+        "operationId": "get_api_v1_band_plan",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_hz",
+            "required": false,
+            "schema": {
+              "maximum": 20000000000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_hz",
+            "required": false,
+            "schema": {
+              "maximum": 20000000000,
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignalBandPlanEnvelope"
+                }
+              }
+            },
+            "description": "Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters or unavailable source evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project or event not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_signal_catalog"
+        ],
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
       }
     },
     "/api/v1/capabilities": {
@@ -7178,6 +7867,83 @@
         "x-ori-runtime-support": "feature-gated"
       }
     },
+    "/api/v1/monitoring-projects/{project_id}/events/{event_id}/recognition": {
+      "get": {
+        "description": "Original guard event with band hypotheses, catalog matches and receiver evidence.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_events_event_id_recognition",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardSignalRecognitionEnvelope"
+                }
+              }
+            },
+            "description": "Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters or unavailable source evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project or event not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_signal_catalog"
+        ],
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      }
+    },
     "/api/v1/monitoring-projects/{project_id}/events/{event_id}/review": {
       "post": {
         "operationId": "post_api_v1_monitoring_projects_project_id_events_event_id_review",
@@ -8031,6 +8797,168 @@
         "x-ori-feature-requirements": [],
         "x-ori-request-feature-requirements": [],
         "x-ori-runtime-support": "compatibility-target"
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/known-signals": {
+      "get": {
+        "description": "Operator-confirmed signal cards for this project. The before cursor is a returned card ID.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_known_signals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnownSignalPageEnvelope"
+                }
+              }
+            },
+            "description": "Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters or unavailable source evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project or event not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_signal_catalog"
+        ],
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      },
+      "post": {
+        "description": "Save or update the operator's identification for a committed source event. Does not alter alarms or the baseline.",
+        "operationId": "post_api_v1_monitoring_projects_project_id_known_signals",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnownSignalInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnownSignalEnvelope"
+                }
+              }
+            },
+            "description": "Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters or unavailable source evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project or event not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_signal_catalog"
+        ],
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
       }
     },
     "/api/v1/monitoring-projects/{project_id}/manual/acquire": {
@@ -10224,6 +11152,93 @@
           "monitoring_projects"
         ],
         "x-ori-max-request-bytes": 65536,
+        "x-ori-request-feature-requirements": [],
+        "x-ori-runtime-support": "feature-gated"
+      }
+    },
+    "/api/v1/monitoring-projects/{project_id}/signal-inbox": {
+      "get": {
+        "description": "Guard event page with recognition badges. Existing event and alert states are preserved.",
+        "operationId": "get_api_v1_monitoring_projects_project_id_signal_inbox",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GuardSignalInboxEnvelope"
+                }
+              }
+            },
+            "description": "Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters or unavailable source evidence"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Project or event not found"
+          }
+        },
+        "security": [
+          {
+            "nativeBearer": []
+          },
+          {
+            "browserSession": []
+          }
+        ],
+        "x-ori-backends": [
+          "rust-candidate"
+        ],
+        "x-ori-capability-requirements": [],
+        "x-ori-feature-requirements": [
+          "monitoring_signal_catalog"
+        ],
         "x-ori-request-feature-requirements": [],
         "x-ori-runtime-support": "feature-gated"
       }

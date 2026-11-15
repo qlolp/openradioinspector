@@ -166,6 +166,8 @@ impl GuardService {
             token: lease.token,
             epoch: r.epoch,
             expected_worker_instance: lease.worker_instance,
+            event_dispatch: None,
+            idle_dispatch: None,
         };
         let target = Self::target(&r, &stream);
         self.authorize_control(&target, Some(&permit))?;
@@ -303,6 +305,7 @@ impl GuardService {
                     return Err(ControlError::Denied.into());
                 }
                 runtime.manual.remove(&stream);
+                runtime.receiver_checks_resume_after = Some(self.clock.now());
                 Ok(())
             })?;
             Ok::<(), GuardError>(())
@@ -454,6 +457,7 @@ impl GuardService {
                     runtime.manual.remove(stream);
                     runtime.search = None;
                     runtime.search_error = None;
+                    runtime.receiver_checks_resume_after = Some(self.clock.now());
                     runtime.cached_project = p.clone();
                     Ok(())
                 })?;

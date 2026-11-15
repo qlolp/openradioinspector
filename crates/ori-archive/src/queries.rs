@@ -32,6 +32,16 @@ pub struct RecordPage {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct KnownSignalTarget<'a> {
+    pub center_frequency_hz: u64,
+    pub scan_plan_id: Option<&'a str>,
+    pub scan_band_id: Option<&'a str>,
+    pub scan_plan_revision: Option<u64>,
+    pub bandwidth_hz: u64,
+    pub bin_span: Option<u64>,
+}
+
 fn round_ratio(numerator: u128, denominator: u128) -> u128 {
     let quotient = numerator / denominator;
     let remainder = numerator % denominator;
@@ -938,6 +948,82 @@ impl Archive {
             value,
         }])
         .await
+    }
+    pub async fn matching_known_signals(
+        &self,
+        project: &str,
+        targets: &[KnownSignalTarget<'_>],
+    ) -> Result<Vec<Value>> {
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        validate_limit(targets.len(), 200)?;
+        let project = project.to_owned();
+        let targets = serde_json::to_string(targets)?;
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner
+            .read(move |db| {
+                let mut statement = db.prepare(
+                    "WITH targets AS (
+                        SELECT DISTINCT value FROM json_each(?2)
+                    ), ranked AS (
+                        SELECT r.id, r.payload,
+                               row_number() OVER (
+                                   PARTITION BY t.value ORDER BY r.created_at DESC, r.id DESC
+                               ) AS rank
+                        FROM monitoring_records r JOIN targets t
+                          ON json_extract(r.payload,'$.center_frequency_hz') = json_extract(t.value,'$.center_frequency_hz')
+                         AND json_extract(r.payload,'$.scan_plan_id') IS json_extract(t.value,'$.scan_plan_id')
+                         AND json_extract(r.payload,'$.scan_band_id') IS json_extract(t.value,'$.scan_band_id')
+                         AND json_extract(r.payload,'$.scan_plan_revision') IS json_extract(t.value,'$.scan_plan_revision')
+                         AND (json_extract(r.payload,'$.bandwidth_hz') BETWEEN
+                                (json_extract(t.value,'$.bandwidth_hz') + 1) / 2
+                                AND 2 * json_extract(t.value,'$.bandwidth_hz')
+                              OR (json_extract(t.value,'$.bandwidth_hz') = 0
+                                  AND json_extract(r.payload,'$.bin_span') = 1)
+                              OR (json_extract(r.payload,'$.bandwidth_hz') = 0
+                                  AND json_extract(t.value,'$.bin_span') = 1))
+                        WHERE r.kind='known-signal' AND r.project_id=?1
+                    ) SELECT payload FROM ranked WHERE rank<=5 GROUP BY id ORDER BY min(rank), id DESC",
+                )?;
+                let mut rows = statement.query(params![project, targets])?;
+                let mut remaining = maximum;
+                let mut output = Vec::new();
+                while let Some(row) = rows.next()? {
+                    push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?;
+                }
+                Ok(output)
+            })
+            .await
+    }
+    pub async fn latest_receiver_checks(&self, project: &str, session: &str) -> Result<Vec<Value>> {
+        let project = project.to_owned();
+        let session = session.to_owned();
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner
+            .read(move |db| {
+                let mut statement = db.prepare(
+                    "WITH ranked AS (
+                        SELECT rowid AS attempt, payload, row_number() OVER (
+                            PARTITION BY json_extract(payload,'$.scan_band_id')
+                            ORDER BY rowid DESC
+                        ) AS rank
+                        FROM monitoring_records
+                        WHERE kind='receiver-check' AND project_id=?1
+                            AND json_extract(payload,'$.session_id')=?2
+                    )
+                    SELECT payload FROM ranked WHERE rank=1
+                    ORDER BY attempt DESC LIMIT 16",
+                )?;
+                let mut rows = statement.query(params![project, session])?;
+                let mut output = Vec::new();
+                let mut remaining = maximum;
+                while let Some(row) = rows.next()? {
+                    push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?;
+                }
+                Ok(output)
+            })
+            .await
     }
     pub async fn list_monitoring(&self, kind: &str, query: MonitoringQuery) -> Result<Vec<Value>> {
         if !validate::KINDS.contains(&kind) {

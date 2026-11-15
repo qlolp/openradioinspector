@@ -47,7 +47,7 @@ struct ContentView: View {
                 Picker("Рабочая область", selection: $tab) {
                     Text("Приборы").tag("devices")
                     Text("Контроль диапазона").tag("range")
-                    Text("Сигналы").tag("signals")
+                    Text(workspace.signalQueue.unread.isEmpty ? "Сигналы" : "Сигналы (\(workspace.signalQueue.unread.count))").tag("signals")
                     Text("Архив").tag("archive")
                     Text("Охрана и исследование").tag("guard")
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
@@ -63,12 +63,13 @@ struct ContentView: View {
             ZStack {
                 devicesPage.workbenchVisible(tab == "devices")
                 HSplitView {
-                    RemoteUltraPane(model: model, research: true, scanBands: currentScanBands).frame(minWidth: 640)
+                    RemoteUltraPane(model: model, research: true, scanBands: currentScanBands, bandPlanWorkspace: workspace)
+                        .frame(minWidth: 640)
                     if showReceiver, model.receiver != nil {
                         RemoteArPane(model: model).frame(minWidth: 280, idealWidth: 300, maxWidth: 420)
                     }
                 }.workbenchVisible(tab == "range")
-                NativeSignalsPage(model: model, openSpectrum: { tab = "range" })
+                NativeSignalsPage(model: model, workspace: workspace, openSpectrum: { tab = "range" }, openGuard: { tab = "guard" })
                     .workbenchVisible(tab == "signals")
                 NativeArchivePage(model: model, openSpectrum: { tab = "range" })
                     .workbenchVisible(tab == "archive")

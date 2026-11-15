@@ -2,7 +2,10 @@ use crate::{GuardError, GuardService, Result, util::*};
 use ori_contracts::Sweep;
 use ori_monitoring::{AllowedSignal, Baseline, Detector, Parameters, build_baseline};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::atomic::Ordering,
+};
 
 impl GuardService {
     pub async fn create_baseline(&self, id: &str, payload: Value) -> Result<Value> {
@@ -338,6 +341,26 @@ impl GuardService {
                 .get_mut(band)
                 .ok_or_else(|| invalid("Неизвестный поддиапазон исходника"))?;
             let step = detector.step(&sweep, &allowed)?;
+            // Receiver results and operator dispositions share these event rows.
+            // Read the latest rows under the same coordinator that commits them.
+            let _tx = self.coordinator.lock().await;
+            self.ensure_open()?;
+            let current = self.project(id).await?;
+            if [
+                "detector_cursor",
+                "detector_state",
+                "band_detectors",
+                "detector_rowid",
+                "baseline_id",
+            ]
+            .iter()
+            .any(|key| current.get(*key) != project.get(*key))
+            {
+                return Err(GuardError::Conflict(
+                    "Курсор детектора изменился во время анализа".into(),
+                ));
+            }
+            project = current;
             let mut opens = self
                 .archive
                 .open_events(id, &sweep.session_id, baseline_id)
@@ -372,6 +395,7 @@ impl GuardService {
                 }
             }
             let mut touched = BTreeSet::new();
+            let active_dispatch = self.active_event_dispatch(id)?;
             for region in &step.regions {
                 let rv = value(region)?;
                 let broad = |v: &Value| {
@@ -425,7 +449,9 @@ impl GuardService {
                     fields["detector_parameters"] = project["parameters"].clone();
                     self.record(Some(id), fields)?
                 };
-                if region.peak_excess_db > event["peak_excess_db"].as_f64().unwrap_or(-1.) {
+                let higher_peak =
+                    region.peak_excess_db > event["peak_excess_db"].as_f64().unwrap_or(-1.);
+                if higher_peak {
                     event
                         .as_object_mut()
                         .ok_or_else(|| invalid("event"))?
@@ -434,6 +460,21 @@ impl GuardService {
                 event["last_seen"] = json!(sweep.interval.ended_at.as_str());
                 event["quiet_sweeps"] = json!(0);
                 let event_id = s(&event, "id")?.to_owned();
+                if found.is_none() || higher_peak {
+                    // Keep peak provenance when the event's recent source list rolls over.
+                    mutations.push(Self::mutation("event-peak", json!({
+                        "id": event_id, "project_id": id, "created_at": event["created_at"],
+                        "session_id": sweep.session_id, "stream_id": sweep.stream_id, "sweep_id": sweep.id,
+                        "center_frequency_hz": event["center_frequency_hz"], "peak_level": event["peak_level"]
+                    })));
+                }
+                if higher_peak
+                    && let Some(dispatch) = active_dispatch.as_ref()
+                    && dispatch.event_id == event_id
+                    && event["center_frequency_hz"] != dispatch.center_hz
+                {
+                    dispatch.retargeted.store(true, Ordering::Release);
+                }
                 let mut count = integer(&event, "source_count")?;
                 let mut refs = event["source_refs"]
                     .as_array()
@@ -518,24 +559,6 @@ impl GuardService {
                 }
                 mutations.push(Self::mutation("event", event));
             }
-            let expected_cursor = project.get("detector_cursor").cloned();
-            let expected_state = project.get("detector_state").cloned();
-            let expected_band_states = project.get("band_detectors").cloned();
-            let expected_rowid = project.get("detector_rowid").cloned();
-            let _tx = self.coordinator.lock().await;
-            self.ensure_open()?;
-            let current = self.project(id).await?;
-            if current.get("detector_cursor") != expected_cursor.as_ref()
-                || current.get("detector_state") != expected_state.as_ref()
-                || current.get("band_detectors") != expected_band_states.as_ref()
-                || current.get("detector_rowid") != expected_rowid.as_ref()
-                || current["baseline_id"] != project["baseline_id"]
-            {
-                return Err(GuardError::Conflict(
-                    "Курсор детектора изменился во время анализа".into(),
-                ));
-            }
-            project = current;
             project["detector_cursor"] = json!(sweep.id);
             project["detector_rowid"] = json!(capture.rowid);
             if scan_plan.is_some() {
@@ -570,6 +593,12 @@ impl GuardService {
             &py_str(payload.get("comment").unwrap_or(&json!(""))),
             1000
         ));
+        if payload["disposition"] != "unreviewed"
+            && let Some(dispatch) = self.active_event_dispatch(id)?
+            && dispatch.event_id == event_id
+        {
+            dispatch.reviewed.store(true, Ordering::Release);
+        }
         self.archive.put_monitoring("event", event.clone()).await?;
         Ok(event)
     }

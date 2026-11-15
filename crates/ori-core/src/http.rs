@@ -922,6 +922,7 @@ fn capabilities(core: &Core) -> Value {
         "independent_device_streams",
         "monitoring_projects",
         "monitoring_scan_plans",
+        "monitoring_signal_catalog",
         "scan_plan_coverage",
         "monitoring_guard",
         "candidate_investigations",

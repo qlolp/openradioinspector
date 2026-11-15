@@ -245,7 +245,7 @@ impl Native {
             }
             Self::Receiver(actor) => {
                 let state = actor.state();
-                json!({"frequency_hz":state.frequency_hz,"mode":state.mode,"requested_frequency_hz":state.requested_frequency_hz,"requested_mode":state.requested_mode,"frequency_source":state.frequency_source,"mode_source":state.frequency_source,"frequency_readback":false,"receiver_firmware":state.firmware,"restart_required":state.restart_required,"simulated":false,"hardware_validation":"not_run"})
+                json!({"frequency_hz":state.frequency_hz,"mode":state.mode,"requested_frequency_hz":state.requested_frequency_hz,"requested_mode":state.requested_mode,"frequency_source":state.frequency_source,"mode_source":state.frequency_source,"frequency_readback":state.frequency_readback,"receiver_firmware":state.firmware,"restart_required":state.restart_required,"simulated":false,"hardware_validation":"not_run"})
             }
         }
     }
@@ -687,10 +687,19 @@ impl DeviceManager {
                     TinySa::new(transport, config, self.options.io_limits.clone())?,
                     1,
                 )?),
-                Profile::Receiver(config) => Native::Receiver(ArDv1Actor::spawn(
-                    ArDv1::new(transport, config, self.options.io_limits.clone())?,
-                    1,
-                )?),
+                Profile::Receiver(config) => {
+                    let mut adapter =
+                        ArDv1::new(transport, config, self.options.io_limits.clone())?;
+                    if stream
+                        .settings
+                        .as_ref()
+                        .and_then(|s| s.get("monitoring_rx_readback"))
+                        == Some(&Value::Bool(true))
+                    {
+                        adapter = adapter.with_frequency_readback()?;
+                    }
+                    Native::Receiver(ArDv1Actor::spawn(adapter, 1)?)
+                }
             };
             (
                 Adapter::Native(native.clone()),
@@ -1659,11 +1668,19 @@ impl Worker {
                     }
                     continue;
                 }
-                Ok(measurement) => {
+                Ok(mut measurement) => {
                     self.acquisition_commit_started();
                     let committed = if self.stream.role == DeviceRole::SpectrumAnalyzer {
                         self.archive.append_sweeps(vec![measurement]).await
                     } else {
+                        // The same worker owns the poll and the tune revision.
+                        // Bind committed samples to their acquisition context.
+                        measurement["metadata"]["receiver_tune_context"] =
+                            json!(ori_guard::receiver_tune_context(
+                                &self.instance,
+                                self.applied_revision.load(Ordering::Acquire),
+                                measurement["id"].as_str().expect("receiver observation ID"),
+                            ));
                         self.archive.append_observations(vec![measurement]).await
                     };
                     self.acquisition_commit_finished(committed.is_ok());

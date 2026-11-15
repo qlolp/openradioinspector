@@ -98,6 +98,15 @@ public struct MonitoringProjectPageState: Sendable {
     }
 }
 
+public enum MonitoringKnownSignalKind: String, CaseIterable, Sendable {
+    case broadcast, aviation, maritime, rail, municipal, cellular
+    case shortRange = "short_range"
+    case wifi, bluetooth
+    case remoteControl = "remote_control"
+    case satelliteNavigation = "satellite_navigation"
+    case other, unknown
+}
+
 public struct MonitoringHistoryQuery: Equatable, Sendable {
     public var limit: Int
     public var start: String?
@@ -255,6 +264,26 @@ extension PlatformClient {
 
     public func coreCapabilities() async throws -> MonitoringValue { try await get("/capabilities") }
 
+    public func monitoringBandPlan(startHz: Int64? = nil, endHz: Int64? = nil) async throws -> MonitoringValue {
+        let start = startHz ?? 0, end = endHz ?? 20_000_000_000
+        guard start >= 0, start <= end, end <= 20_000_000_000 else {
+            throw PlatformError.invalidCommand("Некорректные границы частотного плана")
+        }
+        var query: [URLQueryItem] = []
+        if let startHz { query.append(.init(name: "start_hz", value: String(startHz))) }
+        if let endHz { query.append(.init(name: "end_hz", value: String(endHz))) }
+        let result: MonitoringValue = try await get("/band-plan", query: query)
+        guard case .array(let bands) = result["items"], !result["profile"].text.isEmpty,
+              let version = result["version"].integer, version > 0,
+              bands.allSatisfy({ band in
+                  guard let low = band["start_hz"].integer, let high = band["end_hz"].integer else { return false }
+                  return 0 <= low && low <= high && high <= 20_000_000_000 && low <= end && high >= start && !band["label"].text.isEmpty
+              }) else {
+            throw PlatformError.invalidResponse("Некорректный справочник частотных полос")
+        }
+        return result
+    }
+
     public func monitoringProject(
         _ projectID: String, resource: String = "", body: [String: MonitoringValue]? = nil
     ) async throws -> MonitoringValue {
@@ -270,10 +299,82 @@ extension PlatformClient {
     }
 
     public func monitoringEvent(projectID: String, eventID: String) async throws -> MonitoringValue {
+        try await monitoringEvent(projectID: projectID, eventID: eventID, recognition: false)
+    }
+
+    public func monitoringEvent(projectID: String, eventID: String, recognition: Bool) async throws -> MonitoringValue {
         guard !projectID.isEmpty, !eventID.isEmpty else {
             throw PlatformError.invalidCommand("Нужны проект и событие")
         }
-        return try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))")
+        let suffix = recognition ? "/recognition" : ""
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/events/\(Self.segment(eventID))" + suffix)
+        guard PlatformExactID.same(result["id"].text, eventID),
+              result["project_id"] == .null || PlatformExactID.same(result["project_id"].text, projectID) else {
+            throw PlatformError.invalidResponse("Ядро вернуло другое событие")
+        }
+        return result
+    }
+
+    public func monitoringEvents(projectID: String, limit: Int = 100) async throws -> MonitoringValue {
+        try await monitoringEvents(projectID: projectID, limit: limit, after: nil)
+    }
+
+    public func monitoringEvents(projectID: String, limit: Int, after: String?) async throws -> MonitoringValue {
+        try await monitoringEvents(projectID: projectID, recognition: false, limit: limit, after: after)
+    }
+
+    public func monitoringEvents(projectID: String, recognition: Bool, limit: Int = 100, after: String? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, (1...200).contains(limit) else {
+            throw PlatformError.invalidCommand("Нужны проект и размер страницы 1…200")
+        }
+        let resource = recognition ? "signal-inbox" : "events"
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if !recognition { query.append(.init(name: "recent", value: "true")) }
+        if let after, !after.isEmpty { query.append(.init(name: "after", value: after)) }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/\(resource)", query: query)
+        try Self.validateMonitoringPage(result, projectID: projectID, limit: limit)
+        if let after, !after.isEmpty, PlatformExactID.same(result["next_cursor"].text, after) {
+            throw PlatformError.invalidResponse("Ядро повторило курсор событий")
+        }
+        return result
+    }
+
+    public func monitoringKnownSignals(projectID: String, limit: Int = 50, before: String? = nil) async throws -> MonitoringValue {
+        guard !projectID.isEmpty, (1...100).contains(limit) else {
+            throw PlatformError.invalidCommand("Нужны проект и размер страницы 1…100")
+        }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let before, !before.isEmpty { query.append(.init(name: "before", value: before)) }
+        let result: MonitoringValue = try await get("/monitoring-projects/\(Self.segment(projectID))/known-signals", query: query)
+        try Self.validateMonitoringPage(result, projectID: projectID, limit: limit)
+        if let before, !before.isEmpty, PlatformExactID.same(result["next_cursor"].text, before) {
+            throw PlatformError.invalidResponse("Ядро повторило курсор каталога")
+        }
+        return result
+    }
+
+    public func monitoringSaveKnownSignal(projectID: String, eventID: String, name: String,
+                                          kind: MonitoringKnownSignalKind) async throws -> MonitoringValue {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !projectID.isEmpty, !eventID.isEmpty, !name.isEmpty else {
+            throw PlatformError.invalidCommand("Нужны проект, событие и название сигнала")
+        }
+        let body: [String: MonitoringValue] = ["event_id": .string(eventID), "name": .string(name), "kind": .string(kind.rawValue)]
+        let result: MonitoringValue = try await post("/monitoring-projects/\(Self.segment(projectID))/known-signals", body: body)
+        guard !result["id"].text.isEmpty, PlatformExactID.same(result["event_id"].text, eventID),
+              result["project_id"] == .null || PlatformExactID.same(result["project_id"].text, projectID) else {
+            throw PlatformError.invalidResponse("Ядро вернуло запись для другого события")
+        }
+        return result
+    }
+
+    private static func validateMonitoringPage(_ value: MonitoringValue, projectID: String, limit: Int) throws {
+        guard case .array(let rows) = value["items"], rows.count <= limit,
+              Set(rows.map(\.exactID)).count == rows.count,
+              rows.allSatisfy({ !$0["id"].text.isEmpty &&
+                  ($0["project_id"] == .null || PlatformExactID.same($0["project_id"].text, projectID)) }) else {
+            throw PlatformError.invalidResponse("Некорректная страница проекта")
+        }
     }
 
     public func monitoringControl(projectID: String, action: String, body: [String: MonitoringValue]) async throws -> MonitoringValue {

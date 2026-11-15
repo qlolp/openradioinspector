@@ -16,6 +16,7 @@ struct NativeSpectrumInspector: View {
     var reviewedSweep: PlatformSweep? = nil
     var reviewRequest = UUID()
     var onFollowFrequency: ((Int64) -> Void)?
+    var bandPlanWorkspace: MonitoringWorkspaceModel?
     @AppStorage("native.plot.split") private var split = 0.50
     @AppStorage("native.plot.seconds") private var seconds = 120.0
     @AppStorage("native.plot.minimum") private var showMinimum = true
@@ -72,7 +73,13 @@ struct NativeSpectrumInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            NativeSpectrumRangeHeader(sweep: selected, range: range)
+            HStack {
+                NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
+                Spacer(minLength: 6)
+                if let bandPlanWorkspace {
+                    NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
+                }
+            }
             HStack(spacing: 6) {
                 Picker("Вид", selection: $threeDimensional) {
                     Text("2D").tag(false); Text("3D").tag(true)

@@ -377,6 +377,7 @@ impl TransportFactory for Factory {
                 }
                 responses.entry("repeat 4".into()).or_default();
                 let mut receiver_mode = "00".to_owned();
+                let mut receiver_frequency = "RF0145.50000".to_owned();
                 loop {
                     let mut wire = Vec::new();
                     match io.read_until(b'\r', &mut wire).await {
@@ -396,8 +397,14 @@ impl TransportFactory for Factory {
                             "RN" => "20RNOWNED-SYNTHETIC\r\n".into(),
                             "LM" => "20LM1371\r\n".into(),
                             "MD" => format!("20MD0{receiver_mode}\r\n"),
+                            "RX" => format!(
+                                "20RX VFA {receiver_frequency} ST010.00 MD0{receiver_mode} LM1371\r\n"
+                            ),
                             "RE1" | "VFA" | "EX" => "20\r\n".into(),
-                            c if c.starts_with("RF") => "20\r\n".into(),
+                            c if c.starts_with("RF") => {
+                                receiver_frequency = c.into();
+                                "20\r\n".into()
+                            }
                             c if c.starts_with("MD0") && c.len() == 5 => {
                                 receiver_mode = c[3..].into();
                                 "20\r\n".into()
@@ -1972,7 +1979,7 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
         .await;
     assert_eq!(status, 200, "{stopped}");
     let opens = server.factory.opens.load(Ordering::SeqCst);
-    // The independently owned receiver continues LM/MD polling. This invariant
+    // The independently owned receiver continues RX polling. This invariant
     // is specifically that the rejected analyzer re-open sends no analyzer I/O.
     let analyzer_count = |wire: &[String]| {
         wire.iter()

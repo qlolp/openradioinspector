@@ -1144,6 +1144,54 @@ async fn ardv1_auto_profile_requires_firmware_and_retains_decoder_evidence() {
     assert_eq!(sent(&audit), ["RE1\r", "VR\r"]);
 }
 
+#[tokio::test(start_paused = true)]
+async fn armed_readback_polls_settled_rx_and_fails_closed_on_wrong_frequency() {
+    let config = ReceiverConfig {
+        profile: ReceiverProfile::MonitorV1,
+        mode: ReceiverMode::Auto,
+        ..receiver()
+    };
+    let mut steps = receiver_setup("2504A");
+    steps.extend([
+        Step::line("VFA", "20"),
+        Step::line("MD000", "20"),
+        Step::line("RF0145.50000", "20"),
+        Step::line("RX", "20RX VFA RF0145.50000 ST010.00 MD700 LM1043"),
+        Step::line("RX", "20RX VFA RF0145.50010 ST010.00 MD700 LM1803"),
+    ]);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = ArDv1::new(wire, config, IoLimits::default())
+        .unwrap()
+        .with_frequency_readback()
+        .unwrap();
+    adapter.tune(145_500_000, ReceiverMode::Auto).await.unwrap();
+    assert!(!adapter.state().frequency_readback);
+    let tuned = tokio::time::Instant::now();
+    let sample = adapter.poll_receiver().await.unwrap();
+    assert!(tuned.elapsed() >= Duration::from_millis(25));
+    assert_eq!(sample.frequency_hz, 145_500_000);
+    assert_eq!(sample.level, 104);
+    assert_eq!(sample.level_unit, "s_meter_count");
+    assert_eq!(sample.raw_squelch_status, 3);
+    assert_eq!(sample.decoded_mode.as_deref(), Some("DMR"));
+    assert_eq!(sample.metadata["frequency_readback"], true);
+    assert_eq!(sample.metadata["frequency_source"], "receiver_RX");
+    assert_eq!(
+        sample.metadata["raw_receiver_status"],
+        "RX VFA RF0145.50000 ST010.00 MD700 LM1043"
+    );
+    assert!(adapter.state().frequency_readback);
+    assert!(matches!(
+        adapter.poll_receiver().await,
+        Err(InstrumentError::Protocol(_))
+    ));
+    assert!(adapter.state().frequency_hz.is_none());
+    assert!(!adapter.state().frequency_readback);
+    assert!(adapter.state().restart_required);
+    assert!(adapter.tune(145_500_000, ReceiverMode::Auto).await.is_err());
+    assert_drained(&audit);
+}
+
 #[tokio::test]
 async fn ardv1_rejected_tune_or_lm_invalidates_frequency_and_never_sends_followup() {
     for bad in ["20RF0145.50000", "20LM0551", "21", "50", "?", "", "20MD000"] {

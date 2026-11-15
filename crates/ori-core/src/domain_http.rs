@@ -69,6 +69,19 @@ pub(crate) async fn get(
         return guard_get(core, &route[3..], query).await.map(Some);
     }
     let data = match route.as_slice() {
+        ["api", "v1", "band-plan"] => {
+            core.domain()?;
+            if query
+                .keys()
+                .any(|key| !matches!(key.as_str(), "start_hz" | "end_hz"))
+            {
+                return Err(ApiError::invalid("Неизвестный фильтр справочника полос"));
+            }
+            ori_guard::band_plan(
+                number(query, "start_hz", 0)?,
+                number(query, "end_hz", 20_000_000_000)?,
+            )?
+        }
         ["api", "v1", "measurement-catalog"] => {
             core.domain()?.session.measurement_catalog().await?
         }
@@ -354,6 +367,33 @@ async fn guard_get(core: &Core, tail: &[&str], query: &Query) -> ApiResult<Respo
                 .list_records("event", Some(id), after(), limit()?, true)
                 .await?
         }
+        [id, "signal-inbox"] => {
+            if query
+                .keys()
+                .any(|key| !matches!(key.as_str(), "limit" | "after"))
+            {
+                return Err(ApiError::invalid("Неверная пагинация событий охраны"));
+            }
+            guard
+                .recognized_events(id, after(), count(query, "limit", 100, 200)?)
+                .await?
+        }
+        [id, "known-signals"] => {
+            if query
+                .keys()
+                .any(|key| !matches!(key.as_str(), "limit" | "before"))
+            {
+                return Err(ApiError::invalid("Неверная пагинация каталога сигналов"));
+            }
+            guard
+                .known_signals(
+                    id,
+                    optional(query, "before").unwrap_or(""),
+                    count(query, "limit", 50, 100)?,
+                )
+                .await?
+        }
+        [id, "events", event, "recognition"] => guard.event_with_recognition(id, event).await?,
         [id, "events", event, "sources"] => {
             if query
                 .keys()
@@ -441,6 +481,7 @@ async fn guard_post(core: &Core, tail: &[&str], payload: Value) -> ApiResult<Res
             guard.create_baseline(id, payload).await?,
         ),
         [id, "allowed"] => (StatusCode::CREATED, guard.add_allowed(id, payload).await?),
+        [id, "known-signals"] => (StatusCode::OK, guard.save_known_signal(id, payload).await?),
         [id, "analyze"] => {
             if payload != json!({}) {
                 return Err(ori_guard::GuardError::Invalid(

@@ -253,7 +253,28 @@ impl GuardService {
             };
         };
         let p = permit.ok_or(ControlError::Denied)?;
-        if owner.stopped || p.project_id != owner.project_id || p.epoch != owner.epoch {
+        if owner.stopped
+            || p.project_id != owner.project_id
+            || p.epoch != owner.epoch
+            || p.event_dispatch
+                .as_ref()
+                .is_some_and(|event| event.rejection(self.clock.monotonic()).is_some())
+        {
+            return Err(ControlError::Denied);
+        }
+        if let Some(idle) = &p.idle_dispatch
+            && (!idle.lifecycle.check()
+                || owner.manual.is_some()
+                || owners
+                    .get(&(target.session_id.clone(), idle.analyzer_stream_id.clone()))
+                    .is_none_or(|analyzer| {
+                        analyzer.stopped
+                            || analyzer.manual.is_some()
+                            || analyzer.project_id != p.project_id
+                            || analyzer.token != p.token
+                            || analyzer.epoch != idle.analyzer_epoch
+                    }))
+        {
             return Err(ControlError::Denied);
         }
         if owner.returning && owner.guard_token.as_ref() == Some(&p.token) {

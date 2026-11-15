@@ -81,7 +81,11 @@ struct MonitoringWorkspacePane: View {
         }
         .padding(.horizontal)
         .task(id: MonitoringConnectionIdentity(server: PlatformExactID(server), client: client.map(ObjectIdentifier.init))) {
-            workspace.configure(server, client: client); await workspace.load(); await workspace.loadScanPlanCapabilities()
+            workspace.configure(server, client: client)
+            async let capabilities: Void = workspace.loadMonitoringCapabilities()
+            await workspace.load()
+            await capabilities
+            await workspace.loadBandPlan()
         }
         .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
             workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
@@ -249,7 +253,13 @@ struct MonitoringWorkspacePane: View {
                     Text("Состояние неизвестно: запросите его у ядра.").foregroundStyle(.secondary)
                 } else {
                     Text("Состояние проекта: \(label(workspace.project["state"].text)) · охрана: \(workspace.status["active"].bool == true ? "активна" : "не активна")")
-                    Text("Приёмник: \(workspace.status["receiver_busy"].bool == true ? "исследует событие" : "свободен") · аудиовход: \(workspace.status["audio_configured"].bool == true ? "назначен" : "не назначен")").font(.caption)
+                    let receiverChecks = workspace.status["receiver_checks"]
+                    let receiverActivity = receiverChecks["state"].text == "checking" ? "выполняет контрольную проверку" :
+                        (workspace.status["receiver_busy"].bool == true ? "исследует событие" : "свободен")
+                    Text("Приёмник: \(receiverActivity) · аудиовход: \(workspace.status["audio_configured"].bool == true ? "назначен" : "не назначен")").font(.caption)
+                    if (receiverChecks["total"].integer ?? 0) > 0 || receiverChecks["state"].text == "unavailable" {
+                        receiverCheckDetails(receiverChecks)
+                    }
                     ErrorLine(text: workspace.status["error"].text)
                     ForEach(Array(workspace.status["workers"].items.enumerated()), id: \.offset) { _, worker in
                         Text("Исполнитель \(worker["stream_id"].text): \(label(worker["state"].text)) · \(worker["last_error"].text)").font(.caption)
@@ -286,6 +296,29 @@ struct MonitoringWorkspacePane: View {
                 if workspace.configurationDirty { Text("Есть несохранённые настройки; сохраните их перед постановкой на охрану.").font(.caption) }
             }
         }
+    }
+
+    private func receiverCheckDetails(_ checks: MonitoringValue) -> some View {
+        let states = ["inactive": "неактивна", "paused": "на паузе", "checking": "выполняется",
+                      "complete": "завершена", "waiting": "ожидает свежих данных или свободного приёмника",
+                      "resuming": "ожидает свежего свипа после паузы", "unavailable": "данные недоступны"]
+        let state = states[checks["state"].text] ?? "состояние неизвестно"
+        let results = ["sampled": "показание получено", "unsupported_frequency": "частота вне диапазона",
+                       "inconclusive": "нет одновременного свипа", "no_observations": "нет наблюдения с подтверждённой настройкой",
+                       "unavailable": "настройка недоступна",
+                       "interrupted": "проверка прервана"]
+        let progress = checks["total"].integer.map { " · \(checks["completed"].scalar)/\($0)" } ?? ""
+        return DisclosureGroup("Контрольная проверка AR-DV1 · \(state)\(progress)") {
+            ForEach(checks["items"].items, id: \.exactID) { item in
+                let band = item["scan_band_id"].text
+                let location = band.isEmpty ? "Общий диапазон" : band
+                let frequency = item["frequency_hz"].integer.map { NativeAnalyzerDraft.mhz($0) + " МГц · " } ?? ""
+                let result = item["reason"].text == "coincident_quiet_analyzer_and_receiver_observations"
+                    ? "получены одновременные наблюдения" : (results[item["state"].text] ?? "нет результата")
+                let simulation = item["simulated"].bool == true ? " · симуляция" : ""
+                Text("\(location) · \(frequency)\(result)\(simulation)")
+            }
+        }.font(.caption)
     }
 
     private var allowedControls: some View {
@@ -660,7 +693,7 @@ struct MonitoringWorkspacePane: View {
                             Button { workspace.perform { await workspace.showEvent(item["id"].text) } } label: {
                                 VStack(alignment: .leading) {
                                     Text("\(label(item["kind"].text)) · \(item["center_frequency_hz"].scalar) Гц · \(label(item["state"].text))")
-                                    Text("UTC \(item["last_seen"].text) · приёмник: \(label(item["analysis"]["state"].text))").font(.caption)
+                                    Text("UTC \(item["last_seen"].text) · \(NativeGuardSignal(value: item).receiver)").font(.caption)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.disabled(workspace.pending)
                         }
@@ -674,15 +707,15 @@ struct MonitoringWorkspacePane: View {
     private var eventDetails: some View {
         let event = workspace.event
         let analysis = event["analysis"]
+        let signal = NativeGuardSignal(value: event)
         return VStack(alignment: .leading, spacing: 6) {
             Text("Событие \(event["id"].text)").font(.headline)
             eventVerdictControls
             Text("\(label(event["kind"].text)) · \(event["start_frequency_hz"].scalar)…\(event["end_frequency_hz"].scalar) Гц")
             Text("Уровень \(event["peak_level"].scalar) dBm · превышение \(event["peak_excess_db"].scalar) dB")
             Text("UTC: \(event["first_seen"].text) — \(event["last_seen"].text)").font(.caption)
-            Text("Исследование: \(label(analysis["state"].text)) · запрошенный режим: \(analysis["requested_mode"].scalar)")
-            ErrorLine(text: analysis["error"].text)
-            ErrorLine(text: analysis["reason"].text)
+            Text("\(signal.receiver) · запрошенный режим \(analysis["requested_mode"].scalar)")
+            if let reason = signal.receiverReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
             ErrorLine(text: analysis["audio_error"].text)
             ForEach(Array(analysis["classifications"].items.enumerated()), id: \.offset) { _, item in
                 Text("Декодер: \(item["mode"].text) · источник: \(item["source"].text)").font(.caption)
@@ -733,7 +766,7 @@ struct MonitoringWorkspacePane: View {
          "persistent": "устойчивый сигнал", "impulse": "импульс", "broadband_change": "широкополосное изменение",
          "authorized_changed": "изменение разрешённого сигнала", "open": "открыто", "closed": "закрыто",
          "queued": "в очереди", "observed": "наблюдался приёмником", "not_present_at_receiver": "не обнаружен приёмником",
-         "no_observations": "нет наблюдений", "expired": "исчез до перестройки", "interrupted": "прервано",
+         "no_observations": "нет наблюдений", "expired": "проверка просрочена", "interrupted": "прервано",
          "failed": "не выполнено"][value] ?? (value.isEmpty ? "нет данных" : value)
     }
 }
