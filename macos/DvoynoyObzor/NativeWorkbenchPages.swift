@@ -68,6 +68,11 @@ struct NativeSignalsPage: View {
 }
 
 struct NativeArchivePage: View {
+    private struct TableSource: Identifiable {
+        let sweep: PlatformArchiveSweepRow
+        var id: PlatformExactID { sweep.exactID }
+    }
+
     @ObservedObject var model: RemoteDualModel
     let openSpectrum: () -> Void
     @State private var browser = NativeArchiveBrowser()
@@ -75,7 +80,7 @@ struct NativeArchivePage: View {
     @State private var end = Date()
     @State private var minimum = ""
     @State private var maximum = ""
-    @State private var selection: String?
+    @State private var selection: PlatformExactID?
     @State private var message = ""
     @State private var request: Task<Void, Never>?
     @State private var opening = false
@@ -98,11 +103,13 @@ struct NativeArchivePage: View {
                     .disabled(browser.busy || browser.nextCursor == nil || opening)
                 Button("Открыть спектр") { openSource() }.disabled(selection == nil || opening || browser.busy)
             }
-            Table(browser.rows, selection: $selection) {
-                TableColumn("Начало UTC") { Text($0.interval.startedAt) }
-                TableColumn("Диапазон, МГц") { Text("\(NativeAnalyzerDraft.mhz($0.minFrequencyHz))–\(NativeAnalyzerDraft.mhz($0.maxFrequencyHz))") }
-                TableColumn("Точек") { Text(String($0.pointCount)) }
-                TableColumn("Пик") { Text(String(format: "%.1f %@", $0.peakLevel, $0.levelUnit)) }
+            Table(browser.rows.map(TableSource.init(sweep:)), selection: $selection) {
+                TableColumn("Начало UTC") { Text($0.sweep.interval.startedAt) }
+                TableColumn("Диапазон, МГц") {
+                    Text("\(NativeAnalyzerDraft.mhz($0.sweep.minFrequencyHz))–\(NativeAnalyzerDraft.mhz($0.sweep.maxFrequencyHz))")
+                }
+                TableColumn("Точек") { Text(String($0.sweep.pointCount)) }
+                TableColumn("Пик") { Text(String(format: "%.1f %@", $0.sweep.peakLevel, $0.sweep.levelUnit)) }
             }.frame(minHeight: 180)
             if !message.isEmpty { Text(message).foregroundStyle(.orange).font(.caption) }
             DisclosureGroup("Хранение и экспорт") {
@@ -139,7 +146,7 @@ struct NativeArchivePage: View {
         } catch { message = error.localizedDescription }
     }
     private func openSource() {
-        guard let client = model.client, let row = browser.rows.first(where: { $0.id == selection }) else { return }
+        guard let client = model.client, let selection, let row = browser.row(id: selection) else { return }
         let savedScope = scope
         opening = true
         request = Task { @MainActor in
