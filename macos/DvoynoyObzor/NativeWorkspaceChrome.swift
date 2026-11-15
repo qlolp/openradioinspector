@@ -134,7 +134,7 @@ struct NativeContinuityBar: View {
         return ["wide": "Широкий обзор", "narrow": "Узкая полоса · широкий обзор приостановлен", "restoring": "Восстановление широкого обзора", "preparation": "Подготовка эталона", "stopped": "Покрытие остановлено", "paused": "Покрытие на паузе", "unavailable": "Покрытие недоступно", "error": "Ошибка покрытия"][value] ?? "Покрытие не подтверждено"
     }
     private var archiveLabel: String {
-        guard let capacity = model.archiveCapacity else { return "Состояние архива неизвестно" }
+        guard let capacity = model.displayArchiveCapacity else { return "Состояние архива неизвестно" }
         if capacity.measurementWritesBlocked { return "Запись в архив заблокирована" }
         let state = ["unlimited": "без лимита", "ok": "норма", "warning": "мало места", "full": "заполнен", "unavailable": "недоступен"][capacity.state.rawValue] ?? capacity.state.rawValue
         return "Архив · " + state

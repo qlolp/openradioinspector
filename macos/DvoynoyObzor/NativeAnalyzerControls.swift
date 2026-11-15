@@ -36,7 +36,7 @@ struct NativeAnalyzerControls: View {
                     draft.start = NativeAnalyzerDraft.mhz(start); draft.stop = NativeAnalyzerDraft.mhz(stop)
                     try? draft.synchronize(.start); loaded = true
                 }
-                if case .number(let rbw) = sweep.settings?["rbw_hz"] { draft.rbw = String(Int(rbw)) }
+                draft.loadBandwidth(sweep.settings?["rbw_hz"])
             }
         }
         .onDisappear { operation?.cancel() }

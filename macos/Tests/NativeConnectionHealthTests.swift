@@ -43,6 +43,10 @@ struct NativeConnectionHealthTests {
                     ["id": "r", "device": "AR-DV1", "role": "receiver", "level_unit": "s_meter_count", "state": "connected", "capabilities": ["tune"]]]]
                 let date = ISO8601DateFormatter().string(from: timestamp)
                 switch stub.request.url!.path {
+                case "/api/v1/archive/capacity":
+                    stub.reply(["storage_mode": "memory", "database_bytes": NSNull(), "max_database_bytes": NSNull(),
+                        "remaining_bytes": NSNull(), "state": "unlimited", "warning_threshold": 0.9,
+                        "measurement_writes_blocked": false, "automatic_deletion": false])
                 case "/api/v1/sessions": stub.reply([session], status: revoked ? 401 : failure ? 503 : 200)
                 case "/api/v1/sessions/s": stub.reply(session, status: revoked ? 401 : failure ? 503 : 200)
                 case "/api/v1/sessions/s/sweeps": stub.reply(empty ? [] : [["id": date, "session_id": "s", "stream_id": "a", "level_unit": "dBm", "frequencies_hz": [100, 200], "levels": [-80, -70], "interval": ["started_at": date, "ended_at": date]]])
@@ -95,15 +99,19 @@ struct NativeConnectionHealthTests {
         let responses = Responses(date: Date().addingTimeInterval(-3))
         let model = try connect(responses)
         defer { model.disconnect(); Stub.handler = nil }
-        try await waitFor { model.coreReachable && !model.current.isEmpty }
+        try await waitFor { model.coreReachable && !model.current.isEmpty && model.displayArchiveCapacity != nil }
         #expect(!model.measurementsStale)
         let original = model.current, time = model.lastMeasurementAt
+        let sweeps = model.spectrumPresentation.sweeps.map(\.exactID)
+        #expect(!sweeps.isEmpty)
         responses.change(fail: true); await model.refresh()
         #expect(model.connected && !model.coreReachable)
         #expect(model.measurementsStale)
         #expect(model.current.isEmpty)
         #expect(model.spectrumPresentation.sweeps.isEmpty)
         #expect(model.displayCurrent == original)
+        #expect(model.displayInspectorSweeps.map(\.exactID) == sweeps)
+        #expect(model.displayArchiveCapacity == nil)
         #expect(model.lastMeasurementAt == time)
         responses.change(); await model.refresh()
         #expect(model.coreReachable)
@@ -142,6 +150,7 @@ struct NativeConnectionHealthTests {
         model.serverURL += "/other"
         #expect(model.staleSpectrum == nil)
         #expect(model.displayCurrent.isEmpty)
+        #expect(model.displayInspectorSweeps.isEmpty)
         #expect(model.lastMeasurementAt == nil)
     }
     @Test @MainActor func authorizationRevocationClearsTrustedAndStaleMeasurements() async throws {

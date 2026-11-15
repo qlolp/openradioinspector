@@ -10,6 +10,9 @@ struct NativeSpectrumInspector: View {
     var sessionID = ""
     var streamID = ""
     var liveReceiving = true
+    var measurementsStale = false
+    var presentationPaused = false
+    var setPresentationPaused: (@MainActor (Bool) -> Void)? = nil
     var reviewedSweep: PlatformSweep? = nil
     var reviewRequest = UUID()
     @AppStorage("native.plot.split") private var split = 0.50
@@ -28,7 +31,7 @@ struct NativeSpectrumInspector: View {
     @State private var archiveWindow: ClosedRange<Date>?
 
     @State private var frozen: [PlatformSweep]?
-    @State private var selectedID: String?
+    @State private var selectedID: PlatformExactID?
     @State private var cursor: NativeSpectrumSample?
     @State private var inGap = false
     @State private var markers: [NativeSpectrumSample] = []
@@ -45,12 +48,20 @@ struct NativeSpectrumInspector: View {
     @State private var tuneMessage = ""
 
     private var source: [PlatformSweep] { frozen ?? sweeps }
+    private var holdingPresentation: Bool { frozen != nil || presentationPaused }
+    private var presentationStatus: String {
+        if frozen != nil { return "ИСТОРИЯ" }
+        if presentationPaused { return "ПАУЗА" }
+        if liveReceiving { return "LIVE" }
+        if measurementsStale && !sweeps.isEmpty { return "ПОСЛЕДНИЕ ДАННЫЕ" }
+        return "ПРИЁМ ОСТАНОВЛЕН"
+    }
     private var window: ClosedRange<Date> {
         NativeTimeWindow.range(end: timeEnd ?? (source.isEmpty ? Date() : NativeSpectrumTimeline(source).end), seconds: seconds)
     }
     private var displayed: [PlatformSweep] { NativeTimeWindow.rows(source, within: window) }
     private var timeline: NativeSpectrumTimeline { NativeSpectrumTimeline(displayed, window: window) }
-    private var selected: PlatformSweep? { displayed.first { $0.id == selectedID } ?? displayed.last }
+    private var selected: PlatformSweep? { NativeSpectrumInspection.selectedSweep(selectedID, in: displayed) }
     private var fullRange: ClosedRange<Double> {
         let first = Double(source.last?.frequenciesHz.first ?? 0)
         return first...max(first + 1, Double(source.last?.frequenciesHz.last ?? 1))
@@ -79,7 +90,7 @@ struct NativeSpectrumInspector: View {
                             measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
                         }
                     }.disabled(markers.isEmpty && cursor == nil)
-                }.disabled(client == nil || tuning || !liveReceiving || frozen != nil)
+                }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
                 Button("Пик") { choosePeak(next: true) }
                 Toggle("Следить", isOn: $trackingPeak).toggleStyle(.button)
                 Toggle("Min", isOn: $showMinimum).toggleStyle(.button)
@@ -92,7 +103,7 @@ struct NativeSpectrumInspector: View {
                     Button("Удалить с графика") { reference = nil }
                 }
                 Spacer(minLength: 0)
-                Text(frozen != nil ? "ИСТОРИЯ" : liveReceiving ? "LIVE" : "ПРИЁМ ОСТАНОВЛЕН").foregroundStyle(frozen == nil && liveReceiving ? .green : .yellow)
+                Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? .green : .yellow)
             }.controlSize(.small).font(.caption)
             if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
             GeometryReader { geometry in
@@ -119,7 +130,7 @@ struct NativeSpectrumInspector: View {
                     .simultaneousGesture(MagnifyGesture().onChanged { value in
                         if gestureRange == nil { gestureRange = range }
                         if let base = gestureRange {
-                            let anchor = base.lowerBound + value.startAnchor.x * (base.upperBound - base.lowerBound)
+                            let anchor = layout.pinchAnchor(value.startAnchor.x, viewWidth: geometry.size.width, in: base)
                             zoom = NativeSpectrumNavigation.zoom(base, factor: 1 / value.magnification, anchor: anchor, within: fullRange)
                         }
                     }.onEnded { _ in gestureRange = nil })
@@ -180,8 +191,14 @@ struct NativeSpectrumInspector: View {
                 Button("Загрузить окно") { if timeEnd == nil { timeEnd = window.upperBound }; frozen = source; loadHistory() }
                     .disabled(client == nil || archive.busy)
                 Button("Ещё") { loadHistory(next: true) }.disabled(archive.nextCursor == nil || archive.busy || historySweeps.count >= 128)
-                Button("LIVE") { returnToLive() }
+                Button("LIVE") { resumeLive() }
                     .tint(.green)
+                if let setPresentationPaused {
+                    Button(holdingPresentation ? "Продолжить показ" : "Пауза показа") {
+                        if holdingPresentation { resumeLive() }
+                        else { setPresentationPaused(true) }
+                    }
+                }
             }.font(.caption).controlSize(.small)
             if !archive.message.isEmpty {
                 Text(archive.message + (archive.nextCursor == nil ? "" : (historySweeps.count >= 128 ? " · лимит 128 свипов; сузьте окно" : " · окно загружено частично")))
@@ -211,7 +228,7 @@ struct NativeSpectrumInspector: View {
             guard let reviewedSweep else { returnToLive(); reference = nil; return }
             guard PlatformExactID.same(reviewedSweep.sessionId, sessionID), PlatformExactID.same(reviewedSweep.streamId, streamID) else { return }
             archiveTask?.cancel(); archive.reset(); historySweeps = []
-            frozen = [reviewedSweep]; selectedID = reviewedSweep.id
+            frozen = [reviewedSweep]; selectedID = reviewedSweep.exactID
             timeEnd = NativeSpectrumTimeline.date(reviewedSweep.interval.endedAt)
             cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
         }
@@ -222,7 +239,7 @@ struct NativeSpectrumInspector: View {
         .onChange(of: trackingPeak) { _, enabled in
             if enabled {
                 let frequencyZoom = zoom
-                returnToLive()
+                resumeLive()
                 zoom = frequencyZoom
             }
         }
@@ -232,12 +249,12 @@ struct NativeSpectrumInspector: View {
         .onChange(of: sweeps.isEmpty) { _, empty in
             if empty { archiveTask?.cancel(); archive.reset(); timeEnd = nil; reference = nil; frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inGap = false }
         }
-        .onChange(of: sweeps.last?.id) { _, _ in
+        .onChange(of: sweeps.last?.exactID) { _, _ in
             if trackingPeak, frozen == nil, let latest = sweeps.last,
                let peak = NativeSpectrumInspection.peaks(in: latest, range: range, limit: 1).first {
                 cursor = NativeSpectrumSample(sweep: latest, bin: peak)
             }
-            if frozen == nil, let cursor, !sweeps.contains(where: { $0.id == cursor.sweep.id }) { self.cursor = nil }
+            if frozen == nil, let cursor, !sweeps.contains(where: { $0.exactID == cursor.sweep.exactID }) { self.cursor = nil }
         }
         .onChange(of: sweeps.last?.frequenciesHz) { old, new in
             if frozen == nil, old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(sweeps.last?.levels ?? []) }
@@ -266,6 +283,12 @@ struct NativeSpectrumInspector: View {
         archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
         inspectionScale = nil; frozen = nil; selectedID = nil; timeEnd = nil; offset = 0; cursor = nil; markers = []; inGap = false; zoom = nil
     }
+
+    private func resumeLive() {
+        returnToLive()
+        if presentationPaused { setPresentationPaused?(false) }
+    }
+
     private func moveTime(_ delta: Double) {
         timeEnd = window.upperBound.addingTimeInterval(delta)
         frozen = source; cursor = nil; markers = []; selectedID = nil
@@ -305,7 +328,7 @@ struct NativeSpectrumInspector: View {
     }
     private func pinSample(_ sample: NativeSpectrumSample) {
         if frozen == nil { timeEnd = window.upperBound; frozen = sweeps }
-        selectedID = sample.sweep.id
+        selectedID = sample.sweep.exactID
         if markers.count == 2 { markers = [] }
         markers.append(sample)
         cursor = sample
@@ -385,5 +408,10 @@ struct NativeSpectrumPlotLayout {
         let available = max(40, size.height - 62)
         spectrum = CGRect(x: 76, y: 20, width: width, height: available * min(0.75, max(0.25, spectrumFraction)))
         waterfall = CGRect(x: 76, y: spectrum.maxY + 35, width: width, height: available - spectrum.height)
+    }
+
+    func pinchAnchor(_ viewFraction: Double, viewWidth: Double, in range: ClosedRange<Double>) -> Double {
+        let plotFraction = min(1, max(0, (viewFraction * viewWidth - spectrum.minX) / spectrum.width))
+        return range.lowerBound + plotFraction * (range.upperBound - range.lowerBound)
     }
 }

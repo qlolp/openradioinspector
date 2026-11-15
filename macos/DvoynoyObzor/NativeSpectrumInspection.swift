@@ -30,6 +30,12 @@ struct NativeSpectrumTimeline {
     }
 
     func fraction(_ date: Date) -> Double { end.timeIntervalSince(date) / duration }
+    func waterfallRect(for row: Row, in frame: CGRect) -> CGRect? {
+        let top = frame.minY + max(0, fraction(row.end)) * frame.height
+        let bottom = frame.minY + min(1, fraction(row.start)) * frame.height
+        guard bottom > top else { return nil }
+        return CGRect(x: frame.minX, y: top, width: frame.width, height: bottom - top)
+    }
     func row(at fraction: Double) -> Row? {
         guard (0...1).contains(fraction) else { return nil }
         let date = end.addingTimeInterval(-fraction * duration)
@@ -53,6 +59,18 @@ struct NativeSpectrumTimeline {
 }
 
 enum NativeSpectrumInspection {
+    static func selectedSweep(_ id: PlatformExactID?, in sweeps: [PlatformSweep]) -> PlatformSweep? {
+        sweeps.first { $0.exactID == id } ?? sweeps.last
+    }
+
+    static func visibleBins(in sweep: PlatformSweep, range: ClosedRange<Double>) -> Range<Int> {
+        guard let first = sweep.frequenciesHz.firstIndex(where: { range.contains(Double($0)) }),
+              let last = sweep.frequenciesHz.lastIndex(where: { range.contains(Double($0)) }) else {
+            return 0..<0
+        }
+        return first..<(last + 1)
+    }
+
     static func nearestBin(_ frequency: Double, in sweep: PlatformSweep) -> Int? {
         guard frequency.isFinite, !sweep.frequenciesHz.isEmpty else { return nil }
         return sweep.frequenciesHz.indices.min { abs(Double(sweep.frequenciesHz[$0]) - frequency) < abs(Double(sweep.frequenciesHz[$1]) - frequency) }

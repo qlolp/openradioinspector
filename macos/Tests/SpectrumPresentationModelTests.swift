@@ -73,7 +73,9 @@ final class SpectrumPresentationModelTests: XCTestCase {
         defer { model.disconnect() }
         let scale = model.spectrumPresentation.scale, current = model.current, rows = model.waterfall.rows
         model.spectrumLower = "-90"; model.spectrumUpper = "-70"
-        model.toggleSpectrumPause()
+        model.setSpectrumPaused(true)
+        model.setSpectrumPaused(true)
+        XCTAssertTrue(model.spectrumPresentation.paused)
         var newer = source[1]; newer["id"] = "newer"; newer["levels"] = [-20, -10, 0]
         responses.change([newer]); let reads = responses.reads
         await model.refresh()
@@ -86,7 +88,10 @@ final class SpectrumPresentationModelTests: XCTestCase {
         model.tuneLatestPeak(); model.createCandidateFromLatestPeak()
         try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(responses.mutations, 0)
-        model.toggleSpectrumPause(); XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "newer")
+        model.setSpectrumPaused(false)
+        model.setSpectrumPaused(false)
+        XCTAssertFalse(model.spectrumPresentation.paused)
+        XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "newer")
         XCTAssertEqual(model.current.map(\.y), [-20, -10, 0]); XCTAssertEqual(model.spectrumPresentation.scale, scale)
         XCTAssertEqual(model.spectrumPresentation.clippedCount, 3)
     }
