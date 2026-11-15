@@ -6,6 +6,74 @@ use tokio::time::Instant;
 
 const RX_SETTLE: Duration = Duration::from_millis(25);
 
+#[derive(Clone, Copy, Debug)]
+pub struct ReceiverScope {
+    start_hz: u64,
+    stop_hz: u64,
+    step_hz: u64,
+    settle: Duration,
+    points: usize,
+    vfo_step: Option<&'static str>,
+}
+impl ReceiverScope {
+    pub fn new(
+        start_hz: u64,
+        stop_hz: u64,
+        step_hz: u64,
+        settle: Duration,
+        auto: bool,
+    ) -> Result<Self> {
+        frequency_command(start_hz)?;
+        frequency_command(stop_hz)?;
+        if stop_hz <= start_hz
+            || !(10..=1_300_000_000).contains(&step_hz)
+            || !step_hz.is_multiple_of(10)
+            || settle > Duration::from_secs(1)
+        {
+            return Err(InstrumentError::InvalidRequest(
+                "invalid AR-DV1 scope range/settling".into(),
+            ));
+        }
+        let points = (stop_hz - start_hz).div_ceil(step_hz) + 1;
+        if points > 1000 {
+            return Err(InstrumentError::InvalidRequest(
+                "AR-DV1 scope is limited to 1000 points".into(),
+            ));
+        }
+        let vfo_step = if auto
+            && stop_hz - start_hz >= step_hz
+            && start_hz.is_multiple_of(step_hz)
+            && settle >= Duration::from_millis(15)
+        {
+            match step_hz {
+                25_000 => Some("025.00"),
+                100_000 => Some("100.00"),
+                500_000 => Some("500.00"),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        Ok(Self {
+            start_hz,
+            stop_hz,
+            step_hz,
+            settle,
+            points: points as usize,
+            vfo_step,
+        })
+    }
+    pub fn points(self) -> usize {
+        self.points
+    }
+}
+
+struct ScopeRun {
+    config: ReceiverScope,
+    index: usize,
+    saved_raster: Option<(String, String)>,
+}
+
 /// Documented receive control only. AUTO excludes TETRA; levels are raw counts.
 pub struct ArDv1<T> {
     connection: Connection<T>,
@@ -19,6 +87,8 @@ pub struct ArDv1<T> {
     tune_sequence: u64,
     verify_frequency: bool,
     settled_at: Option<Instant>,
+    scope: Option<ScopeRun>,
+    verified_dv1: bool,
 }
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     pub fn new(transport: T, config: ReceiverConfig, limits: IoLimits) -> Result<Self> {
@@ -36,6 +106,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             tune_sequence: 0,
             verify_frequency: false,
             settled_at: None,
+            scope: None,
+            verified_dv1: false,
         })
     }
     pub fn with_frequency_readback(mut self) -> Result<Self> {
@@ -45,6 +117,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             ));
         }
         self.verify_frequency = true;
+        Ok(self)
+    }
+    pub fn with_scope(mut self, config: ReceiverScope) -> Result<Self> {
+        if self.requested.mode != ReceiverMode::Fm {
+            return Err(InstrumentError::UnsupportedProfile(
+                "AR-DV1 scope requires FM".into(),
+            ));
+        }
+        self = self.with_frequency_readback()?;
+        self.requested.frequency_hz = config.start_hz;
+        self.scope = Some(ScopeRun {
+            config,
+            index: 0,
+            saved_raster: None,
+        });
         Ok(self)
     }
     pub fn cancellation_handle(&self) -> CancellationHandle {
@@ -85,6 +172,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     async fn transact(&mut self, command: &str) -> Result<String> {
         let text = self.connection.line(command).await?;
         match body(&text) {
+            Ok(value) if self.scope.is_some() && (!text.starts_with("20") || value.is_empty()) => {
+                self.failed(InstrumentError::Protocol(
+                    "AR-DV1 scope requires a terminal query reply".into(),
+                ))
+            }
             Ok(value) => Ok(value.to_owned()),
             Err(error) => self.failed(error),
         }
@@ -94,7 +186,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         if let Err(error) = body(&raw) {
             return self.failed(error);
         }
-        if raw != "10" && raw != "20" {
+        if raw != "20" && (self.scope.is_some() || raw != "10") {
             return self.failed(InstrumentError::Rejected(format!("{command}: {raw}")));
         }
         Ok(())
@@ -125,6 +217,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                     "missing AR-DV1 serial response".into(),
                 ));
             }
+            self.verified_dv1 = serial.len() == 10
+                && serial.starts_with("RN0952")
+                && serial[2..]
+                    .parse::<u32>()
+                    .is_ok_and(|number| number < 9_523_001);
             self.ready = true;
             Ok(())
         }
@@ -136,6 +233,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     }
     pub async fn tune(&mut self, frequency_hz: u64, mode: ReceiverMode) -> Result<()> {
         self.connection.ensure()?;
+        if self.scope.is_some() {
+            return Err(InstrumentError::UnsafeState(
+                "end AR-DV1 scope before manual tuning".into(),
+            ));
+        }
         let command = frequency_command(frequency_hz)?;
         validate_mode(self.requested.profile, mode)?;
         self.requested.frequency_hz = frequency_hz;
@@ -163,10 +265,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     }
     pub async fn poll_receiver(&mut self) -> Result<ReceiverSample> {
         self.connection.ensure()?;
-        if self.source == "unconfirmed" {
-            self.tune(self.requested.frequency_hz, self.requested.mode)
-                .await?;
-        }
+        let scan_command = if self.scope.is_some() {
+            match self.tune_scope_point().await {
+                Ok(command) => Some(command),
+                Err(error) => return self.failed(error),
+            }
+        } else {
+            if self.source == "unconfirmed" {
+                self.tune(self.requested.frequency_hz, self.requested.mode)
+                    .await?;
+            }
+            None
+        };
         let (Some(frequency_hz), Some(mode)) = (self.frequency, self.mode) else {
             return Err(InstrumentError::UnsafeState(
                 "receiver frequency/mode unknown; explicit tune required".into(),
@@ -214,6 +324,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         if let Some(raw) = raw_rx {
             metadata["raw_receiver_status"] = json!(raw);
         }
+        if let Some((scope, command)) = self.scope.as_mut().zip(scan_command) {
+            metadata["scan_index"] = json!(scope.index);
+            metadata["scan_total"] = json!(scope.config.points);
+            metadata["scan_tune_command"] = json!(command);
+            metadata["scope_source"] = json!("sequential_receiver_readback");
+            metadata["settle_s"] = json!(scope.config.settle.as_secs_f64());
+            scope.index += 1;
+        }
         Ok(ReceiverSample {
             frequency_hz,
             mode,
@@ -230,6 +348,60 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             metadata,
         })
     }
+    async fn tune_scope_point(&mut self) -> Result<&'static str> {
+        let scope = self.scope.as_ref().expect("scope acquisition");
+        let (config, index) = (scope.config, scope.index);
+        if index >= config.points {
+            return Err(InstrumentError::UnsafeState(
+                "AR-DV1 scope has finished".into(),
+            ));
+        }
+        let frequency = (config.start_hz + index as u64 * config.step_hz).min(config.stop_hz);
+        let previous = self.frequency;
+        self.invalidate_device_knowledge();
+        let mut command = "RF";
+        if index == 0 {
+            self.prepare().await?;
+            self.acknowledge("VFA").await?;
+            if let Some(step) = config.vfo_step.filter(|_| self.verified_dv1) {
+                let saved_step = self.transact("ST").await?;
+                let saved_shift = self.transact("SH").await?;
+                if !valid_rx_step(&saved_step) || !valid_raster(&saved_shift, "SH") {
+                    return Err(InstrumentError::Protocol(
+                        "invalid AR-DV1 VFO raster".into(),
+                    ));
+                }
+                self.scope.as_mut().unwrap().saved_raster = Some((saved_step, saved_shift));
+                self.acknowledge(&format!(
+                    "VFA {} ST{step} SH000.00 MD0F0",
+                    frequency_command(frequency)?
+                ))
+                .await?;
+                if self.transact("SH").await? != "SH000.00" {
+                    return Err(InstrumentError::Protocol(
+                        "AR-DV1 did not confirm zero VFO shift".into(),
+                    ));
+                }
+            } else {
+                self.acknowledge("MD0F0").await?;
+                self.acknowledge(&frequency_command(frequency)?).await?;
+            }
+        } else if self.scope.as_ref().unwrap().saved_raster.is_some()
+            && previous.is_some_and(|value| value + config.step_hz == frequency)
+        {
+            self.acknowledge("ZK").await?;
+            command = "ZK";
+        } else {
+            self.acknowledge(&frequency_command(frequency)?).await?;
+        }
+        self.frequency = Some(frequency);
+        self.requested.frequency_hz = frequency;
+        self.mode = Some(ReceiverMode::Fm);
+        self.source = "command_acknowledged";
+        self.tune_sequence += 1;
+        self.settled_at = Some(Instant::now() + config.settle);
+        Ok(command)
+    }
     async fn read_receiver(
         &mut self,
         frequency_hz: u64,
@@ -244,6 +416,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             if frequency != frequency_command(frequency_hz)? || !valid_rx_step(step) {
                 return Err(InstrumentError::Protocol(
                     "RX did not confirm the commanded receiver frequency and VFO".into(),
+                ));
+            }
+            if let Some(scope) = &self.scope
+                && scope.saved_raster.is_some()
+                && step.strip_prefix("ST") != scope.config.vfo_step
+            {
+                return Err(InstrumentError::Protocol(
+                    "AR-DV1 scope raster changed".into(),
                 ));
             }
             verify_mode(status, mode)?;
@@ -265,7 +445,22 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             return Ok(());
         }
         let result = if self.ready && !self.connection.tainted() {
-            self.acknowledge("EX").await
+            async {
+                if let Some((step, shift)) = self
+                    .scope
+                    .as_mut()
+                    .and_then(|scope| scope.saved_raster.take())
+                {
+                    self.acknowledge(&format!("VFA {step} {shift}")).await?;
+                    if self.transact("ST").await? != step || self.transact("SH").await? != shift {
+                        return Err(InstrumentError::Protocol(
+                            "AR-DV1 did not confirm VFO raster restoration".into(),
+                        ));
+                    }
+                }
+                self.acknowledge("EX").await
+            }
+            .await
         } else {
             Ok(())
         };
@@ -275,9 +470,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
     }
 }
 fn valid_rx_step(text: &str) -> bool {
+    valid_raster(text, "ST")
+}
+fn valid_raster(text: &str, prefix: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.len() == 8
-        && &bytes[..2] == b"ST"
+        && &bytes[..2] == prefix.as_bytes()
         && bytes[5] == b'.'
         && bytes[2..5]
             .iter()

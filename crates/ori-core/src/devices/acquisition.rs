@@ -44,6 +44,11 @@ impl Default for Phases {
     }
 }
 impl Worker {
+    pub(super) fn poll_in_flight(&self) -> bool {
+        self.acquisition
+            .lock()
+            .is_ok_and(|phase| phase.poll_started_at.is_some())
+    }
     pub(super) fn acquisition_ready(&self) {
         let mut phase = self.acquisition.lock().expect("acquisition phase poisoned");
         phase.ready = true;

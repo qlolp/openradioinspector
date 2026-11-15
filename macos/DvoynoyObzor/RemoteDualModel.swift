@@ -628,11 +628,18 @@ final class RemoteDualModel: ObservableObject {
                         if change == .measurement {
                             latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
                             self.measurementSnapshot = latest
-                            guard await self.applyMeasurements(latest) else { throw CancellationError() }
+                            if event.committedEvent?.payload.sweep != nil {
+                                guard await self.applyMeasurements(latest) else { throw CancellationError() }
+                            } else if !PlatformExactID.same(self.latestObservation?.id, observation?.id) {
+                                self.latestObservation = observation
+                            }
                         }
                         guard !Task.isCancelled, streamGeneration == self.generation, self.client === client else { throw CancellationError() }
                         self.recordCoreContact()
-                        if change == .measurement { self.observeMeasurementTime(latest) }
+                        if change == .measurement,
+                           self.analyzer == nil || event.committedEvent?.payload.sweep != nil {
+                            self.observeMeasurementTime(latest)
+                        }
                         self.measurementSource = event.source; self.measurementDisplayIssue = event.displayIssue
                         self.eventStatus = "\(transport.label) · принято событие \(event.sequence)" + (event.displayIssue == nil ? "" : " · исходник")
                         if change == .measurement { self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")" }
@@ -664,6 +671,18 @@ final class RemoteDualModel: ObservableObject {
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
+            if case PlatformError.http(status: 404, code: "session_not_found", message: _) = error,
+               let loaded = try? await client.listSessions() {
+                guard refreshRevision == sessionRefreshRevision, requestGeneration == generation,
+                      self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
+                if !loaded.contains(where: { PlatformExactID.same($0.id, id) }) {
+                    recordCoreContact()
+                    sessions = loaded
+                    errorText = nil
+                    selectSession(loaded.first?.id ?? "")
+                    return
+                }
+            }
             let retainedFrame = lastRenderedFrame ?? staleSpectrum
             let retainedSweeps = lastRenderedSweeps
             let retainedScale = spectrumPresentation.scale ?? staleSpectrumScale
@@ -716,13 +735,6 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func observeMeasurementTime(_ snapshot: PlatformSnapshot) {
-        let formatter = ISO8601DateFormatter()
-        func date(_ value: String) -> Date? {
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: value) { return date }
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: value)
-        }
         // The spectrum's freshness belongs to its analyzer, never to a faster
         // receiver sharing the session. Receiver-only sessions use their own stream.
         let times: [String]
@@ -735,7 +747,7 @@ final class RemoteDualModel: ObservableObject {
                 PlatformExactID.same($0.sessionId, selectedSessionID) && PlatformExactID.same($0.streamId, receiver?.id ?? "")
             }.map { $0.interval.endedAt }
         }
-        guard let newest = times.compactMap(date).max() else { measurementsStale = true; return }
+        guard let newest = times.compactMap(NativeSpectrumTimeline.date).max() else { measurementsStale = true; return }
         guard lastMeasurementAt.map({ newest > $0 }) ?? true else { return }
         lastMeasurementAt = newest
         let age = Date().timeIntervalSince(newest)

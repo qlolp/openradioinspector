@@ -139,7 +139,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             return Ok(());
         }
         let timeout = self.connection.limits.text_timeout;
-        let info = self.connection.text("info", timeout, false).await?;
+        let info = self.connection.text("info", timeout, true).await?;
         let firmware = self.connection.text("version", timeout, false).await?;
         let deviceid = self.connection.text("deviceid", timeout, false).await?;
         self.identity = json!({"info":info,"firmware":firmware,"deviceid":deviceid});
@@ -241,7 +241,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                 "scan plan is paused in lab mode".into(),
             ));
         }
-        if self.receive.rbw_hz != config.rbw_hz {
+        if self.settings["rbw_hz"].as_u64() != Some(u64::from(config.rbw_hz)) {
             self.ack(&format!("rbw {}", config.rbw_hz / 1000)).await?;
         }
         self.receive = config;
@@ -357,6 +357,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             .text("zero", self.connection.limits.text_timeout, false)
             .await?;
         let zero_db = zero
+            .strip_prefix("usage: ")
+            .unwrap_or(&zero)
             .strip_prefix("zero {level}\n")
             .and_then(|rest| rest.strip_suffix("dBm"))
             .filter(|n| !n.is_empty() && n.len() <= 4 && n.bytes().all(|b| b.is_ascii_digit()))
@@ -547,8 +549,22 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         } else {
             None
         };
+        let adjustment = if let TinySaControl::ConfigureReceive(request) = &control {
+            self.require_input()?;
+            if self.control_mode != ControlMode::Monitoring {
+                return Err(InstrumentError::UnsafeState(
+                    "receive configuration requires monitoring".into(),
+                ));
+            }
+            Some(self.receive_adjustment_plan(request)?)
+        } else {
+            None
+        };
         match &control {
-            TinySaControl::EnterLab | TinySaControl::OutputOff | TinySaControl::Trace(_) => {}
+            TinySaControl::EnterLab
+            | TinySaControl::OutputOff
+            | TinySaControl::Trace(_)
+            | TinySaControl::ConfigureReceive(_) => {}
             TinySaControl::Set(setting) if !setting_command(setting)?.requires_lab => {}
             _ => self.require_lab()?,
         }
@@ -595,6 +611,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                     self.control_mode = ControlMode::Monitoring;
                 }
                 TinySaControl::Set(setting) => self.apply_setting(setting).await?,
+                TinySaControl::ConfigureReceive(_) => {
+                    let (merged, commands) = adjustment.expect("validated receive adjustment");
+                    for wire in &commands {
+                        self.require_command(wire)?;
+                    }
+                    for wire in commands {
+                        self.ack(&wire).await?;
+                    }
+                    self.apply_receive_settings(merged);
+                }
                 TinySaControl::ApplyReceivePreset(_) => {
                     let (mut merged, commands) = preset.expect("validated preset plan");
                     for wire in &commands {
@@ -608,16 +634,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                     for wire in commands {
                         self.ack(&wire).await?;
                     }
-                    self.receive.start_hz = merged["start_hz"].as_u64().unwrap();
-                    self.receive.stop_hz = merged["stop_hz"].as_u64().unwrap();
-                    self.receive.points = merged["points"].as_u64().unwrap() as u32;
-                    if let Some(rbw) = merged["rbw_hz"].as_u64() {
-                        self.receive.rbw_hz = rbw as u32;
-                    }
                     // The safe-off ACK is known even if a prior lab setting was on.
                     merged["output_enabled"] = json!(false);
                     merged["caloutput_mhz"] = json!("off");
-                    self.settings = merged;
+                    self.apply_receive_settings(merged);
                 }
                 TinySaControl::Trace(command) => {
                     let wire = trace_command(&command)?;
@@ -707,6 +727,101 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         self.settings["output_enabled"] = json!(true);
         self.settings["generator_sweep"] = json!(request);
         Ok(())
+    }
+    fn apply_receive_settings(&mut self, merged: Value) {
+        self.receive.start_hz = merged["start_hz"].as_u64().unwrap();
+        self.receive.stop_hz = merged["stop_hz"].as_u64().unwrap();
+        self.receive.points = merged["points"].as_u64().unwrap() as u32;
+        if let Some(rbw) = merged["rbw_hz"].as_u64() {
+            self.receive.rbw_hz = rbw as u32;
+        }
+        self.settings = merged;
+    }
+    fn receive_adjustment_plan(&self, request: &ReceiveAdjustment) -> Result<(Value, Vec<String>)> {
+        let invalid = |message: &str| InstrumentError::InvalidRequest(message.into());
+        if request.settings.is_empty() && request.vbw_ratio.is_none() {
+            return Err(invalid("at least one receive setting is required"));
+        }
+        let mut merged = self.settings.clone();
+        let mut wires = std::collections::BTreeMap::new();
+        for setting in &request.settings {
+            let (key, value) = crate::settings::setting_value(setting)?;
+            if !matches!(
+                setting,
+                Setting::StartHz(_)
+                    | Setting::StopHz(_)
+                    | Setting::Points(_)
+                    | Setting::RbwHz(_)
+                    | Setting::AttenuationDb(_)
+                    | Setting::Lna(_)
+                    | Setting::Ultra(_)
+                    | Setting::Spur(_)
+                    | Setting::Repeat(_)
+                    | Setting::SweepAccuracy(_)
+                    | Setting::SweepSeconds(_)
+                    | Setting::ExternalGainDb(_)
+                    | Setting::TriggerMode(_)
+                    | Setting::TriggerDbm(_)
+            ) || wires.insert(key, setting_command(setting)?.wire).is_some()
+            {
+                return Err(invalid("duplicate or unsupported receive setting"));
+            }
+            merged[key] = value;
+        }
+        if let Some(ratio) = request.vbw_ratio {
+            if wires.contains_key("repeat") {
+                return Err(invalid("specify repeat or VBW, not both"));
+            }
+            let repeat = ratio.repeats();
+            wires.insert("repeat", setting_command(&Setting::Repeat(repeat))?.wire);
+            merged["repeat"] = json!(repeat);
+            merged["vbw_ratio"] = json!(ratio);
+        } else if wires.contains_key("repeat") {
+            merged.as_object_mut().unwrap().remove("vbw_ratio");
+        }
+        let start = merged["start_hz"].as_u64().unwrap();
+        let stop = merged["stop_hz"].as_u64().unwrap();
+        let points = merged["points"].as_u64().unwrap();
+        let ultra = merged["ultra"] == true;
+        let lna = merged["lna"] == true;
+        let maximum = if ultra { 6_000_000_000 } else { 800_000_000 };
+        if start >= stop || stop > maximum || stop - start < points - 1 {
+            return Err(invalid(
+                "range outside selected receive profile or too narrow for the grid",
+            ));
+        }
+        if lna && merged["attenuation_db"] != 0 && merged["attenuation_db"] != "auto" {
+            return Err(invalid("receive LNA requires auto or zero attenuation"));
+        }
+        let mut commands = Vec::with_capacity(wires.len());
+        if !lna {
+            commands.extend(wires.remove("lna"));
+        }
+        if ultra {
+            commands.extend(wires.remove("ultra"));
+        }
+        if ["start_hz", "stop_hz", "points"]
+            .iter()
+            .any(|key| wires.contains_key(key))
+        {
+            commands.push(format!("sweep {start} {stop} {points}"));
+        }
+        for name in [
+            "attenuation_db",
+            "rbw_hz",
+            "repeat",
+            "sweep_accuracy",
+            "sweep_seconds",
+            "external_gain_db",
+            "spur",
+            "trigger_dbm",
+            "trigger_mode",
+            "lna",
+            "ultra",
+        ] {
+            commands.extend(wires.remove(name));
+        }
+        Ok((merged, commands))
     }
     fn receive_preset_plan(&self, request: &ReceivePreset) -> Result<(Value, Vec<String>)> {
         validate_receive_preset(request)?;
@@ -888,6 +1003,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             }
             Setting::Points(points) => self.receive.points = points,
             Setting::RbwHz(Rbw::Hz(hz)) => self.receive.rbw_hz = hz,
+            Setting::Repeat(_) => {
+                self.settings.as_object_mut().unwrap().remove("vbw_ratio");
+            }
             Setting::OutputHz(_) => self.output_frequency = true,
             Setting::OutputDbm(_) => self.output_level = true,
             _ => {}

@@ -63,6 +63,11 @@ extension PlatformClient {
         try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/settings")
     }
 
+    public func tinySAControlOperations(sessionID: String, streamID: String) async throws -> MonitoringValue {
+        let document: MonitoringValue = try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/capabilities")
+        return document["capabilities"]["operations"]
+    }
+
     public func tinySAArtifacts(sessionID: String, streamID: String, offset: Int = 0) async throws -> MonitoringValue {
         try await get("/sessions/\(Self.segment(sessionID))/streams/\(Self.segment(streamID))/instrument/artifacts",
                       query: [URLQueryItem(name: "limit", value: "50"), URLQueryItem(name: "offset", value: String(offset))])

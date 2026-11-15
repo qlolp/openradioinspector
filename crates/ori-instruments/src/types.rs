@@ -438,6 +438,42 @@ pub enum TinySaControl {
         confirmed: bool,
     },
     ApplyReceivePreset(ReceivePreset),
+    ConfigureReceive(ReceiveAdjustment),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiveAdjustment {
+    pub settings: Vec<Setting>,
+    pub vbw_ratio: Option<VbwRatio>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum VbwRatio {
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "1")]
+    One,
+    #[serde(rename = "1/3")]
+    Third,
+    #[serde(rename = "1/10")]
+    Tenth,
+    #[serde(rename = "1/30")]
+    Thirtieth,
+    #[serde(rename = "1/100")]
+    Hundredth,
+}
+
+impl VbwRatio {
+    pub(crate) fn repeats(self) -> u32 {
+        match self {
+            Self::Auto | Self::One => 1,
+            Self::Third => 3,
+            Self::Tenth => 10,
+            Self::Thirtieth => 30,
+            Self::Hundredth => 100,
+        }
+    }
 }
 
 /// One prevalidated receive-only preset, in original document setting order.

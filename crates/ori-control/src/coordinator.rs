@@ -1539,6 +1539,7 @@ fn changes_preview(kind: OperationKind) -> bool {
             | OperationKind::LeaseRelease
             | OperationKind::MonitorResume
             | OperationKind::Setting
+            | OperationKind::ReceiveConfigure
             | OperationKind::Touch
             | OperationKind::Release
             | OperationKind::Keypad

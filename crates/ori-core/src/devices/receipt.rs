@@ -226,13 +226,24 @@ impl DeviceManager {
         self: &Arc<Self>,
         handle: &RetainedWorkerHandle,
     ) -> DeviceResult<WorkerStatus> {
+        self.stop_retained_worker_mode(handle, false).await
+    }
+    pub(super) async fn stop_retained_worker_mode(
+        self: &Arc<Self>,
+        handle: &RetainedWorkerHandle,
+        graceful: bool,
+    ) -> DeviceResult<WorkerStatus> {
         if !Weak::ptr_eq(&handle.worker.manager, &Arc::downgrade(self)) {
             return Err(DeviceError::Denied);
         }
+        handle.worker.request_stop_mode(graceful);
         let status = handle
             .worker
-            .stop_and_join(self.options.stop_timeout)
+            .wait_stopped(self.options.stop_timeout, graceful)
             .await?;
+        if status.alive {
+            return Ok(status);
+        }
         handle
             .worker
             .tune_tasks
@@ -322,13 +333,28 @@ impl Worker {
         timeout: Duration,
     ) -> DeviceResult<WorkerStatus> {
         self.request_stop();
-        tokio::time::timeout(timeout, self.completion.wait())
-            .await
-            .map_err(|_| {
-                DeviceError::Worker(
+        self.wait_stopped(timeout, false).await
+    }
+    async fn wait_stopped(
+        self: &Arc<Self>,
+        timeout: Duration,
+        allow_pending: bool,
+    ) -> DeviceResult<WorkerStatus> {
+        match tokio::time::timeout(timeout, self.completion.wait()).await {
+            Ok(result) => result?,
+            Err(_) if allow_pending => {
+                let status = self.snapshot();
+                if status.alive {
+                    return Ok(status);
+                }
+                self.completion.wait().await?;
+            }
+            Err(_) => {
+                return Err(DeviceError::Worker(
                     "Original worker cleanup deadline exceeded; ownership retained".into(),
-                )
-            })??;
+                ));
+            }
+        }
         if let Some(released) = &self.released {
             tokio::time::timeout(timeout, released.wait())
                 .await

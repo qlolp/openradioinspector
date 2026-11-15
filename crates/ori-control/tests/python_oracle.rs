@@ -1039,6 +1039,15 @@ async fn all_29_operations_match_actual_python_transcripts_and_artifacts_commit_
             assert!(bytes(&preview["data_base64"]).starts_with(b"\x89PNG"));
             expected.as_object_mut().unwrap().remove("artifact");
         }
+        if op == "inspect" {
+            let receive = actual["capabilities"]["operations"]
+                .as_object_mut()
+                .unwrap()
+                .remove("receive.configure")
+                .unwrap();
+            assert_eq!(receive["continuous_zero_span"], false);
+            assert_eq!(receive["fields"]["stop_hz"]["max"], 6_000_000_000u64);
+        }
         normalize(&mut actual);
         normalize(&mut expected);
         assert_eq!(actual, expected, "result envelope {op}");

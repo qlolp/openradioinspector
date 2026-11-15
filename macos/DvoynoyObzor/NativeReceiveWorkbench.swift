@@ -22,8 +22,12 @@ struct NativeReceiveWorkbench: View {
     @State private var selectedArtifact: MonitoringValue = .null
     @State private var loaded = false
     @State private var recoverySupported = false
+    @State private var operations: MonitoringValue = .null
     private var running: Bool { model.worker(for: model.analyzer?.id)?.alive == true }
     private var watching: Bool { status["watch"] != .null }
+    private func supports(_ name: String) -> Bool {
+        operations[name] != .null && operations[name]["available"].bool != false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -56,7 +60,7 @@ struct NativeReceiveWorkbench: View {
             }
             Picker("Раздел", selection: $tab) {
                 Text("Тракт и развёртка").tag(0)
-                Text("Наблюдение и события").tag(1)
+                if supports("watch.start") || watching { Text("Наблюдение и события").tag(1) }
                 Text("Zero Span").tag(2)
                 Text("Журнал архива").tag(3)
             }.pickerStyle(.segmented)
@@ -78,11 +82,17 @@ struct NativeReceiveWorkbench: View {
         }.padding(18).frame(minWidth: 860, idealWidth: 940, minHeight: 620)
             .task(id: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? ""].map { PlatformExactID($0) }) {
                 task?.cancel(); busy = false; loaded = false; status = .null; recoverySupported = false
+                operations = .null
+                if tab == 1 { tab = 0 }
                 if let client = model.client {
                     let session = model.selectedSessionID, stream = model.analyzer?.id
                     let features = try? await client.workbenchFeatures()
+                    let available = if let stream {
+                        try? await client.tinySAControlOperations(sessionID: session, streamID: stream)
+                    } else { nil as MonitoringValue? }
                     if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream {
                         recoverySupported = features?.contains("explicit_stream_recovery") == true
+                        operations = available ?? .null
                     }
                 }
                 await refresh(initialize: true)
@@ -168,7 +178,7 @@ struct NativeReceiveWorkbench: View {
                 Button("Применить тракт и развёртку") {
                     do { run("receive.configure", parameters: try draft.parameters()) }
                     catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
+                }.disabled(busy || !running || watching || !supports("receive.configure"))
                 Button("Считать настройки ядра") { task = Task { await refresh(initialize: true) } }.disabled(busy)
             }
             Text("Подтверждение: \(status["settings_source"].text) · readback: \(status["settings_readback"].scalar)").font(.caption)
@@ -230,18 +240,20 @@ struct NativeReceiveWorkbench: View {
                     do { run("acquire.zero", parameters: ["start_hz": .integer(try NativeAnalyzerDraft.hz(zeroFrequency)), "points": .integer(450)]) }
                     catch { message = error.localizedDescription }
                 }.disabled(busy || !running || watching)
-                Button("Непрерывный Zero Span") {
-                    do {
-                        let hz = try NativeAnalyzerDraft.hz(zeroFrequency)
-                        run("receive.configure", parameters: ["start_hz": .integer(hz), "stop_hz": .integer(hz)])
-                    } catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
-                Button("Вернуть диапазон полосы 1") {
-                    do {
-                        guard let band = bands.first, case .object(let values) = try band.value() else { return }
-                        run("receive.configure", parameters: values.filter { $0.key != "name" })
-                    } catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
+                if supports("receive.configure") && operations["receive.configure"]["continuous_zero_span"].bool != false {
+                    Button("Непрерывный Zero Span") {
+                        do {
+                            let hz = try NativeAnalyzerDraft.hz(zeroFrequency)
+                            run("receive.configure", parameters: ["start_hz": .integer(hz), "stop_hz": .integer(hz)])
+                        } catch { message = error.localizedDescription }
+                    }.disabled(busy || !running || watching)
+                    Button("Вернуть диапазон полосы 1") {
+                        do {
+                            guard let band = bands.first, case .object(let values) = try band.value() else { return }
+                            run("receive.configure", parameters: values.filter { $0.key != "name" })
+                        } catch { message = error.localizedDescription }
+                    }.disabled(busy || !running || watching)
+                }
             }
             Text("График уровня последовательных отсчётов. Точное время каждого отсчёта прошивка не передаёт; показывается общий UTC-интервал, без выдуманной временной сетки.").font(.caption)
             NativeZeroSpanPlot(data: zeroData).frame(height: 260)

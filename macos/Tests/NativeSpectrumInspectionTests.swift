@@ -35,6 +35,12 @@ import SpektrKomandy
         #expect(NativeSpectrumTimeline([a]).duration == 1.75)
         #expect(NativeSpectrumInspection.interval(a).contains("23:59:59.500"))
     }
+    @Test func timelineRetainsPrecisionOfDeviceTimestamps() throws {
+        let start = try #require(NativeSpectrumTimeline.date("2026-11-15T21:52:53+03:00"))
+        let end = try #require(NativeSpectrumTimeline.date("2026-11-15T18:52:53.689157Z"))
+        #expect(abs(end.timeIntervalSince(start) - 0.689157) < 0.000_001)
+        #expect(NativeSpectrumTimeline.date("invalid") == nil)
+    }
     @Test func selectedSweepUsesTheExactArchiveID() throws {
         let first = try sweep("trace-\u{00E9}", levels: [-90, -80, -90, -80])
         let second = try sweep("trace-e\u{0301}", levels: [-100, -70, -90, -80])
@@ -101,6 +107,16 @@ import SpektrKomandy
         #expect(draft.rbw == "auto")
         draft.loadBandwidth(.number(30_000))
         #expect(draft.rbw == "30000")
+    }
+    @Test func manualRangeExtendsOnlyWithUltraEnabled() throws {
+        var draft = NativeAnalyzerDraft()
+        draft.center = "5175"; draft.span = "50"
+        #expect(throws: (any Error).self) { try draft.synchronize(.center) }
+        try draft.synchronize(.center, ultra: true)
+        #expect(try NativeAnalyzerDraft.hz(draft.start, ultra: true) == 5_150_000_000)
+        #expect(try NativeAnalyzerDraft.hz(draft.stop, ultra: true) == 5_200_000_000)
+        draft.stop = "6000.001"
+        #expect(throws: (any Error).self) { try draft.synchronize(.stop, ultra: true) }
     }
     @Test func zoomKeepsAnchorAndPanClampsToAcquiredRange() {
         let full = 88_000_000.0...108_000_000.0

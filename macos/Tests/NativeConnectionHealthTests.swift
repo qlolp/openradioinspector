@@ -11,10 +11,10 @@ struct NativeConnectionHealthTests {
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() { Self.handler?(self) }
         override func stopLoading() {}
-        func reply(_ value: Any, status: Int = 200) {
+        func reply(_ value: Any, status: Int = 200, code: String = "unavailable") {
             let body: [String: Any] = status == 200
                 ? ["contract": "openradioinspector-platform", "contract_version": 1, "data": value]
-                : ["error": ["code": "unavailable", "message": "Synthetic failure"]]
+                : ["error": ["code": code, "message": "Synthetic failure"]]
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
                 httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
@@ -29,7 +29,9 @@ struct NativeConnectionHealthTests {
         private var empty = false
         private var revoked = false
         private var observationDate: Date?
+        private var sessionID = "s"
         init(date: Date = Date(), observationDate: Date? = nil) { timestamp = date; self.observationDate = observationDate }
+        func replaceSession(_ id: String) { lock.withLock { sessionID = id } }
         func change(date: Date? = nil, fail: Bool = false, empty: Bool = false, revoked: Bool = false) {
             lock.withLock {
                 if let date { timestamp = date }
@@ -38,7 +40,7 @@ struct NativeConnectionHealthTests {
         }
         func handle(_ stub: Stub) {
             lock.withLock {
-                let session: [String: Any] = ["id": "s", "name": "Synthetic", "state": "running", "streams": [
+                let session: [String: Any] = ["id": sessionID, "name": "Synthetic", "state": "running", "streams": [
                     ["id": "a", "device": "tinySA", "role": "spectrum_analyzer", "level_unit": "dBm", "state": "connected", "capabilities": ["sweep"]],
                     ["id": "r", "device": "AR-DV1", "role": "receiver", "level_unit": "s_meter_count", "state": "connected", "capabilities": ["tune"]]]]
                 let date = ISO8601DateFormatter().string(from: timestamp)
@@ -48,14 +50,15 @@ struct NativeConnectionHealthTests {
                         "remaining_bytes": NSNull(), "state": "unlimited", "warning_threshold": 0.9,
                         "measurement_writes_blocked": false, "automatic_deletion": false])
                 case "/api/v1/sessions": stub.reply([session], status: revoked ? 401 : failure ? 503 : 200)
-                case "/api/v1/sessions/s": stub.reply(session, status: revoked ? 401 : failure ? 503 : 200)
-                case "/api/v1/sessions/s/sweeps": stub.reply(empty ? [] : [["id": date, "session_id": "s", "stream_id": "a", "level_unit": "dBm", "frequencies_hz": [100, 200], "levels": [-80, -70], "interval": ["started_at": date, "ended_at": date]]])
-                case "/api/v1/sessions/s/observations":
+                case "/api/v1/sessions/\(sessionID)": stub.reply(session, status: revoked ? 401 : failure ? 503 : 200)
+                case "/api/v1/sessions/\(sessionID)/sweeps": stub.reply(empty ? [] : [["id": date, "session_id": sessionID, "stream_id": "a", "level_unit": "dBm", "frequencies_hz": [100, 200], "levels": [-80, -70], "interval": ["started_at": date, "ended_at": date]]])
+                case "/api/v1/sessions/\(sessionID)/observations":
                     if let observationDate {
                         let observed = ISO8601DateFormatter().string(from: observationDate)
-                        stub.reply([["id": "receiver-new", "session_id": "s", "stream_id": "r", "frequency_hz": 100, "mode": "FM", "level_unit": "s_meter_count", "level": 5, "interval": ["started_at": observed, "ended_at": observed]]])
+                        stub.reply([["id": "receiver-new", "session_id": sessionID, "stream_id": "r", "frequency_hz": 100, "mode": "FM", "level_unit": "s_meter_count", "level": 5, "interval": ["started_at": observed, "ended_at": observed]]])
                     } else { stub.reply([]) }
-                case "/api/v1/sessions/s/workers": stub.reply([])
+                case "/api/v1/sessions/\(sessionID)/workers": stub.reply([])
+                case "/api/v1/sessions/s": stub.reply([:], status: 404, code: "session_not_found")
                 default: stub.reply([:], status: 404)
                 }
             }
@@ -93,6 +96,19 @@ struct NativeConnectionHealthTests {
         #expect(!model.coreReachable)
         #expect(model.lastCoreContactAt == nil)
         #expect(model.measurementsStale)
+    }
+
+    @Test @MainActor func replacementArchiveSelectsAValidSessionAfterExactNotFound() async throws {
+        let responses = Responses()
+        let model = try connect(responses)
+        defer { model.disconnect(); Stub.handler = nil }
+        try await waitFor { model.session?.id == "s" && !model.current.isEmpty }
+        responses.replaceSession("replacement")
+        await model.refresh()
+        try await waitFor { model.session?.id == "replacement" && !model.current.isEmpty }
+        #expect(model.selectedSessionID == "replacement")
+        #expect(model.spectrumPresentation.sweeps.allSatisfy { $0.sessionId == "replacement" })
+        #expect(model.coreReachable)
     }
 
     @Test @MainActor func transientFailureRetainsOnlyStaleDisplayAndRequiresNewMeasurement() async throws {

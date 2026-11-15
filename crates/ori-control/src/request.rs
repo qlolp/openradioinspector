@@ -345,6 +345,41 @@ pub fn parse_operation(kind: OperationKind, parameters: &Value) -> Result<Operat
         }
         OperationKind::AcquireRaw => Operation::AcquireRaw(raw_range(p, false, false)?),
         OperationKind::AcquireZero => Operation::AcquireZero(raw_range(p, true, false)?),
+        OperationKind::ReceiveConfigure => {
+            keys(
+                p,
+                &[
+                    "start_hz",
+                    "stop_hz",
+                    "points",
+                    "rbw_hz",
+                    "attenuation_db",
+                    "lna",
+                    "ultra",
+                    "spur",
+                    "repeat",
+                    "sweep_accuracy",
+                    "sweep_seconds",
+                    "external_gain_db",
+                    "trigger_mode",
+                    "trigger_dbm",
+                    "vbw_ratio",
+                ],
+            )?;
+            if p.is_empty() || p.contains_key("repeat") && p.contains_key("vbw_ratio") {
+                return Err(ControlError::Invalid(
+                    "receive settings required; use repeat or VBW",
+                ));
+            }
+            Operation::ReceiveConfigure(ReceiveAdjustment {
+                settings: p
+                    .iter()
+                    .filter(|(name, _)| name.as_str() != "vbw_ratio")
+                    .map(|(name, value)| parse_setting(name, value))
+                    .collect::<Result<_>>()?,
+                vbw_ratio: p.get("vbw_ratio").map(named).transpose()?,
+            })
+        }
         OperationKind::ServiceGuide => {
             keys(p, &["name"])?;
             let name = text(p, "name", "multiband", 64)?;

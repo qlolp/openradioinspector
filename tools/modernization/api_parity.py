@@ -359,6 +359,7 @@ def _collected_control_extensions(reference,candidate):
             raise ProtocolError('Invalid collected Control terminal stages')
         operations=at(body,('capabilities','data','capabilities','operations'))
         known_catalogues=(set(_ASYNC_CONTROL_AVAILABLE),
+                          set(_ASYNC_CONTROL_AVAILABLE)|{'receive.configure'},
                           set(_ASYNC_CONTROL_AVAILABLE)|{'receive.configure','watch.start','watch.stop'})
         if not isinstance(operations,dict) or set(operations) not in known_catalogues:
             raise ProtocolError('Collected Control operation catalogue changed')

@@ -328,7 +328,7 @@ async fn artifact(
             json!({"items":archive.list_artifacts(&target.session_id,&target.stream_id,count(query,"limit",100,1,100)?,count(query,"offset",0,0,10_000_000)?).await?}),
         ));
     }
-    if !(tail.len() == 2 || tail.len() == 3 && tail[2] == "content") {
+    if !(tail.len() == 2 || tail.len() == 3 && matches!(tail[2], "content" | "json")) {
         return Err(missing("Artifact route not found"));
     }
     let item = archive
@@ -337,6 +337,12 @@ async fn artifact(
         .ok_or_else(|| missing("Artifact not found"))?;
     if tail.len() == 2 {
         return Ok(envelope(StatusCode::OK, crate::media::summary(&item)));
+    }
+    if tail[2] == "json" {
+        return Ok(envelope(
+            StatusCode::OK,
+            crate::http::instrument_artifact_json(&item)?,
+        ));
     }
     Response::builder()
         .status(StatusCode::OK)

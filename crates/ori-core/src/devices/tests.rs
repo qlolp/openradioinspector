@@ -205,6 +205,99 @@ async fn until(check: impl Fn() -> bool) {
 }
 
 #[tokio::test]
+async fn receiver_scope_commits_the_final_point_before_releasing_its_port() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let core = core(directory.path(), factory.clone()).await;
+    let archive = core.archive().unwrap();
+    let mut session = session("scope");
+    session["streams"][0]["id"] = json!("scope-r");
+    session["streams"][1]["id"] = json!("scope-a");
+    session["streams"][0]["settings"] = json!({"adapter":"ardv1-serial",
+        "receiver_profile":"ardv1-monitor-v1", "mode":"FM", "period_s":0,
+        "fast_scan":{"start_hz":88_000_000,"stop_hz":88_150_000,"step_hz":100_000,"settle_s":0}});
+    archive.create_session(session).await.unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let target = Target::new("scope", "scope-r");
+    manager
+        .start_stream("scope", "scope-r", manager.public_gate(target))
+        .await
+        .unwrap();
+    until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    let report = manager.stop_stream("scope", "scope-r").await.unwrap();
+    assert_eq!(report.measurements, 3);
+    assert!(!report.alive && report.last_error.is_none());
+    let mut observations = archive
+        .list_observations("scope", Some("scope-r"), 10)
+        .await
+        .unwrap();
+    observations.sort_by_key(|row| row["metadata"]["scan_index"].as_u64().unwrap());
+    assert_eq!(observations.len(), 3);
+    for (row, frequency) in observations
+        .iter()
+        .zip([88_000_000, 88_100_000, 88_150_000])
+    {
+        assert_eq!(row["frequency_hz"], frequency);
+        assert_eq!(row["metadata"]["frequency_readback"], true);
+        assert_eq!(
+            row["metadata"]["scope_source"],
+            "sequential_receiver_readback"
+        );
+        assert!(row["metadata"].get("receiver_tune_context").is_none());
+    }
+    assert_eq!(factory.commands.lock().unwrap().last().unwrap(), "EX");
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn graceful_stop_commits_the_running_poll_before_releasing_transport() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.pause_poll.store(true, Ordering::Release);
+    let mut config = CoreConfig::replay(directory.path());
+    config.devices.transport = Some(factory.clone());
+    config.devices.stop_timeout = Duration::from_millis(100);
+    let core = Core::open(config).await.unwrap();
+    core.archive()
+        .unwrap()
+        .create_session(session("devices"))
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap().clone();
+    let target = Target::new("devices", "r");
+    manager
+        .start_stream("devices", "r", manager.public_gate(target.clone()))
+        .await
+        .unwrap();
+    until(|| factory.poll_started.load(Ordering::Acquire) == 1).await;
+    let pending = manager
+        .stop_stream_mode("devices", "r", true)
+        .await
+        .unwrap();
+    assert!(pending.alive);
+    assert_eq!(pending.value().unwrap()["stopping"], true);
+    assert_eq!(factory.drops.load(Ordering::Acquire), 0);
+    factory.poll_release.add_permits(1);
+    let stopped = manager
+        .stop_stream_mode("devices", "r", true)
+        .await
+        .unwrap();
+    assert_eq!(stopped.measurements, 1);
+    assert!(!stopped.alive && stopped.last_error.is_none());
+    assert_eq!(factory.commands.lock().unwrap().last().unwrap(), "EX");
+    assert_eq!(
+        core.archive()
+            .unwrap()
+            .list_observations("devices", Some("r"), 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn stalled_receiver_does_not_block_analyzer_commits_or_other_status_and_stop_drops_its_transport()
  {
     let directory = tempfile::tempdir().unwrap();

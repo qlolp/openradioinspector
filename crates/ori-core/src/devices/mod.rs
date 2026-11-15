@@ -16,7 +16,7 @@ use ori_contracts::{
 };
 use ori_instruments::{
     ArDv1, ArDv1Actor, ArDv1Reply, ArDv1Request, IoLimits, ReceiveConfig, ReceiverConfig,
-    ReceiverMode, ReceiverProfile, TinySa, TinySaActor, TinySaReply, TinySaRequest,
+    ReceiverMode, ReceiverProfile, ReceiverScope, TinySa, TinySaActor, TinySaReply, TinySaRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -26,7 +26,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -34,6 +34,13 @@ use tokio::sync::{Notify, mpsc, oneshot};
 #[cfg(feature = "serial")]
 pub use transport::NativeSerialFactory;
 pub use transport::{BoxTransport, Transport, TransportFactory};
+
+#[repr(u8)]
+enum WorkerStop {
+    Running,
+    DrainCurrent,
+    Cancel,
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DeviceError {
@@ -155,6 +162,8 @@ pub struct WorkerStatus {
     pub adapter: Option<String>,
     pub state: String,
     pub alive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stopping: Option<bool>,
     pub measurements: u64,
     pub commands_completed: u64,
     pub consecutive_errors: u64,
@@ -196,6 +205,7 @@ impl WorkerStatus {
                 .clone()
                 .unwrap_or_else(|| "disconnected".into()),
             alive: false,
+            stopping: None,
             measurements: 0,
             commands_completed: 0,
             consecutive_errors: 0,
@@ -636,6 +646,7 @@ impl DeviceManager {
         let period = simulator::period(&settings)?;
         let scan_plan = scan::Plan::read(&stream)?;
         let max_errors = simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
+        let mut scope_points = None;
         let adapter_name = settings
             .get("adapter")
             .and_then(Value::as_str)
@@ -687,10 +698,13 @@ impl DeviceManager {
                     TinySa::new(transport, config, self.options.io_limits.clone())?,
                     1,
                 )?),
-                Profile::Receiver(config) => {
+                Profile::Receiver(config, scope) => {
                     let mut adapter =
                         ArDv1::new(transport, config, self.options.io_limits.clone())?;
-                    if stream
+                    if let Some(scope) = scope {
+                        adapter = adapter.with_scope(scope)?;
+                        scope_points = Some(scope.points());
+                    } else if stream
                         .settings
                         .as_ref()
                         .and_then(|s| s.get("monitoring_rx_readback"))
@@ -731,6 +745,7 @@ impl DeviceManager {
             priority,
             tune_tasks: receipt::TuneTasks::new(self.options.queue_capacity),
             stopping: AtomicBool::new(false),
+            stop_mode: AtomicU8::new(WorkerStop::Running as u8),
             active_io: AtomicBool::new(false),
             acquisition: Mutex::new(acquisition::Phases::default()),
             stop: Notify::new(),
@@ -738,8 +753,17 @@ impl DeviceManager {
             applied_revision: AtomicU64::new(0),
             confirmed_tunes: AtomicU64::new(0),
             preparation: Mutex::new(None),
-            period,
-            max_errors,
+            period: if scope_points.is_some() && !settings.contains_key("period_s") {
+                Duration::ZERO
+            } else {
+                period
+            },
+            max_errors: if scope_points.is_some() {
+                1
+            } else {
+                max_errors
+            },
+            scope_points,
             scan_plan,
             scan_coverage: Mutex::new(scan::Coverage::default()),
             lifecycle: ticket.lifecycle.clone(),
@@ -769,6 +793,13 @@ impl DeviceManager {
         Ok(worker.snapshot())
     }
     pub fn quiesce_session(self: &Arc<Self>, session: &str) -> DeviceResult<SessionStop> {
+        self.quiesce_session_mode(session, false)
+    }
+    fn quiesce_session_mode(
+        self: &Arc<Self>,
+        session: &str,
+        graceful: bool,
+    ) -> DeviceResult<SessionStop> {
         let mut registry = self.registry.lock().map_err(|_| DeviceError::Closed)?;
         *registry.stopping.entry(session.into()).or_default() += 1;
         for (target, lifecycle) in &registry.lifecycles {
@@ -778,7 +809,7 @@ impl DeviceManager {
         }
         for (target, worker) in &registry.workers {
             if target.session_id == session {
-                worker.request_stop();
+                worker.request_stop_mode(graceful);
             }
         }
         Ok(SessionStop {
@@ -790,6 +821,14 @@ impl DeviceManager {
         self: &Arc<Self>,
         session: &str,
         stream: &str,
+    ) -> DeviceResult<WorkerStatus> {
+        self.stop_stream_mode(session, stream, false).await
+    }
+    pub(crate) async fn stop_stream_mode(
+        self: &Arc<Self>,
+        session: &str,
+        stream: &str,
+        graceful: bool,
     ) -> DeviceResult<WorkerStatus> {
         let session_value = self.session(session).await?;
         let stream_value = Self::stream(&session_value, stream)?.clone();
@@ -803,7 +842,7 @@ impl DeviceManager {
                 .clone();
             lifecycle.generation.fetch_add(1, Ordering::AcqRel);
             if let Some(worker) = registry.workers.get(&target) {
-                worker.request_stop();
+                worker.request_stop_mode(graceful);
             }
             lifecycle
         };
@@ -826,7 +865,7 @@ impl DeviceManager {
                 .cloned();
             if let Some(worker) = worker {
                 manager
-                    .stop_retained_worker(&RetainedWorkerHandle::cleanup(worker))
+                    .stop_retained_worker_mode(&RetainedWorkerHandle::cleanup(worker), graceful)
                     .await
             } else {
                 Ok(WorkerStatus::idle(&stream_value))
@@ -836,19 +875,33 @@ impl DeviceManager {
         .map_err(|_| DeviceError::Worker("Worker stop task failed".into()))?
     }
     pub async fn stop_session(self: &Arc<Self>, session: &str) -> DeviceResult<Vec<WorkerStatus>> {
-        let _scope = self.quiesce_session(session)?;
-        self.stop_session_quiesced(session).await
+        self.stop_session_mode(session, false).await
+    }
+    pub(crate) async fn stop_session_mode(
+        self: &Arc<Self>,
+        session: &str,
+        graceful: bool,
+    ) -> DeviceResult<Vec<WorkerStatus>> {
+        let _scope = self.quiesce_session_mode(session, graceful)?;
+        self.stop_session_quiesced_mode(session, graceful).await
     }
     pub async fn stop_session_quiesced(
         self: &Arc<Self>,
         session: &str,
+    ) -> DeviceResult<Vec<WorkerStatus>> {
+        self.stop_session_quiesced_mode(session, false).await
+    }
+    async fn stop_session_quiesced_mode(
+        self: &Arc<Self>,
+        session: &str,
+        graceful: bool,
     ) -> DeviceResult<Vec<WorkerStatus>> {
         let session = self.session(session).await?;
         let results = futures_util::future::join_all(
             session
                 .streams
                 .iter()
-                .map(|stream| self.stop_stream(&session.id, &stream.id)),
+                .map(|stream| self.stop_stream_mode(&session.id, &stream.id, graceful)),
         )
         .await;
         results.into_iter().collect()
@@ -901,6 +954,11 @@ impl DeviceManager {
         }
         let retained: RetainedWorkerHandle = self.capture_worker(&target, gate)?;
         let worker = retained.original_worker();
+        if worker.scope_points.is_some() {
+            return Err(DeviceError::Invalid(
+                "Завершите обзор AR-DV1 перед ручной перестройкой".into(),
+            ));
+        }
         let gate = retained.execution_gate();
         if retained.target() != &target
             || retained.worker_instance() != worker.instance
@@ -983,7 +1041,17 @@ impl Drop for SessionStop {
 
 enum Profile {
     Analyzer(ReceiveConfig),
-    Receiver(ReceiverConfig),
+    Receiver(ReceiverConfig, Option<ReceiverScope>),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScopeSettings {
+    start_hz: u64,
+    stop_hz: u64,
+    step_hz: u64,
+    settle_s: Option<f64>,
+    strategy: Option<String>,
 }
 impl Profile {
     fn read(stream: &DeviceStream) -> DeviceResult<Self> {
@@ -1048,11 +1116,52 @@ impl Profile {
                         "Режим не поддерживается выбранным профилем AR-DV1".into(),
                     ));
                 }
-                Ok(Self::Receiver(ReceiverConfig {
-                    frequency_hz: frequency,
-                    mode,
-                    profile,
-                }))
+                let scope = s
+                    .get("fast_scan")
+                    .filter(|v| !v.is_null())
+                    .map(|v| {
+                        if profile != ReceiverProfile::MonitorV1 || mode != ReceiverMode::Fm {
+                            return Err(DeviceError::Invalid(
+                                "Обзор AR-DV1 требует ardv1-monitor-v1 и FM".into(),
+                            ));
+                        }
+                        let plan: ScopeSettings =
+                            serde_json::from_value(v.clone()).map_err(|_| {
+                                DeviceError::Invalid("Некорректные настройки обзора AR-DV1".into())
+                            })?;
+                        let settle = plan.settle_s.unwrap_or(0.015);
+                        if !(0.0..=1.0).contains(&settle) {
+                            return Err(DeviceError::Invalid(
+                                "Выдержка обзора AR-DV1 0–1 с".into(),
+                            ));
+                        }
+                        let auto = match plan.strategy.as_deref() {
+                            None | Some("auto") => true,
+                            Some("rf") => false,
+                            _ => {
+                                return Err(DeviceError::Invalid(
+                                    "Стратегия обзора AR-DV1: auto или rf".into(),
+                                ));
+                            }
+                        };
+                        ReceiverScope::new(
+                            plan.start_hz,
+                            plan.stop_hz,
+                            plan.step_hz,
+                            Duration::from_secs_f64(settle),
+                            auto,
+                        )
+                        .map_err(DeviceError::from)
+                    })
+                    .transpose()?;
+                Ok(Self::Receiver(
+                    ReceiverConfig {
+                        frequency_hz: frequency,
+                        mode,
+                        profile,
+                    },
+                    scope,
+                ))
             }
             _ => Err(DeviceError::Unsupported(
                 "Explicit serial adapter required".into(),
@@ -1104,6 +1213,7 @@ struct Worker {
     control: control::State,
     tune_tasks: Arc<receipt::TuneTasks>,
     stopping: AtomicBool,
+    stop_mode: AtomicU8,
     active_io: AtomicBool,
     acquisition: Mutex<acquisition::Phases>,
     stop: Notify,
@@ -1113,6 +1223,7 @@ struct Worker {
     preparation: Mutex<Option<PrepareReport>>,
     period: Duration,
     max_errors: u64,
+    scope_points: Option<usize>,
     scan_plan: Option<scan::Plan>,
     scan_coverage: Mutex<scan::Coverage>,
     lifecycle: Arc<Lifecycle>,
@@ -1154,6 +1265,7 @@ impl Worker {
     }
     fn snapshot(&self) -> WorkerStatus {
         let mut status = self.status.lock().expect("worker status poisoned").clone();
+        status.stopping = (status.alive && self.stopping.load(Ordering::Acquire)).then_some(true);
         if let Some(native) = &self.native {
             status.current = native.current();
             if let Some(report) = self.preparation() {
@@ -1204,14 +1316,30 @@ impl Worker {
         self.preparation.lock().ok()?.clone()
     }
     fn request_stop(&self) {
+        self.request_stop_mode(false);
+    }
+    fn request_stop_mode(&self, graceful: bool) {
+        // The stop mode can only escalate, including when separate stop callers race.
+        let mode = if graceful {
+            WorkerStop::DrainCurrent
+        } else {
+            WorkerStop::Cancel
+        };
+        self.stop_mode.fetch_max(mode as u8, Ordering::AcqRel);
         self.stopping.store(true, Ordering::Release);
         self.tune_tasks.begin_close();
         self.stop.notify_waiters();
+        // The scope has bounded per-point I/O. Drain the current point so
+        // cleanup can restore the receiver's original VFO raster.
         if self.active_io.load(Ordering::Acquire)
+            && !(self.draining_poll() && self.poll_in_flight())
             && let Some(native) = &self.native
         {
             native.cancel();
         }
+    }
+    fn draining_poll(&self) -> bool {
+        self.stop_mode.load(Ordering::Acquire) == WorkerStop::DrainCurrent as u8
     }
     fn live(&self) -> DeviceResult<()> {
         if self.stopping.load(Ordering::Acquire)
@@ -1350,10 +1478,25 @@ impl Worker {
                 Ok(())
             }
             Adapter::Native(Native::Receiver(actor)) => {
-                let config = match Profile::read(&self.stream)? {
-                    Profile::Receiver(config) => config,
+                let (config, scope) = match Profile::read(&self.stream)? {
+                    Profile::Receiver(config, scope) => (config, scope),
                     _ => unreachable!(),
                 };
+                if scope.is_some() {
+                    let reply = actor
+                        .enqueue_checked(
+                            ArDv1Request::Prepare,
+                            self.actor_gate(gate.clone(), false, None),
+                        )?
+                        .result()
+                        .await?;
+                    if !matches!(reply, ArDv1Reply::Ready) {
+                        return Err(DeviceError::Worker(
+                            "Unexpected AR-DV1 scope prepare reply".into(),
+                        ));
+                    }
+                    return Ok(());
+                }
                 let request = actor.enqueue_checked(
                     ArDv1Request::Tune {
                         frequency_hz: config.frequency_hz,
@@ -1655,7 +1798,7 @@ impl Worker {
             });
             self.acquisition_poll_finished();
             self.active_io.store(false, Ordering::Release);
-            if self.stopping.load(Ordering::Acquire) {
+            if self.stopping.load(Ordering::Acquire) && (!self.draining_poll() || result.is_err()) {
                 break;
             }
             let committed = match result {
@@ -1675,12 +1818,14 @@ impl Worker {
                     } else {
                         // The same worker owns the poll and the tune revision.
                         // Bind committed samples to their acquisition context.
-                        measurement["metadata"]["receiver_tune_context"] =
-                            json!(ori_guard::receiver_tune_context(
-                                &self.instance,
-                                self.applied_revision.load(Ordering::Acquire),
-                                measurement["id"].as_str().expect("receiver observation ID"),
-                            ));
+                        if self.scope_points.is_none() {
+                            measurement["metadata"]["receiver_tune_context"] =
+                                json!(ori_guard::receiver_tune_context(
+                                    &self.instance,
+                                    self.applied_revision.load(Ordering::Acquire),
+                                    measurement["id"].as_str().expect("receiver observation ID"),
+                                ));
+                        }
                         self.archive.append_observations(vec![measurement]).await
                     };
                     self.acquisition_commit_finished(committed.is_ok());
@@ -1698,13 +1843,18 @@ impl Worker {
                             .committed(scan_index, observed_at, source);
                         scan_index = (scan_index + 1) % plan.config.bands.len();
                     }
-                    {
+                    let scope_complete = {
                         let mut status = self.status.lock().expect("worker status poisoned");
                         status.measurements += 1;
                         status.consecutive_errors = 0;
                         status.last_measurement_id = source["id"].as_str().map(str::to_owned);
                         status.last_measurement_at =
                             source["interval"]["ended_at"].as_str().map(str::to_owned);
+                        self.scope_points
+                            .is_some_and(|points| status.measurements == points as u64)
+                    };
+                    if scope_complete {
+                        break;
                     }
                     if self.snapshot().state != "running" && self.state("running").await.is_err() {
                         break;
@@ -1744,6 +1894,9 @@ impl Worker {
                         break;
                     }
                 }
+            }
+            if self.stopping.load(Ordering::Acquire) {
+                break;
             }
             if self.period.is_zero() {
                 tokio::task::yield_now().await;
