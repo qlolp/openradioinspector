@@ -35,6 +35,32 @@ import SpektrKomandy
         #expect(NativeSpectrumTimeline([a]).duration == 1.75)
         #expect(NativeSpectrumInspection.interval(a).contains("23:59:59.500"))
     }
+    @Test func selectedSweepUsesTheExactArchiveID() throws {
+        let first = try sweep("trace-\u{00E9}", levels: [-90, -80, -90, -80])
+        let second = try sweep("trace-e\u{0301}", levels: [-100, -70, -90, -80])
+        #expect(first.exactID != second.exactID)
+        let selected = NativeSpectrumInspection.selectedSweep(second.exactID, in: [first, second])
+        #expect(selected?.exactID == second.exactID)
+        #expect(selected?.levels[1] == -70)
+    }
+    @Test func waterfallPaintsOnlyTheRecordedInterval() throws {
+        let first = try sweep(end: "2026-11-14T12:00:01Z")
+        let last = try sweep("last", start: "2026-11-14T12:01:39.900Z", end: "2026-11-14T12:01:40Z")
+        let instant = try sweep("instant", start: "2026-11-14T12:00:59Z", end: "2026-11-14T12:00:59Z")
+        let timeline = NativeSpectrumTimeline([first, last, instant])
+        let canvas = CGRect(x: 5, y: 40, width: 100, height: 100)
+        let band = try #require(timeline.waterfallRect(for: timeline.rows[2], in: canvas))
+        #expect(abs(band.height - 0.1) < 0.000_01)
+        #expect(!band.contains(CGPoint(x: 10, y: 40.5)))
+        #expect(timeline.row(at: 0.005) == nil)
+        #expect(timeline.waterfallRect(for: timeline.rows[1], in: canvas) == nil)
+    }
+    @Test func aRidgeIncludesAnIsolatedMeasuredBin() throws {
+        let source = try sweep()
+        let result = NativeSpectrumInspection.visibleBins(in: source, range: 88_099_000...88_101_000)
+        #expect(Array(result) == [1])
+        #expect(NativeSpectrumInspection.visibleBins(in: source, range: 88_105_000...88_110_000).isEmpty)
+    }
     @Test func peakLabelsSelectDistinctMaximaInVisibleRange() throws {
         let a = try sweep(frequencies: [0, 100, 200, 300, 400, 500, 600, 700], levels: [-100, -50, -50, -90, -80, -60, -95, -70])
         #expect(NativeSpectrumInspection.peaks(in: a, range: 0...700) == [1, 5])
@@ -62,6 +88,20 @@ import SpektrKomandy
 }
 
 @Suite struct NativeSpectrumNavigationTests {
+    @Test func pinchAnchorUsesPlotCoordinates() {
+        let width = 1000.0
+        let layout = NativeSpectrumPlotLayout(size: CGSize(width: width, height: 500))
+        let x = layout.spectrum.minX + layout.spectrum.width * 0.25
+        let anchor = layout.pinchAnchor(x / width, viewWidth: width, in: 88_000_000...108_000_000)
+        #expect(abs(anchor - 93_000_000) < 0.000_01)
+    }
+    @Test func receiveDraftPreservesAutomaticBandwidthFromTheSweep() {
+        var draft = NativeAnalyzerDraft()
+        draft.loadBandwidth(.string("auto"))
+        #expect(draft.rbw == "auto")
+        draft.loadBandwidth(.number(30_000))
+        #expect(draft.rbw == "30000")
+    }
     @Test func zoomKeepsAnchorAndPanClampsToAcquiredRange() {
         let full = 88_000_000.0...108_000_000.0
         let zoom = NativeSpectrumNavigation.zoom(full, factor: 0.1, anchor: 93_000_000, within: full)

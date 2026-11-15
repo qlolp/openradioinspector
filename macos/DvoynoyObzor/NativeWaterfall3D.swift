@@ -47,18 +47,22 @@ struct NativeWaterfall3D: View {
                 // Older rows first; every measured bin is preserved, including narrow peaks.
                 for row in timeline.rows {
                     let time = 1 - timeline.fraction(row.end)
+                    let bins = NativeSpectrumInspection.visibleBins(in: row.sweep, range: range)
                     var previous: CGPoint?
-                    for bin in row.sweep.frequenciesHz.indices {
+                    for bin in bins {
                         let hz = Double(row.sweep.frequenciesHz[bin])
-                        guard range.contains(hz) else { previous = nil; continue }
                         let level = bounds.fraction(row.sweep.levels[bin])
                         let p = project((hz - range.lowerBound) / (range.upperBound - range.lowerBound), time, level)
+                        let color = WaterfallPalette.color(level)
+                        // Preserve visibility without changing the projected measured level.
+                        let ridge = Color(red: 0.22 + color.red * 0.78,
+                                          green: 0.22 + color.green * 0.78,
+                                          blue: 0.22 + color.blue * 0.78)
                         if let previous {
-                            let color = WaterfallPalette.color(level)
-                            // Thin ridges need a luminance floor; height still uses the unmodified level.
-                            line([previous, p], color: Color(red: 0.22 + color.red * 0.78,
-                                                           green: 0.22 + color.green * 0.78,
-                                                           blue: 0.22 + color.blue * 0.78), width: 1.2)
+                            line([previous, p], color: ridge, width: 1.2)
+                        } else if bins.count == 1 {
+                            context.fill(Path(ellipseIn: CGRect(x: p.x - 1.5, y: p.y - 1.5, width: 3, height: 3)),
+                                         with: .color(ridge))
                         }
                         previous = p
                     }

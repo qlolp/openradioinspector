@@ -3,7 +3,7 @@ import CoreGraphics
 import SpektrKomandy
 
 private struct NativeWaterfallRasterRow: @unchecked Sendable {
-    let id: String
+    let id: PlatformExactID
     let image: CGImage
 }
 
@@ -23,6 +23,7 @@ struct NativeSpectrumPlot: View {
     @State private var rasters: [NativeWaterfallRasterRow] = []
     private struct Request: Equatable {
         let sweeps: [PlatformSweep]
+        let ids: [PlatformExactID]
         let bounds: PlatformSpectrumScale?
         let range: ClosedRange<Double>
     }
@@ -100,15 +101,14 @@ struct NativeSpectrumPlot: View {
                 }
             }
             for row in timeline.rows {
-                let top = water.minY + max(0, timeline.fraction(row.end)) * water.height
-                let bottom = water.minY + min(1, timeline.fraction(row.start)) * water.height
-                let rect = CGRect(x: water.minX, y: top, width: water.width, height: max(1, bottom - top))
-                if let raster = rasters.first(where: { $0.id == row.sweep.id }) {
-                    var imageContext = context; imageContext.clip(to: Path(water))
-                    imageContext.draw(Image(decorative: raster.image, scale: 1), in: rect)
+                guard let rect = timeline.waterfallRect(for: row, in: water) else { continue }
+                var band = context
+                band.clip(to: Path(rect))
+                if let raster = rasters.first(where: { $0.id == row.sweep.exactID }) {
+                    band.draw(Image(decorative: raster.image, scale: 1), in: rect)
                 }
-                if selected?.id == row.sweep.id {
-                    context.stroke(Path(rect), with: .color(.yellow.opacity(0.85)), lineWidth: 1)
+                if selected?.exactID == row.sweep.exactID {
+                    band.stroke(Path(rect), with: .color(.yellow.opacity(0.85)), lineWidth: 1)
                 }
             }
             if !timeline.rows.isEmpty {
@@ -126,14 +126,14 @@ struct NativeSpectrumPlot: View {
             if let cursor, range.contains(Double(cursor.frequency)) {
                 let px = x(Double(cursor.frequency))
                 line(CGPoint(x: px, y: plot.minY), CGPoint(x: px, y: water.maxY), color: .white.opacity(0.9))
-                if let row = timeline.rows.first(where: { $0.sweep.id == cursor.sweep.id }) {
+                if let row = timeline.rows.first(where: { $0.sweep.exactID == cursor.sweep.exactID }) {
                     let py = water.minY + timeline.fraction(row.end.addingTimeInterval(-row.end.timeIntervalSince(row.start) / 2)) * water.height
                     line(CGPoint(x: water.minX, y: py), CGPoint(x: water.maxX, y: py), color: .white.opacity(0.9))
                 }
             }
             if sweeps.isEmpty { label("Нет измерений — выберите сеанс и начните приём", CGPoint(x: plot.midX, y: plot.midY)) }
         }
-        .task(id: Request(sweeps: sweeps, bounds: bounds, range: range)) {
+        .task(id: Request(sweeps: sweeps, ids: sweeps.map(\.exactID), bounds: bounds, range: range)) {
             let source = sweeps, scale = bounds, visible = range
             let task = Task.detached(priority: .userInitiated) { Self.makeRasters(source, bounds: scale, range: visible) }
             let images = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
@@ -161,7 +161,7 @@ struct NativeSpectrumPlot: View {
                 context.setFillColor(red: color.red, green: color.green, blue: color.blue, alpha: 1)
                 context.fill(CGRect(x: x, y: 0, width: max(1, width), height: 1))
             }
-            return context.makeImage().map { NativeWaterfallRasterRow(id: sweep.id, image: $0) }
+            return context.makeImage().map { NativeWaterfallRasterRow(id: sweep.exactID, image: $0) }
         }
     }
 }

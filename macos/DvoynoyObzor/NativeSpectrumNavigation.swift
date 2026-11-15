@@ -1,4 +1,5 @@
 import Foundation
+import SpektrKomandy
 
 /// Display-only navigation. It never changes the instrument's sweep configuration.
 enum NativeSpectrumNavigation {
@@ -21,6 +22,10 @@ struct NativeAnalyzerDraft {
     var start = "88", stop = "108", center = "98", span = "20"
     var rbw = "10000"
     enum Field { case start, stop, center, span }
+    mutating func loadBandwidth(_ setting: PlatformComparisonSetting?) {
+        if case .string("auto") = setting { rbw = "auto" }
+        if case .number(let value) = setting, let hertz = Int(exactly: value) { rbw = String(hertz) }
+    }
     static func hz(_ text: String) throws -> Int64 {
         guard let value = Double(text.replacingOccurrences(of: ",", with: ".")), value.isFinite,
               value >= 0, value <= 800, abs(value * 1_000_000 - (value * 1_000_000).rounded()) < 0.001 else {
