@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @StateObject private var model: RemoteDualModel
@@ -29,7 +30,19 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Label("Двойной обзор", systemImage: "waveform.path").font(.headline)
+                Label {
+                    Text("Двойной обзор")
+                } icon: {
+                    if let icon = NSImage(named: NSImage.applicationIconName) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 28, height: 28)
+                            .accessibilityHidden(true)
+                    } else {
+                        Image(systemName: "waveform.path")
+                    }
+                }.font(.headline)
                 Picker("Рабочая область", selection: $tab) {
                     Text("Приборы").tag("devices")
                     Text("Контроль диапазона").tag("range")
