@@ -36,8 +36,10 @@ class InstrumentOperations:
     def state(self,sid,stream):
         self.scope(sid,stream)
         current=next((x['current'] for x in self.workers.list_workers(sid) if x['stream_id']==stream),{})
-        return current.get('instrument',dict(mode='monitoring',revision=0,profile_verified=False,
-            lease_active=False,settings={},settings_source='unknown',settings_readback=False))
+        return {**current.get('instrument',dict(mode='monitoring',revision=0,profile_verified=False,
+            lease_active=False,settings={},settings_source='unknown',settings_readback=False)),
+            'transactions':current.get('transactions',[]),
+            'previous_transactions':current.get('previous_transactions',[])}
 
     @staticmethod
     def view(job,include_result=True,*,reveal_owner=False):

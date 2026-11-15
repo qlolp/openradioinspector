@@ -81,6 +81,19 @@ class InstrumentHTTPTests(unittest.TestCase):
         status,_,_=self.request('POST',self.base+'/operations',{'operation':'capture','request_id':'lease-1'})
         self.assertEqual(status,409)
 
+    def test_recovery_http_keeps_failure_diagnostics_and_uses_new_transport(self):
+        stream_base = self.base.removesuffix('/instrument')
+        self.assertNotEqual(self.request('POST', stream_base+'/recover', {})[0], 200)
+        self.assertEqual(self.request('POST', stream_base+'/stop', {})[0], 200)
+        _, before, _ = self.request('GET', self.base+'/settings')
+        self.assertIn('transactions', before['data'])
+        status, result, _ = self.request('POST', stream_base+'/recover', {})
+        self.assertEqual(status, 200, result)
+        self.assertFalse(result['data']['recovery']['watch_resumed'])
+        self.assertEqual(len(self.wires), 2)
+        _, after, _ = self.request('GET', self.base+'/settings')
+        self.assertEqual(after['data']['previous_transactions'], before['data']['transactions'])
+
     def test_completed_job_from_old_connection_is_explicitly_stale(self):
         job=self.submit({'operation':'inspect'})
         self.assertEqual(self.finish(job)['state'],'succeeded')

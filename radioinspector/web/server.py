@@ -1514,12 +1514,16 @@ class Handler(BaseHTTPRequestHandler):
                 len(parts) == 7
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "streams"
-                and parts[6] in ("start", "stop", "tune")
+                and parts[6] in ("start", "stop", "recover", "tune")
             ):
                 if parts[6] == "start":
                     result = self.workers.start_stream(parts[3], parts[5])
                 elif parts[6] == "stop":
                     result = self.workers.stop_stream(parts[3], parts[5], mode=payload.get("mode", "force"))
+                elif parts[6] == "recover":
+                    if payload:
+                        raise ValueError('recover принимает пустой объект')
+                    result = self.workers.recover_stream(parts[3], parts[5])
                 else:
                     result = self.workers.tune(parts[3], parts[5], payload)
                 self._send_json(api_payload(result))

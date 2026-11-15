@@ -242,6 +242,11 @@ def document():
     add(base+'/streams/{stream_id}')
     for action in ('start', 'stop', 'tune'):
         add(base+'/streams/{stream_id}/'+action, 'post')
+    add(base+'/streams/{stream_id}/recover', 'post', worker_status, body={**obj({}), 'additionalProperties':False})
+    paths['/api/v1'+base+'/streams/{stream_id}/recover']['post']['description'] = (
+        'Explicit new connection for a stopped/failed worker. Live workers are rejected. '
+        'Never bypasses pending-response synchronization or resumes a watch. '
+        'Wait for a newly committed measurement; requires features.explicit_stream_recovery.')
     for route, response in ((base+'/workers/stop', array(worker_status)),
                             (base+'/streams/{stream_id}/stop', worker_status)):
         add(route, 'post', response, body=stop_request)
