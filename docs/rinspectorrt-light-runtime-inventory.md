@@ -239,11 +239,11 @@ installed»** — геоинформационная система (опция 
 | Элемент | Значение / состояние |
 |---|---|
 | Файл базы | `.risdt` (поле + кнопка «Открыть») |
-| «Automatically save the database of detected signals» | включено |
-| «including signal's spectra (if the condition of "more than 1 measurement point" is set)» | не включено |
+| Автосохранение базы обнаруженных сигналов | включено, через 24 часа непрерывной работы |
+| Сохранение спектров при контроле диапазона | флажок включён |
+| Сохранение спектров на фиксированных частотах при условии «more than 1 measurement point» | флажок выключен |
 | «Save detailed data for each detection» | включено |
 | «Save signals, that exceed the threshold into detected signals database» | включено |
-| Числовые параметры | `24`, `1.0` |
 
 ### 5.3. Folders (рабочие папки)
 
@@ -400,8 +400,8 @@ RC-GEO.*
 
 ![Traces database — содержимое окна не соответствует исходному имени файла 12](images/rinspectorrt-light/12-settings-control-via-network.png)
 
-Имена файлов 08 и 12 сохранены для связи с первым сеансом. Подходящие снимки
-Detected signals frequencies и Control via network приведены в разделе 12 (49 и 46).
+Имена файлов 08 и 12 сохранены для связи с первым сеансом. Вкладки
+Detected signals frequencies и Control via network показаны на снимках 09 и 46.
 
 ![Folders](images/rinspectorrt-light/13-settings-folders.png)
 
@@ -795,15 +795,14 @@ MBytes» показывают объём уже имеющихся записе�
 
 ### 12.3. Общие настройки (Common settings)
 
-Одно модальное окно Common settings с девятью вкладками; каждая вкладка —
-отдельный снимок.
+Девять вкладок окна Common settings показаны на снимках из двух сеансов.
 
 | Вкладка | Снимок |
 |---|---|
 | Control via network | 46 |
 | Traces database | 47 |
 | Folders | 48 |
-| Detected signals frequencies | 49 |
+| Detected signals frequencies | 09 |
 | Antenna switch | 50 |
 | Geoinformation system | 51 |
 | Other settings | 52 |
@@ -825,10 +824,10 @@ MBytes» показывают объём уже имеющихся записе�
 *Рабочие каталоги программы: сохранение IQ, шаблоны протоколов, волновые
 файлы, база данных и справка.*
 
-![Common settings: Detected signals frequencies](images/rinspectorrt-light/49-settings-detected-signals-frequencies.png)
+![Common settings: Detected signals frequencies](images/rinspectorrt-light/09-settings-detected-signals-database.png)
 
-*Хранилище найденных сигналов: формат файлов .risdt, автосохранение и
-сохранение спектров.*
+*База найденных сигналов. Снимок показывает формат .risdt, автосохранение и
+раздельные настройки сохранения спектров. Файл 49 дублирует снимок 47.*
 
 ![Common settings: Antenna switch](images/rinspectorrt-light/50-settings-antenna-switch.png)
 
