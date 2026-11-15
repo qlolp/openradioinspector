@@ -57,6 +57,8 @@ class InstrumentOperations:
         if value.get('operation') not in OPERATIONS or not isinstance(value.get('parameters',{}),dict):
             raise ValueError('Unknown typed instrument operation')
         if value['operation']=='lease.acquire' and owner is None:raise ValueError('Lab acquisition requires private X-Instrument-Client capability')
+        if value['operation']=='watch.start' and (self.sessions._store is None or not self.sessions._store.persistent):
+            raise ValueError('Длительное наблюдение требует сохраняемый SQLite-архив')
         canonical=json.dumps(value,sort_keys=True,allow_nan=False)
         if len(canonical.encode())>65536:raise ValueError('Request too large')
         request_id=value.get('request_id')
@@ -181,6 +183,9 @@ def dispatch(handler,method,route,payload=None,query=None):
             elif len(tail) in (2,3) and tail[0]=='artifacts':
                 item=handler.sessions.get_instrument_artifact(sid,stream,unquote(tail[1]))
                 if len(tail)==3:
+                    if tail[2]=='json':
+                        if item['mime_type']!='application/json':raise ValueError('Artifact is not JSON')
+                        handler._send_json(api_payload(json.loads(item['payload'])));return True
                     if tail[2]!='content':raise KeyError('Artifact route not found')
                     handler.send_response(200);handler.send_header('Content-Type',item['mime_type'])
                     handler.send_header('Content-Length',str(len(item['payload'])))

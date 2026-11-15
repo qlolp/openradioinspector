@@ -128,39 +128,47 @@ struct NativeConnectionPane: View {
 struct NativeContinuityBar: View {
     @ObservedObject var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
+    @State private var details = false
     private var coverage: String {
         let value = workspace.project["coverage"].text.isEmpty ? workspace.coverage : workspace.project["coverage"].text
         return ["wide": "Широкий обзор", "narrow": "Узкая полоса · широкий обзор приостановлен", "restoring": "Восстановление широкого обзора", "preparation": "Подготовка эталона", "stopped": "Покрытие остановлено", "paused": "Покрытие на паузе", "unavailable": "Покрытие недоступно", "error": "Ошибка покрытия"][value] ?? "Покрытие не подтверждено"
     }
     private var archiveLabel: String {
-        guard let capacity = model.archiveCapacity else { return "Состояние архива неизвестно" }
+        guard let capacity = model.displayArchiveCapacity else { return "Состояние архива неизвестно" }
         if capacity.measurementWritesBlocked { return "Запись в архив заблокирована" }
         let state = ["unlimited": "без лимита", "ok": "норма", "warning": "мало места", "full": "заполнен", "unavailable": "недоступен"][capacity.state.rawValue] ?? capacity.state.rawValue
         return "Архив · " + state
     }
-    private func deviceState(_ value: String) -> String {
-        ["connected": "подключён", "running": "работает", "stopped": "остановлен", "disconnected": "отключён", "error": "ошибка", "busy": "занят", "draft": "подготовка"][value] ?? value
+    private var acquisition: String {
+        guard model.coreReachable else { return "Не подтверждён" }
+        let active = model.workers.filter { $0.alive }
+        if active.contains(where: { $0.stopping == true }) { return "Завершение свипа" }
+        if active.contains(where: { $0.state == "degraded" || $0.state == "error" }) { return "Есть ошибки" }
+        return active.isEmpty ? "Остановлен" : "Ведётся"
     }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 16) {
-                Label(workspace.isArmed ? "Охрана включена" : "Охрана не подтверждена", systemImage: workspace.isArmed ? "shield.fill" : "shield")
-                    .foregroundStyle(workspace.isArmed ? Color.green : Color.secondary)
-                Text(coverage)
-                Spacer()
-                if let capacity = model.archiveCapacity {
-                    Label(archiveLabel, systemImage: "externaldrive")
-                        .foregroundStyle(capacity.measurementWritesBlocked ? Color.red : Color.secondary)
-                } else { Label("Состояние архива неизвестно", systemImage: "externaldrive.badge.questionmark") }
+                Label(model.coreReachable ? "Ядро на связи" : "Нет связи с ядром", systemImage: "network")
+                    .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
+                Text("Приём: \(acquisition)")
+                Text(archiveLabel)
+                Text(workspace.isArmed && model.coreReachable ? "Охрана включена" : "Охрана не подтверждена")
+                Spacer(minLength: 0)
+                Button("Диагностика") { details.toggle() }.controlSize(.mini)
+                    .popover(isPresented: $details) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(coverage)
+                            Text(model.eventStatus).textSelection(.enabled)
+                            if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
+                        }.padding().frame(width: 380)
+                    }
+            }.font(.caption).lineLimit(1)
+            if model.displayArchiveCapacity?.measurementWritesBlocked == true {
+                Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
+                    .font(.callout).foregroundStyle(.red)
             }
-            HStack {
-                ForEach(model.session?.streams ?? [], id: \.exactID) { stream in
-                    Text("\(stream.device) · \(deviceState(stream.state))")
-                }
-                Spacer()
-                Text(model.eventStatus)
-                if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
-            }.font(.caption).foregroundStyle(.secondary)
             if let issue = model.measurementDisplayIssue { Text(issue.message).font(.caption).foregroundStyle(.orange) }
             if let notice = model.eventGapNotice {
                 HStack {
@@ -168,10 +176,6 @@ struct NativeContinuityBar: View {
                     Button("Понятно") { model.eventGapNotice = nil }
                 }.font(.caption)
             }
-            Text(model.usesBundledLegacyHelper
-                 ? "История и пауза графика не останавливают охрану. Вспомогательное ядро работает, пока запущено приложение."
-                 : "Просмотр истории и пауза графика действуют только в этом клиенте. Охрана и запись продолжаются в ядре.")
-                .font(.caption).foregroundStyle(.secondary)
-        }.padding(.horizontal, 16).padding(.vertical, 8).background(Color.primary.opacity(0.04))
+        }.padding(.horizontal, 10).padding(.vertical, 3)
     }
 }

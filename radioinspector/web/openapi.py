@@ -298,6 +298,7 @@ def document():
         add(instrument+'/'+part)
     add(instrument+'/screen', status=202)
     add(instrument+'/artifacts/{artifact_id}/content', mime='application/octet-stream')
+    add(instrument+'/artifacts/{artifact_id}/json')
     for action in ('operations', 'settings', 'control-lease'):
         add(instrument+'/'+action, 'post', body=ref('JSONObject'), status=202)
     add(instrument+'/operations/{operation_id}/cancel', 'post', body=ref('JSONObject'))

@@ -110,6 +110,23 @@ class InstrumentHTTPTests(unittest.TestCase):
         self.assertEqual(status,200,result)
         self.assertEqual([x['filename'] for x in result['data']['items']],['1.CSV'])
 
+    def test_json_artifact_endpoint_round_trips_and_rejects_binary(self):
+        import base64
+        document=dict(schema_version=1,events=[dict(source=dict(sweep_id='original'))])
+        raw=json.dumps(document).encode()
+        item=self.sessions.save_instrument_artifact(self.session.id,self.stream.id,dict(
+            kind='diagnostic',mime_type='application/json',filename='events.json',
+            data_base64=base64.b64encode(raw).decode(),sha256=hashlib.sha256(raw).hexdigest(),metadata={'occurred_at':'2026-11-15T00:00:00Z'}))
+        status,result,_=self.request('GET',self.base+'/artifacts/'+item['id']+'/json')
+        self.assertEqual(status,200,result);self.assertEqual(result['data'],document)
+        binary=self.sessions.save_instrument_artifact(self.session.id,self.stream.id,dict(
+            kind='sd_file',mime_type='application/octet-stream',filename='bytes.bin',
+            data_base64='AA==',sha256=hashlib.sha256(b'\0').hexdigest(),metadata={'occurred_at':'2026-11-15T00:00:00Z'}))
+        self.assertEqual(self.request('GET',self.base+'/artifacts/'+binary['id']+'/json')[0],400)
+        other=self.sessions.create_session(serial_session())
+        foreign=self.base.replace(self.session.id,other.id).replace(self.stream.id,other.streams[0].id)
+        self.assertEqual(self.request('GET',foreign+'/artifacts/'+item['id']+'/json')[0],404)
+
     def test_screen_preview_does_not_write_archive_and_saved_image_round_trips(self):
         lease=self.finish(self.submit({'operation':'lease.acquire','parameters':{'acknowledge_rf':True}}))
         self.assertEqual(lease['state'],'succeeded',lease)

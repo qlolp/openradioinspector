@@ -7,6 +7,13 @@ def choice(label,values,default=None):
     return field(label,'choice',values[0] if default is None else default,choices=values)
 
 OPERATIONS={
+    'receive.configure':dict(label='Приёмный диапазон и RBW',fields={
+        'start_hz':field('Начало, Гц',default=88000000,min=100000,max=6000000000),
+        'stop_hz':field('Конец, Гц',default=108000000,min=100000,max=6000000000),
+        'points':field('Точек',default=201,min=2,max=450),
+        'rbw_hz':choice('RBW, Гц',[200,1000,3000,10000,30000,100000,300000,600000,850000],30000)}),
+    'watch.start':dict(label='Наблюдение по полосам',fields={'document':field('JSON плана','multiline','')}),
+    'watch.stop':dict(label='Остановить наблюдение',fields={}),
     'inspect':dict(label='Проверить профиль и команды',fields={}),
     'acquire.raw':dict(label='Исходный scanraw',fields={
         'start_hz':field('Начало, Гц',default=100000000,min=100000,max=6000000000),

@@ -430,6 +430,10 @@ public struct PlatformWorker: Decodable, Equatable, Sendable {
     public let lastError: String?
     public let stopping: Bool?
     public let stopMode: String?
+    public let measurements: Int?
+    public let consecutiveErrors: Int?
+    public let startedAt: String?
+    public let lastMeasurementAt: String?
 }
 
 public struct PlatformSweep: Decodable, Identifiable, Equatable, Sendable {

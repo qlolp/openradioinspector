@@ -25,6 +25,8 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
+    @Published var reviewedSweepRequest = UUID()
+    @Published var reviewedSweep: PlatformSweep?
     @Published var showTinySAControl = false
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { coreReachable = false; lastCoreContactAt = nil; resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
@@ -58,6 +60,7 @@ final class RemoteDualModel: ObservableObject {
     @Published private(set) var staleSpectrum: NativeSpectrumFrame?
     @Published private(set) var staleSpectrumScale: PlatformSpectrumScale?
     private var lastRenderedFrame: NativeSpectrumFrame?
+    private var lastRenderedSweeps: [PlatformSweep] = []
     // Allow a full-band hardware sweep (about 36 seconds) plus polling/retry margin.
     static let measurementFreshnessInterval: TimeInterval = 90
     @Published var authorizationRequired = false
@@ -236,6 +239,11 @@ final class RemoteDualModel: ObservableObject {
     var displayWaterfall: WaterfallHistory { current.isEmpty && measurementsStale ? staleSpectrum?.waterfall ?? waterfall : waterfall }
     var displayWaterfallRevision: Int { waterfallRevision }
     var displaySpectrumScale: PlatformSpectrumScale? { current.isEmpty && measurementsStale ? staleSpectrumScale ?? spectrumPresentation.scale : spectrumPresentation.scale }
+    var displayInspectorSweeps: [PlatformSweep] {
+        spectrumPresentation.sweeps.isEmpty && measurementsStale && staleSpectrum != nil
+            ? lastRenderedSweeps : spectrumPresentation.sweeps
+    }
+    var displayArchiveCapacity: PlatformArchiveCapacity? { coreReachable ? archiveCapacity : nil }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -644,6 +652,7 @@ final class RemoteDualModel: ObservableObject {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
             let retainedFrame = lastRenderedFrame ?? staleSpectrum
+            let retainedSweeps = lastRenderedSweeps
             let retainedScale = spectrumPresentation.scale ?? staleSpectrumScale
             let retainedMeasurementAt = lastMeasurementAt
             let hasReplay = measurementStream.measurements != nil
@@ -658,6 +667,7 @@ final class RemoteDualModel: ObservableObject {
             frequencyRounding.unavailable()
             clearSpectrumPresentation()
             staleSpectrum = retainedFrame; staleSpectrumScale = retainedScale
+            lastRenderedSweeps = retainedSweeps
             lastMeasurementAt = retainedMeasurementAt
             markCoreUnavailable()
             errorText = describeSession(error)
@@ -665,9 +675,12 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func resetMeasurementHealth() {
+        reviewedSweep = nil
+        reviewedSweepRequest = UUID()
         if staleSpectrum != nil { waterfallRevision += 1 }
         measurementsStale = true; lastMeasurementAt = nil
         staleSpectrum = nil; staleSpectrumScale = nil; lastRenderedFrame = nil
+        lastRenderedSweeps = []
     }
 
     private func recordCoreContact() {
@@ -921,6 +934,10 @@ final class RemoteDualModel: ObservableObject {
         return true
     }
 
+    func setSpectrumPaused(_ paused: Bool) {
+        if spectrumPresentation.paused != paused { toggleSpectrumPause() }
+    }
+
     func toggleSpectrumPause() {
         if archiveCacheVerified, spectrumPresentation.paused, let cache = measurementStream.measurements, let stream = analyzer?.id,
            PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL) {
@@ -954,7 +971,10 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func publish(_ frame: NativeSpectrumFrame) {
-        if !frame.current.isEmpty { lastRenderedFrame = frame }
+        if !frame.current.isEmpty {
+            lastRenderedFrame = frame
+            lastRenderedSweeps = spectrumPresentation.sweeps
+        }
         current = frame.current; minimum = frame.minimum; maximum = frame.maximum; rows = frame.rows
         let history = frame.waterfall
         if waterfall.grid != history.grid || waterfall.rows != history.rows || waterfall.capacity != history.capacity {

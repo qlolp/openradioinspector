@@ -358,8 +358,13 @@ def _collected_control_extensions(reference,candidate):
                 or [row.get('state') for row in records]!=['succeeded','failed','failed']):
             raise ProtocolError('Invalid collected Control terminal stages')
         operations=at(body,('capabilities','data','capabilities','operations'))
-        if not isinstance(operations,dict) or set(operations)!=set(_ASYNC_CONTROL_AVAILABLE):
+        known_catalogues=(set(_ASYNC_CONTROL_AVAILABLE),
+                          set(_ASYNC_CONTROL_AVAILABLE)|{'receive.configure','watch.start','watch.stop'})
+        if not isinstance(operations,dict) or set(operations) not in known_catalogues:
             raise ProtocolError('Collected Control operation catalogue changed')
+        # The new receive/watch definitions remain in both raw documents and
+        # compare exactly below. An older Core missing them is a mismatch, not
+        # an accepted capability extension or fabricated implementation.
         status=at(body,('terminal_records',0,'result','status'))
         if (not isinstance(status,dict) or status.get('device_mode')!='input'
                 or status.get('profile_verified') is not True

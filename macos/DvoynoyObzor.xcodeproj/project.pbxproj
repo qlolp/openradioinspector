@@ -70,6 +70,7 @@
 			<array>
 				<string>A10000000000000000000003</string>
 				<string>A10000000000000000000004</string>
+				<string>B20000000000000000000001</string>
 			</array>
 			<key>sourceTree</key>
 			<string>&lt;group&gt;</string>
@@ -153,7 +154,9 @@
 			<key>buildActionMask</key>
 			<string>2147483647</string>
 			<key>files</key>
-			<array/>
+			<array>
+				<string>B20000000000000000000002</string>
+			</array>
 			<key>runOnlyForDeploymentPostprocessing</key>
 			<string>0</string>
 		</dict>
@@ -330,6 +333,8 @@
 				<string>YES</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
 				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
+				<key>ASSETCATALOG_COMPILER_APPICON_NAME</key>
+				<string>AppIcon</string>
 			</dict>
 			<key>name</key>
 			<string>Debug</string>
@@ -384,6 +389,8 @@
 				<string>6.0</string>
 				<key>INFOPLIST_KEY_NSMicrophoneUsageDescription</key>
 				<string>Запись аналогового выхода LISTEN tinySA через выбранный аудиовход общего ядра.</string>
+				<key>ASSETCATALOG_COMPILER_APPICON_NAME</key>
+				<string>AppIcon</string>
 			</dict>
 			<key>name</key>
 			<string>Release</string>
@@ -433,6 +440,24 @@
 			<string>PBXBuildFile</string>
 			<key>fileRef</key>
 			<string>108E2B4141BABFBC084FAE39</string>
+		</dict>
+		<key>B20000000000000000000001</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXFileReference</string>
+			<key>lastKnownFileType</key>
+			<string>folder.assetcatalog</string>
+			<key>path</key>
+			<string>AppAssets.xcassets</string>
+			<key>sourceTree</key>
+			<string>&lt;group&gt;</string>
+		</dict>
+		<key>B20000000000000000000002</key>
+		<dict>
+			<key>isa</key>
+			<string>PBXBuildFile</string>
+			<key>fileRef</key>
+			<string>B20000000000000000000001</string>
 		</dict>
 	</dict>
 	<key>rootObject</key>
