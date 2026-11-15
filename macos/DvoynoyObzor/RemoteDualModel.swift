@@ -921,7 +921,7 @@ final class RemoteDualModel: ObservableObject {
         } else { scope = nil }
         // Analysis sources are readiness signals used by the UI and callers. Publish
         // them only after the corresponding off-main display preparation finishes.
-        guard await prepareSpectrum(scope: scope, incoming: selectedSweeps),
+        guard await prepareSpectrum(scope: scope, incoming: snapshot.sweeps),
               requestGeneration == generation, sourceClient === client else { return false }
         comparisonSweeps = selectedSweeps
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
