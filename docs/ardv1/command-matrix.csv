@@ -16,9 +16,9 @@ DL,search,Задержка возобновления scan/search,R/W,C,19,base,
 DS,squelch,DCS код и поиск,R/W,C,12,base,not_implemented,2,"000 только response; 999 поиск; допустимые DCS из таблицы, не весь интервал."
 DT,system,Часы приёмника,R/W,C,20,base,not_implemented,8,Wall-clock без timezone; не UTC архива.
 EX,connection,Выход из remote,W,C,10,base,partial_core_scripted,1,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
-FD,system,Scope быстрая выдача,R,C,43,base,not_implemented,8,S-meter counts; вход в scope и сетку подтвердить.
+FD,system,Scope быстрая выдача,R,C,43,base,not_implemented,8,На VR2504A/DV1 ответ 60?; код отсутствует в диспетчере 2412A и 2504A.
 FR,search,Максимальная задержка на активном сигнале,R/W,C,19,base,not_implemented,5,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
-GL,system,Scope построчная выдача,R,C,43,base,not_implemented,8,F...L... lines; / terminal; 21/20; требуется scope mode.
+GL,system,Scope построчная выдача,R,C,43,base,not_implemented,8,На VR2504A/DV1 ответ 60?; код отсутствует в диспетчере 2412A и 2504A.
 IF,receive_processing,Полоса ПЧ,R/W,C,15,base,not_implemented,2,Индекс зависит от режима; цифровая полоса автоматическая.
 KL,system,Цвет подсветки клавиш,R/W,C,23,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
 LB,system,Режим подсветки LCD,R/W,C,22,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
@@ -72,7 +72,7 @@ RG,receive_processing,Ручной RF gain,R/W,C,14,base,not_implemented,2,000-1
 RN,connection,Серийный номер,R,C,28,base,partial_core_scripted,1,C:28 задаёт только RN read; R/W в C:5/S summary противоречит подробному описанию. Setter не определён; паспорт приватен.
 RS,system,System/full reset,W,C,29,base,not_implemented,8,"System/full reset различаются; отдельное действие, не auto-recovery."
 RT,system,Периодический receiver status,R/W,C,26,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
-RX,system,Снимок receiver status,R,C,27,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+RX,system,Снимок receiver status,R,C,27,base,partial,8,Подтверждение частоты и уровня каждой точки в fast_scan на VR2504A/DV1.
 SB,system,Скорость serial,R/W,C,28,base,not_implemented,8,Смена baud требует reconnect; не probe изменяющими командами.
 SC,receive_processing,Частота voice inversion,R/W,C,18,base,not_implemented,2,Недоступно US consumer version; только FM bandwidth<=15kHz.
 SD DIR,sd,Каталог SD,R,C,30,base,not_implemented,6,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
@@ -122,5 +122,5 @@ VS,search,VFO search,W,C,34,base,not_implemented,5,Не проверено на 
 WI,connection,Модель приёмника,R,C,28,base,not_implemented,1,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
 ZI,system,Receiver ID,R/W,C,24,base,not_implemented,8,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
 ZJ,tuning,Предыдущая частота/банк/канал,W,C,9,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
-ZK,tuning,Следующая частота/банк/канал,W,C,10,base,not_implemented,2,Не проверено на физическом AR-DV1; контекст и форматы по указанному источнику.
+ZK,tuning,Следующая частота/банк/канал,W,C,10,base,partial,2,Шаг вперёд в VFA только на проверенной сетке fast_scan VR2504A/DV1.
 ZP,system,Включение приёмника,W,C,6,base,not_implemented,8,При выключении только ZP; recording timer накладывает ограничения.

@@ -51,6 +51,29 @@ class OpenAPIContractTests(unittest.TestCase):
         self.assertTrue(capabilities['data']['features']['openapi_v1'])
         self.assertEqual(self.server.session_service.events(), before)
 
+    def test_graceful_stop_request_and_status_match_contract(self):
+        spec = self.contract()
+        _, capabilities = self.request('GET', '/api/v1/capabilities')
+        self.assertTrue(capabilities['data']['features']['graceful_device_stop'])
+        _, created = self.request('POST', '/api/v1/sessions', session_payload())
+        session = created['data']
+        templates = ('/api/v1/sessions/{id}/workers/stop',
+                     '/api/v1/sessions/{id}/streams/{stream_id}/stop')
+        for template in templates:
+            operation = spec['paths'][template]['post']
+            self.assertFalse(operation['requestBody']['required'])
+            schema = operation['requestBody']['content']['application/json']['schema']
+            validator = Draft202012Validator(schema)
+            for payload in ({}, {'mode': 'graceful'}, {'mode': 'force'}):
+                validator.validate(payload)
+                path = template.replace('{id}', session['id']).replace('{stream_id}', session['streams'][0]['id'])
+                status, response = self.request('POST', path, payload)
+                self.assertEqual(status, 200, response)
+                self.validate_response(spec, template, 'post', status, response)
+            self.assertFalse(validator.is_valid({'mode': 'unknown'}))
+            status, _ = self.request('POST', path, {'mode': 'unknown'})
+            self.assertEqual(status, 400)
+
     def test_session_and_measurement_response_shapes_match_contract(self):
         spec = self.contract()
         status, session = self.request('POST', '/api/v1/sessions', session_payload())

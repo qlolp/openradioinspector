@@ -17,7 +17,7 @@ class UltraWire(_SerialFraming):
             'info': b'tinySA Ultra ZS405\r\n',
             'version': b'tinySA4_v1.4-235-gea71dfd\r\nHW Version:V0.4.5.1\r\n',
             'deviceid': b'synthetic\r\n', 'help': ('commands: '+COMMANDS+'\r\n').encode(),
-            'zero': b'zero {level}\r\n174dBm\r\n',
+            'zero': b'usage: zero {level}\r\n174dBm\r\n',
             'status': b'Paused\r\n',
             'scan 100M 101M 3 3': b'100000000 -90 0\r\n100500000 -80 0\r\n101000000 -70 0\r\n',
         }

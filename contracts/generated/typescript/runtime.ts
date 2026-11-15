@@ -2971,6 +2971,38 @@ export const runtimeOperations = [
   },
   {
     "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": null,
+    "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_frequency_bookmarks",
+    "path": "/api/v1/sessions/{id}/frequency-bookmarks",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": 8192,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_frequency_bookmarks",
+    "path": "/api/v1/sessions/{id}/frequency-bookmarks",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
       "python-legacy",
       "rust-candidate"
     ],
@@ -2982,6 +3014,22 @@ export const runtimeOperations = [
     "method": "POST",
     "operation_id": "post_api_v1_sessions_id_frequency_counter",
     "path": "/api/v1/sessions/{id}/frequency-counter",
+    "path_parameters": [
+      "id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": 24576,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_frequency_history",
+    "path": "/api/v1/sessions/{id}/frequency-history",
     "path_parameters": [
       "id"
     ],
@@ -3541,6 +3589,24 @@ export const runtimeOperations = [
     "features": [],
     "max_request_bytes": null,
     "method": "GET",
+    "operation_id": "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_json",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json",
+    "path_parameters": [
+      "id",
+      "stream_id",
+      "artifact_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": null,
+    "method": "GET",
     "operation_id": "get_api_v1_sessions_id_streams_stream_id_instrument_capabilities",
     "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/capabilities",
     "path_parameters": [
@@ -3698,6 +3764,23 @@ export const runtimeOperations = [
     "method": "POST",
     "operation_id": "post_api_v1_sessions_id_streams_stream_id_instrument_settings",
     "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/settings",
+    "path_parameters": [
+      "id",
+      "stream_id"
+    ],
+    "query": [],
+    "request_features": []
+  },
+  {
+    "backends": [
+      "python-legacy"
+    ],
+    "capabilities": [],
+    "features": [],
+    "max_request_bytes": 65536,
+    "method": "POST",
+    "operation_id": "post_api_v1_sessions_id_streams_stream_id_recover",
+    "path": "/api/v1/sessions/{id}/streams/{stream_id}/recover",
     "path_parameters": [
       "id",
       "stream_id"

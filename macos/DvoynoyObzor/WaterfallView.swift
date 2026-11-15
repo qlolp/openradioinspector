@@ -51,34 +51,36 @@ struct WaterfallView: View {
     var revision: Int
     var unitTitle: String
     var displayScale: PlatformSpectrumScale? = nil
+    var plotHeight: CGFloat = 150
+    var usesMetal = true
 
     @State private var image: CGImage?
     @State private var scale = WaterfallScale(low: 0, high: 1)
     @State private var texture = PlatformWaterfallTexture()
     @State private var frame: NativeWaterfallFrame?
     @State private var generation = 0
-    private struct Refresh: Equatable { let revision: Int; let scale: PlatformSpectrumScale? }
+    private struct Refresh: Equatable { let revision: Int; let scale: PlatformSpectrumScale?; let usesMetal: Bool }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let frame, NativeMetalResources.shared != nil {
+            if usesMetal, let frame, NativeMetalResources.shared != nil {
                 NativeMetalPlot(mesh: nil, waterfall: frame)
-                    .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight, maxHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
                 legend
             } else if let image {
                 Image(decorative: image, scale: 1).resizable().interpolation(.none)
-                    .frame(maxWidth: .infinity, minHeight: 150, maxHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight, maxHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
                 legend
             } else {
                 Text("Водопад появится после первого законченного свипа")
                     .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 150)
+                    .frame(maxWidth: .infinity, minHeight: plotHeight)
                     .background(Color.primary.opacity(0.04)).clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
-        .task(id: Refresh(revision: revision, scale: displayScale)) { await rebuild() }
+        .task(id: Refresh(revision: revision, scale: displayScale, usesMetal: usesMetal)) { await rebuild() }
     }
 
     private var legend: some View {
@@ -105,7 +107,7 @@ struct WaterfallView: View {
 
     private func rebuild() async {
         let source = history, previous = texture, bounds = displayScale
-        let metal = NativeMetalResources.shared != nil
+        let metal = usesMetal && NativeMetalResources.shared != nil
         let work = Task.detached(priority: .userInitiated) { () -> (PlatformWaterfallTexture, PlatformWaterfallTexture.Update, WaterfallScale, WaterfallImageResult)? in
             guard !Task.isCancelled, let auto = WaterfallScale.auto(rows: source.rows),
                   let display = bounds ?? PlatformSpectrumScale(lower: auto.low, upper: auto.high) else { return nil }

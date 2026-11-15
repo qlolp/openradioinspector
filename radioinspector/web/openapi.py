@@ -32,6 +32,8 @@ ANALYSIS_BUDGETS = {
     'frequency-counter': MAX_COUNTER_REQUEST_BYTES, 'dvb-evaluation': MAX_DVB_REQUEST_BYTES,
     'measurement-map': MAX_MAP_REQUEST_BYTES,
     'field-strength-rms-v2': MAX_FIELD_REQUEST_BYTES,
+    'frequency-history': 24576,
+    'frequency-bookmarks': 8192,
 }
 
 
@@ -46,6 +48,30 @@ def obj(properties=None, required=()):
 
 def array(items):
     return {'type': 'array', 'items': items}
+
+
+def frequency_history_schemas():
+    hz = {'type':'integer','minimum':0,'maximum':9007199254740991,'format':'int64'}
+    text = {'type':'string'}
+    nullable = {'type':['string','null']}
+    def closed(fields):
+        return {**obj(fields,tuple(fields)), 'additionalProperties':False}
+    entry = closed({'label':{'type':'string','minLength':1,'maxLength':80},'frequency_hz':hz})
+    entries = {**array(ref('FrequencyBookmarkEntry')),'minItems':1,'maxItems':4}
+    return {
+        'FrequencyHistorySample':closed({'requested_hz':hz,
+            'frequency_hz':{**hz,'type':['integer','null']},'level':{'type':['number','null'],'format':'double'}}),
+        'FrequencyHistoryRow':closed({'sweep_id':text,'interval':ref('TimeInterval'),'level_unit':text,
+            'segment_id':text,'samples':{**array(ref('FrequencyHistorySample')),'minItems':1,'maxItems':4}}),
+        'FrequencyHistoryPage':closed({'session_id':text,'stream_id':text,
+            'frequencies_hz':{**array(hz),'minItems':1,'maxItems':4,'uniqueItems':True},
+            'start':text,'end':text,'items':{**array(ref('FrequencyHistoryRow')),'maxItems':100},'next_cursor':nullable}),
+        'FrequencyBookmarkEntry':entry,
+        'FrequencyBookmarkSet':closed({'id':text,'session_id':text,'schema_version':{'type':'integer','const':1},
+            'name':text,'revision':{'type':'integer','minimum':1},'created_at':text,'entries':entries}),
+        'FrequencyBookmarkPage':closed({'session_id':text,
+            'items':{**array(ref('FrequencyBookmarkSet')),'maxItems':256},'limit':{'type':'integer','const':256}}),
+    }
 
 
 def field_strength_schemas():
@@ -167,6 +193,7 @@ def schemas():
             'active_session_id': nullable_text, 'baseline_id': nullable_text,
             'autostart': {'type': 'boolean'}, 'session_ids': array(identifier)}, ('id', 'name', 'site', 'state')),
         **field_strength_schemas(),
+        **frequency_history_schemas(),
         'Envelope': obj({'contract': {'type': 'string', 'const': CONTRACT_NAME},
             'contract_version': {'type': 'integer', 'const': CONTRACT_VERSION}, 'data': {}},
             ('contract', 'contract_version', 'data')),
@@ -225,17 +252,53 @@ def document():
     paths['/api/v1/sessions/{id}/sweep-summaries']['get']['description'] = \
         'Newest UTC start and exact UTF-8 ID first. Cursor freezes the ingestion watermark and filters. Frequency filters select intersecting complete source sweeps; peaks summarize the whole source.'
     add('/sessions/{id}/audio-segments','post',ref('ArtifactSummary'),body=ref('AudioSegmentInput'),status=201)
-    add('/workers', response=array(ref('JSONObject')))
+    worker_status = obj({'session_id': {'type': 'string'}, 'stream_id': {'type': 'string'},
+        'alive': {'type': 'boolean'}, 'stopping': {'type': 'boolean'},
+        'stop_mode': {'type': ['string', 'null'], 'enum': ['graceful', 'force', None]}},
+        ('session_id', 'stream_id', 'alive'))
+    stop_request = obj({'mode': {'type': 'string', 'enum': ['graceful', 'force'],
+        'default': 'force', 'description': 'graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.'}})
+    add('/workers', response=array(worker_status))
     add('/events/history', response=array(ref('SessionEvent')), queries=('after', 'limit'))
     add('/events', mime='text/event-stream', queries=('after',))
     base = '/sessions/{id}'
+    history_input = {**obj({'stream_id':{'type':'string','minLength':1,'maxLength':128},
+        'frequencies_hz':{'type':'array','minItems':1,'maxItems':4,'uniqueItems':True,
+            'items':{'type':'integer','minimum':0,'maximum':9007199254740991}},
+        'start':{'type':'string','format':'date-time'},'end':{'type':'string','format':'date-time'},
+        'limit':{'type':'integer','minimum':1,'maximum':100},
+        'after':{'type':['string','null'],'maxLength':16384}},('stream_id','frequencies_hz','start','end')),
+        'additionalProperties':False}
+    add(base+'/frequency-history','post',ref('FrequencyHistoryPage'),body=history_input)
+    paths['/api/v1'+base+'/frequency-history']['post']['description'] = (
+        'Read-only actual-bin history in newest-first order; no frequency/time interpolation. '
+        'Cursor freezes ingestion and binds frequencies, scope and UTC window. '
+        'Out-of-range samples are null; segment_id changes with recorded settings/grid/units. '
+        'Requires features.frequency_history; does not perform acquisition.')
+    add(base+'/frequency-bookmarks',response=ref('FrequencyBookmarkPage'))
+    add(base+'/frequency-bookmarks','post',ref('FrequencyBookmarkSet'),status=201,body={
+        **obj({'name':{'type':'string','minLength':1,'maxLength':80},
+        'entries':{**array(ref('FrequencyBookmarkEntry')),'minItems':1,'maxItems':4}},('name','entries')),
+        'additionalProperties':False})
     add(base, response=ref('Session'))
     for action in ('start', 'stop', 'workers/start', 'workers/stop'):
         add(base+'/'+action, 'post')
-    add(base+'/workers', response=array(ref('JSONObject')))
+    add(base+'/workers', response=array(worker_status))
     add(base+'/streams/{stream_id}')
     for action in ('start', 'stop', 'tune'):
         add(base+'/streams/{stream_id}/'+action, 'post')
+    add(base+'/streams/{stream_id}/recover', 'post', worker_status, body={**obj({}), 'additionalProperties':False})
+    paths['/api/v1'+base+'/streams/{stream_id}/recover']['post']['description'] = (
+        'Explicit new connection for a stopped/failed worker. Live workers are rejected. '
+        'Never bypasses pending-response synchronization or resumes a watch. '
+        'Wait for a newly committed measurement; requires features.explicit_stream_recovery.')
+    for route, response in ((base+'/workers/stop', array(worker_status)),
+                            (base+'/streams/{stream_id}/stop', worker_status)):
+        add(route, 'post', response, body=stop_request)
+        paths['/api/v1'+route]['post']['requestBody']['required'] = False
+        paths['/api/v1'+route]['post']['description'] = (
+            'Omitted mode retains force behavior. Graceful returns while stopping; '
+            'poll workers until alive=false before restarting. A force request escalates graceful.')
     for kind, model in (('sweeps', 'Sweep'), ('observations', 'ReceiverObservation')):
         add(base+'/'+kind, response=array(ref(model)), queries=('stream_id', 'limit'))
         add(base+'/'+kind, 'post', ref(model), body=ref('JSONObject'), status=201)
@@ -285,6 +348,7 @@ def document():
         add(instrument+'/'+part)
     add(instrument+'/screen', status=202)
     add(instrument+'/artifacts/{artifact_id}/content', mime='application/octet-stream')
+    add(instrument+'/artifacts/{artifact_id}/json')
     for action in ('operations', 'settings', 'control-lease'):
         add(instrument+'/'+action, 'post', body=ref('JSONObject'), status=202)
     add(instrument+'/operations/{operation_id}/cancel', 'post', body=ref('JSONObject'))

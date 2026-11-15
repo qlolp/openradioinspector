@@ -642,6 +642,213 @@
         ],
         "type": "object"
       },
+      "FrequencyBookmarkEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "frequency_hz": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "label": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "frequency_hz"
+        ],
+        "type": "object"
+      },
+      "FrequencyBookmarkPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FrequencyBookmarkSet"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "limit": {
+            "const": 256,
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "items",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "FrequencyBookmarkSet": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/FrequencyBookmarkEntry"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "schema_version",
+          "name",
+          "revision",
+          "created_at",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "FrequencyHistoryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "frequencies_hz": {
+            "items": {
+              "format": "int64",
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FrequencyHistoryRow"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "stream_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "stream_id",
+          "frequencies_hz",
+          "start",
+          "end",
+          "items",
+          "next_cursor"
+        ],
+        "type": "object"
+      },
+      "FrequencyHistoryRow": {
+        "additionalProperties": false,
+        "properties": {
+          "interval": {
+            "$ref": "#/components/schemas/TimeInterval"
+          },
+          "level_unit": {
+            "type": "string"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/FrequencyHistorySample"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array"
+          },
+          "segment_id": {
+            "type": "string"
+          },
+          "sweep_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sweep_id",
+          "interval",
+          "level_unit",
+          "segment_id",
+          "samples"
+        ],
+        "type": "object"
+      },
+      "FrequencyHistorySample": {
+        "additionalProperties": false,
+        "properties": {
+          "frequency_hz": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "level": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "requested_hz": {
+            "format": "int64",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requested_hz",
+          "frequency_hz",
+          "level"
+        ],
+        "type": "object"
+      },
       "Investigation": {
         "additionalProperties": true,
         "properties": {
@@ -11185,6 +11392,312 @@
         "x-ori-max-request-bytes": 65536
       }
     },
+    "/api/v1/sessions/{id}/frequency-bookmarks": {
+      "get": {
+        "operationId": "get_api_v1_sessions_id_frequency_bookmarks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/FrequencyBookmarkPage"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_api_v1_sessions_id_frequency_bookmarks",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "entries": {
+                    "items": {
+                      "$ref": "#/components/schemas/FrequencyBookmarkEntry"
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "name": {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "entries"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/FrequencyBookmarkSet"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        },
+        "x-ori-body-deadline-seconds": 10.0,
+        "x-ori-max-request-bytes": 8192
+      }
+    },
     "/api/v1/sessions/{id}/frequency-counter": {
       "post": {
         "operationId": "post_api_v1_sessions_id_frequency_counter",
@@ -11333,6 +11846,202 @@
         },
         "x-ori-body-deadline-seconds": 10.0,
         "x-ori-max-request-bytes": 8192
+      }
+    },
+    "/api/v1/sessions/{id}/frequency-history": {
+      "post": {
+        "description": "Read-only actual-bin history in newest-first order; no frequency/time interpolation. Cursor freezes ingestion and binds frequencies, scope and UTC window. Out-of-range samples are null; segment_id changes with recorded settings/grid/units. Requires features.frequency_history; does not perform acquisition.",
+        "operationId": "post_api_v1_sessions_id_frequency_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "after": {
+                    "maxLength": 16384,
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "end": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "frequencies_hz": {
+                    "items": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxItems": 4,
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "limit": {
+                    "maximum": 100,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "start": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "stream_id": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "stream_id",
+                  "frequencies_hz",
+                  "start",
+                  "end"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/FrequencyHistoryPage"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        },
+        "x-ori-body-deadline-seconds": 10.0,
+        "x-ori-max-request-bytes": 24576
       }
     },
     "/api/v1/sessions/{id}/frequency-rounding": {
@@ -15681,6 +16390,160 @@
         }
       }
     },
+    "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json": {
+      "get": {
+        "operationId": "get_api_v1_sessions_id_streams_stream_id_instrument_artifacts_artifact_id_json",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/JSONObject"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        }
+      }
+    },
     "/api/v1/sessions/{id}/streams/{stream_id}/instrument/capabilities": {
       "get": {
         "operationId": "get_api_v1_sessions_id_streams_stream_id_instrument_capabilities",
@@ -17199,6 +18062,199 @@
         "x-ori-max-request-bytes": 65536
       }
     },
+    "/api/v1/sessions/{id}/streams/{stream_id}/recover": {
+      "post": {
+        "description": "Explicit new connection for a stopped/failed worker. Live workers are rejected. Never bypasses pending-response synchronization or resumes a watch. Wait for a newly committed measurement; requires features.explicit_stream_recovery.",
+        "operationId": "post_api_v1_sessions_id_streams_stream_id_recover",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {},
+                "required": [],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "additionalProperties": true,
+                          "properties": {
+                            "alive": {
+                              "type": "boolean"
+                            },
+                            "session_id": {
+                              "type": "string"
+                            },
+                            "stop_mode": {
+                              "enum": [
+                                "graceful",
+                                "force",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "stopping": {
+                              "type": "boolean"
+                            },
+                            "stream_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "session_id",
+                            "stream_id",
+                            "alive"
+                          ],
+                          "type": "object"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          },
+          "507": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Structured platform error"
+          }
+        },
+        "x-ori-body-deadline-seconds": 10.0,
+        "x-ori-max-request-bytes": 65536
+      }
+    },
     "/api/v1/sessions/{id}/streams/{stream_id}/start": {
       "post": {
         "operationId": "post_api_v1_sessions_id_streams_stream_id_start",
@@ -17359,6 +18415,7 @@
     },
     "/api/v1/sessions/{id}/streams/{stream_id}/stop": {
       "post": {
+        "description": "Omitted mode retains force behavior. Graceful returns while stopping; poll workers until alive=false before restarting. A force request escalates graceful.",
         "operationId": "post_api_v1_sessions_id_streams_stream_id_stop",
         "parameters": [
           {
@@ -17382,7 +18439,20 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JSONObject"
+                "additionalProperties": true,
+                "properties": {
+                  "mode": {
+                    "default": "force",
+                    "description": "graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.",
+                    "enum": [
+                      "graceful",
+                      "force"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
               }
             }
           },
@@ -17400,7 +18470,38 @@
                     {
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/JSONObject"
+                          "additionalProperties": true,
+                          "properties": {
+                            "alive": {
+                              "type": "boolean"
+                            },
+                            "session_id": {
+                              "type": "string"
+                            },
+                            "stop_mode": {
+                              "enum": [
+                                "graceful",
+                                "force",
+                                null
+                              ],
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "stopping": {
+                              "type": "boolean"
+                            },
+                            "stream_id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "session_id",
+                            "stream_id",
+                            "alive"
+                          ],
+                          "type": "object"
                         }
                       }
                     }
@@ -20021,7 +21122,38 @@
                       "properties": {
                         "data": {
                           "items": {
-                            "$ref": "#/components/schemas/JSONObject"
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
                           },
                           "type": "array"
                         }
@@ -20288,6 +21420,7 @@
     },
     "/api/v1/sessions/{id}/workers/stop": {
       "post": {
+        "description": "Omitted mode retains force behavior. Graceful returns while stopping; poll workers until alive=false before restarting. A force request escalates graceful.",
         "operationId": "post_api_v1_sessions_id_workers_stop",
         "parameters": [
           {
@@ -20303,7 +21436,20 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JSONObject"
+                "additionalProperties": true,
+                "properties": {
+                  "mode": {
+                    "default": "force",
+                    "description": "graceful finishes the current measurement asynchronously; force cancels I/O. Check features.graceful_device_stop before requesting graceful.",
+                    "enum": [
+                      "graceful",
+                      "force"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
               }
             }
           },
@@ -20321,7 +21467,41 @@
                     {
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/JSONObject"
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
                         }
                       }
                     }
@@ -21139,7 +22319,38 @@
                       "properties": {
                         "data": {
                           "items": {
-                            "$ref": "#/components/schemas/JSONObject"
+                            "additionalProperties": true,
+                            "properties": {
+                              "alive": {
+                                "type": "boolean"
+                              },
+                              "session_id": {
+                                "type": "string"
+                              },
+                              "stop_mode": {
+                                "enum": [
+                                  "graceful",
+                                  "force",
+                                  null
+                                ],
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "stopping": {
+                                "type": "boolean"
+                              },
+                              "stream_id": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "session_id",
+                              "stream_id",
+                              "alive"
+                            ],
+                            "type": "object"
                           },
                           "type": "array"
                         }

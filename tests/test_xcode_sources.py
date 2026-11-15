@@ -1,7 +1,8 @@
-"""Check the actual app target, independently of SwiftPM's automatic discovery."""
+"""Check source ownership across the Xcode launcher and linked local package."""
 from collections import Counter
 from pathlib import Path
 import plistlib
+import re
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -24,5 +25,23 @@ class XcodeSourceRegistrationTests(unittest.TestCase):
                 reference = objects[objects[build_id]['fileRef']]
                 if reference.get('path', '').endswith('.swift'):
                     compiled.append(reference['path'])
+        # Xcode compiles the entry point; the local Swift package owns app UI.
+        self.assertEqual(compiled, ['DvoynoyObzorApp.swift'])
+        products = [objects[key] for key in target['packageProductDependencies']]
+        self.assertEqual([item['productName'] for item in products], ['DvoynoyObzorSession'])
+        self.assertEqual(objects[products[0]['package']]['relativePath'], '.')
+        linked = [objects[key].get('productRef') for phase_id in target['buildPhases']
+                  if objects[phase_id]['isa'] == 'PBXFrameworksBuildPhase'
+                  for key in objects[phase_id]['files']]
+        self.assertIn(target['packageProductDependencies'][0], linked)
+        manifest = (root / 'macos/Package.swift').read_text()
+        implementation = re.search(r'\.target\(name: "DvoynoyObzorSession",(.*?)swiftSettings:', manifest, re.S)
+        self.assertIsNotNone(implementation)
+        self.assertIn('path: "DvoynoyObzor"', implementation.group(1))
+        excluded = re.search(r'exclude: \[(.*?)\]', implementation.group(1)).group(1)
+        exclusions = re.findall(r'"([^"]+)"', excluded)
+        self.assertEqual(exclusions, compiled)
         expected = [p.name for p in (root / 'macos/DvoynoyObzor').glob('*.swift')]
-        self.assertEqual(Counter(compiled), Counter(expected))
+        package_sources = [name for name in expected if name not in exclusions]
+        self.assertIn('TinySAControlPane.swift', package_sources)
+        self.assertEqual(Counter(compiled + package_sources), Counter(expected))

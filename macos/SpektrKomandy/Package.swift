@@ -1,6 +1,8 @@
 // swift-tools-version: 6.4
 import PackageDescription
 
+// Includes bounded archive metadata and original-sweep access for operator clients.
+
 let package = Package(
     name: "SpektrKomandy",
     platforms: [.macOS(.v14)],

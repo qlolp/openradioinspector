@@ -43,7 +43,61 @@ class VxiTranscript(Transcript):
         return 0, 4, payload.encode('ascii')
 
 
+class SilentSerialPeer:
+    """Only a query produces bytes, as on serial SCPI analyzers."""
+    timeout = 1
+    def __init__(self, response=b'-80,-50,-40\n'):
+        self.response = response
+        self.pending = b''
+        self.commands = []
+        self.read_commands = []
+        self.closed = False
+
+    @property
+    def in_waiting(self):
+        return len(self.pending)
+
+    def write(self, command):
+        self.commands.append(command)
+        if b'?' in command:
+            self.pending = self.response
+        return len(command)
+
+    def read(self, count):
+        self.read_commands.append(self.commands[-1])
+        result, self.pending = self.pending[:count], self.pending[count:]
+        return result
+
+    def close(self):
+        self.closed = True
+
+
 class ScpiIntegrityTests(unittest.TestCase):
+    def test_serial_silent_setters_reach_trace_query_without_reads(self):
+        peer = SilentSerialPeer()
+        instrument = SerialScpiInstrument()
+        instrument._serial = peer
+        trace = instrument.sweep(SweepConfig(100, 300, points=3, resolution_bandwidth_hz=10))
+        self.assertEqual(peer.commands, [b'STAR 100\n', b'STOP 300\n', b'RESB 10\n',
+                                         b'POIN 3\n', b'TRAC:DATA? TRACE1\n'])
+        self.assertEqual(peer.read_commands, [b'TRAC:DATA? TRACE1\n'])
+        np.testing.assert_array_equal(trace.frequencies, [100, 200, 300])
+        np.testing.assert_array_equal(trace.levels, [-80, -50, -40])
+        self.assertFalse(peer.closed)
+
+    def test_serial_silent_setters_do_not_relax_query_validation(self):
+        for response in (b'', b'-80,-50,-40', b'-80,bad,-40\n'):
+            with self.subTest(response=response):
+                peer = SilentSerialPeer(response)
+                instrument = SerialScpiInstrument()
+                instrument._serial = peer
+                with self.assertRaises(InstrumentError):
+                    instrument.sweep(SweepConfig(100, 300, points=3))
+                self.assertEqual(len(peer.commands), 5)
+                self.assertEqual(peer.commands[-1], b'TRAC:DATA? TRACE1\n')
+                self.assertTrue(all(command == b'TRAC:DATA? TRACE1\n'
+                                    for command in peer.read_commands))
+
     def test_bad_tokens_nonfinite_empty_and_declared_count_are_rejected(self):
         invalid = ('', '-80,, -50', '-80,broken,-50', '-80,nan,-50', '-80,inf,-50',
                    'CURVE 4,-80,-50', 'TRACE 2,-80,-50,-40', '-80,-50,',
@@ -70,8 +124,8 @@ class ScpiIntegrityTests(unittest.TestCase):
                     transcript = VxiTranscript('-80,-50,-40')
                     instrument = Vxi11Instrument('fixture'); instrument._instr = transcript
                 else:
-                    instrument = SerialScpiInstrument(); instrument._serial = object()
-                    instrument.query = transcript.query
+                    instrument = SerialScpiInstrument()
+                    instrument._serial = SilentSerialPeer(b'-80,-50,-40\n')
                 instrument.diagnostic_directory = directory
                 with self.assertRaises(InstrumentError): instrument.sweep(config)
                 issue = instrument.last_quality_issue

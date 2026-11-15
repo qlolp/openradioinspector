@@ -16,7 +16,10 @@ from .protocol import capture_png, read_binary, decode_scanraw, MAX_RAW_POINTS
 from .forms import OPERATIONS,validate_parameters
 
 
-class Controller:
+from .receive import ReceiveOperations
+
+
+class Controller(ReceiveOperations):
     def __init__(self, adapter, *, monotonic=time.monotonic):
         self.adapter=adapter
         self.monotonic=monotonic
@@ -38,10 +41,12 @@ class Controller:
         self._io_lock=threading.Lock()
         self._io_active=False
         self._public={}
+        self.watch=None
+        self.watch_band=None
         self._publish()
 
     def _publish(self):
-        self._public=dict(mode=self.mode,profile=CONTROL_PROFILE,revision=self.revision,
+        self._public=dict(watch=self.watch.status() if self.watch else None, watch_band=self.watch_band, mode=self.mode,profile=CONTROL_PROFILE,revision=self.revision,
                           connection_id=self.connection_id,settings_complete=False,
                           profile_verified=self._verified,settings=dict(self.settings),
                           settings_source=self._source,settings_readback=False,
@@ -137,8 +142,10 @@ class Controller:
         self.settings={**self.settings,'output_enabled':False,'caloutput_mhz':'off'}
         self._output_confirmed.clear()
 
-    def before_poll(self):
-        if self.mode=='monitoring':return True
+    def before_poll(self, *, prepare=True):
+        if self.mode=='monitoring':
+            if prepare:self.prepare_watch_sweep()
+            return True
         if self._lease is not None and self.monotonic()>=self._expires:
             self._lease=None
             try:self._safe_off()
@@ -176,14 +183,18 @@ class Controller:
                  'preset.save','preset.load','acquire.raw','acquire.zero','service.guide'}
         allowed.update(OPERATIONS)
         if op not in allowed:raise ValueError('Неизвестная типизированная операция')
-        if op in OPERATIONS and op not in {'acquire.raw','acquire.zero'}:
+        if self.watch is not None and op not in {'inspect','capture','watch.stop','output.off','service.guide'}:
+            raise ValueError('Наблюдение владеет настройками; сначала остановите его')
+        if op in OPERATIONS and op not in {'acquire.raw','acquire.zero','receive.configure','watch.start'}:
             params=validate_parameters(op,params)
         expected=payload.get('expected_revision',self.revision)
         if type(expected) is not int or expected!=self.revision:
             raise ValueError('Настройки изменились; обновите состояние прибора')
         self._profile()
-        self.before_poll()
+        self.before_poll(prepare=False)
         if op in OPERATIONS and OPERATIONS[op].get('lab'):self._require_lease(payload)
+        if op=='receive.configure':return self.receive_configure(params)
+        if op in {'watch.start','watch.stop'}:return self.watch_operation(op,params)
         if op=='output.off':
             self._safe_off();self.revision+=1;self._publish();return self.status()
         if op=='service.guide':
@@ -233,6 +244,7 @@ class Controller:
             self._ack(wire);self._device_mode='unknown';self._trace_processed=True;self._output_confirmed.clear();self._source='unknown';self.revision+=1;self._publish();return self.status()
         if op=='setting':
             name,value=params.get('name'),params.get('value')
+            if name=='vbw_ratio':return self.receive_configure({name:value})
             command=setting_command(name,value)
             if command.requires_lab or self.mode=='lab':self._require_lease(payload)
             if name=='lna' and value and self.settings.get('attenuation_db')!='auto' and self.settings.get('attenuation_db')!=0:
@@ -413,7 +425,7 @@ class Controller:
         if stop>800000000 and not self.settings.get('ultra'):raise ValueError('Сначала включите Ultra')
         zero_span=start==stop
         zero=self._text('zero')
-        m=re.fullmatch(r'zero \{level\}\n([0-9]{1,4})dBm',zero.strip())
+        m=re.fullmatch(r'(?:usage: )?zero \{level\}\n([0-9]{1,4})dBm',zero.strip())
         if not m:raise ValueError('Нет однозначного readback zero; scanraw не отправлен')
         command=f'scanraw {start} {stop} {points} 0'
         started=format_time(self.adapter._clock())

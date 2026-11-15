@@ -389,6 +389,113 @@ impl crate::RestoreKeys for FieldStrengthSource {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyBookmarkEntry {
+    pub frequency_hz: i64,
+    pub label: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyBookmarkEntry {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyBookmarkPage {
+    pub items: Vec<FrequencyBookmarkSet>,
+    pub limit: u64,
+    pub session_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyBookmarkPage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyBookmarkSet {
+    pub created_at: String,
+    pub entries: Vec<FrequencyBookmarkEntry>,
+    pub id: String,
+    pub name: String,
+    pub revision: u64,
+    pub schema_version: u64,
+    pub session_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyBookmarkSet {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.entries);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyHistoryPage {
+    pub end: String,
+    pub frequencies_hz: Vec<i64>,
+    pub items: Vec<FrequencyHistoryRow>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub next_cursor: Option<String>,
+    pub session_id: String,
+    pub start: String,
+    pub stream_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyHistoryPage {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.items);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyHistoryRow {
+    pub interval: TimeInterval,
+    pub level_unit: String,
+    pub samples: Vec<FrequencyHistorySample>,
+    pub segment_id: String,
+    pub sweep_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyHistoryRow {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.interval);
+        crate::RestoreKeys::restore_keys(&mut self.samples);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FrequencyHistorySample {
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub frequency_hz: Option<i64>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub level: Option<f64>,
+    pub requested_hz: i64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for FrequencyHistorySample {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Investigation {
     pub candidate_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

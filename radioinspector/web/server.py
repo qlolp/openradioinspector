@@ -767,6 +767,7 @@ class Handler(BaseHTTPRequestHandler):
                     "sweep-average-change-detection", "sweep-context", "sweep-occupancy",
                     "candidate-frequency-rounding", "frequency-rounding", "frequency-counter",
                     "dvb-evaluation", "measurement-map", "sweep-quality", "field-strength-rms-v2",
+                    "frequency-history", "frequency-bookmarks",
                 )):
             maximum = {
                 "sweep-average-comparison": MAX_AVERAGE_REQUEST_BYTES,
@@ -782,6 +783,8 @@ class Handler(BaseHTTPRequestHandler):
                 "sweep-quality": MAX_QUALITY_REQUEST_BYTES,
                 "dvb-evaluation": MAX_DVB_REQUEST_BYTES,
                 "measurement-map": MAX_MAP_REQUEST_BYTES,
+                "frequency-history": 24576,
+                "frequency-bookmarks": 8192,
             }[parts[4]]
             allow_empty = False
             if "?" in self.path:
@@ -934,6 +937,10 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
+            if len(parts)==5 and parts[:3]==["api","v1","sessions"] and parts[4]=="frequency-bookmarks":
+                if query: raise ValueError('Наборы частот не принимают параметры запроса')
+                self._send_json(api_payload(self.sessions.list_frequency_bookmarks(parts[3])))
+                return
             if (
                 len(parts) >= 6
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1277,6 +1284,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 4 and parts[:3] == ["api", "v1", "sessions"]:
                 # Декодируем только ID после разделения: encoded slash остаётся внутри ID.
                 parts[3] = unquote(parts[3])
+            if len(parts)==5 and parts[:3]==["api","v1","sessions"] and parts[4] in ("frequency-history","frequency-bookmarks"):
+                if parts[4]=="frequency-history":
+                    self._send_json(api_payload(self.sessions.frequency_history(parts[3],payload)))
+                else:
+                    self._send_json(api_payload(self.sessions.save_frequency_bookmarks(parts[3],payload)),201)
+                return
             if (
                 len(parts) >= 6
                 and parts[:3] == ["api", "v1", "sessions"]
@@ -1507,19 +1520,23 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[5] == "start":
                     result = self.workers.start_session(parts[3])
                 else:
-                    result = self.workers.stop_session(parts[3])
+                    result = self.workers.stop_session(parts[3], mode=payload.get("mode", "force"))
                 self._send_json(api_payload(result))
                 return
             if (
                 len(parts) == 7
                 and parts[:3] == ["api", "v1", "sessions"]
                 and parts[4] == "streams"
-                and parts[6] in ("start", "stop", "tune")
+                and parts[6] in ("start", "stop", "recover", "tune")
             ):
                 if parts[6] == "start":
                     result = self.workers.start_stream(parts[3], parts[5])
                 elif parts[6] == "stop":
-                    result = self.workers.stop_stream(parts[3], parts[5])
+                    result = self.workers.stop_stream(parts[3], parts[5], mode=payload.get("mode", "force"))
+                elif parts[6] == "recover":
+                    if payload:
+                        raise ValueError('recover принимает пустой объект')
+                    result = self.workers.recover_stream(parts[3], parts[5])
                 else:
                     result = self.workers.tune(parts[3], parts[5], payload)
                 self._send_json(api_payload(result))

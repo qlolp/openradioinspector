@@ -25,18 +25,33 @@ struct PinnedSweepReference {
 
 @MainActor
 final class RemoteDualModel: ObservableObject {
+    @Published var showFrequencyHistory = false
+    @Published var historyFrequency: Int64?
+    @Published var reviewedSweepRequest = UUID()
+    @Published var reviewedSweep: PlatformSweep?
     @Published var showTinySAControl = false
     @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(serverURL, oldValue) { resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
+        didSet {
+            guard !PlatformExactID.same(serverURL, oldValue) else { return }
+            selectedScanBand = ""
+            coreReachable = false; lastCoreContactAt = nil; resetMeasurementHealth()
+            resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil)
+        }
     }
     @Published var sessions: [PlatformSession] = []
     @Published var selectedSessionID = "" {
-        didSet { if !PlatformThreeSweepThresholds.sameID(selectedSessionID, oldValue) { resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil) } }
+        didSet {
+            guard !PlatformExactID.same(selectedSessionID, oldValue) else { return }
+            selectedScanBand = ""
+            resetMeasurementHealth(); resetComparisonScope(); frequencyRounding.reset()
+            configureAuxiliaryStreams(client: nil, session: nil)
+        }
     }
     @Published var session: PlatformSession? {
         didSet {
             if !PlatformThreeSweepThresholds.sameID(session?.streams.first(where: { $0.isDbmAnalyzer })?.id,
                 oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id) {
+                if oldValue != nil { resetMeasurementHealth() }
                 resetComparisonScope()
             }
         }
@@ -47,7 +62,19 @@ final class RemoteDualModel: ObservableObject {
     private var auxiliaryClient: PlatformClient?
     private var auxiliarySession: PlatformSession?
     @Published var workers: [PlatformWorker] = []
+    // Connection intent is distinct from a successfully refreshed core.
     @Published var connected = false
+    @Published private(set) var coreReachable = false
+    @Published private(set) var lastCoreContactAt: Date?
+    @Published private(set) var measurementsStale = true
+    @Published private(set) var lastMeasurementAt: Date?
+    // Display-only fallback: never used as archive evidence or an action source.
+    @Published private(set) var staleSpectrum: NativeSpectrumFrame?
+    @Published private(set) var staleSpectrumScale: PlatformSpectrumScale?
+    private var lastRenderedFrame: NativeSpectrumFrame?
+    private var lastRenderedSweeps: [PlatformSweep] = []
+    // Allow a full-band hardware sweep (about 36 seconds) plus polling/retry margin.
+    static let measurementFreshnessInterval: TimeInterval = 90
     @Published var authorizationRequired = false
     @Published var busy = false
     @Published var status = "Сервер не подключён"
@@ -135,7 +162,7 @@ final class RemoteDualModel: ObservableObject {
     @Published var completionMinimumObservations = "1"
     @Published var completionReceiverStreamID = ""
     @Published var tinySAPort = "/dev/ttyACM0"
-    @Published var receiverPort = "/dev/ttyUSB0"
+    @Published var receiverPort = ""
     @Published var showSerialForm = false
 
     let sweepAverage = SweepAverageModel()
@@ -196,10 +223,8 @@ final class RemoteDualModel: ObservableObject {
         let ports = SerialPort.availablePaths()
         if let modem = ports.first(where: { $0.contains("usbmodem") }) {
             tinySAPort = modem
-        } else if let first = ports.first(where: { $0.contains("cu.") }) {
-            tinySAPort = first
         }
-        if let serial = ports.first(where: { $0 != tinySAPort && ($0.contains("usbserial") || $0.contains("cu.")) }) {
+        if let serial = ports.first(where: { $0 != tinySAPort && $0.contains("usbserial") }) {
             receiverPort = serial
         } else if receiverPort == "/dev/ttyUSB0" {
             receiverPort = ""
@@ -220,6 +245,18 @@ final class RemoteDualModel: ObservableObject {
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
         refreshSerialPorts()
     }
+
+    var displayCurrent: [PlotPoint] { current.isEmpty && measurementsStale ? staleSpectrum?.current ?? current : current }
+    var displayMinimum: [PlotPoint] { current.isEmpty && measurementsStale ? staleSpectrum?.minimum ?? minimum : minimum }
+    var displayMaximum: [PlotPoint] { current.isEmpty && measurementsStale ? staleSpectrum?.maximum ?? maximum : maximum }
+    var displayWaterfall: WaterfallHistory { current.isEmpty && measurementsStale ? staleSpectrum?.waterfall ?? waterfall : waterfall }
+    var displayWaterfallRevision: Int { waterfallRevision }
+    var displaySpectrumScale: PlatformSpectrumScale? { current.isEmpty && measurementsStale ? staleSpectrumScale ?? spectrumPresentation.scale : spectrumPresentation.scale }
+    var displayInspectorSweeps: [PlatformSweep] {
+        spectrumPresentation.sweeps.isEmpty && measurementsStale && staleSpectrum != nil
+            ? lastRenderedSweeps : spectrumPresentation.sweeps
+    }
+    var displayArchiveCapacity: PlatformArchiveCapacity? { coreReachable ? archiveCapacity : nil }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -280,6 +317,8 @@ final class RemoteDualModel: ObservableObject {
                 return
             }
         }
+        coreReachable = false; lastCoreContactAt = nil
+        resetMeasurementHealth()
         archiveHighWatermark = nil; archiveCacheVerified = false
         measurementStream.stop(); measurementSnapshot = nil; eventGapNotice = nil
         negotiatedMeasurementTransport = nil; measurementSource = nil; measurementDisplayIssue = nil
@@ -294,7 +333,7 @@ final class RemoteDualModel: ObservableObject {
             connected = true
             authorizationRequired = false
             errorText = nil
-            status = "Сервер подключён; приборные порты остаются у ядра"
+            status = "Проверка соединения с ядром…"
             generation += 1
             streamingEnabled = startPolling
             if startPolling { self.startPolling() }
@@ -307,6 +346,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     func disconnect() {
+        coreReachable = false; lastCoreContactAt = nil
         archiveHighWatermark = nil; archiveCacheVerified = false
         showTinySAControl = false
         connectionGeneration += 1
@@ -345,6 +385,7 @@ final class RemoteDualModel: ObservableObject {
         do {
             let loaded = try await client.listSessions()
             guard requestGeneration == generation, self.client === client else { return }
+            recordCoreContact()
             sessions = loaded
             if selectedSessionID.isEmpty || !loaded.contains(where: { PlatformExactID.same($0.id, selectedSessionID) }) {
                 selectedSessionID = loaded.first?.id ?? ""
@@ -354,7 +395,10 @@ final class RemoteDualModel: ObservableObject {
         } catch {
             guard requestGeneration == generation, self.client === client else { return }
             if expireAuthorization(error, client: client) { return }
-            clearSpectrumPresentation()
+            staleSpectrum = lastRenderedFrame ?? staleSpectrum
+            staleSpectrumScale = spectrumPresentation.scale ?? staleSpectrumScale
+            resetComparisonScope()
+            markCoreUnavailable()
             errorText = describeSession(error)
         }
     }
@@ -483,6 +527,16 @@ final class RemoteDualModel: ObservableObject {
     private func refreshSession(_ client: PlatformClient) async {
         guard self.client === client else { return }
         if selectedSessionID.isEmpty {
+            let requestGeneration = generation
+            do {
+                _ = try await client.listSessions()
+                guard requestGeneration == generation, self.client === client else { return }
+                recordCoreContact()
+            } catch {
+                guard requestGeneration == generation, self.client === client else { return }
+                if expireAuthorization(error, client: client) { return }
+                markCoreUnavailable(); errorText = describeSession(error)
+            }
             await refreshTaskScheduler(client)
             return
         }
@@ -558,6 +612,8 @@ final class RemoteDualModel: ObservableObject {
             guard await applyMeasurements(snapshot) else { return }
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
+            recordCoreContact()
+            observeMeasurementTime(snapshot)
             applyWorkflow(snapshot, schedulerRevision: schedulerRevision)
             if streamingEnabled, !measurementStream.isActive, let watermark {
                 let streamGeneration = requestGeneration
@@ -575,12 +631,15 @@ final class RemoteDualModel: ObservableObject {
                             guard await self.applyMeasurements(latest) else { throw CancellationError() }
                         }
                         guard !Task.isCancelled, streamGeneration == self.generation, self.client === client else { throw CancellationError() }
+                        self.recordCoreContact()
+                        if change == .measurement { self.observeMeasurementTime(latest) }
                         self.measurementSource = event.source; self.measurementDisplayIssue = event.displayIssue
                         self.eventStatus = "\(transport.label) · принято событие \(event.sequence)" + (event.displayIssue == nil ? "" : " · исходник")
                         if change == .measurement { self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")" }
                     }, recover: { [weak self] reason in
                         guard let self, streamGeneration == self.generation, self.client === client else { return }
                         if self.expireAuthorization(reason, client: client) { return }
+                        self.markCoreUnavailable()
                         self.eventStatus = "\(transport.label) · восстановление потока: \(describeSession(reason))"
                         if let eventError = reason as? PlatformEventError {
                             self.eventGapNotice = "Пропуск доставки в этот UI. Отображение восстанавливается из архива; охрана продолжает работать."
@@ -601,10 +660,14 @@ final class RemoteDualModel: ObservableObject {
                 eventStatus = "REST · совместимый опрос (SSE не подтверждён)"
             }
             errorText = snapshot.workflowErrors.isEmpty ? nil : snapshot.workflowErrors.joined(separator: " · ")
-            live = "Обновлено от ядра · свипов \(snapshot.sweeps.count) · наблюдений \(snapshot.observations.count)"
+            live = measurementsStale ? "Последние измерения устарели или ещё не получены" : "Получены свежие измерения ядра"
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
+            let retainedFrame = lastRenderedFrame ?? staleSpectrum
+            let retainedSweeps = lastRenderedSweeps
+            let retainedScale = spectrumPresentation.scale ?? staleSpectrumScale
+            let retainedMeasurementAt = lastMeasurementAt
             let hasReplay = measurementStream.measurements != nil
             if hasReplay || archiveHighWatermark != nil {
                 invalidateArchiveEvidence(watermark: nil, preservingReplay: hasReplay)
@@ -616,8 +679,68 @@ final class RemoteDualModel: ObservableObject {
             sweepQuality.reset()
             frequencyRounding.unavailable()
             clearSpectrumPresentation()
+            staleSpectrum = retainedFrame; staleSpectrumScale = retainedScale
+            lastRenderedSweeps = retainedSweeps
+            lastMeasurementAt = retainedMeasurementAt
+            markCoreUnavailable()
             errorText = describeSession(error)
         }
+    }
+
+    func followFrequency(_ hz: Int64) {
+        historyFrequency = hz; showFrequencyHistory = true
+    }
+
+    private func resetMeasurementHealth() {
+        historyFrequency = nil
+        reviewedSweep = nil
+        reviewedSweepRequest = UUID()
+        if staleSpectrum != nil { waterfallRevision += 1 }
+        measurementsStale = true; lastMeasurementAt = nil
+        staleSpectrum = nil; staleSpectrumScale = nil; lastRenderedFrame = nil
+        lastRenderedSweeps = []
+    }
+
+    private func recordCoreContact() {
+        coreReachable = true; lastCoreContactAt = Date()
+        status = "Ядро доступно; приборные порты остаются у ядра"
+        if let lastMeasurementAt, Date().timeIntervalSince(lastMeasurementAt) > Self.measurementFreshnessInterval {
+            measurementsStale = true
+        }
+    }
+
+    private func markCoreUnavailable() {
+        coreReachable = false; measurementsStale = true
+        status = "Связь с ядром не подтверждена"
+        live = "Последние измерения устарели; ожидается восстановление связи"
+    }
+
+    private func observeMeasurementTime(_ snapshot: PlatformSnapshot) {
+        let formatter = ISO8601DateFormatter()
+        func date(_ value: String) -> Date? {
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: value) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            return formatter.date(from: value)
+        }
+        // The spectrum's freshness belongs to its analyzer, never to a faster
+        // receiver sharing the session. Receiver-only sessions use their own stream.
+        let times: [String]
+        if let analyzer {
+            times = snapshot.sweeps.filter {
+                PlatformExactID.same($0.sessionId, selectedSessionID) && PlatformExactID.same($0.streamId, analyzer.id)
+            }.map { $0.interval.endedAt }
+        } else {
+            times = snapshot.observations.filter {
+                PlatformExactID.same($0.sessionId, selectedSessionID) && PlatformExactID.same($0.streamId, receiver?.id ?? "")
+            }.map { $0.interval.endedAt }
+        }
+        guard let newest = times.compactMap(date).max() else { measurementsStale = true; return }
+        guard lastMeasurementAt.map({ newest > $0 }) ?? true else { return }
+        lastMeasurementAt = newest
+        let age = Date().timeIntervalSince(newest)
+        measurementsStale = age < -1 || age > Self.measurementFreshnessInterval
+        staleSpectrum = nil; staleSpectrumScale = nil
     }
 
     private func expireAuthorization(_ error: Error, client: PlatformClient) -> Bool {
@@ -653,16 +776,16 @@ final class RemoteDualModel: ObservableObject {
     func startSession() { performSessionAction { try await $0.startSession($1) } }
     func stopSession() { performSessionAction { try await $0.stopSession($1) } }
     func startWorkers() { performSessionAction { try await $0.startWorkers($1) } }
-    func stopWorkers() { performSessionAction { try await $0.stopWorkers($1) } }
+    func stopWorkers(mode: PlatformStopMode = .graceful) { performSessionAction { try await $0.stopWorkers($1, mode: mode) } }
 
     func startStream(_ stream: PlatformStream?) {
         guard let stream else { return }
         performStreamAction(stream) { try await $0.startStream(sessionID: $1, streamID: stream.id) }
     }
 
-    func stopStream(_ stream: PlatformStream?) {
+    func stopStream(_ stream: PlatformStream?, mode: PlatformStopMode = .graceful) {
         guard let stream else { return }
-        performStreamAction(stream) { try await $0.stopStream(sessionID: $1, streamID: stream.id) }
+        performStreamAction(stream) { try await $0.stopStream(sessionID: $1, streamID: stream.id, mode: mode) }
     }
 
     func tuneLatestPeak() {
@@ -735,6 +858,7 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func clearMeasurements(preservingReplay: Bool = false) {
+        resetMeasurementHealth()
         if !preservingReplay { measurementStream.stop() }
         archiveCacheVerified = false
         measurementSnapshot = nil
@@ -797,7 +921,7 @@ final class RemoteDualModel: ObservableObject {
         } else { scope = nil }
         // Analysis sources are readiness signals used by the UI and callers. Publish
         // them only after the corresponding off-main display preparation finishes.
-        guard await prepareSpectrum(scope: scope, incoming: snapshot.sweeps),
+        guard await prepareSpectrum(scope: scope, incoming: selectedSweeps),
               requestGeneration == generation, sourceClient === client else { return false }
         comparisonSweeps = selectedSweeps
         if let client, PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL), let stream = analyzer?.id {
@@ -828,10 +952,15 @@ final class RemoteDualModel: ObservableObject {
         return true
     }
 
+    func setSpectrumPaused(_ paused: Bool) {
+        if spectrumPresentation.paused != paused { toggleSpectrumPause() }
+    }
+
     func toggleSpectrumPause() {
         if archiveCacheVerified, spectrumPresentation.paused, let cache = measurementStream.measurements, let stream = analyzer?.id,
            PlatformThreeSweepThresholds.sameID(connectedServerURL, serverURL) {
-            spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream), sweeps: cache.sweeps)
+            spectrumPresentation.update(scope: .init(server: serverURL, session: selectedSessionID, stream: stream),
+                                        sweeps: scanBandSweeps(in: cache.sweeps))
             if spectrumPresentation.paused { spectrumPresentation.togglePause() }
         } else { spectrumPresentation.togglePause() }
         renderSpectrumPresentation()
@@ -851,7 +980,10 @@ final class RemoteDualModel: ObservableObject {
     }
     func selectScanBand(_ id: String) {
         guard !PlatformExactID.same(id, selectedScanBand) else { return }
-        selectedScanBand = id; clearSpectrumPresentation()
+        selectedScanBand = id
+        lastRenderedFrame = nil
+        lastRenderedSweeps = []
+        clearSpectrumPresentation()
         let sourceGeneration = generation, sourceClient = client
         Task { [weak self] in
             guard let self, self.generation == sourceGeneration, self.client === sourceClient,
@@ -866,9 +998,7 @@ final class RemoteDualModel: ObservableObject {
     }
     private func prepareSpectrum(scope: PlatformSpectrumPresentation.Scope?, incoming: [PlatformSweep]) async -> Bool {
         if selectedScanBand.isEmpty { selectedScanBand = incoming.compactMap { Self.scanContext($0)?.band }.first ?? "" }
-        let selected = selectedScanBand.isEmpty ? incoming : incoming.filter { Self.scanContext($0)?.band == selectedScanBand }
-        let newestPlan = selected.last.flatMap(Self.scanContext)?.plan
-        let visible = newestPlan == nil ? selected : selected.filter { Self.scanContext($0)?.plan == newestPlan }
+        let visible = scanBandSweeps(in: incoming)
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
         let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
@@ -884,7 +1014,18 @@ final class RemoteDualModel: ObservableObject {
         return true
     }
 
+    private func scanBandSweeps(in sweeps: [PlatformSweep]) -> [PlatformSweep] {
+        guard !selectedScanBand.isEmpty else { return sweeps }
+        let selected = sweeps.filter { PlatformExactID.same(Self.scanContext($0)?.band, selectedScanBand) }
+        guard let newestPlan = selected.last.flatMap(Self.scanContext)?.plan else { return selected }
+        return selected.filter { PlatformExactID.same(Self.scanContext($0)?.plan, newestPlan) }
+    }
+
     private func publish(_ frame: NativeSpectrumFrame) {
+        if !frame.current.isEmpty {
+            lastRenderedFrame = frame
+            lastRenderedSweeps = spectrumPresentation.sweeps
+        }
         current = frame.current; minimum = frame.minimum; maximum = frame.maximum; rows = frame.rows
         let history = frame.waterfall
         if waterfall.grid != history.grid || waterfall.rows != history.rows || waterfall.capacity != history.capacity {

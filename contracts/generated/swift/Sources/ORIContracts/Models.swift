@@ -755,6 +755,233 @@ public struct FieldStrengthSource: ContractModel, Equatable, Sendable {
     }
 }
 
+public struct FrequencyBookmarkEntry: ContractModel, Equatable, Sendable {
+    public var frequency_hz: Int64
+    public var label: String
+    public var extra: JSONObject
+    public init(frequency_hz: Int64, label: String, extra: JSONObject = [:]) {
+        self.frequency_hz = frequency_hz
+        self.label = label
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = try frequency_hzValue.requireInt64()
+        guard let labelValue = object.removeValue(forKey: "label") else { throw ContractError.invalid("Missing label") }
+        label = try labelValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["frequency_hz"] = .integer(String(frequency_hz))
+        object["label"] = .string(label)
+        return .object(object)
+    }
+}
+
+public struct FrequencyBookmarkPage: ContractModel, Equatable, Sendable {
+    public var items: [FrequencyBookmarkSet]
+    public var limit: UInt64
+    public var session_id: String
+    public var extra: JSONObject
+    public init(items: [FrequencyBookmarkSet], limit: UInt64, session_id: String, extra: JSONObject = [:]) {
+        self.items = items
+        self.limit = limit
+        self.session_id = session_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let itemsValue = object.removeValue(forKey: "items") else { throw ContractError.invalid("Missing items") }
+        items = try itemsValue.requireArray().map { try FrequencyBookmarkSet(json: $0) }
+        guard let limitValue = object.removeValue(forKey: "limit") else { throw ContractError.invalid("Missing limit") }
+        limit = try limitValue.requireUInt64()
+        guard limit == 256 else { throw ContractError.invalid("Unsupported limit") }
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["items"] = .array(items.map { $0.json })
+        object["limit"] = .integer(String(limit))
+        object["session_id"] = .string(session_id)
+        return .object(object)
+    }
+}
+
+public struct FrequencyBookmarkSet: ContractModel, Equatable, Sendable {
+    public var created_at: String
+    public var entries: [FrequencyBookmarkEntry]
+    public var id: String
+    public var name: String
+    public var revision: UInt64
+    public var schema_version: UInt64
+    public var session_id: String
+    public var extra: JSONObject
+    public init(created_at: String, entries: [FrequencyBookmarkEntry], id: String, name: String, revision: UInt64, schema_version: UInt64, session_id: String, extra: JSONObject = [:]) {
+        self.created_at = created_at
+        self.entries = entries
+        self.id = id
+        self.name = name
+        self.revision = revision
+        self.schema_version = schema_version
+        self.session_id = session_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let created_atValue = object.removeValue(forKey: "created_at") else { throw ContractError.invalid("Missing created_at") }
+        created_at = try created_atValue.requireString()
+        guard let entriesValue = object.removeValue(forKey: "entries") else { throw ContractError.invalid("Missing entries") }
+        entries = try entriesValue.requireArray().map { try FrequencyBookmarkEntry(json: $0) }
+        guard let idValue = object.removeValue(forKey: "id") else { throw ContractError.invalid("Missing id") }
+        id = try idValue.requireString()
+        guard let nameValue = object.removeValue(forKey: "name") else { throw ContractError.invalid("Missing name") }
+        name = try nameValue.requireString()
+        guard let revisionValue = object.removeValue(forKey: "revision") else { throw ContractError.invalid("Missing revision") }
+        revision = try revisionValue.requireUInt64()
+        guard let schema_versionValue = object.removeValue(forKey: "schema_version") else { throw ContractError.invalid("Missing schema_version") }
+        schema_version = try schema_versionValue.requireUInt64()
+        guard schema_version == 1 else { throw ContractError.invalid("Unsupported schema_version") }
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["created_at"] = .string(created_at)
+        object["entries"] = .array(entries.map { $0.json })
+        object["id"] = .string(id)
+        object["name"] = .string(name)
+        object["revision"] = .integer(String(revision))
+        object["schema_version"] = .integer(String(schema_version))
+        object["session_id"] = .string(session_id)
+        return .object(object)
+    }
+}
+
+public struct FrequencyHistoryPage: ContractModel, Equatable, Sendable {
+    public var end: String
+    public var frequencies_hz: [Int64]
+    public var items: [FrequencyHistoryRow]
+    public var next_cursor: String?
+    public var session_id: String
+    public var start: String
+    public var stream_id: String
+    public var extra: JSONObject
+    public init(end: String, frequencies_hz: [Int64], items: [FrequencyHistoryRow], next_cursor: String? = nil, session_id: String, start: String, stream_id: String, extra: JSONObject = [:]) {
+        self.end = end
+        self.frequencies_hz = frequencies_hz
+        self.items = items
+        self.next_cursor = next_cursor
+        self.session_id = session_id
+        self.start = start
+        self.stream_id = stream_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let endValue = object.removeValue(forKey: "end") else { throw ContractError.invalid("Missing end") }
+        end = try endValue.requireString()
+        guard let frequencies_hzValue = object.removeValue(forKey: "frequencies_hz") else { throw ContractError.invalid("Missing frequencies_hz") }
+        frequencies_hz = try frequencies_hzValue.requireArray().map { try $0.requireInt64() }
+        guard let itemsValue = object.removeValue(forKey: "items") else { throw ContractError.invalid("Missing items") }
+        items = try itemsValue.requireArray().map { try FrequencyHistoryRow(json: $0) }
+        guard let next_cursorValue = object.removeValue(forKey: "next_cursor") else { throw ContractError.invalid("Missing next_cursor") }
+        next_cursor = next_cursorValue == .null ? nil : try next_cursorValue.requireString()
+        guard let session_idValue = object.removeValue(forKey: "session_id") else { throw ContractError.invalid("Missing session_id") }
+        session_id = try session_idValue.requireString()
+        guard let startValue = object.removeValue(forKey: "start") else { throw ContractError.invalid("Missing start") }
+        start = try startValue.requireString()
+        guard let stream_idValue = object.removeValue(forKey: "stream_id") else { throw ContractError.invalid("Missing stream_id") }
+        stream_id = try stream_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["end"] = .string(end)
+        object["frequencies_hz"] = .array(frequencies_hz.map { .integer(String($0)) })
+        object["items"] = .array(items.map { $0.json })
+        if let value = next_cursor { object["next_cursor"] = .string(value) } else { object["next_cursor"] = .null }
+        object["session_id"] = .string(session_id)
+        object["start"] = .string(start)
+        object["stream_id"] = .string(stream_id)
+        return .object(object)
+    }
+}
+
+public struct FrequencyHistoryRow: ContractModel, Equatable, Sendable {
+    public var interval: TimeInterval
+    public var level_unit: String
+    public var samples: [FrequencyHistorySample]
+    public var segment_id: String
+    public var sweep_id: String
+    public var extra: JSONObject
+    public init(interval: TimeInterval, level_unit: String, samples: [FrequencyHistorySample], segment_id: String, sweep_id: String, extra: JSONObject = [:]) {
+        self.interval = interval
+        self.level_unit = level_unit
+        self.samples = samples
+        self.segment_id = segment_id
+        self.sweep_id = sweep_id
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let intervalValue = object.removeValue(forKey: "interval") else { throw ContractError.invalid("Missing interval") }
+        interval = try TimeInterval(json: intervalValue)
+        guard let level_unitValue = object.removeValue(forKey: "level_unit") else { throw ContractError.invalid("Missing level_unit") }
+        level_unit = try level_unitValue.requireString()
+        guard let samplesValue = object.removeValue(forKey: "samples") else { throw ContractError.invalid("Missing samples") }
+        samples = try samplesValue.requireArray().map { try FrequencyHistorySample(json: $0) }
+        guard let segment_idValue = object.removeValue(forKey: "segment_id") else { throw ContractError.invalid("Missing segment_id") }
+        segment_id = try segment_idValue.requireString()
+        guard let sweep_idValue = object.removeValue(forKey: "sweep_id") else { throw ContractError.invalid("Missing sweep_id") }
+        sweep_id = try sweep_idValue.requireString()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        object["interval"] = interval.json
+        object["level_unit"] = .string(level_unit)
+        object["samples"] = .array(samples.map { $0.json })
+        object["segment_id"] = .string(segment_id)
+        object["sweep_id"] = .string(sweep_id)
+        return .object(object)
+    }
+}
+
+public struct FrequencyHistorySample: ContractModel, Equatable, Sendable {
+    public var frequency_hz: Int64?
+    public var level: Double?
+    public var requested_hz: Int64
+    public var extra: JSONObject
+    public init(frequency_hz: Int64? = nil, level: Double? = nil, requested_hz: Int64, extra: JSONObject = [:]) {
+        self.frequency_hz = frequency_hz
+        self.level = level
+        self.requested_hz = requested_hz
+        self.extra = extra
+    }
+    public init(json: JSONValue) throws {
+        var object = try json.requireObject()
+        guard let frequency_hzValue = object.removeValue(forKey: "frequency_hz") else { throw ContractError.invalid("Missing frequency_hz") }
+        frequency_hz = frequency_hzValue == .null ? nil : try frequency_hzValue.requireInt64()
+        guard let levelValue = object.removeValue(forKey: "level") else { throw ContractError.invalid("Missing level") }
+        level = levelValue == .null ? nil : try levelValue.requireDouble()
+        guard let requested_hzValue = object.removeValue(forKey: "requested_hz") else { throw ContractError.invalid("Missing requested_hz") }
+        requested_hz = try requested_hzValue.requireInt64()
+        extra = object
+    }
+    public var json: JSONValue {
+        var object = extra
+        if let value = frequency_hz { object["frequency_hz"] = .integer(String(value)) } else { object["frequency_hz"] = .null }
+        if let value = level { object["level"] = .number(value) } else { object["level"] = .null }
+        object["requested_hz"] = .integer(String(requested_hz))
+        return .object(object)
+    }
+}
+
 public struct Investigation: ContractModel, Equatable, Sendable {
     public var candidate_id: String
     public var created_at: UtcTimestamp?

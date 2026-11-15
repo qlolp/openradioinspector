@@ -162,6 +162,57 @@ export interface FieldStrengthSource {
   [key: string]: unknown;
 }
 
+export interface FrequencyBookmarkEntry {
+  frequency_hz: Integer;
+  label: string;
+  [key: string]: unknown;
+}
+
+export interface FrequencyBookmarkPage {
+  items: Array<FrequencyBookmarkSet>;
+  limit: 256;
+  session_id: string;
+  [key: string]: unknown;
+}
+
+export interface FrequencyBookmarkSet {
+  created_at: string;
+  entries: Array<FrequencyBookmarkEntry>;
+  id: string;
+  name: string;
+  revision: Integer;
+  schema_version: 1;
+  session_id: string;
+  [key: string]: unknown;
+}
+
+export interface FrequencyHistoryPage {
+  end: string;
+  frequencies_hz: Array<Integer>;
+  items: Array<FrequencyHistoryRow>;
+  next_cursor: string | null;
+  session_id: string;
+  start: string;
+  stream_id: string;
+  [key: string]: unknown;
+}
+
+export interface FrequencyHistoryRow {
+  interval: TimeInterval;
+  level_unit: string;
+  samples: Array<FrequencyHistorySample>;
+  segment_id: string;
+  sweep_id: string;
+  [key: string]: unknown;
+}
+
+export interface FrequencyHistorySample {
+  frequency_hz: Integer | null;
+  level: number | null;
+  requested_hz: Integer;
+  [key: string]: unknown;
+}
+
 export interface Investigation {
   candidate_id: string;
   created_at?: string;

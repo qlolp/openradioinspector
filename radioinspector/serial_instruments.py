@@ -13,6 +13,7 @@ import re
 import select
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -25,11 +26,15 @@ from .contracts import (
     format_time,
     utc_now,
 )
-from .device_workers import SimulatedAdapter, WorkerError, create_simulated_adapter
+from .device_workers import SimulatedAdapter, WorkerError, WorkerCancelled, create_simulated_adapter
 from .tinysa_profile import PROFILE_ID, matches_identity, profile_description, validate_receive_settings
 
 
 HARDWARE_VALIDATION_NOT_RUN = "not_run"
+
+# Survives adapter replacement within the sole owning core process.
+_TINYSA_PENDING_UNTIL: dict[str, float] = {}
+_TINYSA_PENDING_LOCK = threading.Lock()
 
 
 class _SerialFraming:
@@ -41,10 +46,39 @@ class _SerialFraming:
 
     def _check_cancelled(self) -> None:
         if self._cancelled.is_set():
-            raise WorkerError(f"Операция на {self.path} остановлена; требуется новое соединение")
+            raise WorkerCancelled(f"Операция на {self.path} остановлена; требуется новое соединение")
         check = getattr(self, '_ownership_check', None)
         if check is not None:
             check()
+
+    def synchronize_tinysa(self, pending_until: float = 0.0) -> None:
+        """Drain only before the first command on a new connection.
+
+        Silence is not proof that an interrupted scan finished. Wait within
+        its remaining command budget for a terminal prompt and quiet window.
+        No bytes from this phase are returned as a command response.
+        """
+        now = time.monotonic()
+        deadline = max(now, pending_until) + 3.0
+        requires_prompt = pending_until > 0.0
+        quiet_since = now
+        boundary = bytearray()
+        prompt_seen = False
+        while time.monotonic() < deadline:
+            self._check_cancelled()
+            chunk = self._read_once(0.1, "tinySA synchronization")
+            if chunk or self._stash:
+                requires_prompt = True
+                boundary.extend(self._stash)
+                if len(boundary) > 1024 * 1024:
+                    raise WorkerError("tinySA synchronization exceeded response limit")
+                prompt_seen = bool(re.search(rb"(?:^|[\r\n])ch>\s*$", boundary))
+                self._stash.clear()
+                quiet_since = time.monotonic()
+            now = time.monotonic()
+            if (not requires_prompt or prompt_seen) and now - quiet_since >= 0.3:
+                return
+        raise WorkerError("tinySA synchronization timed out; no command sent")
 
     def _require_clean_input(self) -> None:
         # There are no transaction IDs: pending bytes belong to an earlier
@@ -73,14 +107,19 @@ class _SerialFraming:
         # echoes scan immediately, then can measure silently for many seconds.
         # The same applies to gaps between rows and fragments of the prompt.
         deadline = time.monotonic() + maximum
+        self._last_reply_stats = dict(received_bytes=0, complete_lines=0, last_byte_monotonic=None,
+                                      terminal_received=False)
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
             chunk = self._read_once(min(quiet, max(0.0, remaining)), label)
             if chunk:
+                self._last_reply_stats.update(received_bytes=len(self._stash),
+                    complete_lines=self._stash.count(b'\n'), last_byte_monotonic=time.monotonic())
                 if len(self._stash) > 1024 * 1024:
                     raise WorkerError(f"Превышен размер текстового ответа: {label}")
                 text = self._stash.decode("utf-8", errors="replace")
                 if text.strip().endswith("ch>"):
+                    self._last_reply_stats['terminal_received'] = True
                     self._stash.clear()
                     return text
         if not self._stash:
@@ -93,7 +132,7 @@ class _SerialFraming:
 class PosixSerialTransport(_SerialFraming):
     """Маленький blocking-by-timeout transport без внешних зависимостей."""
 
-    def __init__(self, path: str, baud: int = 9600) -> None:
+    def __init__(self, path: str, baud: int = 9600, *, discard_input: bool = True) -> None:
         import termios
 
         if not isinstance(path, str) or not path.strip():
@@ -141,7 +180,8 @@ class PosixSerialTransport(_SerialFraming):
             settings[6][termios.VMIN] = 1
             settings[6][termios.VTIME] = 0
             termios.tcsetattr(self._fd, termios.TCSANOW, settings)
-            termios.tcflush(self._fd, termios.TCIOFLUSH)
+            if discard_input:
+                termios.tcflush(self._fd, termios.TCIOFLUSH)
         except Exception as exc:
             try:
                 self.close()
@@ -223,7 +263,7 @@ def validate_windows_com_port(path: str) -> str:
 class WindowsSerialTransport(_SerialFraming):
     """Bounded COM I/O through optional pySerial, owned only by the core worker."""
 
-    def __init__(self, path: str, baud: int = 9600) -> None:
+    def __init__(self, path: str, baud: int = 9600, *, discard_input: bool = True) -> None:
         # Accept only native COM names, never pySerial URL handlers or arbitrary files.
         name = validate_windows_com_port(path)
         if type(baud) is not int or baud not in (9600, 19200, 38400, 57600, 115200):
@@ -248,7 +288,8 @@ class WindowsSerialTransport(_SerialFraming):
             self._serial.rts = False
             self._serial.port = self.path
             self._serial.open()
-            self._serial.reset_input_buffer()
+            if discard_input:
+                self._serial.reset_input_buffer()
             self._serial.reset_output_buffer()
         except Exception as exc:
             try:
@@ -317,11 +358,14 @@ class WindowsSerialTransport(_SerialFraming):
                 raise WorkerError(f"Ошибка закрытия порта {self.path}: {exc}") from exc
 
 
-def create_serial_transport(path: str, baud: int = 9600):
+def create_serial_transport(path: str, baud: int = 9600, *, discard_input: bool = True):
     """Select by the core OS, not the OS of an HTTP client."""
     if os.name == "nt":
-        return WindowsSerialTransport(path, baud)
-    return PosixSerialTransport(path, baud)
+        return WindowsSerialTransport(path, baud, discard_input=discard_input)
+    return PosixSerialTransport(path, baud, discard_input=discard_input)
+
+
+_DEFAULT_SERIAL_TRANSPORT_FACTORY = create_serial_transport
 
 
 def _command(text: str) -> bytes:
@@ -452,13 +496,24 @@ class TinySASerialAdapter(SimulatedAdapter):
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
                 raise WorkerError("tinysa-serial требует физический последовательный порт")
-            transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)))
+            if transport_factory is _DEFAULT_SERIAL_TRANSPORT_FACTORY:
+                transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)), discard_input=False)
+            else:
+                transport = transport_factory(stream.port, int(self.settings.get("baud", 9600)))
         self.transport = transport
         self._ready = False
         self._closed = False
         self._sequence = 0
         self._restart_required = False
         self._generator_output_source = "unconfirmed"
+        self._synchronized = False
+        self._transactions = deque(maxlen=64)
+        self._transaction_lock = threading.Lock()
+        self._previous_transactions = []
+        from .serial_ports import serial_port_identity
+        path = getattr(transport, "path", None)
+        identity = serial_port_identity(path) if path else None
+        self._port_identity = (identity if identity.upper().startswith("COM") else os.path.realpath(identity)) if identity else None
 
     def _ensure_usable(self) -> None:
         if self._restart_required or self._closed:
@@ -470,13 +525,49 @@ class TinySASerialAdapter(SimulatedAdapter):
         self._ready = False
         self._restart_required = True
         self._generator_output_source = "unknown"
+        if isinstance(error, WorkerCancelled):
+            return error
         return WorkerError(
             f"{error}; tinySA: требуется перезапуск потока (stop/start) с новым соединением"
         )
 
     def _transact(self, text: str, maximum: float, *, allow_leading_prompt: bool = False) -> str:
+        started = time.monotonic()
+        record = dict(command=text.split()[0], started_at=format_time(self._clock()),
+                      deadline_seconds=maximum, outcome='failed', stage='synchronize',
+                      received_bytes=0, complete_lines=0, terminal_received=False)
+        self.transport._last_reply_stats = {}
+        try:
+            result = self._exchange(text, maximum, allow_leading_prompt=allow_leading_prompt, record=record)
+            record['outcome'] = 'completed'
+            return result
+        finally:
+            stats = dict(getattr(self.transport, '_last_reply_stats', {}))
+            last = stats.pop('last_byte_monotonic', None)
+            record.update(stats)
+            record['elapsed_seconds'] = max(0, time.monotonic() - started)
+            record['last_byte_after_seconds'] = None if last is None else max(0, last - started)
+            # No command arguments, serial paths, response bodies or exception
+            # messages: the recorder can be attached to a bug report safely.
+            with self._transaction_lock:
+                self._transactions.append(record)
+
+    def _exchange(self, text, maximum, *, allow_leading_prompt, record):
+        if not self._synchronized:
+            synchronize = getattr(self.transport, "synchronize_tinysa", None)
+            if synchronize is not None:
+                with _TINYSA_PENDING_LOCK:
+                    pending_until = _TINYSA_PENDING_UNTIL.get(self._port_identity, 0.0)
+                synchronize(pending_until)
+            self._synchronized = True
+        if self._port_identity is not None:
+            with _TINYSA_PENDING_LOCK:
+                _TINYSA_PENDING_UNTIL[self._port_identity] = time.monotonic() + maximum
         self.transport.send(_command(text))
+        record['stage'] = 'reply'
         raw = self.transport.read_until_quiet(quiet=0.25, maximum=maximum, label=text)
+        record.update(received_bytes=len(raw.encode('utf-8')), complete_lines=raw.count('\n'),
+                      terminal_received=raw.strip().endswith('ch>'), stage='framing')
         # A quiet interval alone is not a completed command. Accept only the
         # supported shell frame: optional exact echo, body, one terminal ch>.
         # Apply framing to identity/scan too, so their partial responses cannot
@@ -493,6 +584,8 @@ class TinySASerialAdapter(SimulatedAdapter):
             lines = lines[1:]
         if not lines or lines[-1] != "ch>" or any("ch>" in line for line in lines[:-1]):
             raise WorkerError(f"Незавершённый или неоднозначный ответ tinySA на {text}: {raw!r}")
+        with _TINYSA_PENDING_LOCK:
+            _TINYSA_PENDING_UNTIL.pop(self._port_identity, None)
         body = lines[:-1]
         if body and body[0] == text:
             body = body[1:]
@@ -535,6 +628,9 @@ class TinySASerialAdapter(SimulatedAdapter):
             from .tinysa.controller import Controller
             self._instrument=Controller(self)
         return self._instrument.execute(payload)
+
+    def after_committed_sweep(self, sweep):
+        return self._instrument.after_committed_sweep(sweep) if self._instrument is not None else []
 
     def instrument_idle(self) -> bool:
         return self._instrument is not None and not self._instrument.before_poll()
@@ -602,7 +698,11 @@ class TinySASerialAdapter(SimulatedAdapter):
         )
 
     def details(self) -> dict[str, Any]:
+        with self._transaction_lock:
+            transactions = [dict(item) for item in self._transactions]
         result = {
+            "transactions": transactions,
+            "previous_transactions": [dict(item) for item in self._previous_transactions],
             "start_hz": self.start_hz,
             "stop_hz": self.stop_hz,
             "points": self.points,
@@ -643,6 +743,8 @@ class TinySASerialAdapter(SimulatedAdapter):
 
 class ARDV1SerialAdapter(SimulatedAdapter):
     adapter_name = "ardv1-serial"
+    _VERIFIED_VFO_STEPS = {25_000: "025.00", 100_000: "100.00", 500_000: "500.00"}
+    _MINIMUM_VFO_SETTLE_S = 0.015
     MONITOR_MODES = {'AUTO':'MD000', 'DSTAR':'MD010', 'YSF':'MD020',
                      'ALINCO':'MD030', 'NXDN':'MD040', 'P25':'MD050',
                      'DPMR':'MD060', 'DMR':'MD070', 'FM':'MD0F0', 'AM':'MD0F1'}
@@ -673,6 +775,44 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._modes = self.MONITOR_MODES if self._monitor_profile else {'FM':'MD0F0','AM':'MD0F1'}
         if self._requested_mode not in self._modes:
             raise ValueError('Режим не поддерживается выбранным профилем AR-DV1')
+        self._fast_scan = self.settings.get("fast_scan")
+        self._scan_index = 0
+        self._scan_count = 0
+        self._scan_cancel = threading.Event()
+        self._scan_step_status: str | None = None
+        self._saved_scan_raster: tuple[str, str] | None = None
+        self._scan_grid_restored: bool | None = None
+        self._board_revision = "unknown"
+        if self._fast_scan is not None:
+            if not self._monitor_profile or not isinstance(self._fast_scan, dict):
+                raise ValueError("fast_scan требует ardv1-monitor-v1 и объект настроек")
+            start = self._fast_scan.get("start_hz")
+            stop = self._fast_scan.get("stop_hz")
+            step = self._fast_scan.get("step_hz")
+            _rf_command(start)
+            _rf_command(stop)
+            if isinstance(step, bool) or not isinstance(step, int) or step <= 0 or step % 10 or stop < start:
+                raise ValueError("Некорректные границы/шаг fast_scan")
+            settle = self._fast_scan.get("settle_s", 0.015)
+            if isinstance(settle, bool) or not isinstance(settle, (int, float)) or not math.isfinite(settle) or not 0 <= settle <= 1:
+                raise ValueError("settle_s должно быть в диапазоне 0…1")
+            strategy = self._fast_scan.get("strategy", "auto")
+            if strategy not in ("auto", "rf"):
+                raise ValueError("fast_scan.strategy: допустимы auto и rf")
+            # A lost archive write must stop the scan rather than skip a grid point.
+            self.max_consecutive_errors = 1
+            self._scan_start, self._scan_stop, self._scan_step = start, stop, step
+            self._scan_settle = float(settle)
+            self._scan_count = (stop - start + step - 1) // step + 1
+            self._scan_can_step = (
+                strategy == "auto" and self._requested_mode == "FM"
+                and step in self._VERIFIED_VFO_STEPS and start % step == 0
+                and stop - start >= step and settle >= self._MINIMUM_VFO_SETTLE_S
+            )
+            self._requested_frequency_hz = start
+            # No scheduling pause between points; RF settling is explicit.
+            if "period_s" not in self.settings:
+                self.period_s = 0
         self._firmware = None
         if transport is None:
             if not stream.port or stream.port.startswith("sim://"):
@@ -700,13 +840,19 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self.frequency_hz = None
         self.mode = None
         self._frequency_source = "unknown"
+        if isinstance(error, WorkerCancelled):
+            return error
         return WorkerError(
             f"{error}; AR-DV1: требуется перезапуск потока (stop/start) с новым соединением"
         )
 
     def _transact(self, text: str) -> str:
         self.transport.send(_command(text))
-        return _ardv1_body(self.transport.read_line(timeout=1.5, label=text))
+        raw = self.transport.read_line(timeout=1.5, label=text).strip()
+        body = _ardv1_body(raw)
+        if self._fast_scan is not None and (not raw.startswith("20") or not body):
+            raise WorkerError(f"AR-DV1: {text} не вернул ответ на запрос")
+        return body
 
     def _acknowledge(self, text: str) -> None:
         self.transport.send(_command(text))
@@ -714,8 +860,9 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         _ardv1_body(raw)  # Retain the specific rejection diagnostic.
         # Only terminal, body-free success codes qualify. Echoes, data for a
         # different command and continuation frames cannot confirm a mutation.
-        # This result-code framing remains unverified on physical hardware.
-        if raw not in ("10", "20"):
+        # Fast scans use the immediate ACK observed on VR2504A.
+        successful = ("20",) if self._fast_scan is not None else ("10", "20")
+        if raw not in successful:
             raise WorkerError(f"AR-DV1 не подтвердил команду {text}: {raw!r}")
 
     def _prepare(self) -> None:
@@ -731,6 +878,8 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         serial = self._transact("RN")
         if not serial.startswith("RN") or len(serial) <= 2:
             raise WorkerError("AR-DV1 не подтвердил RN")
+        if re.fullmatch(r"RN0952[0-9]{4}", serial):
+            self._board_revision = "DV1" if int(serial[2:]) < 9_523_001 else "DV2"
         self._ready = True
 
     def _tune(self, frequency_hz: int, mode: str) -> None:
@@ -738,6 +887,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         rf = _rf_command(frequency_hz)  # Validate before any device mutation.
         self._requested_frequency_hz = frequency_hz
         self._requested_mode = mode
+        previous_mode = self.mode
         # A failed write/ACK may still have changed VFO, mode or frequency.
         # Never retain the previous frequency as if it described later LM data.
         self.frequency_hz = None
@@ -745,8 +895,10 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._frequency_source = "unknown"
         try:
             self._prepare()
-            self._acknowledge("VFA")
-            self._acknowledge(self._modes[mode])
+            if self._fast_scan is None or previous_mode is None:
+                self._acknowledge("VFA")
+            if self._fast_scan is None or previous_mode != mode:
+                self._acknowledge(self._modes[mode])
             self._acknowledge(rf)
         except Exception as exc:
             raise self._taint_connection(exc) from exc
@@ -759,6 +911,8 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._ensure_usable()
         if command != "tune":
             return super().execute(command, payload)
+        if self._fast_scan is not None:
+            raise WorkerError("Остановите fast_scan перед ручной перестройкой")
         frequency_hz = payload.get("frequency_hz")
         _rf_command(frequency_hz)
         mode = str(payload.get("mode") or self._requested_mode).strip().upper()
@@ -767,8 +921,100 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         self._tune(frequency_hz, mode)
         return self.details()
 
+    def instrument_idle(self) -> bool:
+        return self._fast_scan is not None and self._scan_index >= self._scan_count
+
+    def acquisition_finished(self) -> bool:
+        """The worker calls this only between measurements after archive commit."""
+        return self.instrument_idle()
+
+    def _prepare_scan_raster(self, hz: int) -> None:
+        self._acknowledge("VFA")
+        step = self._transact("ST")
+        shift = self._transact("SH")
+        if not re.fullmatch(r"ST[0-9]{3}\.[0-9]{2}", step) or not re.fullmatch(r"SH[0-9]{3}\.[0-9]{2}", shift):
+            raise WorkerError("AR-DV1: не удалось прочитать шаг и сдвиг VFO")
+        self._saved_scan_raster = (step, shift)
+        self._scan_grid_restored = False
+        status_step = self._VERIFIED_VFO_STEPS[self._scan_step]
+        self._acknowledge(f"VFA {_rf_command(hz)} ST{status_step} SH000.00 MD0F0")
+        if self._transact("SH") != "SH000.00":
+            raise WorkerError("AR-DV1 не подтвердил нулевой сдвиг сетки VFO")
+        self._scan_step_status = status_step
+        self._note_scan_tune(hz)
+
+    def _note_scan_tune(self, hz: int) -> None:
+        self.frequency_hz = hz
+        self._requested_frequency_hz = hz
+        self.mode = self._requested_mode
+        self._frequency_source = "command_acknowledged"
+        self._tune_sequence += 1
+
+    def _scan_tune(self, hz: int) -> str:
+        if self._scan_index == 0:
+            self._prepare()
+            if self._scan_can_step and self._board_revision == "DV1":
+                self._prepare_scan_raster(hz)
+                return "RF"
+        elif self._scan_step_status is not None and self.frequency_hz == hz - self._scan_step:
+            self._acknowledge("ZK")
+            self._note_scan_tune(hz)
+            return "ZK"
+        self._tune(hz, self._requested_mode)
+        return "RF"
+
+    def _poll_scan(self) -> ReceiverObservation:
+        if self.instrument_idle():
+            raise WorkerError("fast_scan завершён")
+        hz = min(self._scan_start + self._scan_index * self._scan_step, self._scan_stop)
+        try:
+            tune_command = self._scan_tune(hz)
+            if self._scan_cancel.wait(self._scan_settle):
+                raise WorkerCancelled("fast_scan остановлен")
+            started_at = self._clock()
+            raw = self._transact("RX")
+            # Require one complete VFO status, including the actual frequency.
+            match = re.fullmatch(
+                r"RX VFA RF([0-9]{4})\.([0-9]{5}) ST([0-9]{3}\.[0-9]{2}) (MD[0-7][0-7F][0-6]) (LM[0-9]+)", raw,
+            )
+            if match is None:
+                raise WorkerError(f"Некорректный статус RX: {raw!r}")
+            actual = int(match[1]) * 1_000_000 + int(match[2]) * 10
+            mode_status = match[4]
+            if actual != hz or mode_status[3:] != self.MONITOR_MODES[self.mode][3:]:
+                raise WorkerError(f"RX не подтвердил частоту/режим: {raw!r}")
+            if self._scan_step_status is not None and match[3] != self._scan_step_status:
+                raise WorkerError("AR-DV1: шаг VFO изменился во время прохода")
+            level, squelch = _ardv1_level(match[5])
+        except Exception as exc:
+            if self._restart_required:
+                raise
+            raise self._taint_connection(exc) from exc
+        ended_at = self._clock()
+        self._frequency_source = "receiver_RX"
+        self._sequence += 1
+        measurement = ReceiverObservation(
+            session_id=self.stream.session_id, stream_id=self.stream.id,
+            interval=TimeInterval(started_at, ended_at), frequency_hz=actual,
+            mode=self.mode, level=level, level_unit="s_meter_count",
+            squelch_open=squelch != 0, decoded_mode=self.DECODED.get(mode_status[2]),
+            metadata={"receiver_profile": "ardv1-monitor-v1", "receiver_firmware": self._firmware,
+                      "adapter": self.adapter_name, "sequence": self._sequence,
+                      "tune_sequence": self._tune_sequence, "frequency_source": "receiver_RX",
+                      "mode_source": "receiver_RX", "frequency_readback": True,
+                      "raw_receiver_status": raw, "raw_mode_status": mode_status,
+                      "raw_squelch_status": squelch, "decoder_source": "receiver_RX",
+                      "scan_index": self._scan_index, "scan_total": self._scan_count,
+                      "scan_tune_command": tune_command, "scope_source": "sequential_receiver_readback",
+                      "settle_s": self._scan_settle, "simulated": False,
+                      "hardware_validation": HARDWARE_VALIDATION_NOT_RUN})
+        self._scan_index += 1
+        return measurement
+
     def poll(self) -> ReceiverObservation:
         self._ensure_usable()
+        if self._fast_scan is not None:
+            return self._poll_scan()
         if self._frequency_source == "unconfirmed":
             self._tune(self._requested_frequency_hz, self._requested_mode)
         if self.frequency_hz is None or self.mode is None:
@@ -820,7 +1066,13 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             "requested_mode": self._requested_mode,
             "frequency_source": self._frequency_source,
             "mode_source": self._frequency_source,
-            "frequency_readback": False,
+            "frequency_readback": self._frequency_source == "receiver_RX",
+            "scan_completed_points": self._scan_index,
+            "scan_total_points": self._scan_count,
+            "scan_complete": self.instrument_idle(),
+            "scan_strategy": ("ZK" if self._scan_step_status is not None else "RF") if self._fast_scan is not None else None,
+            "scan_grid_restored": self._scan_grid_restored,
+            "receiver_board_revision": self._board_revision,
             "restart_required": self._restart_required,
             "tune_sequence": self._tune_sequence,
             "simulated": False,
@@ -828,6 +1080,7 @@ class ARDV1SerialAdapter(SimulatedAdapter):
         }
 
     def request_stop(self) -> None:
+        self._scan_cancel.set()
         cancel = getattr(self.transport, "cancel", None)
         if cancel is not None:
             cancel()
@@ -837,6 +1090,15 @@ class ARDV1SerialAdapter(SimulatedAdapter):
             return
         self._closed = True
         try:
+            if self._saved_scan_raster is not None and not self._restart_required and not self._scan_cancel.is_set():
+                try:
+                    step, shift = self._saved_scan_raster
+                    self._acknowledge(f"VFA {step} {shift}")
+                    if (self._transact("ST"), self._transact("SH")) != (step, shift):
+                        raise WorkerError("AR-DV1 не подтвердил восстановление шага и сдвига VFO")
+                    self._scan_grid_restored = True
+                except Exception as exc:
+                    raise self._taint_connection(exc) from exc
             if self._ready and not self._restart_required:
                 try:
                     self.transport.send(_command("EX"))

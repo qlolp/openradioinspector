@@ -36,6 +36,14 @@ class WorkerError(RuntimeError):
     """Ошибка запуска, команды или остановки исполнителя."""
 
 
+class CommittedAnalysisError(WorkerError):
+    """A committed sweep could not be analyzed/journaled; never silently continue."""
+
+
+class WorkerCancelled(WorkerError):
+    """An explicitly cancelled transport operation, not a device fault."""
+
+
 class WorkerCommandTimeout(WorkerError):
     def __init__(self,message,*,uncertain):
         super().__init__(message)
@@ -368,6 +376,7 @@ class DeviceWorker:
         self._clock = clock
         self._commands: queue.Queue[dict[str, Any]] = queue.Queue()
         self._stop_event = threading.Event()
+        self._stop_mode = None
         self._lock = threading.RLock()
         self._thread: Optional[threading.Thread] = None
         self._state = DeviceState.DISCONNECTED
@@ -392,6 +401,7 @@ class DeviceWorker:
             if self._thread and self._thread.is_alive():
                 raise WorkerError(f"Исполнитель уже запущен: {self.stream_id}")
             self._stop_event.clear()
+            self._stop_mode = None
             self._finished = False
             self._terminal_state = DeviceState.DISCONNECTED
             self._last_error = None
@@ -406,18 +416,22 @@ class DeviceWorker:
             self._set_state(DeviceState.READY)
             self._thread.start()
 
-    def stop(self, *, timeout: float = 5.0) -> None:
+    def stop(self, *, timeout: float = 5.0, mode: str = "force") -> None:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         with self._lock:
             thread = self._thread
+            if self._stop_mode != "force":
+                self._stop_mode = mode
             self._stop_event.set()
             self._reject_pending_commands()
         if thread is None or not thread.is_alive():
             return
         request_stop = getattr(self.adapter, "request_stop", None)
-        if request_stop is not None:
+        if mode == "force" and request_stop is not None:
             request_stop()
         self._commands.put({"command": "__wake__"})
-        if thread is not threading.current_thread():
+        if mode == "force" and thread is not threading.current_thread():
             thread.join(timeout=timeout)
             if thread.is_alive():
                 raise WorkerError(f"Исполнитель не остановился за {timeout} с: {self.stream_id}")
@@ -463,6 +477,8 @@ class DeviceWorker:
                 "adapter": self.adapter.adapter_name,
                 "state": self._state.value,
                 "alive": bool(self._thread and self._thread.is_alive()),
+                "stopping": self._stop_event.is_set() and bool(self._thread and self._thread.is_alive()),
+                "stop_mode": self._stop_mode,
                 "measurements": self._measurements,
                 "commands_completed": self._commands_completed,
                 "consecutive_errors": self._consecutive_errors,
@@ -488,20 +504,34 @@ class DeviceWorker:
                 self._drain_commands()
                 if self._stop_event.is_set():
                     break
+                finished = getattr(self.adapter, "acquisition_finished", None)
+                if finished is not None and finished():
+                    break
                 idle=getattr(self.adapter,'instrument_idle',None)
                 if idle is not None and idle():
                     self._stop_event.wait(0.05)
                     continue
                 try:
                     measurement = self.adapter.poll()
+                    if self._stop_event.is_set() and self._stop_mode == "force":
+                        break
                     from .tinysa.artifacts import InstrumentSample
                     if isinstance(measurement, InstrumentSample):
                         self.sessions.save_instrument_artifact(self.session_id,self.stream_id,measurement.artifact)
                     elif isinstance(measurement, Sweep):
                         self.sessions.ingest_sweep(measurement)
+                        after_commit = getattr(self.adapter, "after_committed_sweep", None)
+                        if after_commit is not None:
+                            try:
+                                for artifact in after_commit(measurement):
+                                    self.sessions.save_instrument_artifact(self.session_id, self.stream_id, artifact)
+                            except Exception as exc:
+                                raise CommittedAnalysisError(f"Наблюдение остановлено: анализ/журнал исходного свипа {measurement.id}: {exc}") from exc
                     else:
                         self.sessions.ingest_observation(measurement)
                 except Exception as exc:  # ошибка одного прибора изолирована от остальных
+                    if isinstance(exc, WorkerCancelled) and self._stop_event.is_set():
+                        break
                     self._consecutive_errors += 1
                     self._last_error = str(exc)
                     self._set_state(DeviceState.DEGRADED)
@@ -515,7 +545,7 @@ class DeviceWorker:
                             "consecutive_errors": self._consecutive_errors,
                         },
                     )
-                    if self._consecutive_errors >= self.adapter.max_consecutive_errors:
+                    if isinstance(exc, CommittedAnalysisError) or self._consecutive_errors >= self.adapter.max_consecutive_errors:
                         self._terminal_state = DeviceState.ERROR
                         break
                 else:
@@ -652,12 +682,15 @@ class DeviceWorkerManager:
 
     def capabilities(self) -> dict[str, Any]:
         return {
+            "graceful_device_stop": True,
+            "explicit_stream_recovery": True,
             "simulated_device_workers": True,
             "independent_worker_commands": True,
             "continuous_simulated_monitoring": True,
             "hardware_control": True,
             "hardware_validation_not_run": True,
             "explicit_serial_adapters": True,
+            "ardv1_sampled_scope": True,
         }
 
     @property
@@ -786,6 +819,8 @@ class DeviceWorkerManager:
 
             try:
                 adapter = create_device_adapter(stream, clock=self._clock)
+                if existing and hasattr(adapter, '_previous_transactions'):
+                    adapter._previous_transactions = existing.adapter.details().get('transactions', [])[-64:]
             except (ValueError, TypeError, OSError) as exc:
                 raise WorkerError(str(exc)) from exc
             worker: Optional[DeviceWorker] = None
@@ -857,7 +892,7 @@ class DeviceWorkerManager:
         return results
 
     def _stop_worker(
-        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, *, timeout: float = 5.0
+        self, key: tuple[str, str], lifecycle: _WorkerLifecycle, *, timeout: float = 5.0, mode: str = "force"
     ) -> Optional[DeviceWorker]:
         deadline = time.monotonic() + timeout
         with self._lock:
@@ -868,23 +903,27 @@ class DeviceWorkerManager:
             with self._lock:
                 worker = self._workers.get(key)
             if worker is not None:
-                worker.stop(timeout=max(0.0, deadline - time.monotonic()))
+                worker.stop(timeout=max(0.0, deadline - time.monotonic()), mode=mode)
             return worker
         finally:
             lifecycle.lock.release()
 
     def stop_stream(
-        self, session_id: str, stream_id: str, *, timeout: float = 5.0
+        self, session_id: str, stream_id: str, *, timeout: float = 5.0, mode: str = "force"
     ) -> dict[str, Any]:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         self._stream(self.sessions.get_session(session_id), stream_id)
         key = (session_id, stream_id)
-        worker = self._stop_worker(key, self._lifecycle(key), timeout=timeout)
+        worker = self._stop_worker(key, self._lifecycle(key), timeout=timeout, mode=mode)
         if worker is None:
             session = self.sessions.get_session(session_id)
             return self._static_status(session, self._stream(session, stream_id))
         return worker.status()
 
-    def stop_session(self, session_id: str) -> list[dict[str, Any]]:
+    def stop_session(self, session_id: str, *, mode: str = "force") -> list[dict[str, Any]]:
+        if mode not in ("graceful", "force"):
+            raise ValueError("stop mode must be graceful or force")
         self.sessions.get_session(session_id)
         with self.stopping_session(session_id):
             with self._lock:
@@ -895,13 +934,38 @@ class DeviceWorkerManager:
             first_error: Optional[Exception] = None
             for key, lifecycle in lifecycles:
                 try:
-                    self._stop_worker(key, lifecycle)
+                    self._stop_worker(key, lifecycle, mode=mode)
                 except Exception as exc:
                     if first_error is None:
                         first_error = exc
             if first_error is not None:
                 raise first_error
             return self.list_workers(session_id)
+
+    def recover_stream(self, session_id: str, stream_id: str) -> dict[str, Any]:
+        """Explicit new connection after failure/stop; never bypass synchronization.
+
+        A live worker (including a manual lease or a pending graceful stop) must
+        first be stopped explicitly. Its detector/lease is not transferred.
+        Concurrent stop invalidates the start ticket just as for normal starts.
+        """
+        if self.control_authorizer:
+            self.control_authorizer(session_id, stream_id, None)
+        self._stream(self.sessions.get_session(session_id), stream_id)
+        key = (session_id, stream_id)
+        lifecycle = self._lifecycle(key)
+        with lifecycle.lock:
+            with self._lock:
+                old = self._workers.get(key)
+                if old is None:
+                    raise WorkerError('Нет остановленного исполнителя для восстановления')
+                if old.alive:
+                    raise WorkerError('Сначала явно остановите текущий приём')
+                generation = lifecycle.stop_generation
+                self._check_start_allowed(key, lifecycle, generation)
+        result = self._start_stream(key, lifecycle, generation)
+        result['recovery'] = dict(requires_new_measurement=True, watch_resumed=False)
+        return result
 
     def tune(
         self, session_id: str, stream_id: str, payload: dict[str, Any], *, control_owner=None
@@ -961,6 +1025,8 @@ class DeviceWorkerManager:
             "adapter": stream.settings.get("adapter"),
             "state": stream.state.value,
             "alive": False,
+            "stopping": False,
+            "stop_mode": None,
             "measurements": 0,
             "commands_completed": 0,
             "consecutive_errors": 0,

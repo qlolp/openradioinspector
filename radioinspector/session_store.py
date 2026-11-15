@@ -324,6 +324,11 @@ class SQLiteSessionStore:
         if "listening_started_at" not in columns:
             self._connection.execute("ALTER TABLE investigations ADD COLUMN listening_started_at TEXT")
         self._create_reference_schema()
+        self._connection.execute('''CREATE TABLE IF NOT EXISTS frequency_bookmarks (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL, revision INTEGER NOT NULL, document TEXT NOT NULL,
+            UNIQUE(session_id,name,revision))''')
         self._create_measurement_schema()
         from .monitoring.schema import install_sweep_index
         install_sweep_index(self._connection)
@@ -519,6 +524,23 @@ class SQLiteSessionStore:
                 (self._sweep_reference(row) for row in rows),
                 key=lambda item: (parse_time(item["created_at"]), item["id"]),
             )
+
+    def list_frequency_bookmarks(self, session_id):
+        with self._lock:
+            rows = self._connection.execute('SELECT document FROM frequency_bookmarks '
+                'WHERE session_id=? ORDER BY sequence DESC LIMIT 256',(session_id,)).fetchall()
+            return [json.loads(row[0]) for row in rows]
+
+    def save_frequency_bookmarks(self, item, *, event):
+        with self._lock, self._connection:
+            self._connection.execute('BEGIN IMMEDIATE')
+            count = self._connection.execute('SELECT COUNT(*) FROM frequency_bookmarks WHERE session_id=?',
+                (item['session_id'],)).fetchone()[0]
+            if count >= 256:
+                raise ValueError('Достигнут предел версий наборов частот')
+            self._connection.execute('INSERT INTO frequency_bookmarks(id,session_id,name,revision,document) VALUES(?,?,?,?,?)',
+                (item['id'],item['session_id'],item['name'],item['revision'],json.dumps(item,ensure_ascii=False,allow_nan=False)))
+            self._insert_event(event)
 
     def save_sweep_reference(
         self, reference: dict[str, Any], *, event: SessionEvent,

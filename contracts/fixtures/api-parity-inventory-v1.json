@@ -388,6 +388,10 @@
       "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/content"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/artifacts/{artifact_id}/json"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/sessions/{id}/streams/{stream_id}/instrument/operations/{operation_id}/cancel"
     },
@@ -546,6 +550,22 @@
     {
       "method": "POST",
       "path": "/api/v1/sessions/{id}/field-strength-rms-v2"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/frequency-history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sessions/{id}/frequency-bookmarks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/frequency-bookmarks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sessions/{id}/streams/{stream_id}/recover"
     }
   ],
   "legacy_operations": [
@@ -683,6 +703,42 @@
       "source_sha256": {
         "radioinspector/web/server.py": "59af84f23774de1d32e125d65837bdcc565ec2e258fe7fbf7322e523c48b4eaa",
         "radioinspector/web/openapi.py": "d0a152c3f6d76ddc18de73ef00fea75a2ba8e13303cf7be5037974e962368058",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "0d1cdd6a9302259a7cb5a9d0fb8dcae8bd87975d",
+      "source_sha256": {
+        "radioinspector/web/server.py": "27b51efbcbe0fa5055998a9ed8df4377cc90e11e51e6b682a9a4e985f927dc59",
+        "radioinspector/web/openapi.py": "10f8f4146cda70273f066e90aea58e8b55fcf8a23785f9246148f068b28d3161",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "df1989aabcbdd8c8136d736123fee21d036b0bbcda1e0aa670f19d8ff23b9892",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "fc1eee30e079d7f56a3ff4f1f7099cc863c8083e",
+      "source_sha256": {
+        "radioinspector/web/server.py": "8f2b6ead0073a637a5bc55668067360b8af9a870495e14326d537391ec4c80ff",
+        "radioinspector/web/openapi.py": "bbc23be230dae6a4c65da7d44c68dc937e4b02bec701217ea09dba54cc48653f",
+        "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
+        "radioinspector/tinysa/api.py": "15e75bd770642e7f408ddc62c1c0a9c343fe386a565ef22f7dd2f0b6f2324b87",
+        "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",
+        "pyproject.toml": "d6bc38babc07e2eaafd90bb92c490e50c6cf9fe7dd524b8f3e2847877fe2ba1c",
+        "radioinspector/web/event_streams.py": "d5a0e4199b2812ad641cca0fadbd79d33fbc2d4319c01ecb0bb2ed447cf5d07c"
+      }
+    },
+    {
+      "revision": "eb2f1ef2a184e209eded684eea19eb4d4af226c2",
+      "source_sha256": {
+        "radioinspector/web/server.py": "27b51efbcbe0fa5055998a9ed8df4377cc90e11e51e6b682a9a4e985f927dc59",
+        "radioinspector/web/openapi.py": "a12febdcbaa854e9b392dc8e8432908820879d85c235476c0d2e050520f1c88c",
         "radioinspector/monitoring/api.py": "ed2798a715ee1677b65b013ae02712a5459d3a716e0d21f03915af6b6656b88d",
         "radioinspector/tinysa/api.py": "57121e246829eeef1b0a082df447b31122083f6e897701c4de2284ee4db1a327",
         "radioinspector/cli.py": "aa8fb145f415fd8d157b0adbff06a5cd86f8671145db51b3da81ebc5b89f584b",

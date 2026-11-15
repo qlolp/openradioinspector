@@ -423,6 +423,20 @@ class TypedControlExtensionTests(unittest.TestCase):
         return compare_http(self.response(reference),self.response(candidate),operation=self.operation,
                             typed_control_collected=True,**options)
 
+    def test_receive_watch_catalogue_is_compared_not_projected_as_diagnostic(self):
+        from radioinspector.tinysa.commands import catalog
+        reference,_=self.bodies()
+        names=('receive.configure','watch.start','watch.stop')
+        for name in names:
+            reference['capabilities']['data']['capabilities']['operations'][name]=catalog()['operations'][name]
+        self.assertEqual(self.outcome(reference,copy.deepcopy(reference)).state,'pass')
+        older=copy.deepcopy(reference)
+        for name in names:del older['capabilities']['data']['capabilities']['operations'][name]
+        self.assertEqual(self.outcome(reference,older).state,'mismatch')
+        changed=copy.deepcopy(reference)
+        changed['capabilities']['data']['capabilities']['operations']['watch.start']['fields']={}
+        self.assertEqual(self.outcome(reference,changed).state,'mismatch')
+
     def test_actual_additions_require_scope_and_retain_raw_bytes_and_evidence(self):
         reference,candidate=self.additions_only()
         left,right=self.response(reference),self.response(candidate);before=right.body
@@ -641,7 +655,7 @@ class OwnedProducerTests(unittest.TestCase):
             self.assertTrue(result["producer_sanity"]["successful"],result)
             self.assertGreaterEqual(result["producer_sanity"]["compared_cases"],140)
             self.assertTrue(result["producer_sanity"]["async_protocol_verified"])
-            self.assertEqual(result["inventory"]["published_v1_operations"],136)
+            self.assertEqual(result["inventory"]["published_v1_operations"],141)
             self.assertTrue(all(node["joined"] for node in result["nodes"]))
         except BaseException:
             print("Retained failed public API parity fixture:",directory)
