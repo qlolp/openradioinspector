@@ -16,6 +16,10 @@ final class NativeArchiveBrowser {
         revision = UUID(); rows = []; sources = []; nextCursor = nil; busy = false; didLoad = false; message = ""
     }
 
+    func row(id: PlatformExactID) -> PlatformArchiveSweepRow? {
+        rows.first { $0.exactID == id }
+    }
+
     /// Each search replaces the previous result. Callers cancel their task when scope changes.
     func search(client: PlatformClient, session: String, stream: String, start: String? = nil,
                 end: String? = nil, minimum: Int64? = nil, maximum: Int64? = nil,
