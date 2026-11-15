@@ -1,7 +1,7 @@
 {
-  "baseline_schema_sha256": "a1e34a6ceaba080c2285b7ee3087b58dc097fdcbb1645bf643e3f0c7b3c56c7d",
+  "baseline_schema_sha256": "722320104a91a06dd1401bfda6d78a2a2873ce9284066bb8c3029e86ba56c614",
   "extension_sha256": "1534cacb358ca7cc124f55a91b00623cb66cae3d71473600bd35f6fc69f3db0e",
   "extension_version": 1,
-  "runtime_schema_sha256": "8cad6c07ad2d679afdc0ac75e1d04b399bf5c95084c54a8c4764af36fd5fa8fd",
+  "runtime_schema_sha256": "84dcd0506f4ca84ac0d0cadd12b88535205782a6a129d9dceb0637d400a76d84",
   "variant": "rust-candidate"
 }

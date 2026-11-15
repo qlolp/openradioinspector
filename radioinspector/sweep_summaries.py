@@ -17,12 +17,14 @@ def _time(value):
 
 
 def query_parameters(session_id, *, stream_id=None, limit=100, after=None,
-                     start=None, end=None, min_hz=None, max_hz=None):
+                     start=None, end=None, min_hz=None, max_hz=None, context=None):
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('Summary limit must be 1..100')
     filters = dict(session_id=session_id, stream_id=stream_id,
                    start=None if start is None else _time(start),
                    end=None if end is None else _time(end), min_hz=min_hz, max_hz=max_hz)
+    if context is not None:
+        filters['context'] = context  # Bind derived read-only views to their own selection.
     if start is not None and end is not None and filters['end'] <= filters['start']:
         raise ValueError('Summary end must follow start')
     for value in (min_hz, max_hz):

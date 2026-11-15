@@ -32,6 +32,8 @@ ANALYSIS_BUDGETS = {
     'frequency-counter': MAX_COUNTER_REQUEST_BYTES, 'dvb-evaluation': MAX_DVB_REQUEST_BYTES,
     'measurement-map': MAX_MAP_REQUEST_BYTES,
     'field-strength-rms-v2': MAX_FIELD_REQUEST_BYTES,
+    'frequency-history': 24576,
+    'frequency-bookmarks': 8192,
 }
 
 
@@ -46,6 +48,30 @@ def obj(properties=None, required=()):
 
 def array(items):
     return {'type': 'array', 'items': items}
+
+
+def frequency_history_schemas():
+    hz = {'type':'integer','minimum':0,'maximum':9007199254740991,'format':'int64'}
+    text = {'type':'string'}
+    nullable = {'type':['string','null']}
+    def closed(fields):
+        return {**obj(fields,tuple(fields)), 'additionalProperties':False}
+    entry = closed({'label':{'type':'string','minLength':1,'maxLength':80},'frequency_hz':hz})
+    entries = {**array(ref('FrequencyBookmarkEntry')),'minItems':1,'maxItems':4}
+    return {
+        'FrequencyHistorySample':closed({'requested_hz':hz,
+            'frequency_hz':{**hz,'type':['integer','null']},'level':{'type':['number','null'],'format':'double'}}),
+        'FrequencyHistoryRow':closed({'sweep_id':text,'interval':ref('TimeInterval'),'level_unit':text,
+            'segment_id':text,'samples':{**array(ref('FrequencyHistorySample')),'minItems':1,'maxItems':4}}),
+        'FrequencyHistoryPage':closed({'session_id':text,'stream_id':text,
+            'frequencies_hz':{**array(hz),'minItems':1,'maxItems':4,'uniqueItems':True},
+            'start':text,'end':text,'items':{**array(ref('FrequencyHistoryRow')),'maxItems':100},'next_cursor':nullable}),
+        'FrequencyBookmarkEntry':entry,
+        'FrequencyBookmarkSet':closed({'id':text,'session_id':text,'schema_version':{'type':'integer','const':1},
+            'name':text,'revision':{'type':'integer','minimum':1},'created_at':text,'entries':entries}),
+        'FrequencyBookmarkPage':closed({'session_id':text,
+            'items':{**array(ref('FrequencyBookmarkSet')),'maxItems':256},'limit':{'type':'integer','const':256}}),
+    }
 
 
 def field_strength_schemas():
@@ -167,6 +193,7 @@ def schemas():
             'active_session_id': nullable_text, 'baseline_id': nullable_text,
             'autostart': {'type': 'boolean'}, 'session_ids': array(identifier)}, ('id', 'name', 'site', 'state')),
         **field_strength_schemas(),
+        **frequency_history_schemas(),
         'Envelope': obj({'contract': {'type': 'string', 'const': CONTRACT_NAME},
             'contract_version': {'type': 'integer', 'const': CONTRACT_VERSION}, 'data': {}},
             ('contract', 'contract_version', 'data')),
@@ -235,6 +262,24 @@ def document():
     add('/events/history', response=array(ref('SessionEvent')), queries=('after', 'limit'))
     add('/events', mime='text/event-stream', queries=('after',))
     base = '/sessions/{id}'
+    history_input = {**obj({'stream_id':{'type':'string','minLength':1,'maxLength':128},
+        'frequencies_hz':{'type':'array','minItems':1,'maxItems':4,'uniqueItems':True,
+            'items':{'type':'integer','minimum':0,'maximum':9007199254740991}},
+        'start':{'type':'string','format':'date-time'},'end':{'type':'string','format':'date-time'},
+        'limit':{'type':'integer','minimum':1,'maximum':100},
+        'after':{'type':['string','null'],'maxLength':16384}},('stream_id','frequencies_hz','start','end')),
+        'additionalProperties':False}
+    add(base+'/frequency-history','post',ref('FrequencyHistoryPage'),body=history_input)
+    paths['/api/v1'+base+'/frequency-history']['post']['description'] = (
+        'Read-only actual-bin history in newest-first order; no frequency/time interpolation. '
+        'Cursor freezes ingestion and binds frequencies, scope and UTC window. '
+        'Out-of-range samples are null; segment_id changes with recorded settings/grid/units. '
+        'Requires features.frequency_history; does not perform acquisition.')
+    add(base+'/frequency-bookmarks',response=ref('FrequencyBookmarkPage'))
+    add(base+'/frequency-bookmarks','post',ref('FrequencyBookmarkSet'),status=201,body={
+        **obj({'name':{'type':'string','minLength':1,'maxLength':80},
+        'entries':{**array(ref('FrequencyBookmarkEntry')),'minItems':1,'maxItems':4}},('name','entries')),
+        'additionalProperties':False})
     add(base, response=ref('Session'))
     for action in ('start', 'stop', 'workers/start', 'workers/stop'):
         add(base+'/'+action, 'post')
