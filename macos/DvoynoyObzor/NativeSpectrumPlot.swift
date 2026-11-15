@@ -91,7 +91,10 @@ struct NativeSpectrumPlot: View {
                 for (number, bin) in peaks.enumerated() {
                     let point = CGPoint(x: x(Double(selected.frequenciesHz[bin])), y: y(selected.levels[bin]))
                     let caption = CGPoint(x: plot.minX + plot.width * (Double(number) + 0.5) / Double(labelCount), y: 7)
-                    line(CGPoint(x: caption.x, y: 14), point, color: .yellow.opacity(0.5))
+                    // Match the legend by rank without leader lines crossing the entire trace.
+                    let badge = CGPoint(x: min(plot.maxX - 12, max(plot.minX + 12, point.x)),
+                                        y: max(plot.minY + 9, point.y - 12))
+                    label("P\(number + 1)", badge, color: .yellow)
                     context.fill(Path(ellipseIn: CGRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)), with: .color(.yellow))
                     label("P\(number + 1) \(String(format: "%.3f", Double(selected.frequenciesHz[bin]) / 1_000_000)) МГц · \(String(format: "%.1f", selected.levels[bin])) дБм", caption, color: .yellow)
                 }

@@ -55,7 +55,10 @@ struct NativeWaterfall3D: View {
                         let p = project((hz - range.lowerBound) / (range.upperBound - range.lowerBound), time, level)
                         if let previous {
                             let color = WaterfallPalette.color(level)
-                            line([previous, p], color: Color(red: color.red, green: color.green, blue: color.blue))
+                            // Thin ridges need a luminance floor; height still uses the unmodified level.
+                            line([previous, p], color: Color(red: 0.22 + color.red * 0.78,
+                                                           green: 0.22 + color.green * 0.78,
+                                                           blue: 0.22 + color.blue * 0.78), width: 1.2)
                         }
                         previous = p
                     }

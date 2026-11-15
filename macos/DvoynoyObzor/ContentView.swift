@@ -36,12 +36,13 @@ struct ContentView: View {
                     Text("Сигналы").tag("signals")
                     Text("Архив").tag("archive")
                     Text("Охрана и исследование").tag("guard")
-                }.pickerStyle(.segmented).frame(maxWidth: 720)
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
                 Spacer(minLength: 0)
                 if tab == "range" {
                     Toggle("AR-DV1", isOn: $showReceiver).toggleStyle(.button).disabled(model.receiver == nil)
                 }
-            }.padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
+            }.fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
             Divider()
             NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
             ZStack {
