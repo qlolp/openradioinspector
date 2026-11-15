@@ -132,7 +132,9 @@ class WorkerManagerTests(unittest.TestCase):
         return session, session.streams[0].id, session.streams[1].id
 
     def test_continuous_archive_and_stopping_one_device_does_not_stop_other(self) -> None:
-        session, tinysa_id, ardv1_id = self.start_session()
+        session, tinysa_id, ardv1_id = self.start_session(
+            simulated_session_payload(ardv1_settings={"period_s": 0.2})
+        )
         statuses = self.manager.start_session(session.id)
         self.assertEqual(len(statuses), 2)
         wait_until(
@@ -145,7 +147,12 @@ class WorkerManagerTests(unittest.TestCase):
         self.assertEqual(stopped["state"], "disconnected")
         sweep_count = len(self.service.list_sweeps(session.id))
         observation_count = len(self.service.list_observations(session.id))
-        time.sleep(0.08)
+        # Independent devices have different cadences. Prove an actual new
+        # receiver commit instead of assuming it is scheduled within 80 ms.
+        wait_until(
+            lambda: len(self.service.list_observations(session.id)) > observation_count,
+            "AR-DV1 должен продолжать запись после остановки tinySA",
+        )
         self.assertEqual(len(self.service.list_sweeps(session.id)), sweep_count)
         self.assertGreater(len(self.service.list_observations(session.id)), observation_count)
 

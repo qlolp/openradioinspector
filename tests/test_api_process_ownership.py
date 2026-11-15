@@ -374,10 +374,14 @@ class ActualNodeOwnershipTests(unittest.TestCase):
             class FixtureNode(OwnedNode):
                 def _command(self, _data):
                     parent = (
-                        "import subprocess,sys;from pathlib import Path;"
+                        "import os,subprocess,sys,time;from pathlib import Path;"
                         f"child=subprocess.Popen([sys.executable,'-u','-c',{child!r}],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL);"
                         "assert child.stdout.readline()==b'ready\\n';child.stdout.close();"
-                        f"ready=Path({str(self.ready)!r});ready.write_text('http://127.0.0.1:12345\\n');"
+                        f"ready=Path({str(self.ready)!r});"
+                        "pending=ready.with_suffix('.pending');"
+                        "stream=pending.open('w',encoding='utf-8');time.sleep(.2);"
+                        "stream.write('http://127.0.0.1:12345\\n');stream.close();"
+                        "os.replace(pending,ready);"
                         "sys.stdin.buffer.read();ready.unlink()"
                     )
                     return [sys.executable, "-u", "-c", parent]
