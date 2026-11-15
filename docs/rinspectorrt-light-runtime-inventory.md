@@ -730,3 +730,235 @@ MBytes» показывают, что база найденных сигнало
 * Опасные действия (удаление записей, очистка базы, очистка трасс)
   намеренно не выполнялись: проверка ограничивалась чтением, выбором строк и
   обратимыми переключателями, которые затем возвращены в исходное состояние.
+
+## 12. Каталог окон приложения
+
+### 12.1. Как получен каталог
+
+Окна перечислены по фактическим классам VCL-форм программы (перебор окон
+процесса `InspectorRT.exe`): `TFInspectorRCMF` — главное окно, `TFCommonSetting`
+— общие настройки, `TFSignalsListAction` — конфигурация реакции на порог,
+`TFDigitalCalc` — параметры цифровой обработки, `TFAbout` — о программе,
+`TFMyMessageDlg` и `TMessageForm` — информационные окна. Каждое окно снято
+отдельно, без посторонних элементов рабочего стола.
+
+Снимки этого раздела сняты при подключённом приёмнике AOR AR-DV1 и идут под
+сквозными номерами 40–69; они дополняют снимки 01–39 предыдущих разделов.
+
+### 12.2. Главное окно
+
+| Окно / вкладка | Как открывается | Снимок |
+|---|---|---|
+| Главное окно, вкладка «Range 0.1-1300.0002MHz» | по умолчанию | 40 |
+| Measuring setup: «Measuring instrument» и «Audio source» | вкладка Measuring setup | 41 |
+| Measuring setup → Navigation receiver | вкладка Measuring setup → Navigation receiver | 42 |
+| Measuring setup → External antenna switcher | вкладка Measuring setup → External antenna switcher | 43 |
+| Measuring setup → ECM (jamming) | вкладка Measuring setup → ECM (jamming) | 44 |
+| Measuring setup → Antenna compass | вкладка Measuring setup → Antenna compass | 45 |
+
+![Главное окно: живое измерение диапазона](images/rinspectorrt-light/40-main-window-range-live.png)
+
+*Главное окно в рабочем состоянии: меню и панель инструментов, левая часть —
+спектрограмма и водопад диапазона 0,1–1300 МГц, правая — таблица найденных
+сигналов с базой на 3313 записей; в заголовке — метка прибора [AR DV1].*
+
+![Панели Measuring instrument и Audio source](images/rinspectorrt-light/41-measuring-setup-panels.png)
+
+*Группа «Measuring instrument» (прибор, COM-порт, скорость, модель AR DV1,
+кнопка Test, состояние приёмника) и группа «Audio source» (источник звука не
+задан — в Light звукового контроля нет).*
+
+![Navigation receiver](images/rinspectorrt-light/42-measuring-setup-navigation-receiver.png)
+
+*Вкладка Navigation receiver: опция RC-GEO в сборке не установлена, поэтому
+вместо карты выводится соответствующее сообщение.*
+
+![External antenna switcher](images/rinspectorrt-light/43-measuring-setup-antenna-switcher.png)
+
+*Вкладка External antenna switcher: настройки удалённого управления внешним
+коммутатором антенны, модель и состояние устройства.*
+
+![ECM (jamming)](images/rinspectorrt-light/44-measuring-setup-ecm-jamming.png)
+
+*Вкладка ECM (jamming): параметры работы с аппаратурой радиоэлектронной
+борьбы и источник сигнала для контроля.*
+
+![Antenna compass](images/rinspectorrt-light/45-measuring-setup-antenna-compass.png)
+
+*Вкладка Antenna compass: задание азимута и угла места для пеленгования.*
+
+### 12.3. Общие настройки (Common settings)
+
+Одно модальное окно Common settings с девятью вкладками; каждая вкладка —
+отдельный снимок.
+
+| Вкладка | Снимок |
+|---|---|
+| Control via network | 46 |
+| Traces database | 47 |
+| Folders | 48 |
+| Detected signals frequencies | 49 |
+| Antenna switch | 50 |
+| Geoinformation system | 51 |
+| Other settings | 52 |
+| Sound demodulation options | 53 |
+| Remote check computer | 54 |
+
+![Common settings: Control via network](images/rinspectorrt-light/46-settings-control-via-network.png)
+
+*Управление программой по сети: порт и параметры TCP-сервера.*
+
+![Common settings: Traces database](images/rinspectorrt-light/47-settings-traces-database.png)
+
+*Хранилище записей панорам: режим удаления (никогда / старше N дней), предел
+объёма, ежедневная ротация файла базы.*
+
+![Common settings: Folders](images/rinspectorrt-light/48-settings-folders.png)
+
+*Рабочие каталоги программы: сохранение IQ, шаблоны протоколов, волновые
+файлы, база данных и справка.*
+
+![Common settings: Detected signals frequencies](images/rinspectorrt-light/49-settings-detected-signals-frequencies.png)
+
+*Хранилище найденных сигналов: формат файлов .risdt, автосохранение и
+сохранение спектров.*
+
+![Common settings: Antenna switch](images/rinspectorrt-light/50-settings-antenna-switch.png)
+
+*Настройки внешнего коммутатора антенны и его сопряжения с приёмником.*
+
+![Common settings: Geoinformation system](images/rinspectorrt-light/51-settings-geoinformation.png)
+
+*Геоинформационная привязка: источник карт (MapInfo или онлайн-сервис по
+данным OpenStreetMap) и звуковое уведомление о смене координат.*
+
+![Common settings: Other settings](images/rinspectorrt-light/52-settings-other-settings.png)
+
+*Прочие параметры: ускорение перерисовки спектрограмм и размер экранных
+кнопок.*
+
+![Common settings: Sound demodulation options](images/rinspectorrt-light/53-settings-sound-demodulation.png)
+
+*Параметры записи демодулированного аудиосигнала для цифровых стандартов
+APCO25, DMR и TETRA.*
+
+![Common settings: Remote check computer](images/rinspectorrt-light/54-settings-remote-check-computer.png)
+
+*Проверка удалённого рабочего места: сетевое имя, IP-адрес и идентификатор
+проверяемого компьютера.*
+
+### 12.4. Диалоги
+
+| Диалог | Как открывается | Снимок |
+|---|---|---|
+| Configuration of analysis parameters … — вкладка Actions if signal detected | Settings → Actions if signal over threshold … | 55 |
+| то же окно — вкладка Found out signals list | там же, вторая вкладка | 56 |
+| Signal's digital processing | Settings → Modify parameters of algorithms | 57 |
+| Information: DigitalTest option is not installed | Settings → Analysis of digital communication standards | 58 |
+| About | Help → About | 59 |
+| Firebird database software is not installed (Display) | Settings → Authorized frequencies database → Display | 60 |
+| то же сообщение (Find) | Settings → Authorized frequencies database → Find | 61 |
+| Save scan task | нижняя панель, кнопка выгрузки задания | 67 |
+| Open measurements results database | нижняя панель, кнопка базы результатов | 68 |
+| Load reference trace | нижняя панель, кнопка опорной трассы | 69 |
+
+![Конфигурация анализа: Actions if signal detected](images/rinspectorrt-light/55-threshold-actions-if-detected.png)
+
+*Параметры реакции на превышение порога: что делать при срабатывании
+(записывать демодулированный аудиосигнал, запускать внешнюю программу,
+сохранять спектры), демодулятор и полоса, качество и длительность записи,
+критерий «сигнал активен». Внизу — две примечания и кнопки Ok / Cancel.*
+
+![Конфигурация анализа: Found out signals list](images/rinspectorrt-light/56-threshold-found-out-signals-list.png)
+
+*Вторая вкладка того же окна: правила отбора сигналов в список найденных
+(критерий по времени, по мощности над порогом) и параметры выборки.*
+
+![Signal's digital processing](images/rinspectorrt-light/57-signal-digital-processing.png)
+
+*Параметры алгоритмов цифровой обработки: сглаживание, линейное усреднение
+по трём соседним точкам, функция спектра.*
+
+![DigitalTest option is not installed](images/rinspectorrt-light/58-digitaltest-not-installed.png)
+
+*Модальное информационное окно: опция анализа цифровых стандартов в сборке
+не установлена.*
+
+![About](images/rinspectorrt-light/59-about.png)
+
+*Диалог About: версия 10.0.2 / 2020.03.18, назначение программы и таблица
+Installed options.*
+
+![Firebird database required (Display)](images/rinspectorrt-light/60-firebird-display.png)
+
+*Просмотр базы разрешённых частот требует СУБД Firebird, которая на машине не
+установлена.*
+
+![Firebird database required (Find)](images/rinspectorrt-light/61-firebird-find.png)
+
+*То же сообщение для поиска по базе разрешённых частот.*
+
+![Save scan task](images/rinspectorrt-light/67-dialog-save-scan-task.png)
+
+*Стандартный диалог сохранения задания диапазона в файл.*
+
+![Open measurements results database](images/rinspectorrt-light/68-dialog-open-measurements-results-database.png)
+
+*Диалог открытия базы результатов измерений.*
+
+![Load reference trace](images/rinspectorrt-light/69-dialog-load-reference-trace.png)
+
+*Диалог загрузки опорной трассы — второго эталона, с которым сравнивается
+текущая.*
+
+### 12.5. Меню
+
+![Меню File](images/rinspectorrt-light/62-menu-file.png)
+
+*File: пакетное сохранение и загрузка заданий, выход из программы.*
+
+![Меню Settings](images/rinspectorrt-light/63-menu-settings.png)
+
+*Settings: язык, база разрешённых частот, общие настройки, анализ цифровых
+стандартов, реакция на превышение порога, параметры алгоритмов.*
+
+![Подменю Language](images/rinspectorrt-light/64-menu-language.png)
+
+*Переключение языка интерфейса: English, Russian, Spanish.*
+
+![Подменю Authorized frequencies database](images/rinspectorrt-light/65-menu-authorized-frequencies-database.png)
+
+*База разрешённых частот: просмотр (Display) и поиск (Find).*
+
+### 12.6. Контекстные меню
+
+![Контекстное меню списка найденных сигналов](images/rinspectorrt-light/66-context-menu-detected-signals.png)
+
+*Сброс счётчиков для дополнительного исследования, удаление выбранных
+записей, объединение записей (доступно при выделении).*
+
+Контекстное меню спектограммы (20 пунктов: трассы, маркеры, курсоры, гармоники
+курсора, сохранение трассы и картинки в файл, MS Word и MS Excel) показано
+ранее на снимке
+[39-spectrum-context-menu.png](images/rinspectorrt-light/39-spectrum-context-menu.png).
+
+### 12.7. Окна, присутствующие в программе, но не открывающиеся в наблюдаемой сборке
+
+Перебор окон процесса выявил дополнительные формы, которые в Light-сборке
+не вызываются из доступного интерфейса:
+
+| Класс формы | Заголовок | Назначение |
+|---|---|---|
+| TFOsc | Low-frequency oscilloscope | низкочастотный осциллограф |
+| TFSaveSound | Saving audio received on | параметры сохранения принятого аудиосигнала |
+| TFActionSignals | Detected signals queue for study | очередь сигналов, взятых на исследование |
+| TFACntrlEdit | FACntrlEdit | редактор параметров внешнего коммутатора антенны |
+| THintWindow | Level measuring units | всплывающая подсказка о единицах уровня |
+
+Наличие этих форм в бинарном образе показывает, что интерфейс наследует
+возможности полной версии RadioInspector (осциллограф, очередь исследуемых
+сигналов, сохранение аудио), но в Light-сборке они не задействованы: опция
+RC-Sound установлена, однако путь до осциллографа и до формы сохранения
+аудиосигнала из наблюдаемого интерфейса недоступен. Для OpenRadioInspector
+это ориентир: очередь сигналов на исследование и осциллограф IF-сигнала —
+самостоятельные полезные функции, которые стоит закладывать явно.
