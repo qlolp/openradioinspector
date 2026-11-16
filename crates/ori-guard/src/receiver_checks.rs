@@ -9,7 +9,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
-const CONTROL_DWELL: Duration = Duration::from_secs(2);
 const CONTROL_SWEEP_LIMIT: usize = 64;
 const MAX_OFFSET_DB: f64 = 3.0;
 pub(crate) const MAX_EVENT_AGE_SECONDS: f64 = 30.0;
@@ -614,8 +613,13 @@ impl GuardService {
             }
             self.control.validate_tune(&reply)?;
             receipt = Some(reply);
-            let deadline = self.clock.monotonic() + CONTROL_DWELL;
-            let wall_deadline = tokio::time::Instant::now() + CONTROL_DWELL;
+            // The overlapping sweep must be committed before evidence can be
+            // read. Allow for an acquisition interval and archive latency.
+            let dwell = Duration::from_secs_f64(
+                (2.0 * baseline_sweep_period(&check.baseline)).clamp(2.0, MAX_EVENT_AGE_SECONDS),
+            );
+            let deadline = self.clock.monotonic() + dwell;
+            let wall_deadline = tokio::time::Instant::now() + dwell;
             while self.clock.monotonic() < deadline && tokio::time::Instant::now() < wall_deadline {
                 self.check_idle_receiver(id, runtime)?;
                 if !check.lifecycle.check() {
@@ -837,17 +841,22 @@ fn control_bin(frequencies: &[u64]) -> Option<usize> {
         .map(|(bin, _)| bin)
 }
 
+fn baseline_sweep_period(baseline: &Baseline) -> f64 {
+    baseline
+        .extra
+        .get("sweep_period_seconds")
+        .and_then(Value::as_f64)
+        .filter(|period| period.is_finite() && *period > 0.0)
+        .unwrap_or(0.0)
+}
+
 fn fresh_control_source(
     end: &UtcTimestamp,
     project: &Value,
     baseline: &Baseline,
     now: &UtcTimestamp,
 ) -> bool {
-    let period = baseline
-        .extra
-        .get("sweep_period_seconds")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
+    let period = baseline_sweep_period(baseline);
     let bands = project["scan_plan"]["config"]["bands"]
         .as_array()
         .map_or(1, Vec::len);

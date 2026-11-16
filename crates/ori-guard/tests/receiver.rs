@@ -848,7 +848,7 @@ async fn cross_check_requires_the_same_receipt_frequency_and_overlapping_active_
 }
 
 #[tokio::test]
-async fn legacy_control_check_uses_current_committed_source_and_persists_original_units() {
+async fn control_check_waits_for_a_slow_committed_sweep_and_preserves_original_units() {
     let h = Harness::new().await;
     let (id, p) = arm_with_simulated_sources(&h, false).await;
     h.service.tick(&id).await.unwrap();
@@ -874,24 +874,32 @@ async fn legacy_control_check_uses_current_committed_source_and_persists_origina
         h.service.guard_status(&id).await.unwrap()["receiver_checks"]["state"],
         "checking"
     );
+    tokio::time::sleep(Duration::from_millis(65)).await;
+    h.sources.advance(3);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        h.service.guard_status(&id).await.unwrap()["receiver_checks"]["state"],
+        "checking",
+        "the baseline records a four-second sweep period"
+    );
     h.archive
         .append_sweeps(vec![live_sweep(
             &p,
             None,
             "coincident-control-source",
-            4,
+            7,
             false,
         )])
         .await
         .unwrap();
     h.archive
         .append_observations(vec![
-            timed_receiver_sample(&p, "live-control-readback", 1, 4, 100_040_000, false),
-            timed_receiver_sample(&p, "later-without-sweep", 1, 5, 100_040_000, false),
+            timed_receiver_sample(&p, "live-control-readback", 1, 7, 100_040_000, false),
+            timed_receiver_sample(&p, "later-without-sweep", 1, 8, 100_040_000, false),
         ])
         .await
         .unwrap();
-    set_second(&h, 6);
+    set_second(&h, 9);
     let status = finish_receiver(&h, &id).await;
     let checks = &status["receiver_checks"];
     assert_eq!(checks["state"], "complete", "{checks}");
