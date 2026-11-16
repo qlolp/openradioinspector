@@ -106,11 +106,17 @@ FAILED (failures=1, errors=124, skipped=34)
 | `docs/commercial-disk-decision.md` | `commercial-help.md`, `commercial-help-texts.md`, `commercial-ui-map.md` | документы удалены коммитом `a3718e6` «Keep excluded research assets out of merged release tree», ссылки остались |
 | `docs/commercial-app-inventory.md` | `commercial-help.md` | то же |
 | `docs/measurement-results.md` | `../main/docs/measurement-methods.md` | неверный относительный путь |
-| `docs/roadmap.md` | `../macos/reports/Развитие%20программы...md` | путь с URL-кодированием и несуществующим каталогом |
+| `docs/roadmap.md` | `../macos/reports/Развитие%20программы...md` | ссылка верна: путь содержит URL-кодирование, но `%20` декодируется, цель `macos/reports/Развитие программы радиочастотных измерений.md` существует |
 
-Отдельно: `docs/roadmap.md` ссылается на три файла, которых нет в дереве —
-`release/status.md`, `release/integration.md`, `release/hardware-acceptance.md`.
-Пункт остаётся открытым с 8 ноября.
+Отдельно: `docs/roadmap.md` ссылается на `release/status.md`,
+`release/integration.md` и `release/hardware-acceptance.md`. **Эти файлы
+существуют** — они лежат в `docs/release/`, а ссылки в `docs/roadmap.md`
+разрешаются относительно каталога документа.
+
+> **Коррекция от 16 ноября.** В первой редакции отчёта эти три ссылки были
+> названы отсутствующими: проверка выполнялась от корня репозитория, а не от
+> каталога документа, где они лежат. Ошибка метода, не дерева. Исправлено;
+> в пересчитанном прогоне остаётся 5 битых ссылок, а не 6.
 
 **Расхождение версии схемы архива.** В коде `SCHEMA_VERSION = 6`
 (`radioinspector/session_store.py:35`), в документации в девяти местах
@@ -135,17 +141,34 @@ PR #202 закрывает пять; после него остаются
 Четыре workflow: `desktop-packages.yml`, `modern-clients.yml`,
 `modern-core.yml`, `windows-core.yml`.
 
-**Крейты Rust не собираются и не тестируются в CI.** `cargo fmt`, `cargo
-clippy` и `cargo test` вызываются только с `--manifest-path
+**Крейты Rust собираются и тестируются в CI — через индирекцию, а не напрямую.**
+`cargo fmt`, `cargo clippy` и `cargo test` вызываются только с `--manifest-path
 clients/windows/Cargo.toml` — это отдельный воркспейс, исключённый из
-корневого (`exclude = ["clients/windows"]`). Для `crates/*` в CI есть только
-фильтр путей (`crates/ori-stream/**`, `crates/ori-contracts/**`) и одна
-сборка примера `cargo build -p ori-core ... --example benchmark_background`
-под macOS. Ни одного `cargo test` для корневого воркспейса нет.
+корневого (`exclude = ["clients/windows"]`). Для корневого воркспейса `crates/*`
+в файлах workflow прямых вызовов `cargo` нет, и по grep по YAML это выглядит
+как отсутствие гейтов. Гейты есть, но спрятаны за шагом workflow
+«Run owned modernization release checks»: он вызывает
+`tests/run_release_checks --modern`, а тот — `tools/modernization/checks.py`,
+где заданы:
 
-Итог: 15 крейтов, 111 447 строк Rust, из которых собирается один пример на
-одной платформе, а тесты крейтов в CI не запускаются. Локально проверить их
-в песочнице тоже нельзя — `cargo` и `rustc` недоступны.
+* `cargo fmt --all -- --check`;
+* `cargo clippy --workspace --all-features --all-targets --locked --offline -D warnings`;
+* `cargo test --workspace --all-features --locked --offline`;
+* набор `crates/ori-core/tests` (HTTP-поверхность кандидата);
+* проверки версий `rustc`/`cargo` ровно 1.99.1.
+
+Шаг отработал успешно в прогоне «Modern core and shared clients» на `9154cf5`
+(Linux x2, macOS, Windows), поэтому 15 крейтов и 111 447 строк Rust под
+`fmt`, `clippy -D warnings` и тестами. Локально в песочнице это не
+воспроизвести — `cargo` и `rustc` недоступны, и логи job'ов GitHub для этого
+токена недоступны (HTTP 401), поэтому состав и число выполненных Rust-тестов
+подтверждены кодом гейта и фактом успешного прогона, но не самим логом.
+
+> **Коррекция от 16 ноября.** В первой редакции этого отчёта утверждалось, что
+> крейты Rust в CI не собираются и не тестируются. Утверждение неверное: оно
+> получено поиском по строкам в файлах workflow без прохода по индирекции
+> `workflow → run_release_checks --modern → tools/modernization/checks.py`.
+> Исправлено в этом же документе.
 
 **Гейтов линтинга, проверки типов и порога покрытия нет** — это осталось от
 аудита 13 ноября. `tools/audit/code_checks.py` написан, но не подключён ни к
@@ -224,10 +247,10 @@ clients/windows/Cargo.toml` — это отдельный воркспейс, и
 
 | Приоритет | Пункт | Основание |
 |---|---|---|
-| 1 | `cargo test` для корневого воркспейса `crates/*` | 111 тыс. строк Rust без тестов в CI (раздел 5) |
+| 1 | Защита ветки `main` | правило не применено: API отвечает 404 «Branch not protected», rulesets нет (раздел 5a) |
 | 2 | Гейт статического анализа в CI | 4 `assert` в рабочем коде и 109 находок без автоматической проверки (раздел 3) |
 | 3 | Версия схемы архива в документации | 8 расхождений, PR #202 закрывает 5 (раздел 4) |
-| 4 | Битые ссылки и несуществующие `release/*.md` | 6 ссылок и 3 файла (раздел 4) |
+| 4 | Битые ссылки в документации | 5 ссылок из 432: четыре ведут на удалённые документы коммерческой справки, одна — неверный относительный путь (раздел 4) |
 | 5 | Решение по снимкам экрана в публичном дереве | 9,6 МБ против зафиксированного правила (раздел 6) |
 | 6 | Описание Rust-части и `contracts/` в README | треть проекта не описана (раздел 4) |
 | 7 | Очистка истории коммерческого диска | P2.1, решения D1–D4 в `docs/commercial-disk-decision.md` |
