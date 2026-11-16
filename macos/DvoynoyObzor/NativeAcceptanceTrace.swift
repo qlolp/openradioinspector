@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import Foundation
 import SwiftUI
+import SpektrKomandy
 
 nonisolated enum NativeAcceptanceClock {
     static func fromMachTicks(_ ticks:UInt64)->UInt64 {
@@ -19,6 +20,7 @@ private final class NativeAcceptanceSink: @unchecked Sendable {
     private let file:FileHandle
     private var bytes=0
     private var failed=false
+    private var sealed=false
     init(_ url:URL) throws {
         let descriptor=Darwin.open(url.path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW,0o600)
         guard descriptor>=0 else{throw POSIXError(.EEXIST)}
@@ -26,13 +28,14 @@ private final class NativeAcceptanceSink: @unchecked Sendable {
     }
     func append(_ data:Data) {
         queue.async { [self] in
+            guard !sealed else{return}
             guard !failed,data.count<=65_536,bytes+data.count<=256*1024*1024 else {failed=true;return}
             do {try file.write(contentsOf:data);bytes+=data.count}
             catch {failed=true;FileHandle.standardError.write(Data("Acceptance trace incomplete\n".utf8))}
         }
     }
     func fail() {queue.async {[self] in failed=true}}
-    func flush()->Bool {queue.sync {do {try file.synchronize()}catch{failed=true};return !failed}}
+    func flush()->Bool {queue.sync {sealed=true;do {try file.synchronize()}catch{failed=true};return !failed}}
 }
 
 @MainActor
@@ -108,7 +111,7 @@ final class NativeAcceptanceTrace {
         let digest=SHA256.hash(data:Data(profile.runID.utf8))
         tag=digest.prefix(4).reduce(UInt32(0)){($0<<8)|UInt32($1)}
         sink=try NativeAcceptanceSink(directory.appendingPathComponent("native-\(getpid()).jsonl"))
-        record("native_identity",["component_sha256":hash,"phase":profile.phase,"clock":"mach_absolute_time"])
+        record("native_identity",["component_sha256":hash,"phase":profile.phase,"clock":"mach_absolute_time","diagnostics_version":1])
         observer=NotificationCenter.default.addObserver(forName:NSApplication.willTerminateNotification,object:nil,queue:.main){[weak self] _ in
             MainActor.assumeIsolated {self?.finish()}
         }
@@ -118,6 +121,28 @@ final class NativeAcceptanceTrace {
         value["at_ns"]=at ?? NativeAcceptanceClock.now()
         do {var bytes=try JSONSerialization.data(withJSONObject:value,options:[.sortedKeys]);bytes.append(10);sink.append(bytes)}
         catch {sink.fail();FileHandle.standardError.write(Data("Acceptance event could not be encoded\n".utf8))}
+    }
+    /// The SDK invokes this on its transport executor, before MainActor delivery.
+    /// Capture only the immutable run ID and serialized sink, never actor state.
+    func transportObserver()->@Sendable (PlatformMeasurementTiming)->Void {
+        let runID=profile.runID,sink=sink
+        return { timing in
+            var fields:[String:Any] = ["v":1,"run_id":runID,"at_ns":timing.atNanoseconds,
+                "sequence":timing.sequence,"transport":timing.transport == .binaryV1 ? "binary-v1":"sse",
+                "payload_bytes":timing.payloadBytes]
+            switch timing.stage {
+            case .received,.decoded:
+                guard timing.eventType=="sweep.received",let source=timing.sourceID else{return}
+                fields["stage"]=timing.stage == .received ? "transport.received":"decoded"
+                fields["source_id"]=source
+            case .queued:
+                fields["stage"]="transport.queue";fields["queued_events"]=timing.queuedEvents
+            }
+            do {
+                var bytes=try JSONSerialization.data(withJSONObject:fields,options:[.sortedKeys]);bytes.append(10)
+                sink.append(bytes)
+            } catch {sink.fail()}
+        }
     }
     private func finish() {
         record("native.finished")
@@ -146,6 +171,10 @@ final class NativeAcceptanceTrace {
         record("received",["source_id":id,"sequence":sequence])
     }
     func applied(_ id:String,sequence:UInt64) {record("applied",["source_id":id,"sequence":sequence])}
+    func sourceStage(_ stage:String,id:String,at:UInt64?=nil) {
+        guard let sequence=sources[key(id)] else{return}
+        record(stage,["source_id":id,"sequence":sequence],at:at)
+    }
     func frame(for sourceID:String?,viewport:ClosedRange<Double>?=nil)->NativeAcceptanceFrame? {
         guard let sourceID,let sequence=sources[key(sourceID)] else{return nil}
         applied(sourceID,sequence:sequence)

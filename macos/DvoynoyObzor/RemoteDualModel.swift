@@ -1027,14 +1027,22 @@ final class RemoteDualModel: ObservableObject {
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
         let makeFrame = makeSpectrumFrame
-        let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
+        let trace=NativeAcceptanceTrace.shared,sourceID=visible.last?.id,measure=trace != nil
+        if let sourceID {trace?.sourceStage("preparation.queued",id:sourceID)}
+        let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int, UInt64, UInt64) in
+            let started=measure ? NativeAcceptanceClock.now():0
             var next = previous
             if let scope { next.update(scope: scope, sweeps: visible) } else { next.reset() }
             let frame = next.paused ? nil : try makeFrame(next.sweeps, threshold)
-            return (next, frame, next.clippedCount)
+            return (next, frame, next.clippedCount, started, measure ? NativeAcceptanceClock.now():0)
         }
         let result = try? await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
-        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped) = result else { return false }
+        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped, started, finished) = result else { return false }
+        if let sourceID {
+            trace?.sourceStage("preparation.begin",id:sourceID,at:started)
+            trace?.sourceStage("prepared",id:sourceID,at:finished)
+            trace?.sourceStage("model.resumed",id:sourceID)
+        }
         spectrumPresentation = next; spectrumClippedCount = clipped
         if let frame { publish(frame) }
         return true

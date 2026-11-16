@@ -42,6 +42,47 @@ def passing_fixture():
 
 
 class NativeAcceptanceProofTests(unittest.TestCase):
+    def test_declared_diagnostics_cannot_pass_when_preparation_stages_are_missing(self):
+        commits,events=passing_fixture()
+        events[0]['diagnostics_version']=1
+        self.assertEqual(self.verify(commits,events)['status'],'failed')
+
+    def test_transport_queue_larger_than_its_bounded_channel_is_rejected(self):
+        commits,events=passing_fixture()
+        events.append(dict(stage='transport.queue',run_id=RUN,at_ns=1,queued_events=65))
+        self.assertEqual(self.verify(commits,events)['status'],'failed')
+
+    def test_decode_after_main_actor_delivery_is_rejected_even_when_render_is_fast(self):
+        commits,events=passing_fixture()
+        for source in commits:
+            events.append(dict(stage='decoded',run_id=RUN,source_id=source['source_id'],
+                sequence=source['sequence'],at_ns=source['at_ns']+50_000_000))
+        result=self.verify(commits,events)
+        self.assertEqual(result['status'],'failed')
+        self.assertIn('frame_stage_order',result['errors'])
+
+    def test_diagnostic_latency_separates_transport_executor_preparation_and_drawing(self):
+        commits,events=passing_fixture()
+        offsets={'transport.received':2_000_000,'decoded':5_000_000,'preparation.queued':21_000_000,
+                 'preparation.begin':23_000_000,'prepared':30_000_000,'model.resumed':35_000_000}
+        for source in commits:
+            for row in events:
+                if row.get('source_id')==source['source_id'] and row.get('stage') in ('received','applied'):
+                    row['at_ns']=source['at_ns']+(20_000_000 if row['stage']=='received' else 40_000_000)
+            for stage,offset in offsets.items():
+                events.append(dict(stage=stage,run_id=RUN,source_id=source['source_id'],
+                    sequence=source['sequence'],at_ns=source['at_ns']+offset))
+        result=self.verify(commits,events)
+        self.assertEqual(result['status'],'passed',result['errors'])
+        latency=result['diagnostics']['latency']
+        self.assertEqual(latency['commit_to_transport']['p95_ms'],2.0)
+        self.assertEqual(latency['decode']['p95_ms'],3.0)
+        self.assertEqual(latency['delivery_wait']['p95_ms'],15.0)
+        self.assertEqual(latency['preparation_wait']['p95_ms'],2.0)
+        self.assertEqual(latency['preparation']['p95_ms'],7.0)
+        self.assertEqual(latency['main_actor_resume']['p95_ms'],5.0)
+        self.assertEqual(latency['model_application']['p95_ms'],5.0)
+
     def verify(self, commits, events):
         return native_metrics(commits,events,run_id=RUN,core_sha256=CORE,native_sha256=UI,
                               expected_ids=['first','second','third'])

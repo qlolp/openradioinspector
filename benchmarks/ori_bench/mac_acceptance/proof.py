@@ -4,6 +4,18 @@ import math
 
 CHECKPOINTS = ('baseline','guard','event','receiver','source_search','ui_quit',
                'usb_analyzer','usb_receiver','sleep','history_restore')
+FRAME_STAGES = ('transport.received','decoded','received','preparation.queued',
+                'preparation.begin','prepared','model.resumed','applied','presented')
+LATENCY_STAGES = {
+    'commit_to_transport':('committed','transport.received'),
+    'decode':('transport.received','decoded'),
+    'delivery_wait':('decoded','received'),
+    'preparation_wait':('preparation.queued','preparation.begin'),
+    'preparation':('preparation.begin','prepared'),
+    'main_actor_resume':('prepared','model.resumed'),
+    'model_application':('model.resumed','applied'),
+    'presentation':('applied','presented'),
+}
 
 
 def integer(value):
@@ -30,6 +42,8 @@ def native_metrics(commits, events, *, run_id, core_sha256, native_sha256, expec
     ends={'interaction':{},'queue':{},'pan_zoom':{}}
     frames=[]
     identity=False
+    diagnostics_required=False
+    queue_depths=[]
     render_ids=set()
     for row in commits:
         if row.get('stage')!='committed' or row.get('kind')!='sweep': continue
@@ -47,7 +61,15 @@ def native_metrics(commits, events, *, run_id, core_sha256, native_sha256, expec
         elif stage=='native_identity':
             if identity or row.get('component_sha256')!=native_sha256:errors.append('native_build_mismatch')
             else:identity=True
-        elif stage in ('received','applied','presented'):
+            version=row.get('diagnostics_version')
+            if version is not None and (type(version) is not int or version!=1):
+                errors.append('unsupported_diagnostics_version')
+            diagnostics_required=version==1
+        elif stage=='transport.queue':
+            depth=row.get('queued_events')
+            if not integer(depth) or depth>64:errors.append('invalid_transport_queue_depth')
+            else:queue_depths.append(depth)
+        elif stage in FRAME_STAGES:
             key=row.get('source_id')
             original=committed.get(key)
             if original is None or row.get('sequence')!=original['sequence'] or row['at_ns']<original['at_ns']:
@@ -70,14 +92,29 @@ def native_metrics(commits, events, *, run_id, core_sha256, native_sha256, expec
                 target[key]=row['at_ns']
     if not identity:errors.append('native_identity_missing')
     latencies=[];missing=[]
+    diagnostic_values={name:[] for name in LATENCY_STAGES}
+    diagnostic_missing={name:[] for name in LATENCY_STAGES}
     for key in sorted(expected):
         source=committed.get(key);stages=native.get(key,{})
-        if source is None or any(stage not in stages for stage in ('received','applied','presented')):
+        required=FRAME_STAGES if diagnostics_required else ('received','applied','presented')
+        stamps=([source['at_ns']] if source else [])+[stages[s] for s in FRAME_STAGES if s in stages]
+        ordered=all(a<=b for a,b in zip(stamps,stamps[1:]))
+        for name,(start,end) in LATENCY_STAGES.items():
+            first=source['at_ns'] if source and start=='committed' else stages.get(start)
+            last=stages.get(end)
+            if first is None or last is None or last<first:
+                diagnostic_missing[name].append(key)
+            else:diagnostic_values[name].append((last-first)/1e6)
+        if not ordered:errors.append('frame_stage_order')
+        if source is None or any(stage not in stages for stage in required):
             missing.append(key);continue
-        if not source['at_ns']<=stages['received']<=stages['applied']<=stages['presented']:
-            errors.append('frame_stage_order');missing.append(key);continue
+        if not ordered:missing.append(key);continue
         latencies.append((stages['presented']-source['at_ns'])/1e6)
     result=dict(commit_to_presented=metric(latencies,missing,250),errors=errors)
+    result['diagnostics']=dict(required=diagnostics_required,
+        latency={name:dict(samples=len(values),p95_ms=percentile(values),missing=diagnostic_missing[name])
+                 for name,values in diagnostic_values.items()},
+        transport_queue=dict(samples=len(queue_depths),maximum=max(queue_depths,default=None),capacity=64))
     for name,label,maximum in [('interaction','reaction',100),('queue','queue_ack',200)]:
         absent=set(begins[name])-set(ends[name]);values=[]
         if set(ends[name])-set(begins[name]):errors.append(name+'_without_begin')

@@ -43,6 +43,9 @@ struct NativeSpectrumTimeline {
         return rows.reversed().first { date >= $0.start && date <= $0.end }
     }
     static func date(_ value: String) -> Date? {
+        if let exact=try? PlatformTimestamp(value) {
+            return Date(timeIntervalSince1970:Double(exact.utcMicroseconds)/1_000_000)
+        }
         if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(value) {
             return date
         }

@@ -6,6 +6,39 @@ import FoundationNetworking
 @testable import SpektrKomandy
 
 final class CommittedEventTransportTests: XCTestCase {
+    private final class TimingBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var rows: [PlatformMeasurementTiming] = []
+        func append(_ value: PlatformMeasurementTiming) { lock.lock(); defer { lock.unlock() }; rows.append(value) }
+        func snapshot() -> [PlatformMeasurementTiming] { lock.lock(); defer { lock.unlock() }; return rows }
+    }
+
+    func testSSEReportsTransportDecodeAndBoundedQueueBeforeConsumerApplication() async throws {
+        let raw = #"{"contract":"openradioinspector-platform","contract_version":1,"data":{"sequence":43,"event_type":"sweep.received","occurred_at":"2026-11-16T00:00:00.000002Z","session_id":"s","payload":{"sweep":{"id":"timed-sweep","session_id":"s","stream_id":"tiny","interval":{"started_at":"2026-11-16T00:00:00.000001Z","ended_at":"2026-11-16T00:00:00.000002Z"},"frequencies_hz":[100,200],"levels":[-90,-80],"level_unit":"dBm","settings":{}}}}}"#
+        Stub.respond = { stub in
+            stub.headers()
+            stub.send("id: 43\nevent: sweep.received\ndata: " + raw + "\n\n")
+            stub.finish()
+        }
+        let box = TimingBox(), api = try client()
+        try await api.consumeMeasurements(after: 42, using: .serverSentEvents, observe: { box.append($0) }) { event in
+            XCTAssertEqual(event.sequence, 43)
+            XCTAssertEqual(event.source.originalData, Data(raw.utf8))
+            let decoded = try XCTUnwrap(box.snapshot().first(where: { $0.stage == .decoded }))
+            XCTAssertGreaterThan(decoded.atNanoseconds, 0)
+            XCTAssertEqual(decoded.sourceID, "timed-sweep")
+            XCTAssertEqual(decoded.eventType, "sweep.received")
+        }
+        let rows = box.snapshot()
+        XCTAssertEqual(rows.map(\.stage), [.received, .decoded, .queued])
+        XCTAssertTrue(rows.allSatisfy { $0.sequence == 43 && $0.transport == .serverSentEvents })
+        XCTAssertLessThanOrEqual(rows[0].atNanoseconds, rows[1].atNanoseconds)
+        XCTAssertLessThanOrEqual(rows[1].atNanoseconds, rows[2].atNanoseconds)
+        XCTAssertEqual(rows[0].payloadBytes, raw.utf8.count)
+        let queued = try XCTUnwrap(rows[2].queuedEvents)
+        XCTAssertTrue((0...64).contains(queued))
+    }
+
     final class Stub: URLProtocol {
         static var respond: ((Stub) -> Void)?
         static var stopped: (() -> Void)?

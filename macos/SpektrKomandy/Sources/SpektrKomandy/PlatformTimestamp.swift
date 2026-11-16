@@ -5,6 +5,7 @@ public struct PlatformTimestamp: Equatable, Comparable, Sendable {
     public let utcMicroseconds: Int64
 
     public init(_ text: String) throws {
+        if let exact=PlatformUTCInstant.microseconds(text) {utcMicroseconds=exact;return}
         let bytes = Array(text.utf8)
         let pattern = #"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:Z|[+-][0-9]{2}:[0-9]{2})\z"#
         guard bytes.allSatisfy({ $0 < 128 }), text.range(of: pattern, options: .regularExpression) != nil else {
