@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import posixpath
 import shlex
 import shutil
 import subprocess
@@ -20,6 +21,10 @@ from benchmarks.ori_bench.mac_acceptance.evidence import kit_inventory
 
 def command(*args):
     return subprocess.run([str(a) for a in args],check=True,capture_output=True,text=True).stdout
+
+
+def loader_reference(dependency,target):
+    return '@loader_path/'+posixpath.relpath(dependency.as_posix(),target.parent.as_posix())
 
 
 def resolve_dependency(name,source,prefix,rpaths):
@@ -109,7 +114,7 @@ def runtime(kit):
             if dep is None:continue
             copied=prefix/dep.relative_to(original)
             if not copied.is_file():raise ValueError('Excluded module is still a runtime dependency: '+str(dep))
-            relative='@loader_path/'+os.path.relpath(copied,target.parent)
+            relative=loader_reference(copied,target)
             command('install_name_tool','-change',name,relative,target)
         if install_id:command('install_name_tool','-id','@rpath/'+target.name,target)
         for path in rpaths:

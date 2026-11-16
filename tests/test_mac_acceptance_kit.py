@@ -1,5 +1,5 @@
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import tempfile
 import unittest
 from unittest import mock
@@ -15,6 +15,11 @@ SPEC.loader.exec_module(builder)
 
 
 class AcceptanceKitTests(unittest.TestCase):
+    def test_macho_loader_reference_uses_slashes_for_windows_source_paths(self):
+        dependency=PureWindowsPath('C:/kit/Python.framework/Versions/3.12/Python')
+        target=PureWindowsPath('C:/kit/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python')
+        self.assertEqual(builder.loader_reference(dependency,target),'@loader_path/../../../../Python')
+
     def test_framework_launcher_keeps_its_app_interpreter_in_the_relocated_closure(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);original=root/'Python.framework/Versions/3.12';original.mkdir(parents=True)
