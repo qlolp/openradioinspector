@@ -272,9 +272,9 @@ def run_hardware(app,manifest,output,load_report):
             if len(sessions)>=1000:raise BenchmarkError('source_limit','Unexpected session count in isolated test archive')
             for session in sessions:export(client,session['id'],proof.original)
             publish_stop(receipts/'backup.request',run_id)
-            deadline=time.monotonic()+610
-            while not (receipts/'backup-finished.json').is_file() and time.monotonic()<deadline:time.sleep(.2)
-            if json.loads((receipts/'backup-finished.json').read_bytes()).get('phase')!='completed':raise BenchmarkError('backup_failed','Owner backup failed')
+            from .budget import wait_for_backup
+            report['backup']=wait_for_backup(receipts)
+            if report['backup']['phase']!='completed':raise BenchmarkError('backup_failed','Owner backup failed')
             restore=root/'restore';restore.mkdir(mode=0o700)
             node=PackageNode(Path(app)/'Contents/Helpers/ori-core',restore,run_id+'-restore',restore_bundle=receipts/'backup')
             try:

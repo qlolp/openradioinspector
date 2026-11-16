@@ -1,4 +1,7 @@
 //! Explicit, private host diagnostics. No HTTP control and no automatic hardware access.
+#[cfg(test)]
+#[path = "acceptance/budget_tests.rs"]
+mod budget_tests;
 mod wire;
 use crate::{Core, CoreError, Result};
 use ori_archive::{BackupOptions, CommitObserver};
@@ -17,6 +20,24 @@ use std::{
 };
 
 const MAX_TRACE: u64 = 256 * 1024 * 1024;
+const MAX_SNAPSHOT: u64 = 16 * 1024_u64.pow(3);
+const BACKUP_RATE: u64 = 20 * 1024 * 1024;
+
+fn backup_budget(snapshot_bytes: u64) -> Result<BackupOptions> {
+    if snapshot_bytes == 0 || snapshot_bytes > MAX_SNAPSHOT {
+        return Err(CoreError::Invalid("acceptance snapshot size outside quota"));
+    }
+    // Six logical full-file passes: copy read/write, two integrity scans,
+    // and two SHA256 scans. Include 50% headroom and bounded fixed overhead.
+    let copy = (3 * snapshot_bytes).div_ceil(BACKUP_RATE) + 60;
+    let total = (9 * snapshot_bytes).div_ceil(BACKUP_RATE) + 120;
+    Ok(BackupOptions {
+        max_snapshot_bytes: MAX_SNAPSHOT,
+        copy_timeout: Duration::from_secs(copy.max(300)),
+        total_timeout: Duration::from_secs(total.max(600)),
+        cancel: ori_archive::BackupCancellation::default(),
+    })
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Profile {
@@ -291,24 +312,27 @@ impl Acceptance {
                 {
                     return Err(CoreError::Invalid("acceptance backup request run mismatch"));
                 }
+                let capacity = core
+                    .archive
+                    .as_ref()
+                    .ok_or(CoreError::Invalid("acceptance backup requires archive"))?
+                    .capacity()
+                    .await?;
+                let size = capacity["database_bytes"]
+                    .as_u64()
+                    .ok_or(CoreError::Invalid("acceptance archive size unavailable"))?;
+                let options = backup_budget(size)?;
+                let budget = json!({"snapshot_bytes":size,"rate_bytes_per_second":BACKUP_RATE,
+                    "copy_timeout_seconds":options.copy_timeout.as_secs(),
+                    "total_timeout_seconds":options.total_timeout.as_secs()});
                 self.receipt(
                     &format!("{name}-started.json"),
-                    &json!({"phase":"running","at_ns":monotonic_ns()}),
+                    &json!({"phase":"running","at_ns":monotonic_ns(),"budget":budget}),
                 )?;
-                let result = core
-                    .backup(
-                        &self.output.join(name),
-                        BackupOptions {
-                            max_snapshot_bytes: 16 * 1024_u64.pow(3),
-                            copy_timeout: Duration::from_secs(300),
-                            total_timeout: Duration::from_secs(600),
-                            cancel: ori_archive::BackupCancellation::default(),
-                        },
-                    )
-                    .await;
+                let result = core.backup(&self.output.join(name), options).await;
                 self.receipt(&format!("{name}-finished.json"),&match &result {
-                    Ok(manifest)=>json!({"phase":"completed","manifest":manifest,"at_ns":monotonic_ns()}),
-                    Err(error)=>json!({"phase":"failed","error":error.to_string(),"at_ns":monotonic_ns()})})?;
+                    Ok(manifest)=>json!({"phase":"completed","manifest":manifest,"at_ns":monotonic_ns(),"budget":budget}),
+                    Err(error)=>json!({"phase":"failed","error":error.to_string(),"at_ns":monotonic_ns(),"budget":budget})})?;
                 if result.is_err() {
                     self.failed.store(true, Ordering::Release);
                 }

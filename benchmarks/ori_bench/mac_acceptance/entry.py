@@ -55,9 +55,8 @@ def self_check(app,manifest,output):
         proof=SourceProof(root/'originals.sqlite')
         try:
             export(client,config.session_id,proof.original)
-            node.request_backup();deadline=time.monotonic()+30
-            while node.backup_state()['phase'] not in ('completed','failed') and time.monotonic()<deadline:time.sleep(.05)
-            if node.backup_state()['phase']!='completed':raise BenchmarkError('backup_failed','Actual packaged owner backup incomplete')
+            node.request_backup()
+            if node.wait_for_backup()['phase']!='completed':raise BenchmarkError('backup_failed','Actual packaged owner backup incomplete')
             node.close();restore=root/'restore';restore.mkdir(mode=0o700)
             restored=PackageNode(binary,restore,run_id+'-restore',restore_bundle=node.bundle)
             rc=replace(config,base_url=restored.start());export(Client(rc),config.session_id,proof.restored)

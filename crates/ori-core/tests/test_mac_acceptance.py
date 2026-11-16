@@ -13,6 +13,65 @@ from benchmarks.ori_bench.source import session,sweep,measurement_hash
 
 
 class PackagedAcceptanceIntegrationTests(unittest.TestCase):
+
+    def test_final_backup_failure_preserves_closed_native_failure_evidence(self):
+        if os.name=='nt':
+            return
+        import hashlib,time,subprocess
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from benchmarks.ori_bench.mac_acceptance import load
+        from benchmarks.ori_bench.mac_acceptance.evidence import private_json
+        binary=Path(os.environ['ORI_CORE_TEST_BINARY']).resolve(strict=True)
+        original_run,original_popen=subprocess.run,subprocess.Popen
+        awake=SimpleNamespace(poll=lambda:0,wait=lambda **_kwargs:0)
+
+        class ExistingDestinationNode(PackageNode):
+            def request_final_backup(self):
+                self.final_bundle.mkdir(mode=0o700)
+                super().request_final_backup()
+
+        class ClosedRenderer:
+            def __init__(self,app,root,profile):
+                self.root,self.profile=root,profile
+                self.owner=SimpleNamespace(status=lambda:dict(phase='running'))
+            def start(self):
+                p=json.loads(self.profile.read_text())
+                self.run_id=p['run_id']
+                rows=[dict(stage='native_identity',run_id=self.run_id,component_sha256='b'*64,at_ns=time.monotonic_ns()),
+                      dict(stage='native.error',run_id=self.run_id,message='fixture display unavailable',at_ns=time.monotonic_ns())]
+                (self.root/'native-fixture.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+                private_json(self.root/'native-ready.json',dict(run_id=self.run_id,
+                    source_id=self.run_id+'-warmup-sweep-000000000'))
+                private_json(self.root/'native-stream-ready.json',dict(run_id=self.run_id,session_id=p['session_id']))
+            def stop(self,run_id,**_kwargs):
+                p=self.root/'native-finished-fixture.json'
+                if not p.exists():private_json(p,dict(run_id=run_id,successful=True))
+                self.owner=None
+
+        def command(args,*a,**kw):
+            if args[0]=='codesign':return subprocess.CompletedProcess(args,0)
+            return original_run(args,*a,**kw)
+        def popen(args,*a,**kw):
+            return awake if args[0]=='/usr/bin/caffeinate' else original_popen(args,*a,**kw)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            identity=dict(app=str(root/'RC.app'),source_revision='f'*40,
+                core_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),native_sha256='b'*64,
+                supervisor_sha256='c'*64,manifest_sha256='d'*64)
+            with patch.object(load,'host',return_value=dict(system='Darwin',architecture='arm64',macos_version='27.3',memory_bytes=16*1024**3)),\
+                 patch.object(load,'bundle_identity',return_value=identity),\
+                 patch.object(load,'NativeWindow',ClosedRenderer),\
+                 patch.object(load,'PackageNode',side_effect=lambda _binary,*a,**kw:ExistingDestinationNode(binary,*a,**kw)),\
+                 patch.object(subprocess,'run',side_effect=command),patch.object(subprocess,'Popen',side_effect=popen):
+                report,status=load.run_load(root/'RC.app',root/'manifest.json',root/'result',smoke_seconds=1)
+            self.assertEqual(status,1)
+            self.assertIn('backup_failed',[error['code'] for error in report['errors']],report)
+            self.assertIn('native',report,'Backup failure discarded independent closed-renderer evidence')
+            self.assertEqual(report['native']['status'],'failed')
+            self.assertIn('fixture display unavailable',report['native']['errors'])
+            self.assertFalse(report['point2_passed'])
+
     def test_real_owner_queue_backup_and_restore_preserve_the_original(self):
         binary=Path(os.environ['ORI_CORE_TEST_BINARY']).resolve(strict=True)
         with tempfile.TemporaryDirectory() as d:

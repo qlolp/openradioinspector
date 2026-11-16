@@ -6,6 +6,7 @@ from ..config import BenchmarkError
 from ..concurrent import bounded_json
 from ..endurance_node import OwnedCandidate,publish_stop
 from .evidence import private_json
+from .budget import recovery_timeout,wait_for_backup
 
 
 class PackageNode(OwnedCandidate):
@@ -23,9 +24,10 @@ class PackageNode(OwnedCandidate):
 
     def _adapter_command(self,data):
         if self.restore_bundle is not None:
+            timeout=recovery_timeout(bounded_json(self.restore_bundle/'manifest.json'))
             result=subprocess.run([str(self.binary),'acceptance-restore',str(self.restore_bundle),
                                    str(data/'sessions.sqlite3'),str(self.receipts/'restore.json')],
-                                  cwd=self.output,stdin=subprocess.DEVNULL,capture_output=True,timeout=600)
+                                  cwd=self.output,stdin=subprocess.DEVNULL,capture_output=True,timeout=timeout)
             (self.output/'restore.log').write_bytes(result.stdout+result.stderr)
             if result.returncode:raise BenchmarkError('restore_failed','Actual packaged restore failed; see restore.log')
         profile=self.receipts/'core-profile.json'
@@ -53,3 +55,6 @@ class PackageNode(OwnedCandidate):
             path=self.receipts/name
             if path.exists() or path.is_symlink():return bounded_json(path)
         return dict(phase='requested' if self.final_requested else 'not_requested')
+
+    def wait_for_backup(self,*,final=False):
+        return wait_for_backup(self.receipts,final=final,owner=self.owner)

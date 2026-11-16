@@ -115,12 +115,27 @@ def complete_restore(config,proof):
         key:config.planned_counts()[key] for key in ('sweep','observation')}
 
 
+def closed_native_evidence(config,node,native,controller,warm_ids,identity):
+    commits=[row for row in read_json_lines(node.receipts/'core.jsonl')
+             if row.get('session_id')==config.session_id]
+    rows=[];warm=set(warm_ids)
+    for path in native.glob('native-*.jsonl'):
+        rows.extend(row for row in read_json_lines(path) if row.get('source_id') not in warm)
+    if controller.exists():rows.extend(read_json_lines(controller))
+    return native_metrics(commits,rows,run_id=config.run_id,core_sha256=identity['core_sha256'],
+        native_sha256=identity['native_sha256'],
+        expected_ids=[identifier(config,'sweep',i) for i in range(config.planned_counts()['sweep'])])
+
+
 def run_load(app,manifest,output,*,smoke_seconds=None):
     root=output_directory(output).resolve(strict=True)
     report=dict(schema_version=1,profile='macos-final-load',successful=False,point2_passed=False,
                 point4_passed=False,hardware_tested=False,errors=[],host=host(),
-                started_at=datetime.now(timezone.utc).isoformat())
+                started_at=datetime.now(timezone.utc).isoformat(),smoke_only=smoke_seconds is not None,
+                components={key:{'status':'not_run'} for key in
+                    ('production','native','online_backup','final_backup','restore','cleanup')})
     node=window=background=queue=events=awake=None
+    config=native=identity=None;warm_ids=[];produced=None
     status=1
     try:
         identity=bundle_identity(app,manifest);report['identity']=identity
@@ -146,6 +161,7 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             session_id=config.session_id,warmup_session_id=warm.session_id))
         events=Events(root/'controller.jsonl',run_id)
         window=NativeWindow(app,native,profile);window.start()
+        report['components']['native']['status']='running'
         # The power assertion belongs to this synthetic load only. Never mask
         # the service's own idle-sleep behavior in the physical acceptance.
         awake=subprocess.Popen(['/usr/bin/caffeinate','-dimsu','-w',str(config.pids['owned_node_tree'])],stdin=subprocess.DEVNULL,
@@ -167,19 +183,23 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             wait_json(native/'native-stream-ready.json',lambda row:row.get('run_id')==run_id and row.get('session_id')==config.session_id,owner=window)
             events.emit('load.begin');queue.start();background.start()
         produced,producer_status=run(config,before_production=ready)
+        report.update(producer_status=producer_status,producer_report='producer/report.json',counts=produced.get('counts'),
+                      production_elapsed_seconds=produced.get('production',{}).get('production_elapsed_seconds',0))
+        report['components']['production']['status']='passed' if producer_status==0 else 'failed'
         background.production_done.set();background.wait();background.cancel();background.join()
         queue.thread.join(config.request_timeout+2)
         if queue.thread.is_alive():queue.close()
         report.update(producer_status=producer_status,producer_report='producer/report.json',counts=produced.get('counts'),
                       background=background.report,queue_errors=queue.errors,warmup_sources=warm_ids)
         window.stop(run_id);window=None
+        report['components']['final_backup']['status']='running'
         node.request_final_backup()
-        deadline=time.monotonic()+610
-        while node.final_backup_state()['phase'] not in ('completed','failed') and time.monotonic()<deadline:time.sleep(.1)
-        if node.final_backup_state()['phase']!='completed':raise BenchmarkError('backup_failed','Final complete backup not committed')
-        report['final_backup']=node.final_backup_state()
+        report['final_backup']=node.wait_for_backup(final=True)
+        report['components']['final_backup']['status']='passed' if report['final_backup']['phase']=='completed' else 'failed'
+        if report['final_backup']['phase']!='completed':raise BenchmarkError('backup_failed','Final complete backup not committed')
         node.close()
         restore_dir=root/'restore-verification';restore_dir.mkdir(mode=0o700)
+        report['components']['restore']['status']='running'
         restored=PackageNode(node.binary,restore_dir,run_id+'-restore',restore_bundle=node.final_bundle)
         try:
             restored_config=replace(config,base_url=restored.start(),output_dir=root/'unused-restore')
@@ -190,28 +210,11 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
                 restore_proof=verify.archive(Client(restored_config),restored_config,ledger)
             finally:ledger.close()
             restored.close();report['restore']=restore_proof
+            report['components']['restore']['status']=restore_proof['status']
         finally:restored.close(expect_success=False)
         events.emit('load.completed');events.close();events=None
-        commit_rows=list(read_json_lines(node.receipts/'core.jsonl'))
-        commit_rows=[row for row in commit_rows if row.get('session_id')==config.session_id]
-        native_rows=[]
-        warm_set=set(warm_ids)
-        for path in native.glob('native-*.jsonl'):
-            native_rows.extend(row for row in read_json_lines(path) if row.get('source_id') not in warm_set)
-        native_rows.extend(read_json_lines(root/'controller.jsonl'))
-        expected=[identifier(config,'sweep',i) for i in range(config.planned_counts()['sweep'])]
-        report['native']=native_metrics(commit_rows,native_rows,run_id=run_id,core_sha256=identity['core_sha256'],
-                                       native_sha256=identity['native_sha256'],expected_ids=expected)
-        report['production_elapsed_seconds']=produced.get('production',{}).get('production_elapsed_seconds',0)
-        report['software_concurrency_observed']=background.report.get('backup_running_during_history') is True and background.report.get('history_during_production') is True
-        report['successful']=producer_status==0 and not queue.errors and background.report.get('status')=='passed' \
-            and complete_restore(config,restore_proof) and report['native']['status']=='passed' and report['software_concurrency_observed']
-        report['point2_passed']=report['successful'] and smoke_seconds is None and report['production_elapsed_seconds']>=1800
-        if bundle_identity(app,manifest)!=identity:raise BenchmarkError('candidate_changed','App changed during load')
-        report['run_id']=run_id;report['smoke_only']=smoke_seconds is not None
-        status=0 if report['successful'] else 1
-    except Exception as error:
-        report['errors'].append(dict(code=getattr(error,'code','load_failed'),message=str(error)))
+    except (Exception,KeyboardInterrupt) as error:
+        report['errors'].append(dict(code=getattr(error,'code','interrupted' if isinstance(error,KeyboardInterrupt) else 'load_failed'),message=str(error)))
     finally:
         if queue is not None:
             try:queue.close()
@@ -221,6 +224,8 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             if background.thread.ident is not None:
                 try:background.join()
                 except Exception as error:report['errors'].append(dict(code='background_cleanup',message=str(error)))
+            report['background']=background.report
+            report['components']['online_backup']['status']=background.report.get('status','failed')
         if window is not None:
             try:window.stop(report.get('run_id',config.run_id),required=False)
             except Exception as error:report['errors'].append(dict(code='native_cleanup',message=str(error)))
@@ -232,8 +237,37 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             if awake.poll() is None:awake.terminate()
             try:awake.wait(timeout=5)
             except subprocess.TimeoutExpired:awake.kill();awake.wait(timeout=5)
-        if events is not None:events.close()
-        if report['errors']:report.update(successful=False,point2_passed=False);status=1
+        if events is not None:
+            try:events.close()
+            except Exception as error:report['errors'].append(dict(code='controller_cleanup',message=str(error)))
+        if config is not None and node is not None and native is not None:
+            try:
+                report['native']=closed_native_evidence(config,node,native,root/'controller.jsonl',warm_ids,identity)
+                report['components']['native']['status']=report['native']['status']
+            except Exception as error:
+                report['native']={'status':'failed','errors':[str(error)]}
+                report['components']['native']['status']='failed'
+                report['errors'].append(dict(code='native_evidence',message=str(error)))
+        if identity is not None:
+            try:
+                if bundle_identity(app,manifest)!=identity:raise BenchmarkError('candidate_changed','App changed during load')
+                report['candidate_verified_after_run']=True
+            except Exception as error:
+                report['errors'].append(dict(code=getattr(error,'code','candidate_changed'),message=str(error)))
+        for component in report['components'].values():
+            if component['status']=='running':component['status']='failed'
+        cleanup_errors=[error for error in report['errors'] if 'cleanup' in error['code']]
+        report['components']['cleanup']={'status':'failed' if cleanup_errors else 'passed',
+            'owned_processes_joined':all(row.get('joined') is True for row in report.get('owned_nodes',[])),
+            'runtime_exit_codes':[row.get('exit_code') for row in report.get('owned_nodes',[])]}
+        background_result=report.get('background',{})
+        report['software_concurrency_observed']=background_result.get('backup_running_during_history') is True and background_result.get('history_during_production') is True
+        report['successful']=bool(config is not None and not report['errors'] and report.get('producer_status')==0
+            and not report.get('queue_errors') and background_result.get('status')=='passed'
+            and complete_restore(config,report.get('restore',{})) and report.get('native',{}).get('status')=='passed'
+            and report['software_concurrency_observed'] and report['components']['cleanup']['status']=='passed')
+        report['point2_passed']=report['successful'] and smoke_seconds is None and report.get('production_elapsed_seconds',0)>=1800
+        status=0 if report['successful'] else 1
         report['finished_at']=datetime.now(timezone.utc).isoformat()
         atomic_report(root,report)
     return report,status
