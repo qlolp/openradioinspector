@@ -206,6 +206,7 @@ final class RemoteDualModel: ObservableObject {
     var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
     private let measurementStream = RemoteMeasurementStream()
+    private let makeSpectrumFrame: @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame
     private var streamingEnabled = false
     private var negotiatedMeasurementTransport: PlatformMeasurementTransport?
     private var measurementSnapshot: PlatformSnapshot?
@@ -236,10 +237,14 @@ final class RemoteDualModel: ObservableObject {
         comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
         thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000,
         requireRuntimeOwner: Bool = false,
+        makeSpectrumFrame: @escaping @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame = {
+            try NativeSpectrumFrame(sweeps: $0, threshold: $1)
+        },
         onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }
     ) {
         self.requireRuntimeOwner = requireRuntimeOwner
         self.makeClient = makeClient
+        self.makeSpectrumFrame = makeSpectrumFrame
         self.onArchiveContextReset = onArchiveContextReset
         self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
@@ -597,8 +602,14 @@ final class RemoteDualModel: ObservableObject {
                     watermark = latestCache?.cursor
                 }
             }
-            // Events may have arrived while metadata was in flight.
-            if let cached = latestCache {
+            // The stream may already be preparing a newer commit than its last
+            // acknowledged cache. A metadata poll must not render the older cache
+            // over that work or invalidate its render revision.
+            let streamOwnsMeasurements = latestCache != nil && measurementStream.isActive && measurementSnapshot != nil
+            if streamOwnsMeasurements, let pending = measurementSnapshot {
+                snapshot.sweeps = pending.sweeps
+                snapshot.observations = pending.observations
+            } else if let cached = latestCache {
                 snapshot.sweeps = cached.sweeps
                 snapshot.observations = cached.observation.map { [$0] } ?? []
             }
@@ -609,7 +620,9 @@ final class RemoteDualModel: ObservableObject {
             }
             workers = snapshot.workers
             measurementSnapshot = snapshot
-            guard await applyMeasurements(snapshot) else { return }
+            if !streamOwnsMeasurements {
+                guard await applyMeasurements(snapshot) else { return }
+            }
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             recordCoreContact()
@@ -1013,10 +1026,11 @@ final class RemoteDualModel: ObservableObject {
         let visible = scanBandSweeps(in: incoming)
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
+        let makeFrame = makeSpectrumFrame
         let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
             var next = previous
             if let scope { next.update(scope: scope, sweeps: visible) } else { next.reset() }
-            let frame = next.paused ? nil : try NativeSpectrumFrame(sweeps: next.sweeps, threshold: threshold)
+            let frame = next.paused ? nil : try makeFrame(next.sweeps, threshold)
             return (next, frame, next.clippedCount)
         }
         let result = try? await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })

@@ -212,12 +212,41 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         XCTFail("Synthetic streaming state was not published")
     }
-    @MainActor private func connected(_ responses: Responses, onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }) async throws -> RemoteDualModel {
+    /// Hold one owned off-main preparation, without depending on render duration.
+    final class SpectrumFrameGate: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var entered = false, released = false
+        private var calls: [String] = []
+        var isHeld: Bool { condition.lock(); defer { condition.unlock() }; return entered && !released }
+        var sources: [String] { condition.lock(); defer { condition.unlock() }; return calls }
+        func release() { condition.lock(); released = true; condition.broadcast(); condition.unlock() }
+        func frame(_ sweeps: [PlatformSweep], _ threshold: Double) throws -> NativeSpectrumFrame {
+            condition.lock()
+            let id = sweeps.last?.id ?? ""
+            calls.append(id)
+            if id == "pending-frame" {
+                entered = true
+                let deadline = Date().addingTimeInterval(10)
+                while !released {
+                    if !condition.wait(until: deadline) {
+                        condition.unlock()
+                        throw CocoaError(.userCancelled)
+                    }
+                }
+            }
+            condition.unlock()
+            return try NativeSpectrumFrame(sweeps: sweeps, threshold: threshold)
+        }
+    }
+
+    @MainActor private func connected(_ responses: Responses,
+        makeSpectrumFrame: @escaping @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame = { try NativeSpectrumFrame(sweeps: $0, threshold: $1) },
+        onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }) async throws -> RemoteDualModel {
         responses.install()
         let model = RemoteDualModel(makeClient: { url in
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
-        }, onArchiveContextReset: onArchiveContextReset)
+        }, makeSpectrumFrame: makeSpectrumFrame, onArchiveContextReset: onArchiveContextReset)
         model.serverURL = responses.endpoint
         model.connect()
         try await wait { responses.eventConnection != nil && !model.current.isEmpty }
@@ -367,6 +396,26 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "during-metadata")
         XCTAssertEqual(responses.resumeCursors, [0])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+    @MainActor func testMetadataRefreshDoesNotCancelAnInFlightCommittedFrame() async throws {
+        let responses = Responses(), gate = SpectrumFrameGate()
+        let model = try await connected(responses, makeSpectrumFrame: { try gate.frame($0, $1) })
+        defer { gate.release(); model.disconnect(); responses.retire() }
+        let stream = try XCTUnwrap(Mirror(reflecting: model).children.first { $0.label == "measurementStream" }?.value as? RemoteMeasurementStream)
+        let initialPreparations = gate.sources
+        responses.commitSweep(sequence: 1, id: "pending-frame", levels: [-63, -52, -41])
+        try await wait { gate.isHeld }
+        XCTAssertEqual(stream.appliedSourceCursor, 0, "An unfinished display/source preparation must not advance the cursor")
+        await model.refresh()
+        XCTAssertEqual(gate.sources, initialPreparations + ["pending-frame"], "Metadata must not reprepare an older cached frame over a pending commit")
+        gate.release()
+        try await wait { stream.appliedSourceCursor == 1 || model.eventStatus.contains("восстановление") }
+        XCTAssertEqual(stream.appliedSourceCursor, 1)
+        XCTAssertEqual(model.current.map(\.y), [-63, -52, -41])
+        XCTAssertEqual(stream.measurements?.sweeps.last?.id, "pending-frame")
+        XCTAssertTrue(model.coreReachable)
+        XCTAssertEqual(responses.resumeCursors, [0], "A metadata poll must not reconnect a healthy measurement stream")
         XCTAssertEqual(responses.mutations, 0)
     }
     @MainActor func testSequenceGapChecksCurrentHealthButReplaysLastAppliedCursor() async throws {
