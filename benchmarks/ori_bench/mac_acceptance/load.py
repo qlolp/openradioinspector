@@ -48,6 +48,7 @@ class NativeWindow:
         environment={key:value for key,value in os.environ.items() if not key.startswith(('ORI_RUNTIME_','PYTHON','DYLD_'))}
         environment['PYTHONPATH']=str(ROOT)
         environment['PYTHONDONTWRITEBYTECODE']='1'
+        environment['PYTHONNOUSERSITE']='1'
         self.owner=OwnedCommand.start([str(executable),'--acceptance-profile',str(self.profile)],
             environment=environment,registry=self.registry,root=ROOT,log=self.log,shutdown_timeout=15)
     def finish_service(self,run_id,*,seconds=150):

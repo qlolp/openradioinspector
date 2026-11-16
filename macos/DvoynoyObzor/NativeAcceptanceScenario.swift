@@ -2,11 +2,11 @@ import Foundation
 
 @MainActor
 enum NativeAcceptanceScenario {
-    private struct Handlers {let pan:@MainActor(Double)->Void;let zoom:@MainActor(Double)->Void}
+    private struct Handlers {let pan:@MainActor (Double)->Void;let zoom:@MainActor (Double)->Void}
     private static var lifecycle=NativeAcceptanceScenarioLifecycle()
     private static var handlers:Handlers?
     private static var driver:Task<Void,Never>?
-    static func attach(session:String,stream:String,sourceSession:String?,sourceStream:String?,pan:@escaping @MainActor(Double)->Void,zoom:@escaping @MainActor(Double)->Void)->UInt64? {
+    static func attach(session:String,stream:String,sourceSession:String?,sourceStream:String?,pan:@escaping @MainActor (Double)->Void,zoom:@escaping @MainActor (Double)->Void)->UInt64? {
         guard let trace=NativeAcceptanceTrace.shared,trace.profile.phase=="load",
               let token=lifecycle.attach(session:session,stream:stream,sourceSession:sourceSession,sourceStream:sourceStream,expected:trace.profile.sessionID) else{return nil}
         handlers=Handlers(pan:pan,zoom:zoom)

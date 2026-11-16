@@ -18,10 +18,16 @@ from benchmarks.ori_bench.client import Client
 from benchmarks.ori_bench.endurance_node import ROOT
 from benchmarks.ori_bench.runner import atomic_report,output_directory
 from benchmarks.ori_bench.source import session,sweep,observation
-from benchmarks.ori_bench.mac_acceptance.evidence import bundle_identity
+from benchmarks.ori_bench.mac_acceptance.evidence import bundle_identity,kit_inventory
 from benchmarks.ori_bench.mac_acceptance.node import PackageNode
 from benchmarks.ori_bench.mac_acceptance.sources import SourceProof,export
 from tools.release import macos_rc_package as package
+
+
+def engineering_environment(inherited):
+    result={key:value for key,value in inherited.items() if not key.startswith(('PYTHON','DYLD_'))}
+    result.update(PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1')
+    return result
 
 
 def self_check(app,manifest,output):
@@ -71,7 +77,7 @@ def self_check(app,manifest,output):
 
 def verify_kit(root):
     manifest=package.read_json(root/'kit-manifest.json',32*1024*1024)
-    if [entry for entry in package.inventory(root) if entry['path']!='kit-manifest.json']!=manifest['files']:
+    if kit_inventory(root)!=manifest['files']:
         raise ValueError('Engineering kit differs from its inventory')
     return manifest
 
@@ -86,6 +92,8 @@ def main(argv=None):
     parser.add_argument('--self-check',action='store_true')
     parser.add_argument('--kit-root',type=Path)
     args=parser.parse_args(argv)
+    environment=engineering_environment(os.environ)
+    os.environ.clear();os.environ.update(environment)
     os.umask(0o077)
     if args.kit_root:verify_kit(args.kit_root.resolve(strict=True))
     manifest=args.manifest or (args.kit_root/'app-manifest.json' if args.kit_root else None)
@@ -93,6 +101,11 @@ def main(argv=None):
     if args.self_check:
         if args.output_dir is None:parser.error('Self-check needs a new --output-dir')
         report,status=self_check(args.app,manifest,args.output_dir)
+        if args.kit_root:
+            try:verify_kit(args.kit_root.resolve(strict=True))
+            except (ValueError,OSError) as error:
+                report['successful']=False;report['errors'].append(dict(code='kit_changed',message=str(error)))
+                status=1;atomic_report(args.output_dir,report)
     else:
         phase=args.phase
         if phase is None:

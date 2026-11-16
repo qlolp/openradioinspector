@@ -6,14 +6,14 @@ import ScreenCaptureKit
 /// Observes only the small code drawn in the actual Canvas pass. No images are retained.
 final class NativeAcceptanceDisplayProbe: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let tag:UInt32
-    private let observed:@Sendable(UInt64,UInt64)->Void
+    private let observed:@Sendable (UInt64,UInt64)->Void
     private let queue=DispatchQueue(label:"org.openradioinspector.acceptance.display")
     private var stream:SCStream?
-    private init(tag:UInt32,observed:@escaping @Sendable(UInt64,UInt64)->Void) {
+    private init(tag:UInt32,observed:@escaping @Sendable (UInt64,UInt64)->Void) {
         self.tag=tag;self.observed=observed
     }
     @MainActor static func start(rect:NSRect,window:NSWindow,tag:UInt32,
-        observed:@escaping @Sendable(UInt64,UInt64)->Void) async throws -> NativeAcceptanceDisplayProbe {
+        observed:@escaping @Sendable (UInt64,UInt64)->Void) async throws -> NativeAcceptanceDisplayProbe {
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
             throw NSError(domain:"ORI.Acceptance",code:1,userInfo:[NSLocalizedDescriptionKey:
                 "Для измерения фактического показа разрешите запись экрана этому RC в настройках macOS и повторите тест. Снимки экрана не сохраняются."])

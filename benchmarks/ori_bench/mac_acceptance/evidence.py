@@ -10,6 +10,13 @@ from tools.release import macos_rc_package as package
 from ..config import BenchmarkError
 
 
+def kit_inventory(root):
+    # Finder preferences carry no executable code. Every other payload/runtime
+    # byte, including prepared bytecode caches, remains part of the inventory.
+    return [entry for entry in package.inventory(root) if entry['path']!='kit-manifest.json'
+            and Path(entry['path']).name!='.DS_Store']
+
+
 def read_json_lines(path,maximum=256*1024*1024):
     path=Path(path)
     if path.is_symlink() or not path.is_file() or path.stat().st_size>maximum:

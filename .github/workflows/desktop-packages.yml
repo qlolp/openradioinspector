@@ -201,6 +201,7 @@ jobs:
           ditto -x -k build/macos/engineering/OpenRadioInspector-Mac-Tests.zip "$RUNNER_TEMP/ori-engineering-relocated"
           cd "$RUNNER_TEMP/ori-engineering-relocated/OpenRadioInspector-Mac-Tests"
           ./StartTests.command --self-check --app "$RUNNER_TEMP/ori-personal-rc/OpenRadioInspector RC.app" --output-dir "$RUNNER_TEMP/ori-engineering-smoke" 2>&1 | tee "$GITHUB_WORKSPACE/build/macos/rc-diagnostics/engineering-smoke.log"
+          ./StartTests.command --self-check --app "$RUNNER_TEMP/ori-personal-rc/OpenRadioInspector RC.app" --output-dir "$RUNNER_TEMP/ori-engineering-repeat-smoke" 2>&1 | tee "$GITHUB_WORKSPACE/build/macos/rc-diagnostics/engineering-repeat-smoke.log"
       - name: Exercise RC-only load, online backup and restored originals
         shell: bash
         env:
@@ -225,6 +226,7 @@ jobs:
             build/macos/engineering/*.zip
             build/macos/engineering/SHA256SUMS
             ${{ runner.temp }}/ori-engineering-smoke/**
+            ${{ runner.temp }}/ori-engineering-repeat-smoke/**
             ${{ runner.temp }}/ori-rc-load-smoke/**
             ${{ runner.temp }}/ori-personal-rc-smoke/**
             ${{ runner.temp }}/native-*-version.txt

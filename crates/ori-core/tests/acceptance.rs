@@ -7,6 +7,7 @@ use std::{fs, sync::Arc};
 fn profile(root: &std::path::Path, data: &std::path::Path) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::set_permissions(data, fs::Permissions::from_mode(0o700)).unwrap();
     let path = root.join("profile.json");
     let hash = Sha256::digest(fs::read(std::env::current_exe().unwrap()).unwrap())
         .iter()
@@ -114,7 +115,7 @@ fn mismatched_executable_or_linked_profile_cannot_enable_acceptance() {
 async fn actual_core_cli_accepts_private_backup_without_exposing_an_http_operation() {
     use std::{
         io::Write,
-        os::unix::fs::PermissionsExt,
+        os::unix::fs::{OpenOptionsExt, PermissionsExt},
         process::{Command, Stdio},
         time::{Duration, Instant},
     };
@@ -208,15 +209,17 @@ async fn actual_core_cli_accepts_private_backup_without_exposing_an_http_operati
     let mut request = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(root.path().join("backup.request"))
+        .mode(0o600)
+        .open(root.path().join("backup.pending"))
         .unwrap();
-    fs::set_permissions(
-        root.path().join("backup.request"),
-        fs::Permissions::from_mode(0o600),
-    )
-    .unwrap();
     request.write_all(b"real-commit-test\n").unwrap();
     request.sync_all().unwrap();
+    fs::hard_link(
+        root.path().join("backup.pending"),
+        root.path().join("backup.request"),
+    )
+    .unwrap();
+    fs::remove_file(root.path().join("backup.pending")).unwrap();
     let finish = root.path().join("backup-finished.json");
     while !finish.exists() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(20)).await;

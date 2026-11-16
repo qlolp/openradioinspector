@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+import os
 
 ROOT=Path(__file__).resolve().parents[1]
 SPEC=importlib.util.spec_from_file_location('acceptance_builder',ROOT/'packaging/macos/build_acceptance_kit.py')
@@ -12,12 +13,37 @@ SPEC.loader.exec_module(builder)
 
 
 class AcceptanceKitTests(unittest.TestCase):
-    def test_relocated_payload_can_launch_and_join_an_actual_isolated_owned_child(self):
+    def test_child_runtime_ignores_operator_python_hooks_but_preserves_os_environment(self):
+        from benchmarks.ori_bench.mac_acceptance.entry import engineering_environment
+        value=engineering_environment({'PYTHONINSPECT':'1','PYTHONPATH':'unrelated','PYTHONHOME':'unrelated',
+            'PYTHONPYCACHEPREFIX':'unrelated','DYLD_LIBRARY_PATH':'unrelated','HOME':'/operator','PATH':'/usr/bin'})
+        self.assertEqual(value,{'HOME':'/operator','PATH':'/usr/bin','PYTHONDONTWRITEBYTECODE':'1','PYTHONNOUSERSITE':'1'})
+
+    def test_prepared_caches_do_not_mutate_when_isolated_helpers_run_after_relocation(self):
+        from tools.release import macos_rc_package as package
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);library=root/'library';library.mkdir()
+            module=library/'ori_cache_probe.py';module.write_text('VALUE = 42\n')
+            builder.prime_runtime(Path(sys.executable),library)
+            expected=package.inventory(library)
+            moved=root/'relocated';library.rename(moved)
+            module=moved/module.name;os.utime(module,(module.stat().st_atime,module.stat().st_mtime+3))
+            subprocess.run([sys.executable,'-I','-S','-c','import sys;sys.path.insert(0,sys.argv[1]);import ori_cache_probe;assert ori_cache_probe.VALUE==42',str(moved)],check=True,cwd=root)
+            self.assertEqual(package.inventory(moved),expected)
+    def test_relocated_payload_has_owner_entry_and_correct_host_support(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);payload=root/'payload';builder.copy_payload(payload)
+            environment=dict(os.environ,PYTHONPATH=str(payload),PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1')
+            imported=subprocess.run([sys.executable,'-B','-m','tests.run_release_checks','--help'],
+                cwd=payload,env=environment,capture_output=True,text=True,timeout=10)
+            self.assertEqual(imported.returncode,0,imported.stdout+imported.stderr)
             code='''import os,sys; from pathlib import Path
 sys.path.insert(0,sys.argv[1])
-from tests.release_process_ownership import OwnedCommand
+from tests.release_process_ownership import OwnedCommand,local_kernel,OwnershipError
+if os.name=='nt':
+ try:local_kernel()
+ except OwnershipError:sys.exit(0)
+ raise AssertionError('Mac ownership must explicitly reject Windows')
 r=Path(sys.argv[2]);r.mkdir(mode=0o700)
 with (r/'process.log').open('xb') as log:
  owner=OwnedCommand.start([sys.executable,'-I','-S','-c','print("actual child")'],environment=dict(os.environ,PYTHONPATH=sys.argv[1],PYTHONDONTWRITEBYTECODE='1'),registry=r,root=Path(sys.argv[1]),log=log,shutdown_timeout=5)
@@ -29,7 +55,8 @@ with (r/'process.log').open('xb') as log:
 '''
             result=subprocess.run([sys.executable,'-I','-S','-c',code,str(payload),str(root/'registry')],
                                   cwd=root,capture_output=True,text=True,timeout=35)
-            self.assertEqual(result.returncode,0,result.stdout+result.stderr+(root/'registry/process.log').read_text())
+            log=root/'registry/process.log'
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr+(log.read_text() if log.is_file() else ''))
 
     def test_developer_library_cannot_silently_become_a_runtime_dependency(self):
         with tempfile.TemporaryDirectory() as d:
@@ -55,6 +82,8 @@ with (r/'process.log').open('xb') as log:
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/'source.py').write_text('original')
             package.write_json(root/'kit-manifest.json',dict(files=package.inventory(root)))
+            verify_kit(root)
+            (root/'.DS_Store').write_bytes(b'Finder metadata')
             verify_kit(root)
             (root/'source.py').write_text('changed')
             with self.assertRaises(ValueError):verify_kit(root)

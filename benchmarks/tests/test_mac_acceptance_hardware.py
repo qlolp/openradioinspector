@@ -12,6 +12,15 @@ from benchmarks.ori_bench.mac_acceptance.evidence import private_json
 
 
 class HardwareControllerTests(unittest.TestCase):
+    def test_unsupported_host_refuses_before_starting_an_owner_process(self):
+        from benchmarks.ori_bench.mac_acceptance.node import PackageNode
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);binary=root/'core';binary.write_bytes(b'fixture identity, never executed')
+            out=root/'node';out.mkdir();node=PackageNode(binary,out,'test')
+            with patch('sys.platform','win32'),patch('benchmarks.ori_bench.endurance_node.OwnedCandidate.start',side_effect=AssertionError('must not spawn')):
+                with self.assertRaises(BenchmarkError):node.start()
+            self.assertEqual(node.records,[])
+
     def test_expected_usb_gap_exempts_only_that_receiver_and_has_a_finite_end(self):
         from benchmarks.ori_bench.mac_acceptance.freshness import SourceProgress
         progress=SourceProgress()

@@ -15,6 +15,7 @@ import sysconfig
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from tools.release import macos_rc_package as package
+from benchmarks.ori_bench.mac_acceptance.evidence import kit_inventory
 
 
 def command(*args):
@@ -27,7 +28,7 @@ def resolve_dependency(name,source,prefix,rpaths):
         candidates=[source.parent/name[len('@loader_path/'):]]
     elif name.startswith('@rpath/'):
         candidates=[Path(path.replace('@loader_path',str(source.parent)))/name[len('@rpath/'):] for path in rpaths]
-    elif name.startswith('/'):
+    elif Path(name).is_absolute():
         candidates=[Path(name)]
     else:raise ValueError('Unsupported runtime library reference: '+name)
     target=next((path.resolve() for path in candidates if path.is_file()),None)
@@ -49,6 +50,12 @@ def copy_payload(destination):
                      'tools/modernization/api_parity.py','tools/release/macos_rc_package.py']:
         target=destination/relative;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(ROOT/relative,target)
+
+
+def prime_runtime(python,library):
+    # Ownership keepers intentionally use -I -S, which ignores PYTHONDONTWRITEBYTECODE.
+    # Checked-hash caches remain valid after ZIP timestamp rounding/relocation.
+    command(python,'-I','-S','-m','compileall','-q','-f','--invalidation-mode','checked-hash',library)
 
 
 def runtime(kit):
@@ -110,6 +117,7 @@ def runtime(kit):
     probe='import sys,ssl,sqlite3,ctypes,json; from pathlib import Path; p=Path(sys.argv[1]).resolve(); assert Path(sys.base_prefix).resolve().is_relative_to(p),sys.base_prefix; assert all(not v or Path(v).resolve().is_relative_to(p) for v in sys.path),sys.path; print(json.dumps({"version":sys.version,"prefix":sys.base_prefix,"sqlite":sqlite3.sqlite_version,"openssl":ssl.OPENSSL_VERSION}))'
     environment={k:v for k,v in os.environ.items() if not k.startswith(('PYTHON','DYLD_'))}
     subprocess.run([str(executable),'-I','-S','-c',probe,str(kit/'runtime')],env=environment,cwd=kit,check=True)
+    prime_runtime(executable,prefix/('lib/python'+version))
     return executable
 
 
@@ -135,7 +143,7 @@ def main():
     start.chmod(0o755)
     package.write_json(kit/'kit-manifest.json',dict(schema_version=1,source_revision=manifest['source_revision'],
         python_version=sys.version,python_executable=str(python.relative_to(kit)),
-        hardware_validation='not_run',full_load_validation='not_run',files=package.inventory(kit)))
+        hardware_validation='not_run',full_load_validation='not_run',files=kit_inventory(kit)))
     archive=output/'OpenRadioInspector-Mac-Tests.zip'
     command('ditto','-c','-k','--sequesterRsrc','--keepParent',kit,archive)
     (output/'SHA256SUMS').write_text(package.digest(archive)+'  '+archive.name+'\n')

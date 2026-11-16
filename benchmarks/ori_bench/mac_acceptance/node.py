@@ -1,5 +1,6 @@
 """Packaged CLI using the existing owned process session and EOF lifeline."""
 import subprocess
+import sys
 from pathlib import Path
 from ..config import BenchmarkError
 from ..concurrent import bounded_json
@@ -14,6 +15,11 @@ class PackageNode(OwnedCandidate):
         self.receipts=self.output/'evidence';self.receipts.mkdir(mode=0o700)
         self.bundle=self.receipts/'backup';self.backup_requested=False
         self.final_bundle=self.receipts/'final-backup';self.final_requested=False
+
+    def start(self):
+        if sys.platform!='darwin' and not sys.platform.startswith('linux'):
+            raise BenchmarkError('unsupported_host','Mac acceptance ownership is unavailable on this host; no process was started')
+        return super().start()
 
     def _adapter_command(self,data):
         if self.restore_bundle is not None:
