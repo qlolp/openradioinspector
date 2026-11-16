@@ -60,7 +60,8 @@ def prime_runtime(python,library):
 
 def runtime(kit):
     original=Path(sys.base_prefix).resolve();version=f'{sys.version_info.major}.{sys.version_info.minor}'
-    prefix=kit/'runtime'/('Python.framework/Versions/'+version if sysconfig.get_config_var('PYTHONFRAMEWORK') else 'python')
+    framework=bool(sysconfig.get_config_var('PYTHONFRAMEWORK'))
+    prefix=kit/'runtime'/('Python.framework/Versions/'+version if framework else 'python')
     prefix.mkdir(parents=True)
     (prefix/'bin').mkdir()
     executable=prefix/'bin/python3'
@@ -69,6 +70,16 @@ def runtime(kit):
     shutil.copytree(original/('lib/python'+version),prefix/('lib/python'+version),ignore=ignore)
     originals={executable:Path(sys.executable).resolve()}
     if (original/'Python').is_file():shutil.copy2(original/'Python',prefix/'Python')
+    application=None
+    if framework:
+        # python.org's framework bin/python3 is a launcher. It spawns this
+        # interpreter via the relocated framework, so the app is part of the
+        # executable closure and must be rewritten/signed with the other leaves.
+        source_application=original/'Resources/Python.app'
+        if not (source_application/'Contents/MacOS/Python').is_file():
+            raise ValueError('Framework Python application interpreter is missing')
+        application=prefix/'Resources/Python.app'
+        shutil.copytree(source_application,application,ignore=shutil.ignore_patterns('_CodeSignature'))
     for source in (original/'lib').glob('*.dylib'):
         shutil.copy2(source,prefix/'lib'/source.name)
     # Resolve dependency paths against the source, but install only relative
@@ -108,6 +119,9 @@ def runtime(kit):
     for target in sorted(originals,key=lambda p:p==executable):
         command('codesign','--force','--sign','-','--timestamp=none',target)
         command('codesign','--verify','--strict',target)
+    if application is not None:
+        command('codesign','--force','--sign','-','--timestamp=none',application)
+        command('codesign','--verify','--strict',application)
     licenses=[*original.glob('LICENSE*'),*(original/'Resources').glob('LICENSE*'),*(original/('lib/python'+version)).glob('LICENSE*')]
     if not licenses:raise ValueError('Python distribution license missing')
     notices=kit/'Notices';notices.mkdir()

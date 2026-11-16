@@ -2,9 +2,11 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import subprocess
 import sys
 import os
+from types import SimpleNamespace
 
 ROOT=Path(__file__).resolve().parents[1]
 SPEC=importlib.util.spec_from_file_location('acceptance_builder',ROOT/'packaging/macos/build_acceptance_kit.py')
@@ -13,6 +15,48 @@ SPEC.loader.exec_module(builder)
 
 
 class AcceptanceKitTests(unittest.TestCase):
+    def test_framework_launcher_keeps_its_app_interpreter_in_the_relocated_closure(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);original=root/'Python.framework/Versions/3.12';original.mkdir(parents=True)
+            launcher=original/'bin/python3';launcher.parent.mkdir()
+            interpreter=original/'Resources/Python.app/Contents/MacOS/Python';interpreter.parent.mkdir(parents=True)
+            library=original/'Python'
+            for path in (launcher,interpreter,library):path.write_bytes(b'\xcf\xfa\xed\xfe' + b'framework fixture')
+            (interpreter.parent.parent/'Info.plist').write_bytes(b'Python application metadata')
+            signature=interpreter.parent.parent/'_CodeSignature';signature.mkdir();(signature/'CodeResources').write_bytes(b'old signature')
+            stdlib=original/'lib/python3.12';stdlib.mkdir(parents=True);(stdlib/'codecs.py').write_text('# stdlib fixture\n')
+            (original/'LICENSE.txt').write_text('Python fixture license')
+            kit=root/'kit';kit.mkdir();copied=kit/'runtime/Python.framework/Versions/3.12'
+            commands=[]
+            def command(*arguments):
+                commands.append(tuple(str(v) for v in arguments))
+                if arguments[0]=='lipo':return 'arm64\n'
+                if arguments[0]=='otool':
+                    source=Path(arguments[-1])
+                    if '-L' in arguments:return str(source)+':\n\t'+str(library)+' (compatibility version 3.12.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)\n'
+                    if '-D' in arguments:return str(source)+':\n'+(str(library)+'\n' if source==library else '')
+                return ''
+            def run(arguments,**_kwargs):
+                if '-c' in arguments:
+                    # The framework bin/python3 launcher spawns this bundled app,
+                    # rather than interpreting Python code itself.
+                    application=copied/'Resources/Python.app/Contents/MacOS/Python'
+                    if not application.is_file():raise FileNotFoundError(application)
+                    self.assertEqual(application.read_bytes(),interpreter.read_bytes())
+                return SimpleNamespace(returncode=0)
+            with mock.patch.object(builder.sys,'base_prefix',str(original)),mock.patch.object(builder.sys,'executable',str(launcher)),\
+                 mock.patch.object(builder.sys,'version_info',SimpleNamespace(major=3,minor=12)),\
+                 mock.patch.object(builder.sysconfig,'get_config_var',return_value='Python'),\
+                 mock.patch.object(builder,'command',side_effect=command),mock.patch.object(builder.subprocess,'run',side_effect=run),\
+                 mock.patch.object(builder,'prime_runtime'):
+                executable=builder.runtime(kit)
+            self.assertEqual(executable,copied/'bin/python3')
+            app=copied/'Resources/Python.app'
+            self.assertEqual((app/'Contents/Info.plist').read_bytes(),b'Python application metadata')
+            self.assertFalse((app/'Contents/_CodeSignature').exists())
+            self.assertIn(('install_name_tool','-change',str(library),'@loader_path/../../../../Python',str(app/'Contents/MacOS/Python')),commands)
+            self.assertIn(('codesign','--force','--sign','-','--timestamp=none',str(app)),commands)
+
     def test_child_runtime_ignores_operator_python_hooks_but_preserves_os_environment(self):
         from benchmarks.ori_bench.mac_acceptance.entry import engineering_environment
         value=engineering_environment({'PYTHONINSPECT':'1','PYTHONPATH':'unrelated','PYTHONHOME':'unrelated',
