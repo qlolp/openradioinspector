@@ -54,17 +54,22 @@ struct NativeTracePlot: View {
     let current: [PlotPoint], minimum: [PlotPoint], maximum: [PlotPoint]
     let threshold: Double?
     let displayScale: PlatformSpectrumScale?
+    var sourceID:String? = nil
     @Environment(\.colorScheme) private var colorScheme
     @State private var mesh: NativeTraceMesh?
+    @State private var meshEvidence:NativeAcceptanceFrame?
+    private struct Work:Equatable {let input:NativeTraceRequest;let id:String?}
     var body: some View {
         GeometryReader { geometry in
             let input = NativeTraceRequest(current: current, minimum: minimum, maximum: maximum, threshold: threshold, scale: displayScale,
                                            dark: colorScheme == .dark, width: geometry.size.width, height: geometry.size.height)
-            NativeMetalPlot(mesh: mesh, waterfall: nil)
-                .task(id: input) {
+            NativeMetalPlot(mesh: mesh, waterfall: nil, acceptanceFrame:meshEvidence)
+                .task(id: Work(input:input,id:sourceID.map{Data($0.utf8).base64EncodedString()})) {
+                    let originalID=sourceID
                     let work = Task.detached(priority: .userInitiated) { try NativeTraceMesh(input) }
                     let value = try? await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
                     guard !Task.isCancelled else { return }; mesh = value
+                    meshEvidence=NativeAcceptanceTrace.shared?.frame(for:originalID)
                 }
         }
     }
@@ -81,6 +86,7 @@ struct NativeWaterfallFrame: Sendable {
 struct NativeMetalPlot: NSViewRepresentable {
     var mesh: NativeTraceMesh?
     var waterfall: NativeWaterfallFrame?
+    var acceptanceFrame:NativeAcceptanceFrame? = nil
     func makeCoordinator() -> Coordinator { Coordinator() }
     func makeNSView(context: Context) -> MTKView {
         let view = MTKView(frame: .zero, device: NativeMetalResources.shared?.device)
@@ -89,7 +95,7 @@ struct NativeMetalPlot: NSViewRepresentable {
         view.delegate = context.coordinator; return view
     }
     func updateNSView(_ view: MTKView, context: Context) {
-        context.coordinator.set(mesh: mesh, waterfall: waterfall)
+        context.coordinator.set(mesh: mesh, waterfall: waterfall, frame:acceptanceFrame)
         view.needsDisplay = true
     }
     @MainActor
@@ -103,10 +109,11 @@ struct NativeMetalPlot: NSViewRepresentable {
         private var inputRevision = 0
         private var pendingMesh: NativeTraceMesh?
         private var pendingWaterfall: NativeWaterfallFrame?
+        private var pendingFrame:NativeAcceptanceFrame?
         private var appliedMesh: NativeTraceMesh?
-        func set(mesh: NativeTraceMesh?, waterfall: NativeWaterfallFrame?) {
-            if mesh != pendingMesh || waterfall?.generation != pendingWaterfall?.generation {
-                pendingMesh = mesh; pendingWaterfall = waterfall; inputRevision += 1
+        func set(mesh: NativeTraceMesh?, waterfall: NativeWaterfallFrame?, frame:NativeAcceptanceFrame?) {
+            if mesh != pendingMesh || waterfall?.generation != pendingWaterfall?.generation || frame?.id != pendingFrame?.id {
+                pendingMesh = mesh; pendingWaterfall = waterfall; pendingFrame=frame; inputRevision += 1
             }
         }
         private func apply(mesh: NativeTraceMesh?, waterfall frame: NativeWaterfallFrame?) {
@@ -165,6 +172,14 @@ struct NativeMetalPlot: NSViewRepresentable {
                 }
                 if let (buffer, count) = dashes {
                     encoder.setVertexBuffer(buffer, offset: 0, index: 0); encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: count)
+                }
+            }
+            if let frame=pendingFrame {
+                drawable.addPresentedHandler { value in
+                    let seconds=value.presentedTime
+                    guard seconds.isFinite,seconds>0,seconds<Double(UInt64.max)/1e9 else{return}
+                    let at=UInt64(seconds*1e9)
+                    Task { @MainActor in NativeAcceptanceTrace.shared?.presented(frame.id,at:at,method:"metal_presented") }
                 }
             }
             encoder.endEncoding(); command.present(drawable); command.commit()

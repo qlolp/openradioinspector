@@ -4,6 +4,21 @@ import Darwin
 @testable import DvoynoyObzorSession
 
 final class NativeLocalServiceTests: XCTestCase {
+    @MainActor
+    func testTwoAcceptanceLifecyclesRemoveRegistrationOnlyAfterConfirmedStop() async throws {
+        let ready=try reply();var registrations=0;var removals=0;var receipts:[Bool]=[]
+        let service=NativeLocalService(exchange:{command,_ in
+            if command=="stop" {return Data("{\"ok\":true}".utf8)}
+            return ready
+        },registration:{registrations+=1;return .enabled},unregister:{removals+=1})
+        for cycle in 1...2 {
+            await service.start();XCTAssertEqual(service.phase,.ready)
+            await NativeAcceptanceServiceCleanup.finish(service:service){success,_ in receipts.append(success)}
+            XCTAssertEqual(service.phase,.stopped);XCTAssertEqual(removals,cycle)
+            XCTAssertEqual(registrations,cycle)
+        }
+        XCTAssertEqual(receipts,[true,true])
+    }
     func testActualPrivateUnixSocketRoundTripUsesACompleteCommandAndReply() async throws {
         let directory = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("orc-" + String(UUID().uuidString.prefix(8)))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

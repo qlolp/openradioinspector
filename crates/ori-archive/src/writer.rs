@@ -151,6 +151,7 @@ pub(crate) fn apply(
     limit: Option<u64>,
     capture_budget: usize,
     lifecycle: &crate::session_lifecycle::Registry,
+    observer: Option<&dyn crate::CommitObserver>,
 ) -> Result<CommittedBatch> {
     #[cfg(test)]
     lifecycle.before_apply();
@@ -418,6 +419,9 @@ pub(crate) fn apply(
     if let Err(error) = tx.commit() {
         pending.rollback(db)?;
         return Err(error.into());
+    }
+    if let Some(observer) = observer {
+        observer.committed(&result.items, &result.events);
     }
     #[cfg(test)]
     lifecycle.after_commit();

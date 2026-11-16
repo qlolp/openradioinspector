@@ -16,6 +16,8 @@ pub struct ArchiveConfig {
     pub read_timeout: Duration,
     pub busy_timeout: Duration,
     pub backup_timeout: Duration,
+    /// Optional trusted diagnostic sink, invoked after commit and before publication.
+    pub commit_observer: Option<Arc<dyn CommitObserver>>,
 }
 impl ArchiveConfig {
     pub fn new(path: impl Into<PathBuf>) -> Self {
@@ -31,6 +33,7 @@ impl ArchiveConfig {
             read_timeout: Duration::from_secs(2),
             busy_timeout: Duration::from_secs(5),
             backup_timeout: Duration::from_secs(30),
+            commit_observer: None,
         }
     }
     pub(crate) fn validate(&self) -> Result<()> {
@@ -55,6 +58,11 @@ impl ArchiveConfig {
         }
         Ok(())
     }
+}
+
+/// Diagnostic observation only. Implementations must not panic or mutate the archive.
+pub trait CommitObserver: std::fmt::Debug + Send + Sync {
+    fn committed(&self, items: &[Value], events: &[Value]);
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -30,6 +30,9 @@ struct NativeSpectrumPlot: View {
 
     var body: some View {
         let timeline = NativeSpectrumTimeline(sweeps, window: window)
+        let acceptance=NativeAcceptanceTrace.shared
+        let evidence=acceptance?.frame(for:selected?.id,viewport:range)
+        let markerTag=acceptance?.tag ?? 0
         Canvas { context, _ in
             let plot = layout.spectrum, water = layout.waterfall
             func x(_ hz: Double) -> Double { plot.minX + (hz - range.lowerBound) / (range.upperBound - range.lowerBound) * plot.width }
@@ -131,8 +134,10 @@ struct NativeSpectrumPlot: View {
                     line(CGPoint(x: water.minX, y: py), CGPoint(x: water.maxX, y: py), color: .white.opacity(0.9))
                 }
             }
+            NativeAcceptanceMarker.draw(&context,frame:evidence,tag:markerTag)
             if sweeps.isEmpty { label("Нет измерений — выберите сеанс и начните приём", CGPoint(x: plot.midX, y: plot.midY)) }
         }
+        .background {if evidence != nil, acceptance?.profile.phase=="load" {NativeAcceptanceGeometry()}}
         .task(id: Request(sweeps: sweeps, ids: sweeps.map(\.exactID), bounds: bounds, range: range)) {
             let source = sweeps, scale = bounds, visible = range
             let task = Task.detached(priority: .userInitiated) { Self.makeRasters(source, bounds: scale, range: visible) }

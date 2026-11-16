@@ -217,7 +217,7 @@ def run_history(config,client,capabilities,ledger,histograms):
             'maximum_batch_request_bytes':byte_limit,'offered_to_ack_samples_are_batches':True}
 
 
-def run(config):
+def run(config, *, before_production=None):
     output=output_directory(config.output_dir)
     ledger=Ledger(output/'offers.sqlite')
     histogram={name:Histogram() for name in LATENCIES}
@@ -239,6 +239,7 @@ def run(config):
                 observer=OwnedObserver(config,client,output)
                 report['observer_setup']=observer.start()
             try:
+                if before_production is not None:before_production()
                 report['production']=(run_history(config,client,capabilities,ledger,histogram) if config.mode=='history'
                                       else run_load(config,ledger,histogram))
             finally:

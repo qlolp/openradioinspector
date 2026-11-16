@@ -6,9 +6,9 @@ import ServiceManagement
 final class NativeLocalService: ObservableObject {
     enum Phase: Equatable { case inactive, checking, approval, stopped, ready, failed }
     enum Registration: Equatable { case enabled, approval, absent }
-    static let plistName = "org.openradioinspector.macos.rc.core.plist"
-    static let endpoint = "http://127.0.0.1:8772"
-    static var isPersonalRC: Bool { Bundle.main.object(forInfoDictionaryKey: "ORIPersonalRC") as? Bool == true }
+    static var plistName:String {NativeAcceptanceTrace.shared?.profile.phase=="hardware" ? "org.openradioinspector.macos.rc.acceptance.core.plist":"org.openradioinspector.macos.rc.core.plist"}
+    static var endpoint:String {NativeAcceptanceTrace.shared?.profile.phase=="hardware" ? "http://127.0.0.1:8774":"http://127.0.0.1:8772"}
+    static var isPersonalRC: Bool { Bundle.main.object(forInfoDictionaryKey: "ORIPersonalRC") as? Bool == true && NativeAcceptanceTrace.shared?.profile.phase != "load" }
 
     @Published private(set) var phase: Phase = .inactive
     @Published private(set) var message = "Служба ещё не проверена. Подключение приборов и охрана включаются отдельно."

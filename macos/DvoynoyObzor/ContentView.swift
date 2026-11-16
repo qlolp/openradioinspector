@@ -21,7 +21,8 @@ struct ContentView: View {
         let remote = RemoteDualModel(requireRuntimeOwner: NativeLocalService.isPersonalRC, onArchiveContextReset: { [weak workspace] watermark in
             workspace?.resetArchiveContext(watermark: watermark)
         })
-        if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
+        if let evidence=NativeAcceptanceTrace.shared {remote.serverURL=evidence.profile.coreURL}
+        else if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
         _model = StateObject(wrappedValue: remote)
     }
 
@@ -30,6 +31,9 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let evidence=NativeAcceptanceTrace.shared {
+                Text("Приёмочный тест · "+evidence.profile.phase+" · "+evidence.profile.runID).font(.caption).foregroundStyle(.orange)
+            }
             HStack(spacing: 12) {
                 Label {
                     Text("Двойной обзор")
@@ -114,6 +118,39 @@ struct ContentView: View {
                 }
             }
         })
+        .task {
+            guard let evidence=NativeAcceptanceTrace.shared else{return}
+            NSApp.activate(ignoringOtherApps:true)
+            if evidence.profile.phase=="load" {
+                tab="range";model.connect()
+                await model.reloadSessions()
+                model.selectSession(evidence.profile.warmupSessionID ?? evidence.profile.sessionID)
+            }
+            let root=URL(fileURLWithPath:evidence.profile.outputDirectory)
+            var switched=false
+            var serviceStopHandled=false
+            while !Task.isCancelled {
+                if evidence.profile.phase=="hardware",!serviceStopHandled,
+                   let value=try? String(contentsOf:root.appendingPathComponent("service-stop.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    serviceStopHandled=true
+                    await NativeAcceptanceServiceCleanup.finish(service:localService){successful,message in
+                        evidence.serviceStopped(successful:successful,message:message)
+                    }
+                    if localService.phase == .stopped {NSApp.terminate(nil);return}
+                }
+                if !switched,let value=try? String(contentsOf:root.appendingPathComponent("use-workload.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    switched=true;model.selectSession(evidence.profile.sessionID)
+                    await model.reloadSessions()
+                }
+                if let value=try? String(contentsOf:root.appendingPathComponent("ui-stop.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    NSApp.terminate(nil);return
+                }
+                do {try await Task.sleep(for:.milliseconds(100))}catch{return}
+            }
+        }
         .onChange(of: workspaceMode) { _, value in
             if value == NativeWorkspace.research.rawValue { tab = "guard" }
         }

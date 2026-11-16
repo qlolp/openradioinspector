@@ -25,6 +25,9 @@ async fn execute() -> Result<()> {
             );
             Ok(())
         }
+        [operation] if operation == "macos-acceptance-agent" => {
+            ori_runtime::macos_agent::run_acceptance().await
+        }
         [operation] if operation == "macos-agent" => ori_runtime::macos_agent::run().await,
         [operation, configuration] if operation == "run" => {
             let bytes = std::fs::read(configuration)?;

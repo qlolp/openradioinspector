@@ -185,6 +185,7 @@ impl Inner {
         let pending = queued.clone();
         let capacity = config.max_database_bytes;
         let capture_budget = config.max_response_bytes;
+        let commit_observer = config.commit_observer.clone();
         let lifecycle = crate::session_lifecycle::Registry::default();
         let writer_lifecycle = lifecycle.clone();
         let writer_checkpoint = checkpoint.clone();
@@ -213,6 +214,7 @@ impl Inner {
                                     capacity,
                                     capture_budget,
                                     &writer_lifecycle,
+                                    commit_observer.as_deref(),
                                 )
                                 .map(|mut value| {
                                     value.reservation = Some(reservation);

@@ -33,6 +33,7 @@ struct Options {
     research_deadline_ms: u64,
     allow_serial: bool,
     allow_audio: bool,
+    acceptance_profile: Option<PathBuf>,
     task_book: Option<PathBuf>,
     legacy_library: Option<PathBuf>,
 }
@@ -81,6 +82,7 @@ fn options() -> Result<Option<Options>> {
         research_deadline_ms: 30000,
         allow_serial: false,
         allow_audio: false,
+        acceptance_profile: None,
         task_book: None,
         legacy_library: None,
     };
@@ -89,9 +91,21 @@ fn options() -> Result<Option<Options>> {
         let key = key
             .to_str()
             .ok_or(CoreError::Invalid("option must be UTF-8"))?;
+        if key == "acceptance-restore" {
+            let bundle = PathBuf::from(value(&mut args)?);
+            let destination = PathBuf::from(value(&mut args)?);
+            let report = PathBuf::from(value(&mut args)?);
+            if args.next().is_some() {
+                return Err(CoreError::Invalid(
+                    "acceptance-restore accepts bundle, new database, new report",
+                ));
+            }
+            ori_core::acceptance::restore(&bundle, &destination, &report)?;
+            return Ok(None);
+        }
         if key == "--help" || key == "-h" {
             println!(
-                "ori-core --mode shadow|replay|live --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate. Live requires --data-dir; native serial requires --mode live --allow-serial. Release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
+                "ori-core --mode shadow|replay|live --data-dir DIR [--database FILE] [--host IP] [--port PORT] [--lan --trusted-host NAME:PORT --tls-state DIR] [--control-port PORT] [--archive-max-bytes BYTES] [--allow-serial] [--ready-file FILE] [--stdin-lifeline] [--check-ready] [--acceptance-profile PRIVATE_JSON] [--analysis-python PYTHON (--research-cgroup DIR | --research-best-effort)] [--research-deadline-ms 30000]\nori-core init-lan --data-dir DIR --name DNS_OR_IP [--name DNS_OR_IP]\nori-core pair --data-dir DIR [--ttl-seconds 300] [--attempts 5]\nDefault shadow opens no archive writer or hardware. Replay is an explicit private-copy candidate. Live requires --data-dir; native serial requires --mode live --allow-serial. Release acceptance is incomplete. LAN identity provisioning and operator trust are explicit."
             );
             println!(
                 "TaskBook uses ephemeral storage by default; --task-book FILE selects the operator's persistent book. This candidate supports planning; execution is unavailable. --allow-audio explicitly enables the compiled native audio backend; construction opens no input."
@@ -106,6 +120,9 @@ fn options() -> Result<Option<Options>> {
             return Ok(None);
         }
         match key {
+            "--acceptance-profile" => {
+                result.acceptance_profile = Some(PathBuf::from(value(&mut args)?))
+            }
             "--allow-serial" => result.allow_serial = true,
             "--allow-audio" => result.allow_audio = true,
             "--task-book" => result.task_book = Some(PathBuf::from(value(&mut args)?)),
@@ -190,6 +207,17 @@ fn options() -> Result<Option<Options>> {
     if result.allow_audio && !cfg!(feature = "audio") {
         return Err(CoreError::Invalid(
             "audio support was not compiled; build the audio feature explicitly",
+        ));
+    }
+    if result.acceptance_profile.is_some()
+        && (result.lan
+            || !result.data_explicit
+            || !result.mode.writes_archive()
+            || result.allow_audio
+            || result.analysis_python.is_some())
+    {
+        return Err(CoreError::Invalid(
+            "acceptance needs explicit local no-audio/no-research data",
         ));
     }
     if result.allow_serial && result.mode != CoreMode::Live {
@@ -381,6 +409,20 @@ async fn execute() -> Result<()> {
             Some(std::sync::Arc::new(ori_core::devices::NativeSerialFactory));
     }
     configuration.mode = options.mode;
+    if let Some(path) = &options.acceptance_profile {
+        configuration.acceptance = Some(std::sync::Arc::new(
+            ori_core::acceptance::Acceptance::open(path, &options.data)?,
+        ));
+        if let Some(factory) = configuration.devices.transport.take() {
+            configuration.devices.transport = Some(
+                configuration
+                    .acceptance
+                    .as_ref()
+                    .expect("explicit profile")
+                    .transport(factory),
+            );
+        }
+    }
     configuration.audio.native_enabled = options.allow_audio;
     configuration.task_book = options.task_book.clone();
     configuration.legacy.library = options.legacy_library.clone();
@@ -437,7 +479,12 @@ async fn execute() -> Result<()> {
             options.data.join(database)
         };
     }
+    let acceptance = configuration.acceptance.clone();
     let core = Core::open(configuration).await?;
+    let acceptance_task = acceptance.map(|sink| {
+        let owner = core.clone();
+        tokio::spawn(async move { sink.supervise(owner).await })
+    });
     if *stopped.borrow() {
         return core.close().await;
     }
@@ -498,6 +545,9 @@ async fn execute() -> Result<()> {
         core.serve(listener).await
     };
     drop(ready);
+    if let Some(task) = acceptance_task {
+        task.await.map_err(|_| CoreError::Task)??;
+    }
     result
 }
 fn tls_directory(options: &Options) -> PathBuf {

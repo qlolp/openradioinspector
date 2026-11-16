@@ -4,6 +4,8 @@ import Darwin
 /// The macOS application implementation, hosted by the Xcode app target.
 public struct DvoynoyObzorApplication: App {
     public init() {
+        do {try NativeAcceptanceTrace.activate()}
+        catch {FileHandle.standardError.write(Data(("Acceptance disabled: "+error.localizedDescription+"\n").utf8));Darwin.exit(1)}
         if CommandLine.arguments.contains("--self-check") {
             do {
                 let identity = try NativeRCBundle.validateCurrentInstallation(requireWritable: false)

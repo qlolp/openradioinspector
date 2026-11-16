@@ -248,6 +248,15 @@ struct NativeSpectrumInspector: View {
         .onChange(of: seconds) { _, _ in
             archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
         }
+        .task(id: !streamID.isEmpty && sweeps.last?.sessionId==sessionID && sweeps.last?.streamId==streamID) {
+            guard let evidence=NativeAcceptanceTrace.shared,evidence.profile.phase=="load",
+                  sessionID==evidence.profile.sessionID else{return}
+            guard let token=NativeAcceptanceScenario.attach(session:sessionID,stream:streamID,
+                sourceSession:sweeps.last?.sessionId,sourceStream:sweeps.last?.streamId,
+                pan:{pan($0)},zoom:{magnify($0)}) else{return}
+            defer {NativeAcceptanceScenario.detach(token)}
+            while !Task.isCancelled {do {try await Task.sleep(for:.seconds(60))}catch{return}}
+        }
         .onDisappear { archiveTask?.cancel(); tuneTask?.cancel() }
         .onChange(of: trackingPeak) { _, enabled in
             if enabled {
