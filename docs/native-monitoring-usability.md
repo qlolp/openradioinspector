@@ -5,6 +5,7 @@ The macOS client keeps hardware ownership and archive writes in the core. This i
 - Explicit local development-core launch and shutdown, with an interpreter picker for prepared Python environments. Personal RC keeps its existing supervised service.
 - A graceful stop that finishes the active measurement, and a separate explicit force-stop action. The Swift client checks the advertised capability before requesting graceful stop from an older core.
 - Separate core reachability and measurement freshness. A failed refresh retains the last spectrum visibly marked stale; receiver observations cannot make an old analyzer spectrum fresh.
+- Archive history fetches source sweeps by their recorded IDs in Rust. The client also supports the context endpoint on older servers.
 - A full-width analyzer when no receiver is configured, smaller minimum window dimensions, and Russian primary controls and diagnostic explanations.
 
 Raw measurement units, timestamps, archive ownership and generator policy are unchanged. tinySA generation is never enabled by these changes.

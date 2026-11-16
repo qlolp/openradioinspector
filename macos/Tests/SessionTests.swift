@@ -142,14 +142,18 @@ final class SessionTests: XCTestCase {
         XCTAssertTrue(model.identityMatches, "Идентификатор устройства должен совпасть с tinySA Ultra")
         XCTAssertTrue(model.versionText.contains("tinySA4_"), "Версия должна содержать tinySA4_")
 
+        let clock = ContinuousClock()
+        let scanStarted = clock.now
+        let setupBudget = Double(UltraSessionScript.setupTexts.count) * UltraReadTiming.setupMaximumSeconds
+        let scanDeadline = scanStarted + .seconds(setupBudget + UltraReadTiming.scanMaximumSeconds + 2)
         model.startOverview()
         try await waitFor { model.scanning }
 
-        // Полный аппаратно подтверждённый скан tinySA Ultra 100k-800M (290 точек при rbw 30) занимает ~36 с
-        for _ in 0..<450 {
+        while clock.now < scanDeadline {
             if !model.current.isEmpty || model.errorText != nil { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+        if !model.current.isEmpty { print("Physical tinySA first sweep: \(scanStarted.duration(to: clock.now))") }
         XCTAssertNil(model.errorText, "Ошибок свипа быть не должно: \(model.errorText ?? "")")
         XCTAssertFalse(model.current.isEmpty, "Должны поступить точки спектра с физического прибора")
         XCTAssertEqual(model.current.count, 290, "Ожидалось 290 точек из полного скана")
@@ -158,8 +162,9 @@ final class SessionTests: XCTestCase {
         XCTAssertGreaterThan(model.waterfallRevision, 0)
         XCTAssertTrue(model.rows.count >= 0) // порог проверен
 
+        let stopDeadline = clock.now + .seconds(UltraReadTiming.scanMaximumSeconds + 2)
         model.stopOverview()
-        for _ in 0..<450 {
+        while clock.now < stopDeadline {
             if !model.scanning { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
