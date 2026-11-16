@@ -155,7 +155,8 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             item=sweep(warm,index);warm_ids.append(item['id'])
             client.json(client.session_path(warm)+'/sweeps/batch',method='POST',payload={'items':[item]},status=201)
             if (native/'native-ready.json').is_file():break
-            if window.owner.status().get('phase') in ('failed','exited','released','quiescent'):
+            window_state=window.owner.status()
+            if window_state and window_state.get('phase') in ('failed','exited','released','quiescent'):
                 raise BenchmarkError('native_unavailable','Native process exited during warmup')
             time.sleep(.5)
         wait_json(native/'native-ready.json',lambda row:row.get('run_id')==run_id and row.get('source_id') in warm_ids,owner=window)
