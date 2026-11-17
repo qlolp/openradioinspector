@@ -31,6 +31,16 @@ class PackagedAcceptanceIntegrationTests(unittest.TestCase):
                 actual=client.json(client.session_path(config)+'/sweeps?limit=100')
                 self.assertEqual([measurement_hash('sweep',v) for v in actual],
                                  [measurement_hash('sweep',v) for v in originals])
+                from benchmarks.ori_bench.ledger import Ledger
+                from benchmarks.ori_bench.verify import archive
+                ledger=Ledger(root/'offered.sqlite')
+                try:
+                    ledger.offer_many(config,'sweep',range(100))
+                    for value in originals:ledger.status(value['id'],'accepted',201)
+                    exported=archive(client,config,ledger)
+                    self.assertEqual(exported['source_counts'],dict(sweep=100,observation=0))
+                    self.assertEqual(ledger.counts()['sweep']['verified'],100)
+                finally:ledger.close()
                 self.assertFalse((node.receipts/'core.jsonl').exists())
                 with self.assertRaises(BenchmarkError):node.request_backup()
                 node.close()
