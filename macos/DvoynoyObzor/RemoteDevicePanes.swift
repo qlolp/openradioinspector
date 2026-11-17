@@ -52,7 +52,7 @@ struct RemoteArPane: View {
         let port: String
     }
 
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @State private var scopeTarget: ScopeTarget?
 
     private var receiverPort: String? {
@@ -128,7 +128,7 @@ struct RemoteArPane: View {
 }
 
 struct RemoteUltraPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     var research = true
     var scanBands: [MonitoringValue] = []
     var bandPlanWorkspace: MonitoringWorkspaceModel?

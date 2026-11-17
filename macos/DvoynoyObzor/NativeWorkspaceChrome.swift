@@ -9,7 +9,7 @@ enum NativeWorkspace: String, CaseIterable, Identifiable {
 }
 
 struct NativeConnectionPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @ObservedObject var connection: NativeNodeConnectionModel
     var localServiceRequired = false
     var localServiceReady = true
@@ -126,7 +126,7 @@ struct NativeConnectionPane: View {
 }
 
 struct NativeContinuityBar: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @State private var details = false
     private var coverage: String {

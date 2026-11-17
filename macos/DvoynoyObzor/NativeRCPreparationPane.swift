@@ -2,7 +2,7 @@ import SwiftUI
 import SpektrKomandy
 
 struct NativeRCPreparationPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @StateObject private var flow = NativeRCPreparationModel()
     @State private var ports: [String] = []

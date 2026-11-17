@@ -3,7 +3,7 @@ import SpektrKomandy
 import AppKit
 
 struct ContentView: View {
-    @StateObject private var model: RemoteDualModel
+    @State private var model: RemoteDualModel
     @StateObject private var workspace: MonitoringWorkspaceModel
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
@@ -23,7 +23,7 @@ struct ContentView: View {
         })
         if let evidence=NativeAcceptanceTrace.shared {remote.serverURL=evidence.profile.coreURL}
         else if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
-        _model = StateObject(wrappedValue: remote)
+        _model = State(initialValue: remote)
     }
 
     @AppStorage("native.workbench.tab") private var tab = "range"

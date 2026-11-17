@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 import SpektrKomandy
 
 struct RemoteSweepComparisonPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Сравнение архивных свипов · dB") {

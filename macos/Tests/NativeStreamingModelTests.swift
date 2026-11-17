@@ -1,11 +1,34 @@
 import Foundation
 import Dispatch
-import Combine
+import Observation
 import XCTest
 import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeStreamingModelTests: XCTestCase {
+    @MainActor final class ObservationCount { var value = 0 }
+
+    @MainActor func testStreamFieldsDoNotInvalidateDeviceConfigurationReaders() {
+        let model = RemoteDualModel()
+        let controls = ObservationCount(), plot = ObservationCount()
+        withObservationTracking {
+            _ = model.mode; _ = model.receiverPort; _ = model.tinySAPort
+        } onChange: {
+            MainActor.assumeIsolated { controls.value += 1 }
+        }
+        withObservationTracking {
+            _ = model.displayCurrent
+        } onChange: {
+            MainActor.assumeIsolated { plot.value += 1 }
+        }
+        model.eventStatus = "committed event"
+        model.current = [PlotPoint(x: 100, y: -50)]
+        XCTAssertEqual(plot.value, 1, "A display reader must receive the new measurement")
+        XCTAssertEqual(controls.value, 0, "Measurements do not change device configuration")
+        model.mode = "AM"
+        XCTAssertEqual(controls.value, 1, "An actual control change must update its readers")
+    }
+
     final class Timeline: @unchecked Sendable {
         private let lock = NSLock()
         private var records: [String] = []
@@ -324,18 +347,21 @@ final class NativeStreamingModelTests: XCTestCase {
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
         })
-        var observed = false
-        let subscription = model.$comparisonSweeps.sink { sweeps in
-            guard !sweeps.isEmpty else { return }
-            observed = true
-            XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
-            XCTAssertEqual(model.waterfall.rows.count, 1)
+        let observations = ObservationCount()
+        withObservationTracking {
+            _ = model.comparisonSweeps
+        } onChange: {
+            MainActor.assumeIsolated {
+                observations.value += 1
+                XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
+                XCTAssertEqual(model.waterfall.rows.count, 1)
+            }
         }
-        defer { subscription.cancel(); model.disconnect(); responses.retire() }
+        defer { model.disconnect(); responses.retire() }
         model.serverURL = responses.endpoint
         model.connect(startPolling: false)
         try await wait { model.sweepAverage.target != nil }
-        XCTAssertTrue(observed)
+        XCTAssertEqual(observations.value, 1)
         let revision = model.waterfallRevision
         await model.refresh()
         XCTAssertEqual(model.waterfallRevision, revision, "An identical refresh must not add a waterfall frame")
@@ -375,12 +401,7 @@ final class NativeStreamingModelTests: XCTestCase {
             let revision = stream.flatMap { value in Mirror(reflecting: value).children.first { $0.label == "revision" }?.value as? Int }
             timeline.mark("\(phase) gen=\(model.generation) render=\(render ?? -1) streamRev=\(revision ?? -1) active=\(stream?.isActive ?? false) source=\(stream?.appliedSourceCursor ?? 0) cache=\(stream?.measurements?.cursor ?? -1)")
         }
-        let observations = [
-            model.$current.sink { _ in mark("publish current") },
-            model.$comparisonSweeps.sink { _ in mark("publish comparison sources") },
-            model.$eventStatus.sink { value in mark("status \(value.prefix(100))") }
-        ]
-        defer { observations.forEach { $0.cancel() }; responses.releaseMetadata(); model.disconnect(); responses.retire() }
+        defer { responses.releaseMetadata(); model.disconnect(); responses.retire() }
         mark("control start")
         responses.holdNextMetadata()
         let refresh = Task { await model.refresh() }

@@ -103,7 +103,7 @@ func clipReply(_ text: String, limit: Int) -> String {
 
 
 struct RemoteWorkflowPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         ScrollView([.horizontal, .vertical]) {
@@ -216,7 +216,7 @@ struct RemoteWorkflowPane: View {
 private let workflowOpenStates: Set<String> = ["queued", "tuning", "listening", "decoding"]
 
 struct RemoteTaskSchedulerPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Control tasks · глобальный runtime-only opt-in") {
@@ -302,7 +302,7 @@ struct RemoteTaskSchedulerPane: View {
 }
 
 struct RemoteArchiveCapacityPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Ёмкость всего архива · сервер") {
@@ -373,7 +373,7 @@ struct RemoteArchiveCapacityPane: View {
 }
 
 struct RemoteAnalyticsPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Сводка всего архива · read-only") {
@@ -418,7 +418,7 @@ struct RemoteAnalyticsPane: View {
 }
 
 struct RemoteCompletionPolicyPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Automatic completion · независимый opt-in") {
@@ -456,7 +456,7 @@ struct RemoteCompletionPolicyPane: View {
 }
 
 struct RemoteDetectionPolicyPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Automatic detection · независимый opt-in") {
@@ -496,7 +496,7 @@ struct RemoteDetectionPolicyPane: View {
 }
 
 struct RemoteHandoffPolicyPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         GroupBox("Automatic handoff · независимый opt-in") {
@@ -568,7 +568,7 @@ func workflowFrequency(_ hertz: Int64) -> String {
 
 
 struct RemoteSerialSessionPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

@@ -12,7 +12,7 @@ private struct HistoryFrequency: Identifiable {
 }
 
 struct NativeFrequencyHistoryPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @Environment(\.dismiss) private var dismiss
     @State private var browser = NativeFrequencyHistoryBrowser()
     @State private var frequencies = [HistoryFrequency()]

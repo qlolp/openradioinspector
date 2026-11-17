@@ -2,7 +2,7 @@ import SwiftUI
 import SpektrKomandy
 
 struct NativeSignalsPage: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
     let openSpectrum: () -> Void
     let openGuard: () -> Void
@@ -67,7 +67,7 @@ struct NativeSignalsPage: View {
 }
 
 private struct NativeSignalCandidatesPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     let openSpectrum: () -> Void
     @State private var message = ""
     @State private var sourceTask: Task<Void, Never>?
@@ -138,7 +138,7 @@ struct NativeArchivePage: View {
         var id: PlatformExactID { sweep.exactID }
     }
 
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     let openSpectrum: () -> Void
     @State private var browser = NativeArchiveBrowser()
     @State private var start = Date().addingTimeInterval(-3600)

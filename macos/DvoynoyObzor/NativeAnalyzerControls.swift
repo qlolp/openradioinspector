@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import SpektrKomandy
 
 struct NativeAnalyzerControls: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @State private var draft = NativeAnalyzerDraft()
     @State private var lastEdited = NativeAnalyzerDraft.Field.start
     @State private var message = ""

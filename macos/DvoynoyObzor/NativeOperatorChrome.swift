@@ -3,7 +3,7 @@ import SpektrKomandy
 
 /// Compact operator controls. Connection setup stays separate from acquisition.
 struct NativeOperatorHeader: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @Binding var setupExpanded: Bool
 
     var body: some View {

@@ -99,9 +99,18 @@ class Sampler:
             record['peak_tree_rss_bytes']=max(record['peak_tree_rss_bytes'],sum(processes[p]['rss'] for p in children))
             record['max_process_count']=max(record['max_process_count'],len(children))
     def __enter__(self):
+        anchor=time.monotonic()
         self.sample()
         def loop():
-            while not self.stop_event.wait(self.interval):self.sample()
+            deadline=anchor+self.interval
+            while not self.stop_event.wait(max(0,deadline-time.monotonic())):
+                self.sample()
+                deadline+=self.interval
+                now=time.monotonic()
+                if deadline<now:
+                    # Keep actual late timestamps and skip elapsed ticks. Never
+                    # create catch-up samples to hide an unobserved interval.
+                    deadline+=(math.floor((now-deadline)/self.interval)+1)*self.interval
         self.thread=threading.Thread(target=loop,name='benchmark-resource-sampler',daemon=True)
         self.thread.start();return self
     def __exit__(self,*args):

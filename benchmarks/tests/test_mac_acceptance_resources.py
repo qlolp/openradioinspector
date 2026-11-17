@@ -34,4 +34,12 @@ class MacResourceRegressions(unittest.TestCase):
         facts=self.facts();facts['process_trees']['core']['missing_samples']=1
         self.assertEqual(assess_resources(facts)['status'],'failed')
 
+    def test_sampling_gap_boundary_is_preserved_with_sufficient_sample_count(self):
+        facts=self.facts();facts['interval_seconds']=.5
+        for row in facts['process_trees'].values():
+            row.update(samples=3500,first_sample_ns=1,last_sample_ns=1_800_000_000_001,max_sample_gap_ns=2_000_000_000)
+        self.assertEqual(assess_resources(facts,minimum_seconds=1800)['status'],'passed')
+        facts['process_trees']['core']['max_sample_gap_ns']+=1
+        self.assertEqual(assess_resources(facts,minimum_seconds=1800)['status'],'failed')
+
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import AppKit
 import AVFoundation
 import SwiftUI
@@ -24,13 +24,14 @@ struct PinnedSweepReference {
 }
 
 @MainActor
-final class RemoteDualModel: ObservableObject {
-    @Published var showFrequencyHistory = false
-    @Published var historyFrequency: Int64?
-    @Published var reviewedSweepRequest = UUID()
-    @Published var reviewedSweep: PlatformSweep?
-    @Published var showTinySAControl = false
-    @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
+@Observable
+final class RemoteDualModel {
+    var showFrequencyHistory = false
+    var historyFrequency: Int64?
+    var reviewedSweepRequest = UUID()
+    var reviewedSweep: PlatformSweep?
+    var showTinySAControl = false
+    var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet {
             guard !PlatformExactID.same(serverURL, oldValue) else { return }
             selectedScanBand = ""
@@ -38,8 +39,8 @@ final class RemoteDualModel: ObservableObject {
             resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil)
         }
     }
-    @Published var sessions: [PlatformSession] = []
-    @Published var selectedSessionID = "" {
+    var sessions: [PlatformSession] = []
+    var selectedSessionID = "" {
         didSet {
             guard !PlatformExactID.same(selectedSessionID, oldValue) else { return }
             selectedScanBand = ""
@@ -47,7 +48,7 @@ final class RemoteDualModel: ObservableObject {
             configureAuxiliaryStreams(client: nil, session: nil)
         }
     }
-    @Published var session: PlatformSession? {
+    var session: PlatformSession? {
         didSet {
             if !PlatformThreeSweepThresholds.sameID(session?.streams.first(where: { $0.isDbmAnalyzer })?.id,
                 oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id) {
@@ -56,114 +57,114 @@ final class RemoteDualModel: ObservableObject {
             }
         }
     }
-    @Published var auxiliaryStreamID = "" {
+    var auxiliaryStreamID = "" {
         didSet { if !PlatformThreeSweepThresholds.sameID(auxiliaryStreamID, oldValue) { applyAuxiliaryStream() } }
     }
     private var auxiliaryClient: PlatformClient?
     private var auxiliarySession: PlatformSession?
-    @Published var workers: [PlatformWorker] = []
+    var workers: [PlatformWorker] = []
     // Connection intent is distinct from a successfully refreshed core.
-    @Published var connected = false
-    @Published private(set) var coreReachable = false
-    @Published private(set) var lastCoreContactAt: Date?
-    @Published private(set) var measurementsStale = true
-    @Published private(set) var lastMeasurementAt: Date?
+    var connected = false
+    private(set) var coreReachable = false
+    private(set) var lastCoreContactAt: Date?
+    private(set) var measurementsStale = true
+    private(set) var lastMeasurementAt: Date?
     // Display-only fallback: never used as archive evidence or an action source.
-    @Published private(set) var staleSpectrum: NativeSpectrumFrame?
-    @Published private(set) var staleSpectrumScale: PlatformSpectrumScale?
+    private(set) var staleSpectrum: NativeSpectrumFrame?
+    private(set) var staleSpectrumScale: PlatformSpectrumScale?
     private var lastRenderedFrame: NativeSpectrumFrame?
     private var lastRenderedSweeps: [PlatformSweep] = []
     // Allow a full-band hardware sweep (about 36 seconds) plus polling/retry margin.
     static let measurementFreshnessInterval: TimeInterval = 90
-    @Published var authorizationRequired = false
-    @Published var busy = false
-    @Published var status = "Сервер не подключён"
-    @Published var errorText: String?
-    @Published var mode = "FM"
-    @Published var threshold = "-80"
-    @Published var spectrumPresentation = PlatformSpectrumPresentation()
-    @Published var selectedScanBand = ""
-    @Published var spectrumClippedCount = 0
-    @Published var spectrumLower = ""
-    @Published var spectrumUpper = ""
-    @Published var current: [PlotPoint] = []
-    @Published var minimum: [PlotPoint] = []
-    @Published var maximum: [PlotPoint] = []
-    @Published var rows: [Exceedance] = []
-    @Published var waterfall = WaterfallHistory()
-    @Published var waterfallRevision = 0
-    @Published var latestObservation: PlatformObservation?
-    @Published var eventGapNotice: String?
-    @Published var eventStatus = "Ожидание подключения"
-    @Published var measurementSource: PlatformMeasurementSource?
-    @Published var measurementDisplayIssue: PlatformMeasurementDisplayIssue?
-    @Published var live = "Данные ядра ещё не получены"
-    @Published var candidates: [PlatformCandidate] = []
-    @Published var investigations: [PlatformInvestigation] = []
-    @Published var nextInvestigation: PlatformInvestigation?
-    @Published var selectedCandidateID = ""
-    @Published var selectedInvestigationID = ""
-    @Published var investigationPriority = "0"
-    @Published var failureReason = ""
-    @Published var automaticHandoffStatus: PlatformAutomaticStatus?
-    @Published var automaticDetectionStatus: PlatformAutomaticStatus?
-    @Published var automaticCompletionStatus: PlatformAutomaticStatus?
-    @Published var taskSchedulerStatus: PlatformTaskSchedulerStatus?
-    @Published var taskSchedulerError: String?
-    @Published var taskSchedulerTasks: [PlatformControlTask] = []
-    @Published var taskSchedulerTasksError: String?
-    @Published var newTaskName = ""
-    @Published var newTaskFile = ""
-    @Published var newTaskStartAt = ""
-    @Published var newTaskDuration = "60"
-    @Published var newTaskEquipment = ""
-    @Published var newTaskStatus = "Новая ControlTask ещё не создана"
-    @Published var showTaskCreate = false
-    @Published var taskCreatePending = false
-    @Published var taskCancelStatus = "Queued ControlTask не отменена"
-    @Published var taskCancelPending = false
+    var authorizationRequired = false
+    var busy = false
+    var status = "Сервер не подключён"
+    var errorText: String?
+    var mode = "FM"
+    var threshold = "-80"
+    var spectrumPresentation = PlatformSpectrumPresentation()
+    var selectedScanBand = ""
+    var spectrumClippedCount = 0
+    var spectrumLower = ""
+    var spectrumUpper = ""
+    var current: [PlotPoint] = []
+    var minimum: [PlotPoint] = []
+    var maximum: [PlotPoint] = []
+    var rows: [Exceedance] = []
+    var waterfall = WaterfallHistory()
+    var waterfallRevision = 0
+    var latestObservation: PlatformObservation?
+    var eventGapNotice: String?
+    var eventStatus = "Ожидание подключения"
+    var measurementSource: PlatformMeasurementSource?
+    var measurementDisplayIssue: PlatformMeasurementDisplayIssue?
+    var live = "Данные ядра ещё не получены"
+    var candidates: [PlatformCandidate] = []
+    var investigations: [PlatformInvestigation] = []
+    var nextInvestigation: PlatformInvestigation?
+    var selectedCandidateID = ""
+    var selectedInvestigationID = ""
+    var investigationPriority = "0"
+    var failureReason = ""
+    var automaticHandoffStatus: PlatformAutomaticStatus?
+    var automaticDetectionStatus: PlatformAutomaticStatus?
+    var automaticCompletionStatus: PlatformAutomaticStatus?
+    var taskSchedulerStatus: PlatformTaskSchedulerStatus?
+    var taskSchedulerError: String?
+    var taskSchedulerTasks: [PlatformControlTask] = []
+    var taskSchedulerTasksError: String?
+    var newTaskName = ""
+    var newTaskFile = ""
+    var newTaskStartAt = ""
+    var newTaskDuration = "60"
+    var newTaskEquipment = ""
+    var newTaskStatus = "Новая ControlTask ещё не создана"
+    var showTaskCreate = false
+    var taskCreatePending = false
+    var taskCancelStatus = "Queued ControlTask не отменена"
+    var taskCancelPending = false
     // The app-internal action extensions share these setters across source files.
-    @Published var comparisonSweeps: [PlatformSweep] = []
-    @Published var comparisonSelectionID = ""
-    @Published var comparisonReference: PinnedSweepReference?
-    @Published var sweepComparison: PlatformSweepComparison?
-    @Published var sweepComparisonError: String?
-    @Published var sweepComparisonPending = false
-    @Published var referenceName = ""
-    @Published var savedReferenceSelectionID = ""
-    @Published var referenceCatalog: PlatformSweepReferenceCatalog?
-    @Published var savedSweepReferences: [PlatformSweepReference] = []
-    @Published var referenceCatalogError: String?
-    @Published var referenceSaveStatus: String?
-    @Published var referenceWriteNotice: String?
-    @Published var referenceCatalogPending = false
-    @Published var referenceSavePending = false
-    @Published var archiveCapacity: PlatformArchiveCapacity?
-    @Published var archiveCapacityError: String?
-    @Published var archiveAnalytics: PlatformAnalyticsSummary?
-    @Published var archiveAnalyticsError: String?
-    @Published var archiveAnalyticsPending = false
-    @Published var archiveExportStatus = "NDJSON snapshot ещё не выгружен"
-    @Published var archiveExportPending = false
-    @Published var workflowErrors: [String] = []
-    @Published var detectionInterval = "1"
-    @Published var detectionStreamID = ""
-    @Published var detectionThreshold = "-70"
-    @Published var detectionDedupBandwidth = "100000"
-    @Published var detectionCooldown = "60"
-    @Published var detectionMaximumCandidates = "10"
-    @Published var handoffInterval = "1"
-    @Published var handoffMinimumPriority = "0"
-    @Published var handoffReceiverStreamID = ""
-    @Published var handoffMaximumFailures = "3"
-    @Published var handoffRetryDelay = "30"
-    @Published var completionInterval = "1"
-    @Published var completionMinimumListening = "0"
-    @Published var completionMinimumObservations = "1"
-    @Published var completionReceiverStreamID = ""
-    @Published var tinySAPort = "/dev/ttyACM0"
-    @Published var receiverPort = ""
-    @Published var showSerialForm = false
+    var comparisonSweeps: [PlatformSweep] = []
+    var comparisonSelectionID = ""
+    var comparisonReference: PinnedSweepReference?
+    var sweepComparison: PlatformSweepComparison?
+    var sweepComparisonError: String?
+    var sweepComparisonPending = false
+    var referenceName = ""
+    var savedReferenceSelectionID = ""
+    var referenceCatalog: PlatformSweepReferenceCatalog?
+    var savedSweepReferences: [PlatformSweepReference] = []
+    var referenceCatalogError: String?
+    var referenceSaveStatus: String?
+    var referenceWriteNotice: String?
+    var referenceCatalogPending = false
+    var referenceSavePending = false
+    var archiveCapacity: PlatformArchiveCapacity?
+    var archiveCapacityError: String?
+    var archiveAnalytics: PlatformAnalyticsSummary?
+    var archiveAnalyticsError: String?
+    var archiveAnalyticsPending = false
+    var archiveExportStatus = "NDJSON snapshot ещё не выгружен"
+    var archiveExportPending = false
+    var workflowErrors: [String] = []
+    var detectionInterval = "1"
+    var detectionStreamID = ""
+    var detectionThreshold = "-70"
+    var detectionDedupBandwidth = "100000"
+    var detectionCooldown = "60"
+    var detectionMaximumCandidates = "10"
+    var handoffInterval = "1"
+    var handoffMinimumPriority = "0"
+    var handoffReceiverStreamID = ""
+    var handoffMaximumFailures = "3"
+    var handoffRetryDelay = "30"
+    var completionInterval = "1"
+    var completionMinimumListening = "0"
+    var completionMinimumObservations = "1"
+    var completionReceiverStreamID = ""
+    var tinySAPort = "/dev/ttyACM0"
+    var receiverPort = ""
+    var showSerialForm = false
 
     let sweepAverage = SweepAverageModel()
     let threeSweepThresholds = ThreeSweepThresholdsModel()
@@ -212,7 +213,7 @@ final class RemoteDualModel: ObservableObject {
     private var measurementSnapshot: PlatformSnapshot?
     private var archiveHighWatermark: Int64?
     private var archiveCacheVerified = false
-    private var spectrumRenderRevision = 0
+    @ObservationIgnored private var spectrumRenderRevision = 0
     var generation = 0
     private var sessionRefreshRevision = 0
     var detectionFormInitialized = false

@@ -3,7 +3,7 @@ import SpektrKomandy
 
 /// All acquisition, band scheduling and detection execute in the core's device actor.
 struct NativeReceiveWorkbench: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @Environment(\.dismiss) private var dismiss
     @State private var tab = 0
     @State private var draft = NativeReceiveDraft()
