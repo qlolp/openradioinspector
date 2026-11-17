@@ -103,7 +103,7 @@ final class WorkbenchUITests: XCTestCase {
         app.buttons["preparation.create"].click()
         let error = app.staticTexts["preparation.error"]
         XCTAssertTrue(error.waitForExistence(timeout: 10))
-        XCTAssertTrue(error.label.contains("live Rust-служба"))
+        XCTAssertTrue(text(error).contains("live Rust-служба"))
         XCTAssertFalse(app.buttons["preparation.arm"].exists)
     }
 
@@ -126,7 +126,9 @@ final class WorkbenchUITests: XCTestCase {
         let app = try launch(test: #function); defer { app.terminate() }
         let before = app.popUpButtons["workbench.session"].value as? String
         app.buttons["workbench.space"].click()
-        let modes = element("workspace.mode-switch", in: app)
+        // A labelled macOS Picker also gives its caption this identifier.
+        // Select the radio group itself, rather than that static-text caption.
+        let modes = app.radioGroups["workspace.mode-switch"]
         XCTAssertTrue(modes.waitForExistence(timeout: 10))
         choose("Исследование", in: modes)
         XCTAssertTrue(app.buttons["workbench.space"].label.contains("Исследование"))
