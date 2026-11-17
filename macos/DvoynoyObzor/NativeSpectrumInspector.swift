@@ -1,5 +1,6 @@
 import SwiftUI
 import SpektrKomandy
+import Observation
 
 /// Both panels use identical frequency coordinates, saved sweep IDs and UTC intervals.
 struct NativeSpectrumInspector: View {
@@ -38,7 +39,7 @@ struct NativeSpectrumInspector: View {
     @State private var cursor: NativeSpectrumSample?
     @State private var inGap = false
     @State private var markers: [NativeSpectrumSample] = []
-    @State private var zoom: ClosedRange<Double>?
+    @State private var viewport = NativeSpectrumViewport()
     @State private var peakIndex = -1
     @State private var threeDimensional = false
     @State private var gestureRange: ClosedRange<Double>?
@@ -69,6 +70,10 @@ struct NativeSpectrumInspector: View {
         let first = Double(source.last?.frequenciesHz.first ?? 0)
         return first...max(first + 1, Double(source.last?.frequenciesHz.last ?? 1))
     }
+    private var zoom: ClosedRange<Double>? {
+        get { viewport.zoom }
+        nonmutating set { viewport.zoom = newValue }
+    }
     private var range: ClosedRange<Double> { zoom ?? fullRange }
     private var bounds: PlatformSpectrumScale? { inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
 
@@ -81,14 +86,15 @@ struct NativeSpectrumInspector: View {
         let window = time.window
         let displayed = time.sweeps
         let selected = NativeSpectrumInspection.selectedSweep(selectedID, in: displayed)
-        let range = self.range
         let bounds = inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels))
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
-                Spacer(minLength: 6)
-                if let bandPlanWorkspace {
-                    NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
+                HStack {
+                    NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
+                    Spacer(minLength: 6)
+                    if let bandPlanWorkspace {
+                        NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
+                    }
                 }
             }
             HStack(spacing: 6) {
@@ -102,9 +108,10 @@ struct NativeSpectrumInspector: View {
                 Button("Весь диапазон") { zoom = nil }
                 Toggle("Полоса", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
                 Menu("Измерить") {
-                    Button("Измерить видимый участок") { measureRange(range) }
+                    Button("Измерить видимый участок") { measureRange(self.range) }
                     Button("Маркер → центр") {
                         if let marker = markers.last ?? cursor {
+                            let range = self.range
                             let half = (range.upperBound - range.lowerBound) / 2
                             measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
                         }
@@ -131,6 +138,7 @@ struct NativeSpectrumInspector: View {
                     .accessibilityIdentifier("spectrum.context")
             }.controlSize(.small).font(.caption)
             if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
             GeometryReader { geometry in
                 let layout = NativeSpectrumPlotLayout(size: geometry.size, spectrumFraction: split)
                 if threeDimensional {
@@ -200,6 +208,7 @@ struct NativeSpectrumInspector: View {
                             }
                     }
                 }
+            }
             }.frame(minHeight: 120)
             HStack(spacing: 6) {
                 Picker("Окно", selection: $seconds) {
@@ -382,6 +391,27 @@ struct NativeSpectrumInspector: View {
         let width = range.upperBound - range.lowerBound
         zoom = NativeSpectrumNavigation.fitted(center: (range.lowerBound + range.upperBound) / 2 + width * fraction, width: width, within: fullRange)
     }
+}
+
+@MainActor @Observable
+final class NativeSpectrumViewport {
+    var zoom: ClosedRange<Double>?
+}
+
+struct NativeSpectrumViewportReader<Content: View>: View {
+    private let viewport: NativeSpectrumViewport
+    private let fullRange: ClosedRange<Double>
+    private let content: (ClosedRange<Double>) -> Content
+
+    init(viewport: NativeSpectrumViewport, fullRange: ClosedRange<Double>,
+         @ViewBuilder content: @escaping (ClosedRange<Double>) -> Content) {
+        self.viewport = viewport
+        self.fullRange = fullRange
+        self.content = content
+    }
+
+    // Read navigation in this leaf, outside the panel that creates it.
+    var body: Content { content(viewport.zoom ?? fullRange) }
 }
 
 struct NativeSpectrumRangeHeader: View {

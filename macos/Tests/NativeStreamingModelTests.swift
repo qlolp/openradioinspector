@@ -2,11 +2,48 @@ import Foundation
 import Dispatch
 import Observation
 import XCTest
+import SwiftUI
 import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeStreamingModelTests: XCTestCase {
     @MainActor final class ObservationCount { var value = 0 }
+
+    @MainActor func testViewportInvalidatesOnlyItsContentWhilePanning() {
+        let viewport = NativeSpectrumViewport()
+        let controls = ObservationCount(), plot = ObservationCount()
+        let reader = withObservationTracking {
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: 100...200) { range in
+                Text(verbatim: String(describing: range))
+            }
+        } onChange: {
+            MainActor.assumeIsolated { controls.value += 1 }
+        }
+        withObservationTracking {
+            _ = reader.body
+        } onChange: {
+            MainActor.assumeIsolated { plot.value += 1 }
+        }
+        viewport.zoom = 120...170
+        XCTAssertEqual(controls.value, 0, "Panning must not invalidate the panel that constructs the viewport")
+        XCTAssertEqual(plot.value, 1, "The viewport content must observe navigation changes")
+    }
+
+    @MainActor func testViewportTracksCurrentZoomAndResetWithNewSourceBounds() {
+        let viewport = NativeSpectrumViewport()
+        let first = NativeSpectrumViewportReader(viewport: viewport, fullRange: 100...200) { range in
+            Text(verbatim: String(describing: range))
+        }
+        XCTAssertEqual(first.body, Text(verbatim: "100.0...200.0"))
+        viewport.zoom = 120...170
+        XCTAssertEqual(first.body, Text(verbatim: "120.0...170.0"))
+        let next = NativeSpectrumViewportReader(viewport: viewport, fullRange: 200...400) { range in
+            Text(verbatim: String(describing: range))
+        }
+        XCTAssertEqual(next.body, Text(verbatim: "120.0...170.0"))
+        viewport.zoom = nil
+        XCTAssertEqual(next.body, Text(verbatim: "200.0...400.0"))
+    }
 
     @MainActor func testStreamFieldsDoNotInvalidateDeviceConfigurationReaders() {
         let model = RemoteDualModel()

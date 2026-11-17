@@ -22,6 +22,16 @@ const CANCEL_COMMIT: usize = 3;
 const BLOCK_COMMIT: usize = 4;
 const BLOCK_PREP: usize = 5;
 
+static SPAWN_SLOT: Mutex<()> = Mutex::new(());
+
+fn with_spawn_exclusion<T>(operation: impl FnOnce() -> T) -> T {
+    // A concurrent fork briefly inherits even O_CLOEXEC source handles. Keep
+    // spawn/exec and the final kernel probe separate; children still run in
+    // parallel after spawn returns, and the close assertions remain strict.
+    let _slot = SPAWN_SLOT.lock().unwrap();
+    operation()
+}
+
 fn python() -> std::ffi::OsString {
     std::env::var_os("ORI_TEST_PYTHON").unwrap_or_else(|| "python".into())
 }
@@ -32,11 +42,17 @@ fn root() -> PathBuf {
         .unwrap()
 }
 fn source(directory: &Path) -> PathBuf {
-    let output = Command::new(python())
+    let mut command = Command::new(python());
+    command
         .arg(root().join("crates/ori-legacy/tests/generate_fixtures.py"))
         .arg(directory)
         .arg("--sidecar")
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = with_spawn_exclusion(|| command.spawn())
+        .unwrap()
+        .wait_with_output()
         .unwrap();
     assert!(
         output.status.success(),
@@ -146,9 +162,11 @@ impl LegacySciencePermit for Permit {
             let threshold = request["action"] == "threshold";
             let result = tokio::task::spawn_blocking(move || {
                 let bootstrap = format!("import runpy,sys;sys.path.insert(0,{:?});runpy.run_module('radioinspector.legacy_rpc',run_name='__main__')", root());
-                let mut child = Command::new(python()).args(["-I", "-c", &bootstrap])
+                let mut command = Command::new(python());
+                command.args(["-I", "-c", &bootstrap])
                     .envs([("OMP_NUM_THREADS", "1"), ("OPENBLAS_NUM_THREADS", "1"), ("MKL_NUM_THREADS", "1"), ("NUMEXPR_NUM_THREADS", "1"), ("VECLIB_MAXIMUM_THREADS", "1"), ("ARROW_NUM_THREADS", "1")])
-                    .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+                    .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+                let mut child = with_spawn_exclusion(|| command.spawn())?;
                 child.stdin.take().unwrap().write_all(&to_json_vec(&request)?)?;
                 let output = child.wait_with_output()?;
                 assert!(!output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -352,7 +370,7 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
     let _ = waiter.await;
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
     let probe = fs::File::open(&path).unwrap();
-    assert!(probe.try_lock().is_err());
+    assert!(with_spawn_exclusion(|| probe.try_lock()).is_err());
     let closing = workspace.clone();
     let close = tokio::spawn(async move { closing.close().await });
     tokio::task::yield_now().await;
@@ -364,7 +382,117 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
     assert_eq!(workspace.version(), 1);
     assert_eq!(hashes(&path), before);
     assert!(no_stages(directory.path()));
-    probe.try_lock().unwrap();
+    with_spawn_exclusion(|| probe.try_lock()).unwrap();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn inherited_close_on_exec_lock_is_excluded_until_exec_without_waiting_for_child_exit() {
+    use std::{
+        io::Read,
+        os::{
+            fd::AsRawFd,
+            unix::{net::UnixStream, process::CommandExt},
+        },
+    };
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("inherited-lock.pan");
+    fs::write(&path, b"owned synthetic source\0\xff").unwrap();
+    let before = fs::read(&path).unwrap();
+    let owner = fs::File::open(&path).unwrap();
+    owner.try_lock().unwrap();
+    let probe = fs::File::open(&path).unwrap();
+    let (mut ready, ready_child) = UnixStream::pair().unwrap();
+    let (mut release, release_child) = UnixStream::pair().unwrap();
+    ready
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let parent_ready = ready.as_raw_fd();
+    let parent_release = release.as_raw_fd();
+    let child_ready = ready_child.as_raw_fd();
+    let child_release = release_child.as_raw_fd();
+    let spawning = std::thread::spawn(move || {
+        let _slot = SPAWN_SLOT.lock().unwrap();
+        let mut command = Command::new("/bin/cat");
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        // Force the fork path and hold only the pre-exec phase. Every inherited
+        // source descriptor still exists here, including O_CLOEXEC descriptors.
+        // Only async-signal-safe syscalls run after the multithreaded fork.
+        unsafe {
+            command.pre_exec(move || {
+                libc::close(parent_ready);
+                libc::close(parent_release);
+                let byte = 1_u8;
+                if libc::write(child_ready, (&byte as *const u8).cast(), 1) != 1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let mut byte = 0_u8;
+                if libc::read(child_release, (&mut byte as *mut u8).cast(), 1) != 1 {
+                    return Err(std::io::Error::from_raw_os_error(libc::EIO));
+                }
+                Ok(())
+            });
+        }
+        let child = command.spawn();
+        drop((ready_child, release_child));
+        child
+    });
+    let readiness = ready.read_exact(&mut [0_u8]);
+    if let Err(error) = readiness {
+        drop(release);
+        if let Ok(mut child) = spawning.join().unwrap() {
+            drop(child.stdin.take());
+            child.wait().unwrap();
+        }
+        panic!("paused fork readiness: {error}");
+    }
+    drop(owner);
+    // This is the former flaky post-close assertion under a controlled fork:
+    // our original handle is closed, yet the unrelated child holds its copy.
+    let inherited = probe.try_lock();
+    let (started, starting) = mpsc::channel();
+    let (finished, result) = mpsc::channel();
+    let checking = std::thread::spawn(move || {
+        started.send(()).unwrap();
+        let released = with_spawn_exclusion(|| probe.try_lock());
+        let _ = finished.send(released);
+    });
+    let startup = starting.recv_timeout(Duration::from_secs(3));
+    let early = result.recv_timeout(Duration::from_millis(100));
+    let released = release.write_all(&[1]);
+    drop(release);
+    let child = spawning.join().unwrap();
+    let final_probe = match early {
+        Ok(value) => (true, Ok(value)),
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            (false, result.recv_timeout(Duration::from_secs(3)))
+        }
+        Err(error) => (false, Err(error)),
+    };
+    checking.join().unwrap();
+    let mut child = child.unwrap();
+    let child_was_running = child.try_wait().unwrap().is_none();
+    drop(child.stdin.take());
+    let status = child.wait().unwrap();
+
+    startup.unwrap();
+    released.unwrap();
+    assert!(matches!(inherited, Err(std::fs::TryLockError::WouldBlock)));
+    assert!(
+        !final_probe.0,
+        "lock probe ran while another fork retained the source"
+    );
+    final_probe.1.unwrap().unwrap();
+    assert!(
+        child_was_running,
+        "only spawn/exec, not the child's full lifetime, is excluded"
+    );
+    assert!(status.success());
+    assert_eq!(fs::read(&path).unwrap(), before);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

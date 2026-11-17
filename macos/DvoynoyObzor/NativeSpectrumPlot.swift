@@ -33,8 +33,9 @@ struct NativeSpectrumPlot: View {
         let acceptance=NativeAcceptanceTrace.shared
         let fullLower=Double(selected?.frequenciesHz.first ?? 0)
         let fullUpper=max(fullLower+1,Double(selected?.frequenciesHz.last ?? 1))
+        let selectedID=selected?.exactID
         let raster=NativeSpectrumRasterWindow.covering(range,within:fullLower...fullUpper,previous:preparedRequest?.raster)
-        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selected?.exactID,bounds:bounds,threshold:threshold,reference:reference?.exactID),raster:raster)
+        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selectedID,bounds:bounds,threshold:threshold,reference:reference?.exactID),raster:raster)
         let ready=preparedRequest==request
         let geometryReady=preparedRequest?.sources==request.sources
         // A new marker may certify only geometry prepared from that exact source.
@@ -111,15 +112,16 @@ struct NativeSpectrumPlot: View {
             }
             for row in timeline.rows {
                 guard let rect = timeline.waterfallRect(for: row, in: water) else { continue }
+                let rowID=row.sweep.exactID
                 var band = context
                 band.clip(to: Path(rect))
-                if geometryReady, let raster = prepared.rows.first(where: { $0.id == row.sweep.exactID }) {
+                if geometryReady, let raster = prepared.rows.first(where: { $0.id == rowID }) {
                     let span=range.upperBound-range.lowerBound
                     let imageRect=CGRect(x:water.minX+(raster.lower-range.lowerBound)/span*water.width,y:rect.minY,
                         width:(raster.upper-raster.lower)/span*water.width,height:rect.height)
                     band.draw(Image(decorative: raster.image, scale: 1), in: imageRect)
                 }
-                if selected?.exactID == row.sweep.exactID {
+                if selectedID == rowID {
                     band.stroke(Path(rect), with: .color(.yellow.opacity(0.85)), lineWidth: 1)
                 }
             }
