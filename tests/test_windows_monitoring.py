@@ -547,7 +547,9 @@ class MonitoringTkTests(unittest.TestCase):
         self._check_small_viewport()
 
     def test_small_viewport_returns_while_ui_timers_keep_the_event_queue_busy(self):
-        self._check_small_viewport(busy=True)
+        with patch.object(self.root, 'update_idletasks',
+                          side_effect=AssertionError('Unbounded idle drain while UI timers remain active')):
+            self._check_small_viewport(busy=True)
 
     def _check_small_viewport(self, *, busy=False):
         targets = dict(root=self.root, scroll=self.panel.scroll_canvas, content=self.panel.content,
@@ -566,29 +568,33 @@ class MonitoringTkTests(unittest.TestCase):
             self.root.deiconify()
             diagnostic.phase('after-deiconify')
             diagnostic.phase('before-update')
+            previous_layout = None
+            def visible_layout():
+                nonlocal previous_layout
+                layout = (self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight(),
+                          self.panel.waterfall_canvas.winfo_height())
+                stable = previous_layout == layout
+                previous_layout = layout
+                return (stable and min(layout) > 1 and self.root.winfo_ismapped()
+                        and self.panel.scroll_canvas.winfo_ismapped()
+                        and self.panel.waterfall_canvas.winfo_ismapped())
             if busy:
                 # Match the failed Aqua trace: layout is already usable while
                 # unrelated native/timer events prevent global queue quiescence.
-                self.root.update_idletasks()
+                # On Windows, idle layout alone can leave Map/Configure pending.
+                _run_tk_until(self.root, visible_layout)
                 diagnostic.phase('busy-after-layout')
+                previous_layout = None
                 timer = self.root.after(0, heartbeat)
             try:
-                previous_layout = None
-                def visible_layout():
-                    nonlocal previous_layout
-                    layout = (self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight(),
-                              self.panel.waterfall_canvas.winfo_height())
-                    stable = previous_layout == layout
-                    previous_layout = layout
-                    return (stable and min(layout) > 1 and self.root.winfo_ismapped()
-                            and self.panel.waterfall_canvas.winfo_ismapped())
                 # Aqua can keep reporting native events after geometry settled.
                 # update() waits for global quiescence; mainloop() can quit as
                 # soon as the actual visible layout has two stable observations.
                 _run_tk_until(self.root, visible_layout)
                 diagnostic.phase('after-update')
                 self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
-                self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
+                self.panel.scroll_canvas.yview_moveto(1)
+                _run_tk_until(self.root, lambda: abs(self.panel.scroll_canvas.yview()[1] - 1) < 0.005)
                 self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
                 self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
                 if busy:
