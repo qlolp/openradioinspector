@@ -100,11 +100,15 @@ struct NativeSpectrumRenderCache: @unchecked Sendable {
             let b=max(a,min(width-1,Int(ceil((clippedHigh-lower)/(upper-lower)*Double(width)))-1))
             for x in a...b {maxima[x]=max(maxima[x],sweep.levels[i])}
         }
-        var bytes=[UInt8]();bytes.reserveCapacity(width*4)
-        for value in maxima {
-            if !value.isFinite {bytes += [0,0,0,0];continue}
+        var bytes=[UInt8](repeating:0,count:width*4)
+        for (column,value) in maxima.enumerated() {
+            if !value.isFinite {continue}
             let color=WaterfallPalette.color(bounds.fraction(value))
-            bytes += [UInt8((color.red*255).rounded()),UInt8((color.green*255).rounded()),UInt8((color.blue*255).rounded()),255]
+            let offset=column*4
+            bytes[offset]=UInt8((color.red*255).rounded())
+            bytes[offset+1]=UInt8((color.green*255).rounded())
+            bytes[offset+2]=UInt8((color.blue*255).rounded())
+            bytes[offset+3]=255
         }
         guard let provider=CGDataProvider(data:Data(bytes) as CFData),let space=CGColorSpace(name:CGColorSpace.sRGB),
             let image=CGImage(width:width,height:1,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:width*4,

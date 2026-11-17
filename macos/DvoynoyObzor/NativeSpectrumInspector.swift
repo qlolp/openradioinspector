@@ -72,6 +72,15 @@ struct NativeSpectrumInspector: View {
     private var bounds: PlatformSpectrumScale? { inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
 
     var body: some View {
+        // All controls and the plot share one display snapshot per body pass.
+        // Re-reading the computed properties below used to repeatedly parse,
+        // filter and sort the same history during every navigation update.
+        let source = self.source
+        let window = NativeTimeWindow.range(end: timeEnd ?? (source.isEmpty ? Date() : NativeSpectrumTimeline(source).end), seconds: seconds)
+        let displayed = NativeTimeWindow.rows(source, within: window)
+        let selected = NativeSpectrumInspection.selectedSweep(selectedID, in: displayed)
+        let range = self.range
+        let bounds = inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels))
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
@@ -381,9 +390,9 @@ struct NativeSpectrumRangeHeader: View {
                 .font(.system(.callout, design: .monospaced, weight: .semibold))
             if let sweep {
                 let count = sweep.frequenciesHz.count
-                let steps = zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).map { $1 - $0 }
-                let uniform = Set(steps).count == 1
-                let step = uniform ? String(format: "%.3f кГц", Double(steps.first ?? 0) / 1000) : "неравномерный"
+                let firstStep = count > 1 ? sweep.frequenciesHz[1] - sweep.frequenciesHz[0] : 0
+                let uniform = count > 1 && zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).allSatisfy { $1 - $0 == firstStep }
+                let step = uniform ? String(format: "%.3f кГц", Double(firstStep) / 1000) : "неравномерный"
                 HStack {
                     Text(NativeSpectrumInspection.interval(sweep))
                     if let start = NativeSpectrumTimeline.date(sweep.interval.startedAt), let end = NativeSpectrumTimeline.date(sweep.interval.endedAt) {
