@@ -42,8 +42,15 @@ impl ControlCommitter for ImmediateStore {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn preview_reuse_is_bounded_to_its_actual_control_revision() {
+    // Keep Tokio from automatically advancing while real SQLite commits wait on
+    // its writer thread. Host scheduling must not consume the 500ms preview TTL.
+    let clock_anchor = tokio::spawn(async {
+        loop {
+            tokio::task::yield_now().await;
+        }
+    });
     let r = rig().await;
     let first = r
         .control
@@ -56,6 +63,8 @@ async fn preview_reuse_is_bounded_to_its_actual_control_revision() {
         .unwrap();
     let id = first["operation_id"].as_str().unwrap();
     assert_eq!(done(&r.control, &r.target, id).await["state"], "succeeded");
+    // Reproduce a busy CI host before the next capture submission.
+    std::thread::sleep(std::time::Duration::from_millis(600));
     let same = r
         .control
         .submit(
@@ -103,9 +112,53 @@ async fn preview_reuse_is_bounded_to_its_actual_control_revision() {
         .await["state"],
         "succeeded"
     );
+    // The real production boundary remains 500ms, independently of revisions.
+    tokio::time::advance(std::time::Duration::from_millis(499)).await;
+    let before_expiry = r
+        .control
+        .submit(
+            &r.target,
+            br#"{"operation":"capture","parameters":{"save":false}}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(before_expiry["operation_id"], fresh["operation_id"]);
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    let expired = r
+        .control
+        .submit(
+            &r.target,
+            br#"{"operation":"capture","parameters":{"save":false}}"#,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_ne!(expired["operation_id"], fresh["operation_id"]);
+    assert_eq!(
+        done(
+            &r.control,
+            &r.target,
+            expired["operation_id"].as_str().unwrap()
+        )
+        .await["state"],
+        "succeeded"
+    );
+    assert_eq!(
+        r.backend
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.as_str() == "capture")
+            .count(),
+        3
+    );
     r.control.close().await.unwrap();
     r.backend.shutdown().await;
     r.archive.close().await.unwrap();
+    clock_anchor.abort();
+    assert!(clock_anchor.await.unwrap_err().is_cancelled());
 }
 #[tokio::test(start_paused = true)]
 async fn lease_expiry_wakes_a_silent_owned_binary_read_before_its_90_second_io_deadline() {
