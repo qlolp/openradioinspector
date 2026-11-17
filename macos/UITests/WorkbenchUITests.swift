@@ -2,6 +2,21 @@ import Foundation
 import XCTest
 
 final class WorkbenchUITests: XCTestCase {
+    @MainActor private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    @MainActor private func text(_ item: XCUIElement) -> String {
+        item.label + " " + (item.value as? String ?? "")
+    }
+
+    @MainActor private func choose(_ title: String, in picker: XCUIElement) {
+        let radio = picker.radioButtons[title]
+        let control = radio.exists ? radio : picker.buttons[title]
+        XCTAssertTrue(control.waitForExistence(timeout: 10))
+        control.click()
+    }
+
     @MainActor private func launch(test: String) throws -> XCUIApplication {
         let path = try XCTUnwrap(ProcessInfo.processInfo.environment["ORI_UI_TEST_PROFILES"],
             "Use macos/ci/ui_smoke.py to supply an isolated synthetic fixture")
@@ -10,24 +25,35 @@ final class WorkbenchUITests: XCTestCase {
         let method = String(test.prefix(while: { $0 != "(" }))
         let profile = try XCTUnwrap(profiles[method], "An owned profile is required for this exact test")
         let app = XCUIApplication()
+        var ready = false
+        defer { if !ready { app.terminate() } }
         app.launchArguments = ["--acceptance-profile", profile]
         app.launch()
-        XCTAssertTrue(app.segmentedControls["workbench.navigation"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["continuity.core"].waitForExistence(timeout: 15))
-        let connected = NSPredicate(format: "label CONTAINS %@", "Ядро на связи")
-        expectation(for: connected, evaluatedWith: app.staticTexts["continuity.core"])
-        waitForExpectations(timeout: 15)
+        print("Synthetic UI hierarchy: \(app.debugDescription.prefix(16000))")
+        guard element("workbench.navigation", in: app).waitForExistence(timeout: 15),
+              element("continuity.core", in: app).waitForExistence(timeout: 15) else {
+            XCTFail("Workbench controls are missing; see the synthetic UI hierarchy")
+            throw CocoaError(.coderValueNotFound)
+        }
+        let core = element("continuity.core", in: app)
+        print("Core status label=\(core.label), value=\(String(describing: core.value))")
+        let connected = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Ядро на связи", "Ядро на связи")
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: connected, object: core)], timeout: 15) == .completed else {
+            XCTFail("The fixture core is not connected: \(text(core))")
+            throw CocoaError(.coderValueNotFound)
+        }
         let session = app.popUpButtons["workbench.session"]
         let selected = NSPredicate(format: "value CONTAINS %@", "UI fixture one")
         expectation(for: selected, evaluatedWith: session)
         waitForExpectations(timeout: 15)
         XCTAssertTrue((session.value as? String)?.contains("UI fixture one") == true,
             "Navigation must preserve a selected fixture session, not 'Не выбран'")
+        ready = true
         return app
     }
 
     @MainActor private func tab(_ title: String, in app: XCUIApplication) {
-        app.segmentedControls["workbench.navigation"].buttons[title].click()
+        choose(title, in: element("workbench.navigation", in: app))
     }
 
     @MainActor private func replace(_ field: XCUIElement, with value: String) {
@@ -51,7 +77,7 @@ final class WorkbenchUITests: XCTestCase {
         for title in ["Приборы", "Сигналы", "Архив", "Охрана и исследование", "Контроль диапазона"] {
             tab(title, in: app)
             XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
-            XCTAssertTrue(app.staticTexts["continuity.core"].label.contains("Ядро на связи"))
+            XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
             XCTAssertTrue(app.buttons["workbench.space"].exists)
         }
     }
@@ -91,7 +117,7 @@ final class WorkbenchUITests: XCTestCase {
         app.buttons["archive.open-source"].click()
         let context = app.staticTexts["spectrum.context"]
         XCTAssertTrue(context.waitForExistence(timeout: 10))
-        let historical = NSPredicate(format: "label == %@", "ИСТОРИЯ")
+        let historical = NSPredicate(format: "label == %@ OR value == %@", "ИСТОРИЯ", "ИСТОРИЯ")
         expectation(for: historical, evaluatedWith: context)
         waitForExpectations(timeout: 10)
     }
@@ -100,12 +126,12 @@ final class WorkbenchUITests: XCTestCase {
         let app = try launch(test: #function); defer { app.terminate() }
         let before = app.popUpButtons["workbench.session"].value as? String
         app.buttons["workbench.space"].click()
-        let modes = app.segmentedControls["workspace.mode-switch"]
+        let modes = element("workspace.mode-switch", in: app)
         XCTAssertTrue(modes.waitForExistence(timeout: 10))
-        modes.buttons["Исследование"].click()
+        choose("Исследование", in: modes)
         XCTAssertTrue(app.buttons["workbench.space"].label.contains("Исследование"))
         tab("Контроль диапазона", in: app)
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
-        XCTAssertTrue(app.staticTexts["continuity.core"].label.contains("Ядро на связи"))
+        XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
     }
 }

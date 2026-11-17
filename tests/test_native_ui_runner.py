@@ -1,6 +1,7 @@
 import unittest
 import json
 import stat
+import os
 import tempfile
 from pathlib import Path
 from macos.ci.ui_smoke import configure_test_run, passed_cases, prepare_profiles
@@ -22,17 +23,20 @@ class NativeUIRunnerTests(unittest.TestCase):
             index = prepare_profiles(root, 'http://127.0.0.1:12345', 'a' * 64)
             profiles = json.loads(index.read_text())
             self.assertEqual(set(profiles), set(CASES))
-            self.assertEqual(stat.S_IMODE(index.stat().st_mode), 0o600)
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(index.stat().st_mode), 0o600)
             runs, outputs = set(), set()
             for name, filename in profiles.items():
                 path = Path(filename)
                 self.assertTrue(path.is_absolute())
                 self.assertTrue(path.is_relative_to(root))
-                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                if os.name == "posix":
+                    self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
                 profile = json.loads(path.read_text())
                 output = Path(profile['output_dir'])
                 self.assertTrue(output.is_dir())
-                self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+                if os.name == "posix":
+                    self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
                 self.assertTrue(output.is_relative_to(root))
                 self.assertEqual(profile['phase'], 'ui-test')
                 self.assertEqual(profile['session_id'], 'ui-one')

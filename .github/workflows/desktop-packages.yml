@@ -168,6 +168,8 @@ jobs:
           path: |
             ${{ runner.temp }}/native-ui-tests/report.json
             ${{ runner.temp }}/native-ui-tests/*.log
+            ${{ runner.temp }}/native-ui-tests/cases/*/native/*.jsonl
+            ${{ runner.temp }}/native-ui-tests/cases/*/native/*.json
 
   macos-personal-rc:
     runs-on: xcode-27
