@@ -22,6 +22,38 @@ EVENT = dict(id='e1', project_id='p1', kind='new_signal', center_frequency_hz=10
              analysis=dict(state='observed', audio=dict(session_id='s', stream_id='r', id='wav1')))
 
 
+def _run_tk_until(root, predicate, *, timeout_seconds=2):
+    """Drive the real event loop until a condition, without requiring an empty queue."""
+    deadline = time.monotonic() + timeout_seconds
+    ready, failure, timer = False, None, None
+
+    def poll():
+        nonlocal ready, failure, timer
+        timer = None
+        try:
+            if time.monotonic() >= deadline:
+                root.quit()
+            elif predicate():
+                ready = True
+                root.quit()
+            else:
+                timer = root.after(10, poll)
+        except BaseException as error:
+            failure = error
+            root.quit()
+
+    timer = root.after(10, poll)
+    try:
+        root.mainloop()
+    finally:
+        if timer is not None:
+            root.after_cancel(timer)
+    if failure is not None:
+        raise failure
+    if not ready:
+        raise AssertionError('Tk layout did not become ready before its deadline')
+
+
 class _ViewportDiagnostics:
     """Passive bounded evidence; never pumps events or suppresses body errors."""
     def __init__(self, root, targets, *, stream=None):
@@ -512,8 +544,20 @@ class MonitoringTkTests(unittest.TestCase):
 
 
     def test_small_viewport_can_scroll_to_history_charts(self):
+        self._check_small_viewport()
+
+    def test_small_viewport_returns_while_ui_timers_keep_the_event_queue_busy(self):
+        self._check_small_viewport(busy=True)
+
+    def _check_small_viewport(self, *, busy=False):
         targets = dict(root=self.root, scroll=self.panel.scroll_canvas, content=self.panel.content,
                        history=self.panel.history_page, waterfall=self.panel.waterfall_canvas)
+        timer = None
+        ticks = 0
+        def heartbeat():
+            nonlocal timer, ticks
+            ticks += 1
+            timer = self.root.after(0, heartbeat)
         with _ViewportDiagnostics(self.root, targets) as diagnostic:
             self.panel.notebook.pack(fill='both', expand=True)
             self.panel.workspace.select(self.panel.history_page)
@@ -522,12 +566,50 @@ class MonitoringTkTests(unittest.TestCase):
             self.root.deiconify()
             diagnostic.phase('after-deiconify')
             diagnostic.phase('before-update')
-            self.root.update()
-            diagnostic.phase('after-update')
-            self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
-            self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
-            self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
-            self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+            if busy:
+                # Match the failed Aqua trace: layout is already usable while
+                # unrelated native/timer events prevent global queue quiescence.
+                self.root.update_idletasks()
+                diagnostic.phase('busy-after-layout')
+                timer = self.root.after(0, heartbeat)
+            try:
+                previous_layout = None
+                def visible_layout():
+                    nonlocal previous_layout
+                    layout = (self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight(),
+                              self.panel.waterfall_canvas.winfo_height())
+                    stable = previous_layout == layout
+                    previous_layout = layout
+                    return (stable and min(layout) > 1 and self.root.winfo_ismapped()
+                            and self.panel.waterfall_canvas.winfo_ismapped())
+                # Aqua can keep reporting native events after geometry settled.
+                # update() waits for global quiescence; mainloop() can quit as
+                # soon as the actual visible layout has two stable observations.
+                _run_tk_until(self.root, visible_layout)
+                diagnostic.phase('after-update')
+                self.assertLess(self.panel.scroll_canvas.winfo_height(), self.panel.content.winfo_reqheight())
+                self.panel.scroll_canvas.yview_moveto(1); self.root.update_idletasks()
+                self.assertAlmostEqual(self.panel.scroll_canvas.yview()[1], 1, places=2)
+                self.assertGreater(self.panel.waterfall_canvas.winfo_height(), 50)
+                if busy:
+                    self.assertGreater(ticks, 0)
+            finally:
+                if timer is not None:
+                    self.root.after_cancel(timer)
+
+    def test_viewport_loop_rejects_missing_layout_and_preserves_other_timers(self):
+        original = self.root.after(90000, lambda: None)
+        try:
+            with self.assertRaisesRegex(AssertionError, 'layout did not become ready'):
+                _run_tk_until(self.root, lambda: False, timeout_seconds=0.03)
+            self.assertIn(original, self.root.tk.splitlist(self.root.tk.call('after', 'info')))
+            def broken():
+                raise RuntimeError('original layout failure')
+            with self.assertRaisesRegex(RuntimeError, 'original layout failure'):
+                _run_tk_until(self.root, broken)
+            self.assertIn(original, self.root.tk.splitlist(self.root.tk.call('after', 'info')))
+        finally:
+            self.root.after_cancel(original)
 
     def test_viewport_diagnostics_remove_only_their_own_callbacks(self):
         probe = self.app.ttk.Frame(self.root)
