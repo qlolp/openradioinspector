@@ -40,7 +40,9 @@ struct NativeSpectrumPlot: View {
         // A new marker may certify only geometry prepared from that exact source.
         let evidence=ready && raster != nil ? acceptance?.frame(for:selected?.id,viewport:range):nil
         let markerTag=acceptance?.tag ?? 0
-        Canvas { context, _ in
+        // Only captured, immutable paths/bitmaps enter the renderer. Composite
+        // them asynchronously so drawing does not hold up UI input and delivery.
+        Canvas(rendersAsynchronously: true) { context, _ in
             let plot = layout.spectrum, water = layout.waterfall
             func x(_ hz: Double) -> Double { plot.minX + (hz - range.lowerBound) / (range.upperBound - range.lowerBound) * plot.width }
             func label(_ text: String, _ point: CGPoint, color: Color = .white.opacity(0.82), anchor: UnitPoint = .center) {
