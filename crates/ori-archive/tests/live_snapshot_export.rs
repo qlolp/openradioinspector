@@ -43,6 +43,60 @@ async fn seeded() -> (tempfile::TempDir, Archive) {
 }
 
 #[tokio::test]
+async fn metadata_pages_cross_stream_boundaries_without_losing_global_order_or_sources() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = Archive::open(ArchiveConfig::new(directory.path().join("paged.sqlite"))).unwrap();
+    let mut session = fixture()["session"].clone();
+    session["created_at"] = json!("2026-11-11T12:00:00.123456Z");
+    let mut second = session["streams"][0].clone();
+    second["id"] = json!("second-spectrum");
+    session["streams"].as_array_mut().unwrap().push(second);
+    archive.create_session(session).await.unwrap();
+    for batch in 0..4 {
+        let values = (0..100)
+            .map(|i| {
+                let n = batch * 100 + i;
+                let mut value = fixture()["sweep"].clone();
+                value["id"] = json!(format!("paged-{n:06}"));
+                if n % 2 == 1 {
+                    value["stream_id"] = json!("second-spectrum");
+                }
+                value
+            })
+            .collect();
+        archive.append_sweeps(values).await.unwrap();
+    }
+    for stream in [None, Some("second-spectrum")] {
+        let reader = SnapshotExport::open_live(
+            archive.clone(),
+            query(stream),
+            SnapshotExportLimits::default(),
+        )
+        .unwrap();
+        let expected: Vec<String> = (0..400)
+            .filter(|n| stream.is_none() || n % 2 == 1)
+            .map(|n| format!("paged-{n:06}"))
+            .collect();
+        let info = reader.ready().await.unwrap();
+        assert_eq!(info.sweeps, expected.len() as u64);
+        assert_eq!(info.observations, 0);
+        let mut actual = Vec::new();
+        while let Some(record) = reader.next_record().await.unwrap() {
+            assert!(matches!(record.kind, SnapshotExportKind::Sweep));
+            actual.push(record.value["id"].as_str().unwrap().to_owned());
+            assert_eq!(
+                record.value["frequencies_hz"],
+                fixture()["sweep"]["frequencies_hz"]
+            );
+            assert_eq!(record.value["levels"], fixture()["sweep"]["levels"]);
+        }
+        assert_eq!(actual, expected);
+        reader.close().await.unwrap();
+    }
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn live_snapshot_freezes_counts_boundary_and_exact_sources_during_new_commits() {
     let (directory, archive) = seeded().await;
     let reader = SnapshotExport::open_live(

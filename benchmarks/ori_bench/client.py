@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+from http.client import HTTPException
 from urllib.error import HTTPError,URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler,Request,build_opener
@@ -12,6 +13,10 @@ from .source import encode
 
 JSON_LIMIT=16*1024**2
 LINE_LIMIT=2*1024**2
+ERROR_LIMIT=16*1024
+_DIAGNOSTIC_ERROR_CODES=frozenset(('archive_query_budget','archive_export_failed','archive_export_closed',
+    'archive_export_busy','archive_queue_full','acquisition_pressure','background_io_unavailable',
+    'response_budget','archive_capacity_exceeded','insufficient_space'))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -22,9 +27,27 @@ def segment(value):return quote(value,safe='')
 
 
 class HTTPFailure(BenchmarkError):
-    def __init__(self,status):
+    def __init__(self,status,server_code=None):
         self.status=status
-        super().__init__('http_failure','HTTP request failed with status '+str(status))
+        self.server_code=server_code if isinstance(server_code,str) and server_code in _DIAGNOSTIC_ERROR_CODES else None
+        detail=' ('+self.server_code+')' if self.server_code else ''
+        super().__init__('http_failure','HTTP request failed with status '+str(status)+detail)
+
+
+def error_code(response):
+    # Retain only known public error identifiers, never messages, headers,
+    # credentials or an unbounded response body. A read failure keeps its status.
+    try:
+        raw=response.read(ERROR_LIMIT+1)
+        if len(raw)>ERROR_LIMIT:return None
+        value=json.loads(raw)
+        if not isinstance(value,dict) or value.get('contract')!='openradioinspector-platform' \
+                or type(value.get('contract_version')) is not int or value['contract_version']!=1:
+            return None
+        error=value.get('error')
+        code=error.get('code') if isinstance(error,dict) else None
+        return code if isinstance(code,str) and code in _DIAGNOSTIC_ERROR_CODES else None
+    except (OSError,HTTPException,ValueError,TypeError,RecursionError):return None
 
 
 class Client:
@@ -45,7 +68,10 @@ class Client:
         request=Request(self.origin+path,data=raw,headers=headers,method=method)
         try:return self.opener.open(request,timeout=self.timeout if timeout is None else timeout)
         except HTTPError as error:
-            status=error.code;error.close();raise HTTPFailure(status) from None
+            status=error.code
+            try:code=error_code(error)
+            finally:error.close()
+            raise HTTPFailure(status,code) from None
         except (URLError,OSError,TimeoutError,socket.timeout):
             raise BenchmarkError('transport_error','Request transport failed or timed out') from None
 
