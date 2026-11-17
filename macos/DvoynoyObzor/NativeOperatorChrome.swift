@@ -5,9 +5,14 @@ import SpektrKomandy
 struct NativeOperatorHeader: View {
     @Bindable var model: RemoteDualModel
     @Binding var setupExpanded: Bool
+    let workspace: NativeWorkspace
+    let openWorkspace: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
+            Button(action: openWorkspace) { Label(workspace.title, systemImage: workspace.symbol) }
+                .accessibilityIdentifier("workbench.space")
+                .help("Рабочее пространство этого клиента; переключение не останавливает охрану")
             sessionPicker.frame(maxWidth: 400)
             Spacer()
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -29,7 +34,7 @@ struct NativeOperatorHeader: View {
         Picker("Сеанс", selection: Binding(get: { model.selectedSessionID }, set: model.selectSession).exactID) {
             Text("Не выбран").tag(PlatformExactID(""))
             ForEach(model.sessions, id: \.exactID) { Text($0.name).tag($0.exactID) }
-        }.disabled(!model.connected || model.busy)
+        }.disabled(!model.connected || model.busy).accessibilityIdentifier("workbench.session")
     }
 
     private static func utc(_ date: Date) -> String {

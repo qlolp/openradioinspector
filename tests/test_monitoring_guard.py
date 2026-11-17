@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import threading
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,11 @@ from radioinspector.device_workers import TinySASimulator
 
 class GuardTests(unittest.TestCase):
     def setUp(self):
+        # These scenarios exercise ownership/detection, not the host's remaining
+        # disk capacity. Real low-space policy has separate operations/APFS tests.
+        capacity = patch('radioinspector.monitoring.operations.shutil.disk_usage',
+                         return_value=SimpleNamespace(free=1024**4))
+        capacity.start(); self.addCleanup(capacity.stop)
         directory = tempfile.TemporaryDirectory(); self.addCleanup(directory.cleanup)
         self.sessions = SessionService(store=SQLiteSessionStore(str(Path(directory.name)/'archive.sqlite')))
         self.workers = DeviceWorkerManager(self.sessions)

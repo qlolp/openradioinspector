@@ -17,8 +17,9 @@ class NativeLoadReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
             with http_fixture(root/'source.sqlite',audio=False) as (peer,url):
-                # Only the Mac bundle, UI process and power assertion are external
-                # stand-ins. Warmup still writes through the real HTTP client.
+                # Host memory/disk, bundle, UI and power are controlled facts.
+                # Warmup still writes through the real HTTP client; this case
+                # exercises unpublished UI status, not the host's free SSD.
                 node=SimpleNamespace(start=lambda:url,close=lambda **_kwargs:None,records=[],
                     owner=SimpleNamespace(status=lambda:{'phase':'running','child_pid':os.getpid()}))
                 owner=SimpleNamespace(status=Mock(side_effect=[None,dict(phase='exited',child_pid=123,
@@ -28,6 +29,7 @@ class NativeLoadReadinessTests(unittest.TestCase):
                 identity=dict(app=str(root/'RC.app'),source_revision='controlled-ui-fixture',
                     core_sha256='a'*64,native_sha256='b'*64,supervisor_sha256='c'*64,manifest_sha256='d'*64)
                 with patch.object(load,'host',return_value=dict(system='Darwin',architecture='arm64',macos_version='27.3',memory_bytes=16*1024**3)),\
+                     patch.object(load.shutil,'disk_usage',return_value=SimpleNamespace(free=1<<40)),\
                      patch.object(load,'bundle_identity',return_value=identity),\
                      patch.object(load.subprocess,'run'),patch.object(load.subprocess,'Popen',return_value=awake),\
                      patch.object(load,'PackageNode',return_value=node),patch.object(load,'NativeWindow',return_value=window):

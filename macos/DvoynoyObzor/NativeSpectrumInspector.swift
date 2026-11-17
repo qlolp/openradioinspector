@@ -126,6 +126,7 @@ struct NativeSpectrumInspector: View {
                 }
                 Spacer(minLength: 0)
                 Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? .green : .yellow)
+                    .accessibilityIdentifier("spectrum.context")
             }.controlSize(.small).font(.caption)
             if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
             GeometryReader { geometry in

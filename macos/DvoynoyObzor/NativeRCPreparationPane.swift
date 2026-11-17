@@ -30,7 +30,7 @@ struct NativeRCPreparationPane: View {
                     }
                     if busy { ProgressView("Ожидание подтверждения ядра…").controlSize(.small) }
                     Text(flow.message).font(.callout)
-                    ErrorLine(text: flow.error)
+                    ErrorLine(text: flow.error).accessibilityIdentifier("preparation.error")
                     ErrorLine(text: workspace.error)
                     ForEach(workspace.operationsErrors.keys.sorted(), id: \.self) { ErrorLine(text: workspace.operationsErrors[$0]) }
                 }.padding(4)
@@ -54,11 +54,13 @@ struct NativeRCPreparationPane: View {
         GroupBox("1 · Объект, порты и диапазон") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack { TextField("Название проекта", text: $flow.draft.name); TextField("Объект", text: $flow.draft.site) }
-                port("tinySA Ultra", selection: $flow.draft.tinySAPort)
-                port("AOR AR-DV1", selection: $flow.draft.receiverPort)
+                port("tinySA Ultra", selection: $flow.draft.tinySAPort, identifier: "preparation.tinysa-port")
+                port("AOR AR-DV1", selection: $flow.draft.receiverPort, identifier: "preparation.receiver-port")
                 HStack {
                     TextField("Начало, Гц", text: $flow.draft.startHz)
+                        .accessibilityIdentifier("preparation.start-hz")
                     TextField("Конец, Гц", text: $flow.draft.stopHz)
+                        .accessibilityIdentifier("preparation.stop-hz")
                     Stepper("\(flow.draft.points) точек", value: $flow.draft.points, in: 2...290).frame(width: 150)
                     Picker("RBW", selection: $flow.draft.rbwHz) { Text("10 кГц").tag(10_000); Text("30 кГц").tag(30_000) }.frame(width: 150)
                 }.monospacedDigit()
@@ -67,6 +69,7 @@ struct NativeRCPreparationPane: View {
                 Button("Создать профиль и проект") {
                     Task { await flow.create(workspace: workspace) { id in model.selectSession(id); Task { await model.reloadSessions() } } }
                 }.disabled(!model.connected || busy || workspace.isArmed || (try? flow.draft.validated()) == nil)
+                    .accessibilityIdentifier("preparation.create")
             }.textFieldStyle(.roundedBorder)
                 .disabled(ownsProject)
             if ownsProject {
@@ -78,10 +81,10 @@ struct NativeRCPreparationPane: View {
             }
         }
     }
-    private func port(_ name: String, selection: Binding<String>) -> some View {
+    private func port(_ name: String, selection: Binding<String>, identifier: String) -> some View {
         HStack {
             Text(name).frame(width: 120, alignment: .leading)
-            TextField("/dev/cu.…", text: selection)
+            TextField("/dev/cu.…", text: selection).accessibilityIdentifier(identifier)
             Menu("Выбрать порт") {
                 ForEach(ports, id: \.self) { path in Button(path) { selection.wrappedValue = path } }
                 Button("Обновить список") { ports = Array(SerialPort.availablePaths().prefix(256)) }
@@ -122,10 +125,21 @@ struct NativeRCPreparationPane: View {
     }
     private var baseline: some View {
         let collection = workspace.preflight["baseline_collection"]
+        let progress = NativeBaselineProgress(preflight: workspace.preflight)
         return GroupBox("3 · Эталон и бюджет восьми часов") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Совместимые полные свипы: \(collection["sweeps"].scalar) / 20 · интервал: \(collection["elapsed_seconds"].scalar) / 60 с").monospacedDigit()
-                ProgressView(value: min(60, max(0, collection["elapsed_seconds"].double ?? 0)), total: 60)
+                ProgressView("Время эталона · минимум 60 секунд", value: progress.timeFraction)
+                    .accessibilityIdentifier("preparation.baseline.time")
+                ProgressView("Полные совместимые свипы · минимум 20", value: progress.sweepFraction)
+                    .accessibilityIdentifier("preparation.baseline.sweeps")
+                if let remaining = progress.estimatedRemainingSeconds, !progress.ready {
+                    Text("Оценка оставшегося времени: \(Int(min(remaining.rounded(.up), Double(Int.max / 2)))) с. Зависит от фактического периода обзора.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if !progress.ready {
+                    Text("Ожидаются измеренный период обзора и подтверждение совместимости ядром. Одной минуты недостаточно без 20 полных свипов.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Toggle("Подтверждаю пригодность эталона обычной обстановки", isOn: $workspace.baselineConfirmed)
                 Button("Зафиксировать эталон и включить резерв backup") { Task { await flow.saveBaseline(workspace: workspace) } }
                     .disabled(busy || workspace.isArmed || !readiness.baselineCollected || !workspace.baselineConfirmed || !workspace.savedPreparationReady || workspace.preparationDirty)
@@ -147,6 +161,7 @@ struct NativeRCPreparationPane: View {
                     Button("Поставить на охрану") { workspace.perform { await workspace.command("arm", success: "Охрана включена.") } }
                         .buttonStyle(.borderedProminent)
                         .disabled(busy || !workspace.canArm || workspace.preflight["ready"].bool != true || !readiness.budgetReady)
+                        .accessibilityIdentifier("preparation.arm")
                     Button("Снять с охраны") { workspace.perform { await workspace.command("disarm", success: "Охрана выключена.") } }
                         .disabled(busy || !workspace.isArmed)
                     Text(workspace.isArmed ? "Охрана работает независимо от окна." : "Автопостановка выключена.").font(.caption)

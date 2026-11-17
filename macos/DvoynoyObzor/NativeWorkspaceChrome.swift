@@ -129,53 +129,79 @@ struct NativeContinuityBar: View {
     @Bindable var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @State private var details = false
-    private var coverage: String {
+    private func coverage(verified: Bool) -> String {
         let value = workspace.project["coverage"].text.isEmpty ? workspace.coverage : workspace.project["coverage"].text
-        return ["wide": "Широкий обзор", "narrow": "Узкая полоса · широкий обзор приостановлен", "restoring": "Восстановление широкого обзора", "preparation": "Подготовка эталона", "stopped": "Покрытие остановлено", "paused": "Покрытие на паузе", "unavailable": "Покрытие недоступно", "error": "Ошибка покрытия"][value] ?? "Покрытие не подтверждено"
+        return NativeContinuityLabels.coverage(value, coreReachable: model.coreReachable,
+            statusVerified: verified)
     }
     private var archiveLabel: String {
+        guard model.coreReachable else { return "Архив · состояние не подтверждено" }
         guard let capacity = model.displayArchiveCapacity else { return "Состояние архива неизвестно" }
         if capacity.measurementWritesBlocked { return "Запись в архив заблокирована" }
         let state = ["unlimited": "без лимита", "ok": "норма", "warning": "мало места", "full": "заполнен", "unavailable": "недоступен"][capacity.state.rawValue] ?? capacity.state.rawValue
         return "Архив · " + state
     }
-    private var acquisition: String {
-        guard model.coreReachable else { return "Не подтверждён" }
-        let active = model.workers.filter { $0.alive }
-        if active.contains(where: { $0.stopping == true }) { return "Завершение свипа" }
-        if active.contains(where: { $0.state == "degraded" || $0.state == "error" }) { return "Есть ошибки" }
-        return active.isEmpty ? "Остановлен" : "Ведётся"
+    private func activity(_ stream: String?) -> String {
+        guard let stream else { return "не выбран" }
+        guard model.coreReachable else { return "связь потеряна" }
+        guard let worker = model.worker(for: stream) else { return "приём не подтверждён" }
+        if worker.stopping == true { return "останавливается" }
+        if worker.state == "degraded" || worker.state == "error" { return "ошибка приёма" }
+        return worker.alive ? "приём идёт" : "остановлен"
+    }
+    private func guardLabel(verified: Bool) -> String {
+        NativeContinuityLabels.guardState(workspace.project["state"].text,
+            coreReachable: model.coreReachable, selected: !workspace.selected.isEmpty,
+            statusVerified: verified, armed: workspace.isArmed)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 16) {
-                Label(model.coreReachable ? "Ядро на связи" : "Нет связи с ядром", systemImage: "network")
-                    .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
-                Text("Приём: \(acquisition)")
-                Text(archiveLabel)
-                Text(workspace.isArmed && model.coreReachable ? "Охрана включена" : "Охрана не подтверждена")
-                Spacer(minLength: 0)
-                Button("Диагностика") { details.toggle() }.controlSize(.mini)
-                    .popover(isPresented: $details) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(coverage)
-                            Text(model.eventStatus).textSelection(.enabled)
-                            if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
-                        }.padding().frame(width: 380)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let verified = workspace.projectStatusIsCurrent()
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 16) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "network").accessibilityHidden(true)
+                        Text(model.coreReachable ? "Ядро на связи" : "Нет связи с ядром")
+                            .accessibilityIdentifier("continuity.core")
                     }
-            }.font(.caption).lineLimit(1)
-            if model.displayArchiveCapacity?.measurementWritesBlocked == true {
-                Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
-                    .font(.callout).foregroundStyle(.red)
-            }
-            if let issue = model.measurementDisplayIssue { Text(issue.message).font(.caption).foregroundStyle(.orange) }
-            if let notice = model.eventGapNotice {
-                HStack {
-                    Label(notice, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                    Button("Понятно") { model.eventGapNotice = nil }
-                }.font(.caption)
-            }
-        }.padding(.horizontal, 10).padding(.vertical, 3)
+                        .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
+                    Text(archiveLabel)
+                    Text(guardLabel(verified: verified))
+                    Spacer(minLength: 0)
+                    Button("Диагностика") { details.toggle() }.controlSize(.mini)
+                        .popover(isPresented: $details) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(coverage(verified: verified))
+                                Text(model.eventStatus).textSelection(.enabled)
+                                if model.measurementSource != nil { Button("Исходное событие…") { model.exportMeasurementSource() } }
+                            }.padding().frame(width: 380)
+                        }
+                }.font(.caption).lineLimit(1)
+                HStack(spacing: 16) {
+                    Text("tinySA: " + activity(model.analyzer?.id))
+                    Text("AR-DV1: " + activity(model.receiver?.id))
+                    Text(coverage(verified: verified)).help(coverage(verified: verified))
+                    Spacer(minLength: 0)
+                    if let time = model.acquisitionSweepTime {
+                        let age = context.date.timeIntervalSince(time)
+                        Text(age >= 0 ? "Последний свип: \(Int(min(age, Double(Int.max / 2)))) с назад" : "Последний свип: время в будущем")
+                    } else {
+                        Text("Последний свип: нет данных")
+                    }
+                }.font(.caption).lineLimit(1)
+                if model.displayArchiveCapacity?.measurementWritesBlocked == true {
+                    Label("Запись измерений заблокирована. Проверьте хранилище.", systemImage: "exclamationmark.octagon.fill")
+                        .font(.callout).foregroundStyle(.red)
+                }
+                if let issue = model.measurementDisplayIssue { Text(issue.message).font(.caption).foregroundStyle(.orange) }
+                if let notice = model.eventGapNotice {
+                    HStack {
+                        Label(notice, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Button("Понятно") { model.eventGapNotice = nil }
+                    }.font(.caption)
+                }
+            }.padding(.horizontal, 10).padding(.vertical, 3)
+        }
     }
 }

@@ -14,6 +14,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         didSet { if !PlatformExactID.same(oldValue, selected) { projectPages.select(selected); invalidateProject() } }
     }
     @Published var status: MonitoringValue = .null
+    @Published private(set) var projectStatusVerifiedAt: ContinuousClock.Instant?
     @Published var preflight: MonitoringValue = .null
     @Published var events: [MonitoringValue] = []
     @Published var selectedEvent = ""
@@ -105,6 +106,12 @@ final class MonitoringWorkspaceModel: ObservableObject {
     let receiverModes = ["AUTO", "FM", "AM", "DSTAR", "YSF", "ALINCO", "NXDN", "P25", "DPMR", "DMR"]
 
     var project: MonitoringValue { status["project"] }
+    func projectStatusIsCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
+        guard !selected.isEmpty, PlatformExactID.same(project["id"].text, selected),
+              let verified = projectStatusVerifiedAt else { return false }
+        let age = verified.duration(to: now)
+        return age >= .zero && age <= .seconds(15)
+    }
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
@@ -234,7 +241,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     private func invalidateProject() {
         revision += 1; requestID = UUID(); pending = false
-        status = .null; preflight = .null; events = []; selectedEvent = ""; event = .null
+        status = .null; projectStatusVerifiedAt = nil
+        preflight = .null; events = []; selectedEvent = ""; event = .null
         signalQueue = NativeGuardSignalQueue(); signalEvent = .null; signalOriginal = nil
         signalRequests = [:]; signalErrors = [:]; signalPending = []
         signalDetailPollValue = .null; signalDetailRefreshedAt = nil
@@ -366,8 +374,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
             archiveHighWatermark = watermark
             if rolledBack { resetArchiveContext(watermark: watermark) }
         }
-        await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
+        guard !pending else { return }
+        let succeeded = await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
+            projectStatusVerifiedAt = PlatformExactID.same(result["project"]["id"].text, selected) ? .now : nil
             coverage = result["project"]["coverage"].text
             if !preparationSeeded {
                 antennaNotes = project["preparation"]["antenna_notes"].text
@@ -383,6 +393,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
                 // Each save of an assigned audio input requires an explicit operator confirmation.
                 audioConfirmed = false
             }
+        }
+        if !succeeded, generation == revision, healthRevision == archiveHealthRevision,
+           self.client === client, PlatformExactID.same(selected, projectID) {
+            projectStatusVerifiedAt = nil
         }
     }
 

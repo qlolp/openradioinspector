@@ -90,15 +90,8 @@ final class NativeAcceptanceTrace {
         shared=try NativeAcceptanceTrace(profile)
     }
     private init(_ profile:Profile) throws {
-        guard profile.version==1,!profile.runID.isEmpty,profile.runID.utf8.count<=64,
-              profile.runID.utf8.allSatisfy({(48...57).contains($0)||(65...90).contains($0)||(97...122).contains($0)||$0==45||$0==95}),
-              ["load","hardware"].contains(profile.phase),
-              profile.transport==nil || ["auto","sse","binary-v1"].contains(profile.transport!),
-              profile.smokeSeconds==nil || (profile.phase=="load" && profile.smokeSeconds!.isFinite && (1...60).contains(profile.smokeSeconds!)),
-              let origin=URLComponents(string:profile.coreURL),origin.scheme=="http",origin.host=="127.0.0.1",
-              origin.port != nil,origin.user==nil,origin.password==nil,origin.query==nil,origin.fragment==nil,
-              origin.path.isEmpty,profile.outputDirectory.hasPrefix("/"),
-              let executable=Bundle.main.executableURL else{throw CocoaError(.coderInvalidValue)}
+        let origin=try NativeAcceptanceProfilePolicy.origin(for:profile)
+        guard let executable=Bundle.main.executableURL else{throw CocoaError(.coderInvalidValue)}
         let hash=try SHA256.hash(data:Data(contentsOf:executable,options:.mappedIfSafe)).map{String(format:"%02x",$0)}.joined()
         guard hash==profile.expectedUI else{throw CocoaError(.fileReadCorruptFile)}
         let directory=URL(fileURLWithPath:profile.outputDirectory,isDirectory:true)
@@ -155,7 +148,7 @@ final class NativeAcceptanceTrace {
     private func finish() {
         record("native.finished")
         let successful=sink.flush()
-        if profile.phase=="load" || preferencesCanBeRemoved {NativeAcceptancePreferences.remove(runID:profile.runID)}
+        if profile.phase=="load" || profile.phase=="ui-test" || preferencesCanBeRemoved {NativeAcceptancePreferences.remove(runID:profile.runID)}
         let target=URL(fileURLWithPath:profile.outputDirectory).appendingPathComponent("native-finished-\(getpid()).json")
         if let data=try? JSONSerialization.data(withJSONObject:["run_id":profile.runID,"successful":successful,"pid":getpid()]) {
             _=FileManager.default.createFile(atPath:target.path,contents:data,attributes:[.posixPermissions:0o600])

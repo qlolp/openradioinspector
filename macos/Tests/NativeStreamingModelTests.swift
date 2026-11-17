@@ -103,11 +103,11 @@ final class NativeStreamingModelTests: XCTestCase {
             guard stateLock.withLock({ !finished }) else { return }
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!, cacheStoragePolicy: .notAllowed)
         }
-        func sweep(sequence: Int, id: String, levels: [Double]) {
+        func sweep(sequence: Int, id: String, levels: [Double], endedAt: String = "2026-11-11T00:00:01Z") {
             // Deliberately allow late old-subscription bytes, as in the original
             // controls; only the client may decide whether they are still current.
             var sample = Responses.sweep(id: id, levels: levels)
-            sample["interval"] = ["started_at": String(format: "2026-11-11T00:00:00.%06dZ", sequence), "ended_at": "2026-11-11T00:00:01Z"]
+            sample["interval"] = ["started_at": String(format: "2026-11-11T00:00:00.%06dZ", sequence), "ended_at": endedAt]
             let payload: [String: Any] = ["sequence": sequence, "event_type": "sweep.received", "occurred_at": "2026-11-11T00:00:02Z", "session_id": "s", "payload": ["sweep": sample]]
             let envelope: [String: Any] = ["contract": "openradioinspector-platform", "contract_version": 1, "data": payload]
             let body = String(decoding: try! JSONSerialization.data(withJSONObject: envelope), as: UTF8.self)
@@ -165,13 +165,13 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         /// Like Core, commit before publishing. Direct Stub.sweep calls are
         /// replay/old-subscription delivery and cannot mutate this archive HWM.
-        func commitSweep(sequence: Int, id: String, levels: [Double]) {
+        func commitSweep(sequence: Int, id: String, levels: [Double], endedAt: String = "2026-11-11T00:00:01Z") {
             let connection = lock.withLock {
                 committedWatermark = max(committedWatermark, Int64(sequence))
                 timeline?.mark("commit sequence=\(sequence) HWM=\(committedWatermark)")
                 return stream
             }
-            connection?.sweep(sequence: sequence, id: id, levels: levels)
+            connection?.sweep(sequence: sequence, id: id, levels: levels, endedAt: endedAt)
         }
         func failHealth(_ status: Int) { lock.withLock { healthStatus = status } }
         func releaseMetadata() {
@@ -370,10 +370,11 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect(); responses.retire() }
         model.toggleSpectrumPause()
-        responses.commitSweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40], endedAt: "2026-11-11T00:00:02Z")
         try await wait { model.eventStatus.contains("принято событие 1") }
         XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "initial")
+        XCTAssertEqual(model.acquisitionSweepTime, NativeSpectrumTimeline.date("2026-11-11T00:00:02Z"))
         XCTAssertEqual(responses.mutations, 0)
         model.toggleSpectrumPause()
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])

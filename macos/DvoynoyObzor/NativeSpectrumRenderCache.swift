@@ -24,21 +24,25 @@ struct NativeSpectrumRenderCache: @unchecked Sendable {
     private var sourceIDs:[PlatformExactID]=[]
     private var referenceID:PlatformExactID?
     private var threshold:Double?
+    private var requestedRasterWidth:Int?
 
     nonisolated static func prepare(_ sweeps:[PlatformSweep],selected:PlatformSweep?,bounds:PlatformSpectrumScale?,
-        threshold:Double?=nil,reference:PlatformSweep?=nil,viewport:ClosedRange<Double>?=nil,previous:Self=Self()) throws -> Self {
+        threshold:Double?=nil,reference:PlatformSweep?=nil,viewport:ClosedRange<Double>?=nil,
+        rasterWidth:Int?=nil,previous:Self=Self()) throws -> Self {
         let ids=sweeps.map(\.exactID)
         let sameGeometry=previous.bounds==bounds && previous.sourceIDs==ids && previous.selectedID==selected?.exactID
             && previous.referenceID==reference?.exactID && previous.threshold==threshold
         var result=sameGeometry ? previous:Self()
         result.rows=[];result.rasterizedRows=0;result.bounds=bounds;result.viewport=viewport
         result.sourceIDs=ids;result.referenceID=reference?.exactID;result.threshold=threshold
+        result.requestedRasterWidth=rasterWidth
         guard let bounds else{return result}
-        let reusable=previous.bounds==bounds && previous.viewport==viewport ? Dictionary(previous.rows.map{($0.id,$0)},uniquingKeysWith:{$1}):[:]
+        let reusable=previous.bounds==bounds && previous.viewport==viewport && previous.requestedRasterWidth==rasterWidth
+            ? Dictionary(previous.rows.map{($0.id,$0)},uniquingKeysWith:{$1}):[:]
         for sweep in sweeps {
             try Task.checkCancellation()
             if let old=reusable[sweep.exactID] {result.rows.append(old)}
-            else if let row=try raster(sweep,bounds:bounds,viewport:viewport) {result.rows.append(row);result.rasterizedRows+=1}
+            else if let row=try raster(sweep,bounds:bounds,viewport:viewport,width:rasterWidth) {result.rows.append(row);result.rasterizedRows+=1}
         }
         if sameGeometry {return result}
         guard let selected,let first=selected.frequenciesHz.first,let last=selected.frequenciesHz.last else{return result}
@@ -73,11 +77,11 @@ struct NativeSpectrumRenderCache: @unchecked Sendable {
         }.sorted{levels[$0]==levels[$1] ? $0<$1:levels[$0]>levels[$1]}
         return result
     }
-    nonisolated private static func raster(_ sweep:PlatformSweep,bounds:PlatformSpectrumScale,viewport:ClosedRange<Double>?) throws -> Row? {
+    nonisolated private static func raster(_ sweep:PlatformSweep,bounds:PlatformSpectrumScale,viewport:ClosedRange<Double>?,width requestedWidth:Int?) throws -> Row? {
         guard let first=sweep.frequenciesHz.first,let last=sweep.frequenciesHz.last else{return nil}
         let lower=viewport?.lowerBound ?? Double(first),upper=viewport?.upperBound ?? max(Double(first)+1,Double(last))
         guard lower.isFinite,upper.isFinite,upper>lower else{return nil}
-        let width=min(4096,max(1024,sweep.levels.count))
+        let width=requestedWidth.map {min(12_288,max(1,$0))} ?? min(4096,max(1024,sweep.levels.count))
         var maxima=[Double](repeating:-Double.infinity,count:width)
         func lowerBound(_ frequency:Double)->Int {
             var low=0,high=sweep.frequenciesHz.count

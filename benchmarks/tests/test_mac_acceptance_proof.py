@@ -42,6 +42,13 @@ def passing_fixture():
 
 
 class NativeAcceptanceProofTests(unittest.TestCase):
+    def test_ui_automation_profile_never_qualifies_as_load_acceptance(self):
+        commits,events=passing_fixture()
+        events[0]['phase']='ui-test'
+        result=self.verify(commits,events)
+        self.assertEqual(result['status'],'failed')
+        self.assertIn('native_profile_not_load',result['errors'])
+
     def test_declared_diagnostics_cannot_pass_when_preparation_stages_are_missing(self):
         commits,events=passing_fixture()
         events[0]['diagnostics_version']=1

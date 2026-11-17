@@ -707,12 +707,12 @@ async fn get(
             let stream = query.get("stream_id").map(String::as_str);
             let maximum = limit(&query, 100, 1000)?;
             if route[4] == "sweeps" {
-                json!(core.archive()?.list_sweeps(id, stream, maximum).await?)
+                Value::Array(core.archive()?.list_sweeps(id, stream, maximum).await?)
             } else {
-                json!(
+                Value::Array(
                     core.archive()?
                         .list_observations(id, stream, maximum)
-                        .await?
+                        .await?,
                 )
             }
         }

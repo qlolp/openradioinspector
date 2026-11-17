@@ -32,7 +32,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let evidence=NativeAcceptanceTrace.shared {
-                Text("Приёмочный тест · "+evidence.profile.phase+" · "+evidence.profile.runID).font(.caption).foregroundStyle(.orange)
+                Text((evidence.profile.phase == "ui-test" ? "UI-автотест · синтетические данные · " : "Приёмочный тест · "+evidence.profile.phase+" · ")+evidence.profile.runID)
+                    .font(.caption).foregroundStyle(.orange).accessibilityIdentifier("engineering.scope")
             }
             HStack(spacing: 12) {
                 Label {
@@ -55,6 +56,7 @@ struct ContentView: View {
                     Text("Архив").tag("archive")
                     Text("Охрана и исследование").tag("guard")
                 }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
+                    .accessibilityIdentifier("workbench.navigation")
                 Spacer(minLength: 0)
                 Button("История уровней") { model.showFrequencyHistory = true }.disabled(!model.connected || model.analyzer == nil)
                 if tab == "range" {
@@ -63,7 +65,7 @@ struct ContentView: View {
             }.fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
             Divider()
-            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
+            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode, openWorkspace: { tab = "guard" })
             ZStack {
                 devicesPage.workbenchVisible(tab == "devices")
                 HSplitView {
@@ -80,7 +82,7 @@ struct ContentView: View {
                 VStack {
                     Picker("Режим", selection: $workspaceMode) {
                         ForEach(NativeWorkspace.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).frame(maxWidth: 400)
+                    }.pickerStyle(.segmented).frame(maxWidth: 400).accessibilityIdentifier("workspace.mode-switch")
                     MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil,
                         sessionID: model.selectedSessionID, workspace: workspace, mode: mode,
                         onProjectSession: { id in model.selectSession(id); Task { await model.reloadSessions() } },
@@ -94,7 +96,6 @@ struct ContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 1000, minHeight: 700)
         .onChange(of: setupExpanded) { _, expanded in if expanded { tab = "devices"; setupExpanded = false } }
-        .onChange(of: model.coreReachable) { _, reachable in if reachable, tab == "devices" { tab = "range" } }
         .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { tab = "range" } }
         .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model:model) }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
@@ -121,7 +122,7 @@ struct ContentView: View {
         .task {
             guard let evidence=NativeAcceptanceTrace.shared else{return}
             NSApp.activate(ignoringOtherApps:true)
-            if evidence.profile.phase=="load" {
+            if evidence.profile.phase=="load" || evidence.profile.phase=="ui-test" {
                 tab="range";model.connect()
                 await model.reloadSessions()
                 model.selectSession(evidence.profile.warmupSessionID ?? evidence.profile.sessionID)
@@ -181,7 +182,6 @@ struct ContentView: View {
                 if NativeLocalService.isPersonalRC {
                     NativeLocalServicePane(service: localService, connect: connectLocalService,
                         disconnect: { nodeConnection.cancel(); model.disconnect() })
-                    Button("Подготовить приборы…") { showRCPreparation = true }.disabled(!model.connected)
                     NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true,
                         localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
                 } else {
@@ -189,6 +189,9 @@ struct ContentView: View {
                         connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
                     NativeConnectionPane(model: model, connection: nodeConnection)
                 }
+                Button("Подготовить приборы…") { showRCPreparation = true }
+                    .disabled(!model.connected).buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("preparation.open")
                 if model.receiver != nil { RemoteArPane(model: model).frame(minHeight: 320) }
             }.padding(12)
         }

@@ -263,6 +263,9 @@ final class RemoteDualModel {
             ? lastRenderedSweeps : spectrumPresentation.sweeps
     }
     var displayArchiveCapacity: PlatformArchiveCapacity? { coreReachable ? archiveCapacity : nil }
+    var acquisitionSweepTime: Date? {
+        analyzer == nil ? nil : lastMeasurementAt
+    }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }

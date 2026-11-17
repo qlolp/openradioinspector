@@ -61,6 +61,7 @@ def native_metrics(commits, events, *, run_id, core_sha256, native_sha256, expec
         elif stage=='native_identity':
             if identity or row.get('component_sha256')!=native_sha256:errors.append('native_build_mismatch')
             else:identity=True
+            if row.get('phase') not in (None,'load'):errors.append('native_profile_not_load')
             version=row.get('diagnostics_version')
             if version is not None and (type(version) is not int or version!=1):
                 errors.append('unsupported_diagnostics_version')

@@ -26,22 +26,25 @@ struct NativeSpectrumPlot: View {
     }
     private struct Request: Equatable {
         let sources:Sources
-        let viewport:ClosedRange<Double>
+        let raster:NativeSpectrumRasterWindow?
     }
 
     var body: some View {
         let timeline = NativeSpectrumTimeline(sweeps, window: window)
         let acceptance=NativeAcceptanceTrace.shared
-        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selected?.exactID,bounds:bounds,threshold:threshold,reference:reference?.exactID),viewport:range)
+        let fullLower=Double(selected?.frequenciesHz.first ?? 0)
+        let fullUpper=max(fullLower+1,Double(selected?.frequenciesHz.last ?? 1))
+        let raster=NativeSpectrumRasterWindow.covering(range,within:fullLower...fullUpper,previous:preparedRequest?.raster)
+        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selected?.exactID,bounds:bounds,threshold:threshold,reference:reference?.exactID),raster:raster)
         let ready=preparedRequest==request
         let geometryReady=preparedRequest?.sources==request.sources
         // A new marker may certify only geometry prepared from that exact source.
-        let evidence=ready ? acceptance?.frame(for:selected?.id,viewport:range):nil
+        let evidence=ready && raster != nil ? acceptance?.frame(for:selected?.id,viewport:range):nil
         let markerTag=acceptance?.tag ?? 0
         Canvas { context, _ in
             let plot = layout.spectrum, water = layout.waterfall
             func x(_ hz: Double) -> Double { plot.minX + (hz - range.lowerBound) / (range.upperBound - range.lowerBound) * plot.width }
-            func label(_ text: String, _ point: CGPoint, color: Color = .secondary, anchor: UnitPoint = .center) {
+            func label(_ text: String, _ point: CGPoint, color: Color = .white.opacity(0.82), anchor: UnitPoint = .center) {
                 context.draw(Text(text).font(.system(size: 10, design: .monospaced)).foregroundStyle(color), at: point, anchor: anchor)
             }
             func line(_ a: CGPoint, _ b: CGPoint, color: Color, dashed: Bool = false) {
@@ -142,12 +145,14 @@ struct NativeSpectrumPlot: View {
             NativeAcceptanceMarker.draw(&context,frame:evidence,tag:markerTag)
             if sweeps.isEmpty { label("Нет измерений — выберите сеанс и начните приём", CGPoint(x: plot.midX, y: plot.midY)) }
         }
+        .background(Color(red:0.035,green:0.045,blue:0.065))
         .background {if evidence != nil, acceptance?.profile.phase=="load" {NativeAcceptanceGeometry()}}
+        .accessibilityLabel("Панорама частот и история водопада")
         .task(id: request) {
-            let source=sweeps,selected=selected,scale=bounds,threshold=threshold,reference=reference,previous=prepared,viewport=range
+            let source=sweeps,selected=selected,scale=bounds,threshold=threshold,reference=reference,previous=prepared,raster=request.raster
             let task=Task.detached(priority:.userInitiated) {
                 try NativeSpectrumRenderCache.prepare(source,selected:selected,bounds:scale,
-                    threshold:threshold,reference:reference,viewport:viewport,previous:previous)
+                    threshold:threshold,reference:reference,viewport:raster?.range,rasterWidth:raster?.pixelWidth,previous:previous)
             }
             do {
                 let result=try await withTaskCancellationHandler(operation:{try await task.value},onCancel:{task.cancel()})

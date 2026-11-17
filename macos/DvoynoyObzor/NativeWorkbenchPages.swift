@@ -160,6 +160,7 @@ struct NativeArchivePage: View {
                 TextField("От, МГц", text: $minimum).frame(width: 90)
                 TextField("До, МГц", text: $maximum).frame(width: 90)
                 Button("Найти") { search() }.disabled(browser.busy || !model.connected || opening)
+                    .accessibilityIdentifier("archive.search")
             }
             HStack {
                 Text(browser.message).font(.caption)
@@ -167,9 +168,10 @@ struct NativeArchivePage: View {
                 Button("Следующая страница") { search(next: true) }
                     .disabled(browser.busy || browser.nextCursor == nil || opening)
                 Button("Открыть спектр") { openSource() }.disabled(selection == nil || opening || browser.busy)
+                    .accessibilityIdentifier("archive.open-source")
             }
             Table(browser.rows.map(TableSource.init(sweep:)), selection: $selection) {
-                TableColumn("Начало UTC") { Text($0.sweep.interval.startedAt) }
+                TableColumn("Начало UTC") { Text($0.sweep.interval.startedAt).accessibilityIdentifier("archive.source."+$0.sweep.id) }
                 TableColumn("Диапазон, МГц") {
                     Text("\(NativeAnalyzerDraft.mhz($0.sweep.minFrequencyHz))–\(NativeAnalyzerDraft.mhz($0.sweep.maxFrequencyHz))")
                 }

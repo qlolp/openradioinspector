@@ -4,6 +4,20 @@ import Darwin
 @testable import DvoynoyObzorSession
 
 final class NativeLocalServiceTests: XCTestCase {
+    @MainActor func testSyntheticProfilesNeverSelectThePersonalRCService() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".bundle")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let plist: [String: Any] = ["CFBundleIdentifier": "test.personal-rc", "ORIPersonalRC": true]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: directory.appendingPathComponent("Contents/Info.plist"))
+        let bundle = try XCTUnwrap(Bundle(url: directory))
+        XCTAssertEqual(bundle.object(forInfoDictionaryKey: "ORIPersonalRC") as? Bool, true)
+        XCTAssertTrue(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: nil))
+        XCTAssertTrue(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "hardware"))
+        XCTAssertFalse(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "load"))
+        XCTAssertFalse(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "ui-test"))
+    }
     @MainActor
     func testTwoAcceptanceLifecyclesRemoveRegistrationOnlyAfterConfirmedStop() async throws {
         let ready=try reply();var registrations=0;var removals=0;var receipts:[Bool]=[]

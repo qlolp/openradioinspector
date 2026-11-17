@@ -36,8 +36,7 @@ struct NativeRCPreparationDraft {
 struct NativeRCReadiness {
     let preflight: MonitoringValue
     var baselineCollected: Bool {
-        let collection = preflight["baseline_collection"]
-        return collection["ready"].bool == true && (collection["sweeps"].integer ?? 0) >= 20 && (collection["elapsed_seconds"].double ?? 0) >= 60
+        NativeBaselineProgress(preflight: preflight).ready
     }
     var budgetReady: Bool {
         let storage = preflight["storage"]
