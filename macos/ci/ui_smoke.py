@@ -25,6 +25,29 @@ CASES = {
 }
 
 
+def prepare_profiles(root, endpoint, native_sha256):
+    """The owning process writes; the sandboxed XCTest runner only reads."""
+    root = Path(root).resolve()
+    cases = root / 'cases'
+    cases.mkdir(mode=0o700)
+    profiles = {}
+    for name in sorted(CASES):
+        directory = cases / name
+        directory.mkdir(mode=0o700)
+        evidence = directory / 'native'
+        evidence.mkdir(mode=0o700)
+        profile = directory / 'profile.json'
+        profile.write_text(json.dumps(dict(version=1, run_id='ui-'+uuid.uuid4().hex,
+            phase='ui-test', output_dir=str(evidence), expected_ui_sha256=native_sha256,
+            core_url=endpoint, session_id='ui-one')) + '\n')
+        profile.chmod(0o600)
+        profiles[name] = str(profile)
+    index = root / 'profiles.json'
+    index.write_text(json.dumps(profiles) + '\n')
+    index.chmod(0o600)
+    return index
+
+
 def configure_test_run(source, profile, *, test_root=None):
     result = copy.deepcopy(source)
     count = 0
@@ -33,7 +56,7 @@ def configure_test_run(source, profile, *, test_root=None):
         nonlocal count
         if isinstance(value, dict):
             if str(value.get('TestBundlePath', '')).endswith('DvoynoyObzorUITests.xctest'):
-                value.setdefault('EnvironmentVariables', {})['ORI_UI_TEST_PROFILE'] = str(profile)
+                value.setdefault('EnvironmentVariables', {})['ORI_UI_TEST_PROFILES'] = str(profile)
                 count += 1
             for key, child in list(value.items()):
                 if test_root is not None and isinstance(child, str) and child.startswith('__TESTROOT__/'):
@@ -88,19 +111,13 @@ def main(argv=None):
         report['native_sha256'] = hashlib.sha256(executable.read_bytes()).hexdigest()
         fixture = Fixture('tests.ui_smoke_server', root, environment)
         endpoint = fixture.ready(20)
-        profile = root / 'profile.json'
-        evidence = root / 'native'
-        evidence.mkdir(mode=0o700)
-        profile.write_text(json.dumps(dict(version=1, run_id='ui-'+uuid.uuid4().hex,
-            phase='ui-test', output_dir=str(evidence), expected_ui_sha256=report['native_sha256'],
-            core_url=endpoint, session_id='ui-one')) + '\n')
-        profile.chmod(0o600)
+        profiles = prepare_profiles(root, endpoint, report['native_sha256'])
         runs = list((derived / 'Build/Products').glob('*.xctestrun'))
         if len(runs) != 1:
             raise ValueError('One generated XCUITest run is required')
         configured = root / 'UI.xctestrun'
         configured.write_bytes(plistlib.dumps(configure_test_run(plistlib.loads(runs[0].read_bytes()),
-            profile, test_root=runs[0].parent)))
+            profiles, test_root=runs[0].parent)))
         output = run_command(['xcodebuild', 'test-without-building', '-xctestrun', str(configured),
             '-destination', 'platform=macOS,arch=arm64', '-parallel-testing-enabled', 'NO',
             '-resultBundlePath', str(root / 'UI.xcresult')], name='ui-tests',

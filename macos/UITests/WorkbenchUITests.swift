@@ -2,22 +2,15 @@ import Foundation
 import XCTest
 
 final class WorkbenchUITests: XCTestCase {
-    @MainActor private func launch() throws -> XCUIApplication {
-        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["ORI_UI_TEST_PROFILE"],
+    @MainActor private func launch(test: String) throws -> XCUIApplication {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["ORI_UI_TEST_PROFILES"],
             "Use macos/ci/ui_smoke.py to supply an isolated synthetic fixture")
-        let template = URL(fileURLWithPath: path)
-        var profile = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: template)) as? [String: Any])
-        let directory = template.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o700])
-        profile["run_id"] = "ui-" + UUID().uuidString
-        profile["output_dir"] = directory.path
-        let instance = directory.appendingPathComponent("profile.json")
-        let bytes = try JSONSerialization.data(withJSONObject: profile)
-        XCTAssertTrue(FileManager.default.createFile(atPath: instance.path, contents: bytes,
-            attributes: [.posixPermissions: 0o600]))
+        let profiles = try JSONDecoder().decode([String: String].self,
+            from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let method = String(test.prefix(while: { $0 != "(" }))
+        let profile = try XCTUnwrap(profiles[method], "An owned profile is required for this exact test")
         let app = XCUIApplication()
-        app.launchArguments = ["--acceptance-profile", instance.path]
+        app.launchArguments = ["--acceptance-profile", profile]
         app.launch()
         XCTAssertTrue(app.segmentedControls["workbench.navigation"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["continuity.core"].waitForExistence(timeout: 15))
@@ -52,7 +45,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor func testNavigationPreservesSessionAndCoreConnection() throws {
-        let app = try launch(); defer { app.terminate() }
+        let app = try launch(test: #function); defer { app.terminate() }
         let before = app.popUpButtons["workbench.session"].value as? String
         XCTAssertNotNil(before)
         for title in ["Приборы", "Сигналы", "Архив", "Охрана и исследование", "Контроль диапазона"] {
@@ -64,7 +57,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {
-        let app = try launch(); defer { app.terminate() }; preparation(in: app)
+        let app = try launch(test: #function); defer { app.terminate() }; preparation(in: app)
         let tiny = app.textFields["preparation.tinysa-port"]
         let receiver = app.textFields["preparation.receiver-port"]
         replace(tiny, with: "/dev/cu.ui-fixture")
@@ -78,7 +71,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor func testReplayFixtureCannotBePresentedAsLiveHardwarePreparation() throws {
-        let app = try launch(); defer { app.terminate() }; preparation(in: app)
+        let app = try launch(test: #function); defer { app.terminate() }; preparation(in: app)
         replace(app.textFields["preparation.tinysa-port"], with: "/dev/cu.ui-fixture")
         replace(app.textFields["preparation.receiver-port"], with: "/dev/cu.ui-receiver")
         app.buttons["preparation.create"].click()
@@ -89,7 +82,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor func testArchiveOpensOriginalSpectrumAndMarksHistory() throws {
-        let app = try launch(); defer { app.terminate() }; tab("Архив", in: app)
+        let app = try launch(test: #function); defer { app.terminate() }; tab("Архив", in: app)
         XCTAssertFalse(app.buttons["archive.open-source"].isEnabled)
         app.buttons["archive.search"].click()
         let source = app.staticTexts["archive.source.ui-one-sweep-1"]
@@ -104,7 +97,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor func testWorkspaceSwitchKeepsCoreAndSelectedSession() throws {
-        let app = try launch(); defer { app.terminate() }
+        let app = try launch(test: #function); defer { app.terminate() }
         let before = app.popUpButtons["workbench.session"].value as? String
         app.buttons["workbench.space"].click()
         let modes = app.segmentedControls["workspace.mode-switch"]

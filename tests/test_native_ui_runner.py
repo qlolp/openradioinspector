@@ -1,5 +1,9 @@
 import unittest
-from macos.ci.ui_smoke import configure_test_run, passed_cases
+import json
+import stat
+import tempfile
+from pathlib import Path
+from macos.ci.ui_smoke import configure_test_run, passed_cases, prepare_profiles
 
 
 CASES = (
@@ -12,6 +16,34 @@ CASES = (
 
 
 class NativeUIRunnerTests(unittest.TestCase):
+    def test_owner_prepares_private_profiles_before_read_only_xctest_launch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder).resolve()
+            index = prepare_profiles(root, 'http://127.0.0.1:12345', 'a' * 64)
+            profiles = json.loads(index.read_text())
+            self.assertEqual(set(profiles), set(CASES))
+            self.assertEqual(stat.S_IMODE(index.stat().st_mode), 0o600)
+            runs, outputs = set(), set()
+            for name, filename in profiles.items():
+                path = Path(filename)
+                self.assertTrue(path.is_absolute())
+                self.assertTrue(path.is_relative_to(root))
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                profile = json.loads(path.read_text())
+                output = Path(profile['output_dir'])
+                self.assertTrue(output.is_dir())
+                self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o700)
+                self.assertTrue(output.is_relative_to(root))
+                self.assertEqual(profile['phase'], 'ui-test')
+                self.assertEqual(profile['session_id'], 'ui-one')
+                self.assertEqual(profile['core_url'], 'http://127.0.0.1:12345')
+                self.assertEqual(profile['expected_ui_sha256'], 'a' * 64)
+                self.assertNotIn('core_data_dir', profile)
+                runs.add(profile['run_id']); outputs.add(str(output))
+            self.assertEqual(len(runs), len(CASES))
+            self.assertEqual(len(outputs), len(CASES))
+            with self.assertRaises(FileExistsError):
+                prepare_profiles(root, 'http://127.0.0.1:12345', 'a' * 64)
     def test_relocated_run_keeps_the_original_built_product_root(self):
         source = {'UI': {'TestBundlePath': '__TESTHOST__/PlugIns/DvoynoyObzorUITests.xctest',
                          'TestHostPath': '__TESTROOT__/Debug/Runner.app',
@@ -29,9 +61,9 @@ class NativeUIRunnerTests(unittest.TestCase):
         result = configure_test_run(source, '/private/ui/profile.json')
         targets = result['TestConfigurations'][0]['TestTargets']
         self.assertEqual(targets[0]['EnvironmentVariables'], {
-            'UNCHANGED': 'yes', 'ORI_UI_TEST_PROFILE': '/private/ui/profile.json'})
+            'UNCHANGED': 'yes', 'ORI_UI_TEST_PROFILES': '/private/ui/profile.json'})
         self.assertEqual(targets[1], unit)
-        self.assertNotIn('ORI_UI_TEST_PROFILE', ui['EnvironmentVariables'])
+        self.assertNotIn('ORI_UI_TEST_PROFILES', ui['EnvironmentVariables'])
 
     def test_missing_or_ambiguous_ui_target_is_rejected(self):
         with self.assertRaises(ValueError):

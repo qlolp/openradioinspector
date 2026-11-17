@@ -2,9 +2,9 @@ name: Modern Web and Windows clients
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**']
+    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**', 'crates/ori-core/**']
   pull_request:
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**']
+    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**', 'crates/ori-core/**']
   workflow_dispatch:
 
 permissions:
