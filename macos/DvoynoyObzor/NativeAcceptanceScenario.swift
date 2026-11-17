@@ -28,7 +28,8 @@ enum NativeAcceptanceScenario {
         guard let schedule=try? NativeAcceptanceSchedule(seconds:trace.profile.smokeSeconds ?? 1800) else {
             trace.record("native.error",["message":"Invalid native scenario duration"]);return
         }
-        trace.record("scenario.begin",["input":"scheduled_native_actions","duration_seconds":Double(schedule.duration)/1e9])
+        trace.record("scenario.begin",["input":"scheduled_native_actions","duration_seconds":Double(schedule.duration)/1e9,
+            "scenario_version":2,"pan_trajectory":"monotonic_per_window","pan_updates_per_window":600])
         // Independent schedules prevent a ten-second pan from delaying queued
         // input probes in the compressed smoke. The full-run times are unchanged.
         async let inputs:Void=runInputs(trace,anchor:anchor,schedule:schedule)
@@ -55,7 +56,7 @@ enum NativeAcceptanceScenario {
                 guard await wait(until:next) else{return}
                 _=trace.beginInteraction(at:next)
                 guard let view=await current() else{return}
-                view.pan(tick%2==0 ? 0.002:-0.002)
+                view.pan(schedule.panFraction(window:index))
             }
             trace.record("pan_zoom.end",["request_id":id])
         }
