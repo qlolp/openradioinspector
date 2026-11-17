@@ -82,7 +82,7 @@ struct ContentView: View {
                 VStack {
                     Picker("Режим", selection: $workspaceMode) {
                         ForEach(NativeWorkspace.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).frame(maxWidth: 400).accessibilityIdentifier("workspace.mode-switch")
+                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 400).accessibilityIdentifier("workspace.mode-switch")
                     MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil,
                         sessionID: model.selectedSessionID, workspace: workspace, mode: mode,
                         onProjectSession: { id in model.selectSession(id); Task { await model.reloadSessions() } },
@@ -153,6 +153,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: workspaceMode) { _, value in
+            NativeAcceptanceTrace.shared?.record("workspace.changed", ["value": NativeWorkspace(rawValue: value)?.rawValue ?? "unknown"])
             if value == NativeWorkspace.research.rawValue { tab = "guard" }
         }
         .onChange(of: model.coreReachable) { _, reachable in

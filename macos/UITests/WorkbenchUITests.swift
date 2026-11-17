@@ -130,7 +130,10 @@ final class WorkbenchUITests: XCTestCase {
         // Select the radio group itself, rather than that static-text caption.
         let modes = app.radioGroups["workspace.mode-switch"]
         XCTAssertTrue(modes.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["workspace.mode-switch"].exists,
+            "The picker caption must not cover its radio buttons in accessibility hit-testing")
         choose("Исследование", in: modes)
+        print("Workspace picker after action: \(modes.debugDescription.prefix(4000))")
         let space = app.buttons["workbench.space"]
         print("Workspace after selection: label=\(space.label), value=\(String(describing: space.value))")
         let research = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Исследование", "Исследование")
