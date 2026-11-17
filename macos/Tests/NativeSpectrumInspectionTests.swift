@@ -12,6 +12,47 @@ import SpektrKomandy
         return try decoder.decode(PlatformSweep.self, from: data)
     }
 
+    @MainActor @Test func viewportUpdatesReuseTheSameTimeSnapshotWithoutChangingGaps() throws {
+        let a = try sweep()
+        let b = try sweep("two", start: "2026-11-14T12:00:05Z", end: "2026-11-14T12:00:09Z")
+        let cache = NativeSpectrumTimeCache()
+        let first = cache.snapshot([a, b], seconds: 10, end: nil)
+        for _ in 0..<600 {
+            #expect(cache.snapshot([a, b], seconds: 10, end: nil) === first)
+        }
+        #expect(first.sweeps.map(\.exactID) == [a.exactID, b.exactID])
+        #expect(first.timeline.row(at: 0.5) == nil)
+        #expect(first.timeline.rows.last?.sweep.levels == b.levels)
+    }
+
+    @MainActor @Test func timeSnapshotInvalidatesOnSourceAndWindowChanges() throws {
+        let cache = NativeSpectrumTimeCache()
+        let old = try sweep()
+        let first = cache.snapshot([old], seconds: 10, end: nil)
+        let changed = try sweep(levels: [-10, -20, -30, -40])
+        let second = cache.snapshot([changed], seconds: 10, end: nil)
+        #expect(second !== first)
+        #expect(first.sweeps[0].levels == old.levels)
+        #expect(second.sweeps[0].levels == changed.levels)
+        let shorter = cache.snapshot([changed], seconds: 1, end: nil)
+        #expect(shorter !== second)
+        #expect(shorter.window.upperBound.timeIntervalSince(shorter.window.lowerBound) == 1)
+        let later = cache.snapshot([changed], seconds: 1, end: shorter.window.upperBound.addingTimeInterval(5))
+        #expect(later !== shorter)
+        #expect(later.sweeps.isEmpty)
+    }
+
+    @MainActor @Test func byteDistinctSourceIDsNeverShareATimeSnapshot() throws {
+        let cache = NativeSpectrumTimeCache()
+        let a = try sweep("trace-\u{00E9}")
+        let b = try sweep("trace-e\u{0301}")
+        let first = cache.snapshot([a], seconds: 10, end: nil)
+        let second = cache.snapshot([b], seconds: 10, end: nil)
+        #expect(first !== second)
+        #expect(first.sweeps[0].exactID == a.exactID)
+        #expect(second.sweeps[0].exactID == b.exactID)
+    }
+
     @Test func nearestBinUsesRealNonuniformGridAndClampsEdges() throws {
         let source = try sweep()
         #expect(NativeSpectrumInspection.nearestBin(88_250_000, in: source) == 2)

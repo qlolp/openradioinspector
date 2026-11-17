@@ -1,4 +1,4 @@
-//! A raw history response must move its numeric page, not clone a second tree.
+//! Raw history must encode each row without retaining the page's numeric trees.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -42,7 +42,7 @@ unsafe impl GlobalAlloc for MeasuredAllocator {
 static ALLOCATOR: MeasuredAllocator = MeasuredAllocator;
 
 #[tokio::test(flavor = "current_thread")]
-async fn raw_history_http_response_does_not_clone_the_full_numeric_page() {
+async fn raw_history_http_response_encodes_rows_without_retaining_numeric_trees() {
     use ori_archive::{Archive, ArchiveConfig};
     use ori_core::{Core, CoreConfig};
     use serde_json::{Value, json};
@@ -80,6 +80,8 @@ async fn raw_history_http_response_does_not_clone_the_full_numeric_page() {
                 })
                 .collect::<Vec<_>>()
         );
+        sweep["settings"]["$serde_json::private::Number"] = json!("literal metadata");
+        sweep["settings"]["nested"] = json!({"null": null, "text": "Локация α"});
         originals.push(sweep);
     }
     for chunk in originals.chunks(10) {
@@ -112,13 +114,13 @@ async fn raw_history_http_response_does_not_clone_the_full_numeric_page() {
     let extra = PEAK.load(Ordering::SeqCst).saturating_sub(baseline);
     core.request_shutdown();
     server.await.unwrap().unwrap();
-    let decoded: Value = serde_json::from_slice(&bytes).unwrap();
+    let decoded = ori_contracts::parse_json_value(&bytes, bytes.len()).unwrap();
     assert_eq!(decoded["data"], Value::Array(originals));
-    // Exactly one 819200-number tree, <=16 bytes of numeric spelling per
-    // sample, two <=8MiB wire buffers and fixed metadata. Value's ABI size
-    // depends on serde_json/preserve_order feature unification.
-    // A second numeric tree for json! does not fit this allowance.
-    let budget = 100 * 4096 * 2 * (std::mem::size_of::<Value>() + 16) + 18 * 1024 * 1024;
+    // One decoded 4096-point row, <=16 bytes of numeric spelling per sample,
+    // three <=8MiB wire/page buffers and 2MiB fixed metadata. A whole page of
+    // Value trees (even without a clone) cannot fit this independent allowance.
+    // The separate real Mac gate still enforces the unchanged 256MiB RSS cap.
+    let budget = 4096 * 2 * (std::mem::size_of::<Value>() + 16) + 26 * 1024 * 1024;
     eprintln!(
         "raw page wire={} extra heap={extra} budget={budget}",
         bytes.len()

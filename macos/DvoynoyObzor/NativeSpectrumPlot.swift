@@ -11,7 +11,7 @@ struct NativeSpectrumPlot: View {
     let cursor: NativeSpectrumSample?
     let markers: [NativeSpectrumSample]
     let layout: NativeSpectrumPlotLayout
-    var window: ClosedRange<Date>? = nil
+    let timeline: NativeSpectrumTimeline
     var showMinimum = true
     var showMaximum = true
     var reference: PlatformSweep? = nil
@@ -30,7 +30,6 @@ struct NativeSpectrumPlot: View {
     }
 
     var body: some View {
-        let timeline = NativeSpectrumTimeline(sweeps, window: window)
         let acceptance=NativeAcceptanceTrace.shared
         let fullLower=Double(selected?.frequenciesHz.first ?? 0)
         let fullUpper=max(fullLower+1,Double(selected?.frequenciesHz.last ?? 1))

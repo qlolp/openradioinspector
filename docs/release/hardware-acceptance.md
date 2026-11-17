@@ -10,11 +10,13 @@
 Для отдельной локальной проверки tinySA на macOS доступен явный аппаратный тест:
 
 ```sh
-swift test --package-path macos --filter DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
+ORI_RUN_PHYSICAL_TINYSA_TEST=1 swift test --package-path macos --filter DvoynoyObzorSessionTests.SessionTests/testPhysicalTinySAUltraSmokeIfConnected
 ```
 
-Он открывает найденный `/dev/cu.usbmodem*` и запускает обзор. Запускать только
-на подготовленном стенде. Отсутствие прибора или невозможность открыть порт
+Он открывает найденный `/dev/cu.usbmodem*` и запускает обзор. Это отдельный
+legacy-тест; перед запуском остановить владельца порта. Без явного флага он
+завершается до перечисления устройств. Запускать только на подготовленном
+стенде. Отсутствие прибора или невозможность открыть порт
 даёт SKIP, а не PASS; частичный smoke не закрывает таблицу ниже.
 Синтетический release runner исключает ровно этот тест через `--skip`,
 сохраняя строгий запрет неожиданных пропусков всех остальных тестов.

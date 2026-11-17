@@ -1,6 +1,41 @@
 import Foundation
 import SpektrKomandy
 
+/// One bounded display snapshot. Frequency navigation does not change recorded
+/// UTC intervals, so it must not parse and sort them again for every pan tick.
+@MainActor
+final class NativeSpectrumTimeCache {
+    final class Snapshot {
+        let window: ClosedRange<Date>
+        let sweeps: [PlatformSweep]
+        let timeline: NativeSpectrumTimeline
+        init(window: ClosedRange<Date>, sweeps: [PlatformSweep]) {
+            self.window = window; self.sweeps = sweeps
+            timeline = NativeSpectrumTimeline(sweeps, window: window)
+        }
+    }
+    private struct Key: Equatable {
+        let sweeps: [PlatformSweep]
+        let identities: [Data]
+        let seconds: Double
+        let end: Date?
+    }
+    private var previous: Key?
+    private var value: Snapshot?
+
+    func snapshot(_ sweeps: [PlatformSweep], seconds: Double, end: Date?) -> Snapshot {
+        let key = Key(sweeps: sweeps, identities: sweeps.flatMap {
+            [Data($0.id.utf8), Data($0.sessionId.utf8), Data($0.streamId.utf8)]
+        }, seconds: seconds, end: end)
+        if previous == key, let value, !sweeps.isEmpty || end != nil { return value }
+        let anchor = end ?? (sweeps.isEmpty ? Date() : NativeSpectrumTimeline(sweeps).end)
+        let window = NativeTimeWindow.range(end: anchor, seconds: seconds)
+        let snapshot = Snapshot(window: window, sweeps: NativeTimeWindow.rows(sweeps, within: window))
+        previous = key; value = snapshot
+        return snapshot
+    }
+}
+
 /// Presentation-only inspection of saved bins. Never interpolates measured levels or per-bin time.
 struct NativeSpectrumSample: Equatable {
     let sweep: PlatformSweep
@@ -51,12 +86,17 @@ struct NativeSpectrumTimeline {
         }
         return try? Date.ISO8601FormatStyle().parse(value)
     }
-    static func utc(_ date: Date) -> String {
+    // DateFormatter supports concurrent formatting; configuration is immutable
+    // after construction. Do not rebuild its ICU calendar for each axis label.
+    private static let utcFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
+        return formatter
+    }()
+    static func utc(_ date: Date) -> String {
+        utcFormatter.string(from: date)
     }
 }
 

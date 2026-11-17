@@ -3,6 +3,7 @@ import SpektrKomandy
 
 /// Both panels use identical frequency coordinates, saved sweep IDs and UTC intervals.
 struct NativeSpectrumInspector: View {
+    @State private var timeCache = NativeSpectrumTimeCache()
     let sweeps: [PlatformSweep]
     let scale: PlatformSpectrumScale?
     let threshold: Double?
@@ -76,8 +77,9 @@ struct NativeSpectrumInspector: View {
         // Re-reading the computed properties below used to repeatedly parse,
         // filter and sort the same history during every navigation update.
         let source = self.source
-        let window = NativeTimeWindow.range(end: timeEnd ?? (source.isEmpty ? Date() : NativeSpectrumTimeline(source).end), seconds: seconds)
-        let displayed = NativeTimeWindow.rows(source, within: window)
+        let time = timeCache.snapshot(source, seconds: seconds, end: timeEnd)
+        let window = time.window
+        let displayed = time.sweeps
         let selected = NativeSpectrumInspection.selectedSweep(selectedID, in: displayed)
         let range = self.range
         let bounds = inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels))
@@ -140,7 +142,7 @@ struct NativeSpectrumInspector: View {
                 } else {
                 NativeSpectrumPlot(sweeps: displayed, selected: selected, bounds: bounds, range: range,
                                    threshold: threshold, cursor: cursor, markers: markers, layout: layout,
-                                   window: window, showMinimum: showMinimum, showMaximum: showMaximum,
+                                   timeline: time.timeline, showMinimum: showMinimum, showMaximum: showMaximum,
                                    reference: referenceVisible ? reference : nil)
                     .contentShape(Rectangle())
                     .onContinuousHover { phase in

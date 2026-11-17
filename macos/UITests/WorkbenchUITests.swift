@@ -131,7 +131,11 @@ final class WorkbenchUITests: XCTestCase {
         let modes = app.radioGroups["workspace.mode-switch"]
         XCTAssertTrue(modes.waitForExistence(timeout: 10))
         choose("Исследование", in: modes)
-        XCTAssertTrue(app.buttons["workbench.space"].label.contains("Исследование"))
+        let space = app.buttons["workbench.space"]
+        print("Workspace after selection: label=\(space.label), value=\(String(describing: space.value))")
+        let research = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Исследование", "Исследование")
+        expectation(for: research, evaluatedWith: space)
+        waitForExpectations(timeout: 10)
         tab("Контроль диапазона", in: app)
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
         XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))

@@ -128,11 +128,15 @@ final class SessionTests: XCTestCase {
     }
 
     @MainActor func testPhysicalTinySAUltraSmokeIfConnected() async throws {
+        guard ProcessInfo.processInfo.environment["ORI_RUN_PHYSICAL_TINYSA_TEST"] == "1" else {
+            throw XCTSkip("Физический smoke требует явного ORI_RUN_PHYSICAL_TINYSA_TEST=1; обычные тесты не открывают USB")
+        }
         let ports = SerialPort.availablePaths()
         guard let path = ports.first(where: { $0.contains("usbmodem") }) else {
             throw XCTSkip("Физический tinySA Ultra не обнаружен среди /dev/cu.usbmodem*")
         }
         let model = UltraModel()
+        defer { model.disconnect() }
         model.portPath = path
         model.connect()
         try await waitFor { !model.connecting }
