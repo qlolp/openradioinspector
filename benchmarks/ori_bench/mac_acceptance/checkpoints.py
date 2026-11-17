@@ -2,6 +2,31 @@
 from __future__ import annotations
 
 
+def observed_hold_ns(rows, key, expected):
+    """Lower bound between observed samples in one uninterrupted state run."""
+    first = previous = None
+    longest = 0
+    for row in rows:
+        stamp = row.get('at_ns')
+        if type(stamp) is not int or stamp < 0 or (previous is not None and stamp <= previous):
+            return 0
+        previous = stamp
+        if row.get(key) is expected:
+            if first is None:first = stamp
+            longest = max(longest, stamp-first)
+        else:first = None
+    return longest
+
+
+def hold_ready(name, rows):
+    if name == 'ui_quit':
+        qualified=[dict(row,closed_successfully=row.get('ui_alive') is False and row.get('ui_exit_code')==0) for row in rows]
+        return observed_hold_ns(qualified, 'closed_successfully', True) >= 30_000_000_000
+    if name in ('usb_analyzer', 'usb_receiver'):
+        return observed_hold_ns(rows, name.removeprefix('usb_')+'_present', False) >= 10_000_000_000
+    return False
+
+
 def progressed(before, after, role):
     count = role + '_sources'
     source = role + '_source_id'
@@ -39,6 +64,7 @@ def assess(name, samples):
         runtime = first.get('runtime_instance_id')
         passed = (ready and first.get('ui_alive') is True and last.get('ui_alive') is True
                   and bool(runtime) and all(row.get('runtime_instance_id') == runtime for row in rows)
+                  and hold_ready(name, rows)
                   and any(progressed(first, row, 'analyzer') for row in closed)
                   and progressed(first, last, 'analyzer'))
     elif name in ('usb_analyzer', 'usb_receiver'):
@@ -46,7 +72,7 @@ def assess(name, samples):
         presence = role + '_present'
         absent = [row for row in rows[1:-1] if row.get(presence) is False]
         passed = (ready and first.get(presence) is True and last.get(presence) is True
-                  and bool(absent) and progressed(absent[-1], last, role))
+                  and bool(absent) and hold_ready(name, rows) and progressed(absent[-1], last, role))
         if role == 'analyzer':
             passed = passed and any(progressed(first, row, 'receiver') for row in absent)
         else:
@@ -55,7 +81,7 @@ def assess(name, samples):
         # The controller observes continuous minus awake Mach clocks, not an
         # operator's claim or a long pause of this Python process.
         gaps = [row.get('sleep_delta_ns', 0) for row in rows]
-        passed = (ready and any(type(gap) is int and 2_000_000_000 <= gap <= 900_000_000_000 for gap in gaps)
+        passed = (ready and any(type(gap) is int and 10_000_000_000 <= gap <= 900_000_000_000 for gap in gaps)
                   and progressed(first, last, 'analyzer'))
     elif name == 'history_restore':
         proof = last.get('restore_proof', {})

@@ -18,13 +18,16 @@ final class NativeAcceptanceDisplayProbe: NSObject, SCStreamOutput, SCStreamDele
             throw NSError(domain:"ORI.Acceptance",code:1,userInfo:[NSLocalizedDescriptionKey:
                 "Для измерения фактического показа разрешите запись экрана этому RC в настройках macOS и повторите тест. Снимки экрана не сохраняются."])
         }
-        guard window.isVisible,window.occlusionState.contains(.visible),
-              let primary=NSScreen.screens.first(where:{($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value==CGMainDisplayID()}) else {
-            throw CocoaError(.coderInvalidValue)
+        try await NativeAcceptanceDisplayReadiness.wait {window.isVisible && window.occlusionState.contains(.visible)}
+        guard let primary=NSScreen.screens.first(where:{($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value==CGMainDisplayID()}) else {
+            throw NSError(domain:"ORI.Acceptance",code:3,userInfo:[NSLocalizedDescriptionKey:"Экран графика недоступен; фактический показ не измерен."])
         }
         let global=CGRect(x:rect.minX,y:primary.frame.maxY-rect.maxY,width:rect.width,height:rect.height)
         let content=try await SCShareableContent.excludingDesktopWindows(false,onScreenWindowsOnly:true)
-        guard let display=content.displays.first(where:{$0.frame.contains(global)}) else{throw CocoaError(.coderInvalidValue)}
+        guard let display=content.displays.first(where:{$0.frame.contains(global)}) else {
+            throw NSError(domain:"ORI.Acceptance",code:4,userInfo:[NSLocalizedDescriptionKey:
+                "Маркер графика находится вне видимой области экрана. Поместите всё окно на экран и повторите тест."])
+        }
         let config=SCStreamConfiguration()
         config.sourceRect=global.offsetBy(dx:-display.frame.minX,dy:-display.frame.minY)
         config.width=128;config.height=64;config.pixelFormat=kCVPixelFormatType_32BGRA

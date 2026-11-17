@@ -7,6 +7,20 @@ from benchmarks.ori_bench.config import BenchmarkError
 
 
 class AcceptanceEvidenceIOTests(unittest.TestCase):
+    def test_changed_kit_manifest_cannot_seal_successful_acceptance(self):
+        from benchmarks.ori_bench.mac_acceptance.entry import seal_kit_result
+        from tools.release.macos_rc_package import digest
+        with tempfile.TemporaryDirectory() as directory:
+            kit=Path(directory);manifest=kit/'kit-manifest.json';manifest.write_text('{"files":[]}')
+            before=digest(manifest)
+            report=dict(successful=True,point2_passed=True,point4_passed=False,errors=[])
+            seal_kit_result(report,kit,before)
+            self.assertTrue(report['kit_verified_after_run'])
+            manifest.write_text('{"files": []}\n') # Same inventory, changed immutable manifest.
+            seal_kit_result(report,kit,before)
+            self.assertFalse(report['successful']);self.assertFalse(report['point2_passed'])
+            self.assertFalse(report['kit_verified_after_run'])
+
     def test_duplicate_keys_and_incomplete_tail_are_not_treated_as_empty_evidence(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'trace'

@@ -17,7 +17,7 @@ from ..config import Config,BenchmarkError
 from ..endurance_node import publish_stop
 from ..macos_rc import host
 from ..runner import atomic_report,output_directory
-from .checkpoints import assess
+from .checkpoints import assess,hold_ready
 from .evidence import bundle_identity,private_json,read_json_lines,verify_host
 from .load import Events,NativeWindow
 from .node import PackageNode
@@ -112,6 +112,7 @@ class Collector:
         self.sampler,self.clock,self.receipts=sampler,clock,receipts
         self.events=Events(path,run_id);self.sha=sha;self.stop=threading.Event();self.ready=threading.Event();self.lock=threading.RLock()
         self.rows=[];self.errors=[];self.allowed=None;self.previous=None;self.identity_written=False;self.armed=False;self.progress=SourceProgress();self.gaps=[]
+        self.hold_notified=False
         self.thread=threading.Thread(target=self.run,name='mac-hardware-evidence')
     def emit(self,stage,fields):
         self.events.emit(stage,dict(fields,component_sha256=self.sha,at_ns=self.clock.now()))
@@ -134,6 +135,9 @@ class Collector:
                     self.rows.append(row);allowed=self.allowed
                     self.emit('hardware.sample',row)
                     self.ready.set()
+                    if allowed and not self.hold_notified and hold_ready(allowed[0],self.rows[self.checkpoint_start:]):
+                        self.hold_notified=True
+                        print('\nНаблюдаемый минимальный интервал подтверждён. Теперь можно вернуть UI/подключить прибор и завершить шаг.',flush=True)
                     if self.sampler.identity and not self.identity_written:
                         self.emit('hardware.identity',self.sampler.identity);self.identity_written=True
                     planned=allowed and continuous<=allowed[2] and allowed[0] in ('usb_analyzer','usb_receiver','sleep')
@@ -156,6 +160,7 @@ class Collector:
             start=len(self.rows)-1
             if start<0:raise BenchmarkError('no_samples','No live observation available')
             began=self.clock.now();self.allowed=(name,began,began+limit*1_000_000_000)
+            self.checkpoint_start=start;self.hold_notified=False
         try:
             input('\n'+prompt+'\nПосле выполнения нажмите Enter в этом Терминале: ')
             if reopen:reopen()
@@ -184,21 +189,107 @@ class Collector:
 def require_load(path,identity):
     path=Path(path)
     if path.is_symlink() or not path.is_file() or path.stat().st_size>16*1024**2:raise BenchmarkError('load_required','Load report missing/invalid')
-    report=json.loads(path.read_bytes())
+    from tools.modernization.api_parity import load_json
+    import math
+    try:report=load_json(path.read_bytes(),16*1024**2)
+    except ValueError as error:raise BenchmarkError('load_required','Strict complete load report required') from error
+    if not isinstance(report,dict):raise BenchmarkError('load_required','Load report must be an object')
+    def number(value,minimum,maximum=float('inf')):
+        return type(value) in (int,float) and math.isfinite(value) and minimum<=value<=maximum
+    native=report.get('native',{});counts=report.get('counts',{})
+    complete_counts=all(all(type(counts.get(kind,{}).get(key)) is int and counts[kind][key]==18000
+        for key in ('offered','acknowledged','verified')) and all(counts[kind].get(key,0)==0
+        for key in ('rejected','queue_dropped','transport_unknown','injected_gap','cancelled','invalid_ack'))
+        for kind in ('sweep','observation'))
+    metric_ok=True
+    for name,limit,minimum in [('commit_to_presented',250,18000),('reaction',100,100),('queue_ack',200,100)]:
+        metric=native.get(name,{})
+        metric_ok &= metric.get('status')=='passed' and metric.get('missing')==[] \
+            and type(metric.get('samples')) is int and metric['samples']>=minimum and number(metric.get('p95_ms'),0,limit)
+    pan=native.get('pan_zoom',{})
+    components=report.get('components',{})
+    complete=report.get('profile')=='macos-final-load' and report.get('successful') is True \
+        and report.get('kit_verified_after_run') is True and isinstance(report.get('kit_manifest_sha256'),str) \
+        and len(report['kit_manifest_sha256'])==64 and set(report['kit_manifest_sha256'])<=set('0123456789abcdef') \
+        and report.get('candidate_verified_after_run') is True and type(report.get('producer_status')) is int and report['producer_status']==0 \
+        and number(report.get('production_elapsed_seconds'),1800) and complete_counts \
+        and report.get('errors')==[] and report.get('queue_errors')==[] \
+        and all(components.get(key,{}).get('status')=='passed' for key in
+            ('production','native','resources','online_backup','final_backup','restore','cleanup')) \
+        and native.get('status')=='passed' and native.get('errors')==[] and metric_ok \
+        and native.get('diagnostics',{}).get('required') is True \
+        and type(pan.get('windows')) is int and pan['windows']>=3 and number(pan.get('minimum_fps'),30) \
+        and report.get('resources',{}).get('status')=='passed' \
+        and report.get('restore',{}).get('status')=='passed' \
+        and report['restore'].get('source_counts')=={'sweep':18000,'observation':18000} \
+        and report.get('software_concurrency_observed') is True \
+        and isinstance(report.get('run_id'),str) and 0<len(report['run_id'])<=64
     if report.get('point2_passed') is not True or report.get('smoke_only') is not False \
+            or not complete \
             or any(report.get('identity',{}).get(k)!=identity[k] for k in ('source_revision','core_sha256','native_sha256','supervisor_sha256')):
         raise BenchmarkError('load_required','First pass the full load on this exact core/UI build')
     return report['run_id']
 
 
-def run_hardware(app,manifest,output,load_report):
+def require_load_pair(first,second,identity,*,expected_kit_sha256=None):
+    from tools.modernization.api_parity import load_json
+    runs=[require_load(path,identity) for path in (first,second)]
+    reports=[load_json(Path(path).read_bytes(),16*1024**2) for path in (first,second)]
+    transports=[r.get('actual_transports') for r in reports]
+    kits={r.get('kit_manifest_sha256') for r in reports}
+    if runs[0]==runs[1] or transports not in ([['binary-v1'],['sse']],[['sse'],['binary-v1']]):
+        raise BenchmarkError('load_pair_required','Two distinct full runs must actually observe binary-v1 and SSE')
+    if len(kits)!=1 or (expected_kit_sha256 is not None and kits!={expected_kit_sha256}):
+        raise BenchmarkError('load_pair_required','Both loads and hardware must use the same immutable engineering kit')
+    return runs
+
+
+def finalize_hardware_evidence(report,root):
+    """Evaluate closed observers even when backup/restore failed independently."""
+    run_id=report.get('run_id');identity=report.get('identity',{})
+    if not run_id or not identity:return
+    path=Path(root)/'hardware.jsonl'
+    if path.exists():
+        report['hardware']=hardware_metrics(read_json_lines(path),run_id=run_id,
+            core_sha256=identity['core_sha256'],elapsed_seconds=report.get('elapsed_seconds',0))
+    native=dict(status='not_run',files=0,received_sources=0,errors=[],
+                presentation='Full native performance is measured by the two load runs, not eight-hour UI uptime')
+    sources=set()
+    for directory in Path(root).glob('native-*'):
+        if not directory.is_dir():continue
+        for trace in directory.glob('native-*.jsonl'):
+            native['files']+=1;found_identity=False
+            for row in read_json_lines(trace):
+                if row.get('run_id')!=run_id:native['errors'].append('native_run_mismatch');continue
+                if row.get('stage')=='native_identity':
+                    found_identity=row.get('component_sha256')==identity.get('native_sha256')
+                elif row.get('stage')=='native.error':native['errors'].append(str(row.get('message','native_error')))
+                elif row.get('stage')=='received':sources.add(row.get('source_id'))
+            if not found_identity:native['errors'].append('native_identity_missing')
+        receipts=list(directory.glob('native-finished-*.json'))
+        if not receipts:native['errors'].append('native_close_receipt_missing')
+        for receipt in receipts:
+            value=json.loads(receipt.read_bytes())
+            if value.get('run_id')!=run_id or value.get('successful') is not True:native['errors'].append('native_trace_incomplete')
+    native['received_sources']=len(sources)
+    if native['files']:native['status']='failed' if native['errors'] else 'passed'
+    report['native']=native
+    if native['errors']:report['errors'].append(dict(code='native_evidence_failed',message='; '.join(sorted(set(native['errors'])))))
+
+
+def run_hardware(app,manifest,output,load_report,companion_load_report=None,*,expected_kit_sha256=None):
     root=output_directory(output).resolve(strict=True);report=dict(schema_version=1,profile='macos-eight-hour-live',
         successful=False,point4_passed=False,hardware_tested=False,errors=[],host=host())
     windows=[];collector=None;pointer=None;data=None;pointer_owned=False;reopen_window=None;ui_running=lambda:False
+    clock=start=None
     try:
         identity=bundle_identity(app,manifest);report['identity']=identity
         if not verify_host(report['host']):raise BenchmarkError('wrong_host','Target is Apple Silicon/macOS27.3/16+GiB')
-        report['load_run_id']=require_load(load_report,identity)
+        if companion_load_report is None:
+            raise BenchmarkError('load_pair_required','Both full binary-v1 and SSE reports are required before opening hardware')
+        if expected_kit_sha256 is None:raise BenchmarkError('immutable_kit_required','Use the supplied immutable kit for physical acceptance')
+        report['load_run_ids']=require_load_pair(load_report,companion_load_report,identity,expected_kit_sha256=expected_kit_sha256)
+        report['load_run_id']=report['load_run_ids'][0]
         subprocess.run(['codesign','--verify','--strict','--deep',str(app)],check=True,timeout=60)
         run_id='machw-'+uuid.uuid4().hex;report['run_id']=run_id;clock=Clock()
         data=root/'data';data.mkdir(mode=0o700);receipts=root/'core';receipts.mkdir(mode=0o700)
@@ -212,6 +303,7 @@ def run_hardware(app,manifest,output,load_report):
         private_json(pointer,dict(version=1,run_id=run_id,profile=str(profile)))
         pointer_owned=True
         def reopen():
+            if len(windows)>=16:raise BenchmarkError('native_restart_budget','Native restart budget exhausted; preserve diagnostics')
             native=root/('native-'+str(len(windows)));native.mkdir(mode=0o700)
             p=native/'profile.json'
             private_json(p,dict(version=1,run_id=run_id,phase='hardware',data_dir=str(data),output_dir=str(native),
@@ -250,9 +342,9 @@ def run_hardware(app,manifest,output,load_report):
         collector.checkpoint('receiver','Дождитесь анализа AR-DV1 и новых наблюдений при продолжающемся обзоре tinySA.')
         collector.checkpoint('event','Получите новое отклонение обычного сигнала (без генератора tinySA); откройте событие и его исходник.',limit=1800)
         collector.checkpoint('source_search','Включите «Поиск источника», дождитесь узкого обзора, затем вернитесь к широкому.')
-        collector.checkpoint('ui_quit','Нажмите Command-Q. Оставьте интерфейс закрытым минимум 30 секунд. Нажатие Enter здесь вновь откроет интерфейс.',reopen=reopen)
-        collector.checkpoint('usb_analyzer','Отключите USB tinySA минимум на 10 секунд, подключите вновь. Явно повторите проверку приёма/подготовку и верните охрану; AR-DV1 остаётся подключён.')
-        collector.checkpoint('usb_receiver','Отключите USB AR-DV1 минимум на 10 секунд, подключите вновь. Повторите подготовку/возврат в охрану; tinySA продолжает обзор.')
+        collector.checkpoint('ui_quit','Нажмите Command-Q. Дождитесь сообщения о 30 наблюдаемых секундах закрытого UI; Enter вновь откроет интерфейс.',reopen=reopen)
+        collector.checkpoint('usb_analyzer','Отключите USB tinySA. После сообщения о 10 наблюдаемых секундах отсутствия подключите вновь. Повторите подготовку и верните охрану; AR-DV1 остаётся подключён.')
+        collector.checkpoint('usb_receiver','Отключите USB AR-DV1. После сообщения о 10 наблюдаемых секундах отсутствия подключите вновь. Повторите подготовку/возврат в охрану; tinySA продолжает обзор.')
         collector.checkpoint('sleep','Выполните ручной сон Mac минимум на 10 секунд. После пробуждения явно запустите службу, перепроверьте приборы и включите охрану.',limit=900)
         while clock.now()-start<28_800_000_000_000:
             if collector.errors:raise BenchmarkError('hardware_failed','A spontaneous failure was recorded; preserve diagnostics')
@@ -302,6 +394,9 @@ def run_hardware(app,manifest,output,load_report):
         report['errors'].append(dict(code=getattr(error,'code','hardware_failed'),message=str(error)))
     finally:
         if collector:
+            if start is not None and clock is not None and 'elapsed_seconds' not in report:
+                report['elapsed_seconds']=(clock.now()-start)/1e9
+                collector.emit('hardware.window.end',dict(aborted=True))
             try:collector.close()
             except Exception as error:report['errors'].append(dict(code='collector_cleanup',message=str(error)))
         # The native helper confirms private core stop AND SMAppService removal.
@@ -325,9 +420,15 @@ def run_hardware(app,manifest,output,load_report):
         for window in windows:
             try:window.stop(report.get('run_id','unknown'),required=report.get('point4_passed') is True)
             except Exception as error:report['errors'].append(dict(code='ui_cleanup',message=str(error)))
-        if report.get('point4_passed'):
+        if report.get('identity'):
             try:
                 if bundle_identity(app,manifest)!=report['identity']:raise BenchmarkError('candidate_changed','App changed during hardware run')
+                report['candidate_verified_after_run']=True
+            except Exception as error:report['errors'].append(dict(code=getattr(error,'code','candidate_changed'),message=str(error)))
+        try:finalize_hardware_evidence(report,root)
+        except Exception as error:report['errors'].append(dict(code='hardware_evidence_failed',message=str(error)))
+        if report.get('point4_passed'):
+            try:
                 traces=list((root/'core').glob('core-*.jsonl'))
                 if not traces:raise BenchmarkError('core_evidence_missing','No original core trace')
                 for trace in traces:

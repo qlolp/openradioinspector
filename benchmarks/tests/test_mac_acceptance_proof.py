@@ -159,16 +159,18 @@ class HardwareAcceptanceProofTests(unittest.TestCase):
                 baseline_confirmed=True,baseline_sources=20,baseline_span=60,baseline_id='baseline',
                 analyzer_max_silence_seconds=30,receiver_max_silence_seconds=30)) for i in range(2881)]
         rows[2].update(event_id='new-event',event_source_ids=['a2'],receiver_evidence_id='receiver-check')
-        rows[4]['coverage']='narrow';rows[7]['ui_alive']=False
-        rows[10]['analyzer_present']=False;rows[13]['receiver_present']=False
-        rows[16]['sleep_delta_ns']=10_000_000_000
+        rows[4]['coverage']='narrow'
+        for i in (7,8,9,10):rows[i]['ui_alive']=False
+        for i in (13,14):rows[i]['analyzer_present']=False
+        for i in (17,18):rows[i]['receiver_present']=False
+        rows[21]['sleep_delta_ns']=10_000_000_000
         proof=dict(status='passed',sweeps=2890,observations=2890,missing=0,original_sha256=CORE,restored_sha256=CORE,commits_verified=True)
         restore=event('checkpoint.sample',28_801_000_000_001,**sample(id='restore',restore_proof=proof))
         e=[event('hardware.identity',0,mode='live',analyzer_model='tinySA Ultra',receiver_model='AR-DV1',analyzer_firmware='fixture',receiver_firmware='fixture'),*rows,restore,
            event('hardware.window.begin',1),event('hardware.window.end',28_800_000_000_001),
            event('hardware.source_proof',28_801_000_000_001,**proof)]
         references={'baseline':[0],'guard':[0,1],'event':[0,2],'receiver':[0,2],'source_search':[3,4,5],
-                    'ui_quit':[6,7,8],'usb_analyzer':[9,10,11],'usb_receiver':[12,13,14],'sleep':[15,16,17]}
+                    'ui_quit':[6,7,8,9,10,11],'usb_analyzer':[12,13,14,15],'usb_receiver':[16,17,18,19],'sleep':[20,21,22]}
         for name,indexes in references.items():e.append(event('checkpoint.verified',28_802_000_000_001,name=name,observed=True,evidence_ids=['s'+str(i) for i in indexes]))
         e.append(event('checkpoint.verified',28_802_000_000_001,name='history_restore',observed=True,evidence_ids=['restore']))
         result=hardware_metrics(e,run_id=RUN,core_sha256=CORE,elapsed_seconds=28_800)

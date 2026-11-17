@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import SpektrKomandy
 
-/// Immutable drawing inputs, prepared outside MainActor. Panning only transforms
-/// paths/images; it never rebuilds forty historical rows or their envelopes.
+/// Immutable drawing inputs, prepared outside MainActor. Panning transforms the
+/// paths immediately; detail for the new viewport is rasterized off MainActor.
 struct NativeSpectrumRenderCache: @unchecked Sendable {
     struct Row: @unchecked Sendable {
         let id:PlatformExactID
@@ -20,17 +20,27 @@ struct NativeSpectrumRenderCache: @unchecked Sendable {
     var thresholdPoints:[CGPoint]=[]
     var peakCandidates:[Int]=[]
     var rasterizedRows=0
+    var viewport:ClosedRange<Double>?
+    private var sourceIDs:[PlatformExactID]=[]
+    private var referenceID:PlatformExactID?
+    private var threshold:Double?
 
     nonisolated static func prepare(_ sweeps:[PlatformSweep],selected:PlatformSweep?,bounds:PlatformSpectrumScale?,
-        threshold:Double?=nil,reference:PlatformSweep?=nil,previous:Self=Self()) throws -> Self {
-        var result=Self();result.bounds=bounds
+        threshold:Double?=nil,reference:PlatformSweep?=nil,viewport:ClosedRange<Double>?=nil,previous:Self=Self()) throws -> Self {
+        let ids=sweeps.map(\.exactID)
+        let sameGeometry=previous.bounds==bounds && previous.sourceIDs==ids && previous.selectedID==selected?.exactID
+            && previous.referenceID==reference?.exactID && previous.threshold==threshold
+        var result=sameGeometry ? previous:Self()
+        result.rows=[];result.rasterizedRows=0;result.bounds=bounds;result.viewport=viewport
+        result.sourceIDs=ids;result.referenceID=reference?.exactID;result.threshold=threshold
         guard let bounds else{return result}
-        let reusable=previous.bounds==bounds ? Dictionary(previous.rows.map{($0.id,$0)},uniquingKeysWith:{$1}):[:]
+        let reusable=previous.bounds==bounds && previous.viewport==viewport ? Dictionary(previous.rows.map{($0.id,$0)},uniquingKeysWith:{$1}):[:]
         for sweep in sweeps {
             try Task.checkCancellation()
             if let old=reusable[sweep.exactID] {result.rows.append(old)}
-            else if let row=try raster(sweep,bounds:bounds) {result.rows.append(row);result.rasterizedRows+=1}
+            else if let row=try raster(sweep,bounds:bounds,viewport:viewport) {result.rows.append(row);result.rasterizedRows+=1}
         }
+        if sameGeometry {return result}
         guard let selected,let first=selected.frequenciesHz.first,let last=selected.frequenciesHz.last else{return result}
         result.selectedID=selected.exactID;result.lower=Double(first);result.upper=max(Double(first)+1,Double(last))
         var low=selected.levels,high=selected.levels
@@ -63,21 +73,36 @@ struct NativeSpectrumRenderCache: @unchecked Sendable {
         }.sorted{levels[$0]==levels[$1] ? $0<$1:levels[$0]>levels[$1]}
         return result
     }
-    nonisolated private static func raster(_ sweep:PlatformSweep,bounds:PlatformSpectrumScale) throws -> Row? {
+    nonisolated private static func raster(_ sweep:PlatformSweep,bounds:PlatformSpectrumScale,viewport:ClosedRange<Double>?) throws -> Row? {
         guard let first=sweep.frequenciesHz.first,let last=sweep.frequenciesHz.last else{return nil}
-        let lower=Double(first),upper=max(lower+1,Double(last)),width=min(4096,max(1,sweep.levels.count))
+        let lower=viewport?.lowerBound ?? Double(first),upper=viewport?.upperBound ?? max(Double(first)+1,Double(last))
+        guard lower.isFinite,upper.isFinite,upper>lower else{return nil}
+        let width=min(4096,max(1024,sweep.levels.count))
         var maxima=[Double](repeating:-Double.infinity,count:width)
-        for i in sweep.levels.indices {
+        func lowerBound(_ frequency:Double)->Int {
+            var low=0,high=sweep.frequenciesHz.count
+            while low<high {
+                let middle=low+(high-low)/2
+                if Double(sweep.frequenciesHz[middle])<frequency {low=middle+1}else{high=middle}
+            }
+            return low
+        }
+        // Include the adjacent centers: their bins can overlap the viewport.
+        let start=max(0,lowerBound(lower)-1),end=min(sweep.levels.count,lowerBound(upper)+1)
+        for i in start..<end {
             if i%256==0 {try Task.checkCancellation()}
             let f=Double(sweep.frequenciesHz[i])
             let low=i==0 ? f:(Double(sweep.frequenciesHz[i-1])+f)/2
-            let high=i==sweep.levels.count-1 ? f:(Double(sweep.frequenciesHz[i+1])+f)/2
-            let a=max(0,min(width-1,Int((low-lower)/(upper-lower)*Double(width))))
-            let b=max(a,min(width-1,Int((high-lower)/(upper-lower)*Double(width))))
+            let high=sweep.levels.count==1 ? f+1:(i==sweep.levels.count-1 ? f:(Double(sweep.frequenciesHz[i+1])+f)/2)
+            let clippedLow=max(low,lower),clippedHigh=min(high,upper)
+            guard clippedHigh>clippedLow else{continue}
+            let a=max(0,min(width-1,Int(floor((clippedLow-lower)/(upper-lower)*Double(width)))))
+            let b=max(a,min(width-1,Int(ceil((clippedHigh-lower)/(upper-lower)*Double(width)))-1))
             for x in a...b {maxima[x]=max(maxima[x],sweep.levels[i])}
         }
         var bytes=[UInt8]();bytes.reserveCapacity(width*4)
         for value in maxima {
+            if !value.isFinite {bytes += [0,0,0,0];continue}
             let color=WaterfallPalette.color(bounds.fraction(value))
             bytes += [UInt8((color.red*255).rounded()),UInt8((color.green*255).rounded()),UInt8((color.blue*255).rounded()),255]
         }

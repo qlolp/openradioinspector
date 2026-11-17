@@ -14,9 +14,48 @@ from benchmarks.ori_bench.source import session,sweep,measurement_hash
 
 class PackagedAcceptanceIntegrationTests(unittest.TestCase):
 
+    def test_history_without_commit_trace_keeps_owned_archive_and_all_source_values(self):
+        binary=Path(os.environ['ORI_CORE_TEST_BINARY']).resolve(strict=True)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();out=root/'node';out.mkdir(mode=0o700)
+            node=PackageNode(binary,out,'history-without-trace',commit_diagnostics=False)
+            if os.name=='nt':
+                with self.assertRaises(BenchmarkError):node.start()
+                return
+            try:
+                config=Config(node.start(),root/'unused',run_id='history-without-trace',points=290,workload_profile='macos-rc1')
+                client=Client(config)
+                client.json('/api/v1/sessions',method='POST',payload=session(config),status=201)
+                originals=[sweep(config,i) for i in range(100)]
+                client.json(client.session_path(config)+'/sweeps/batch',method='POST',payload={'items':originals},status=201)
+                actual=client.json(client.session_path(config)+'/sweeps?limit=100')
+                self.assertEqual([measurement_hash('sweep',v) for v in actual],
+                                 [measurement_hash('sweep',v) for v in originals])
+                self.assertFalse((node.receipts/'core.jsonl').exists())
+                with self.assertRaises(BenchmarkError):node.request_backup()
+                node.close()
+                self.assertTrue(node.records[-1]['joined']);self.assertTrue(node.records[-1]['graceful'])
+            finally:node.close(expect_success=False)
+
+    def test_packaged_http_framing_body_boundaries_and_no_rejected_writes(self):
+        binary=Path(os.environ['ORI_CORE_TEST_BINARY']).resolve(strict=True)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();out=root/'node';out.mkdir(mode=0o700)
+            node=PackageNode(binary,out,'http-fault-cli')
+            if os.name=='nt':
+                with self.assertRaises(BenchmarkError):node.start()
+                return
+            from benchmarks.ori_bench.mac_acceptance.faults import http_faults
+            try:
+                config=Config(node.start(),root/'unused',run_id='http-fault-cli',points=4,workload_profile='macos-rc1')
+                result=http_faults(Client(config),config)
+                self.assertEqual(result['status'],'passed',result)
+                self.assertEqual(result['source_count'],1)
+                self.assertGreaterEqual(len(result['rejections']),8)
+                node.close()
+            finally:node.close(expect_success=False)
+
     def test_final_backup_failure_preserves_closed_native_failure_evidence(self):
-        if os.name=='nt':
-            return
         import hashlib,time,subprocess
         from types import SimpleNamespace
         from unittest.mock import patch
@@ -55,7 +94,7 @@ class PackagedAcceptanceIntegrationTests(unittest.TestCase):
         def popen(args,*a,**kw):
             return awake if args[0]=='/usr/bin/caffeinate' else original_popen(args,*a,**kw)
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory)
+            root=Path(directory).resolve()
             identity=dict(app=str(root/'RC.app'),source_revision='f'*40,
                 core_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),native_sha256='b'*64,
                 supervisor_sha256='c'*64,manifest_sha256='d'*64)
@@ -66,6 +105,11 @@ class PackagedAcceptanceIntegrationTests(unittest.TestCase):
                  patch.object(subprocess,'run',side_effect=command),patch.object(subprocess,'Popen',side_effect=popen):
                 report,status=load.run_load(root/'RC.app',root/'manifest.json',root/'result',smoke_seconds=1)
             self.assertEqual(status,1)
+            if os.name=='nt':
+                self.assertIn('unsupported_host',[error['code'] for error in report['errors']],report)
+                self.assertFalse((root/'result/producer/offers.sqlite').exists())
+                self.assertFalse(report['point2_passed'])
+                return
             self.assertIn('backup_failed',[error['code'] for error in report['errors']],report)
             self.assertIn('native',report,'Backup failure discarded independent closed-renderer evidence')
             self.assertEqual(report['native']['status'],'failed')
@@ -75,7 +119,7 @@ class PackagedAcceptanceIntegrationTests(unittest.TestCase):
     def test_real_owner_queue_backup_and_restore_preserve_the_original(self):
         binary=Path(os.environ['ORI_CORE_TEST_BINARY']).resolve(strict=True)
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d);output=root/'node';output.mkdir(mode=0o700)
+            root=Path(d).resolve();output=root/'node';output.mkdir(mode=0o700)
             node=PackageNode(binary,output,'actual-cli')
             if os.name=='nt':
                 with self.assertRaises(BenchmarkError):node.start()

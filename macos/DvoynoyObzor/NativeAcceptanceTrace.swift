@@ -50,14 +50,18 @@ final class NativeAcceptanceTrace {
         let warmupSessionID:String?
         let phase:String
         let coreDataDirectory:String?
+        let transport:String?
+        let smokeSeconds:Double?
         enum CodingKeys:String,CodingKey {
             case version,phase
             case runID="run_id",outputDirectory="output_dir",expectedUI="expected_ui_sha256"
             case coreURL="core_url",sessionID="session_id",coreDataDirectory="data_dir",warmupSessionID="warmup_session_id"
+            case transport,smokeSeconds="smoke_seconds"
         }
     }
     static var shared:NativeAcceptanceTrace?
     let profile:Profile
+    let preferences:UserDefaults
     let tag:UInt32
     private let sink:NativeAcceptanceSink
     private var sources:[String:UInt64]=[:]
@@ -70,6 +74,7 @@ final class NativeAcceptanceTrace {
     private(set) var displayProbe:NativeAcceptanceDisplayProbe?
     private var probeStarting=false
     private var readyPublished=false
+    private var preferencesCanBeRemoved=false
     private var observer:NSObjectProtocol?
 
     static func activate(arguments:[String]=CommandLine.arguments) throws {
@@ -88,6 +93,8 @@ final class NativeAcceptanceTrace {
         guard profile.version==1,!profile.runID.isEmpty,profile.runID.utf8.count<=64,
               profile.runID.utf8.allSatisfy({(48...57).contains($0)||(65...90).contains($0)||(97...122).contains($0)||$0==45||$0==95}),
               ["load","hardware"].contains(profile.phase),
+              profile.transport==nil || ["auto","sse","binary-v1"].contains(profile.transport!),
+              profile.smokeSeconds==nil || (profile.phase=="load" && profile.smokeSeconds!.isFinite && (1...60).contains(profile.smokeSeconds!)),
               let origin=URLComponents(string:profile.coreURL),origin.scheme=="http",origin.host=="127.0.0.1",
               origin.port != nil,origin.user==nil,origin.password==nil,origin.query==nil,origin.fragment==nil,
               origin.path.isEmpty,profile.outputDirectory.hasPrefix("/"),
@@ -108,6 +115,7 @@ final class NativeAcceptanceTrace {
         }
         if profile.phase=="hardware",let path=profile.coreDataDirectory {NativeLocalServicePaths.configureAcceptanceData(URL(fileURLWithPath:path,isDirectory:true))}
         self.profile=profile
+        preferences=try NativeAcceptancePreferences.make(runID:profile.runID)
         let digest=SHA256.hash(data:Data(profile.runID.utf8))
         tag=digest.prefix(4).reduce(UInt32(0)){($0<<8)|UInt32($1)}
         sink=try NativeAcceptanceSink(directory.appendingPathComponent("native-\(getpid()).jsonl"))
@@ -147,12 +155,14 @@ final class NativeAcceptanceTrace {
     private func finish() {
         record("native.finished")
         let successful=sink.flush()
+        if profile.phase=="load" || preferencesCanBeRemoved {NativeAcceptancePreferences.remove(runID:profile.runID)}
         let target=URL(fileURLWithPath:profile.outputDirectory).appendingPathComponent("native-finished-\(getpid()).json")
         if let data=try? JSONSerialization.data(withJSONObject:["run_id":profile.runID,"successful":successful,"pid":getpid()]) {
             _=FileManager.default.createFile(atPath:target.path,contents:data,attributes:[.posixPermissions:0o600])
         }
     }
     func serviceStopped(successful:Bool,message:String) {
+        if successful {preferencesCanBeRemoved=true}
         let target=URL(fileURLWithPath:profile.outputDirectory).appendingPathComponent("native-service-stopped.json")
         record("service.cleanup",["successful":successful,"registration_removed":successful])
         do {

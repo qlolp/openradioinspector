@@ -12,6 +12,21 @@ from benchmarks.ori_bench.mac_acceptance.evidence import private_json
 
 
 class HardwareControllerTests(unittest.TestCase):
+    def test_backup_failure_keeps_closed_hardware_and_native_diagnostics(self):
+        from benchmarks.ori_bench.mac_acceptance.hardware import finalize_hardware_evidence
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);native=root/'native-0';native.mkdir()
+            sha='a'*64;run='partial-hardware'
+            rows=[dict(run_id=run,component_sha256=sha,at_ns=i*1_000_000_000,stage='hardware.sample',id='s'+str(i)) for i in (0,1)]
+            (root/'hardware.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+            (native/'native-1.jsonl').write_text(json.dumps(dict(stage='native.error',run_id=run,at_ns=1,message='fixture observer failed'))+'\n')
+            report=dict(identity={'core_sha256':sha},run_id=run,elapsed_seconds=1,
+                        errors=[dict(code='backup_failed')],successful=False,point4_passed=False)
+            finalize_hardware_evidence(report,root)
+            self.assertEqual(report['hardware']['samples'],2)
+            self.assertIn('fixture observer failed',report['native']['errors'])
+            self.assertFalse(report['point4_passed'])
+
     def test_unsupported_host_refuses_before_starting_an_owner_process(self):
         from benchmarks.ori_bench.mac_acceptance.node import PackageNode
         with tempfile.TemporaryDirectory() as d:
@@ -78,7 +93,8 @@ class HardwareControllerTests(unittest.TestCase):
     def test_simulator_or_wrong_revision_load_cannot_unlock_hardware(self):
         identity=dict(source_revision='a'*40,core_sha256='b'*64,native_sha256='c'*64,supervisor_sha256='d'*64)
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d)/'load.json';value=dict(point2_passed=True,smoke_only=False,identity=identity,run_id='load')
+            from benchmarks.tests.test_mac_acceptance_load_gate import accepted_load
+            p=Path(d)/'load.json';value=accepted_load('load')
             p.write_text(json.dumps(value));self.assertEqual(require_load(p,identity),'load')
             for field,change in [('smoke_only',True),('point2_passed',False),('identity',dict(identity,core_sha256='f'*64))]:
                 p.write_text(json.dumps(dict(value,**{field:change})))

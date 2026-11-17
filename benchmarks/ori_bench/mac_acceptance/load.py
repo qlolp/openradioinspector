@@ -23,6 +23,7 @@ from .evidence import bundle_identity,private_json,read_json_lines,verify_host
 from .node import PackageNode
 from .proof import native_metrics
 from .queue_probe import QueueProbe
+from .resources import owned_measurement_pids,assess_resources
 
 
 class Events:
@@ -127,19 +128,22 @@ def closed_native_evidence(config,node,native,controller,warm_ids,identity):
         expected_ids=[identifier(config,'sweep',i) for i in range(config.planned_counts()['sweep'])])
 
 
-def run_load(app,manifest,output,*,smoke_seconds=None):
+def run_load(app,manifest,output,*,smoke_seconds=None,transport='auto'):
     root=output_directory(output).resolve(strict=True)
     report=dict(schema_version=1,profile='macos-final-load',successful=False,point2_passed=False,
                 point4_passed=False,hardware_tested=False,errors=[],host=host(),
                 started_at=datetime.now(timezone.utc).isoformat(),smoke_only=smoke_seconds is not None,
+                requested_transport=transport,
                 components={key:{'status':'not_run'} for key in
-                    ('production','native','online_backup','final_backup','restore','cleanup')})
+                    ('production','native','resources','online_backup','final_backup','restore','cleanup')})
     node=window=background=queue=events=awake=None
     config=native=identity=None;warm_ids=[];produced=None
     status=1
     try:
         identity=bundle_identity(app,manifest);report['identity']=identity
         if not verify_host(report['host']):raise BenchmarkError('wrong_host','Run on the target Apple Silicon Mac/macOS27.3 with16+GiB')
+        if transport not in ('auto','sse','binary-v1'):
+            raise BenchmarkError('invalid_config','Choose auto, sse or binary-v1; no silent transport substitution')
         if smoke_seconds is not None and (type(smoke_seconds) not in (int,float) or not 1<=smoke_seconds<=60):
             raise BenchmarkError('invalid_config','Smoke is explicitly1..60seconds and never acceptance')
         subprocess.run(['codesign','--verify','--strict','--deep',str(app)],check=True,timeout=60)
@@ -158,7 +162,7 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
         profile=native/'profile.json'
         private_json(profile,dict(version=1,run_id=run_id,phase='load',output_dir=str(native),
             expected_ui_sha256=identity['native_sha256'],core_url=config.base_url,
-            session_id=config.session_id,warmup_session_id=warm.session_id))
+            session_id=config.session_id,warmup_session_id=warm.session_id,transport=transport,smoke_seconds=smoke_seconds))
         events=Events(root/'controller.jsonl',run_id)
         window=NativeWindow(app,native,profile);window.start()
         report['components']['native']['status']='running'
@@ -176,6 +180,12 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
                 raise BenchmarkError('native_unavailable','Native process exited during warmup')
             time.sleep(.5)
         wait_json(native/'native-ready.json',lambda row:row.get('run_id')==run_id and row.get('source_id') in warm_ids,owner=window)
+        try:
+            config=replace(config,pids=owned_measurement_pids(node.binary,node.owner,window.owner))
+        except Exception as error:
+            # Keep measuring the other independent components; the absent RSS
+            # proof will fail its own gate rather than discard source evidence.
+            report['resource_setup_error']=str(error)
         background=RCHistoryAndBackup(config,node,config.duration_seconds/2)
         queue=QueueProbe(config,events.emit)
         def ready():
@@ -186,6 +196,8 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
         report.update(producer_status=producer_status,producer_report='producer/report.json',counts=produced.get('counts'),
                       production_elapsed_seconds=produced.get('production',{}).get('production_elapsed_seconds',0))
         report['components']['production']['status']='passed' if producer_status==0 else 'failed'
+        report['resources']=assess_resources(produced.get('resources',{}),minimum_seconds=config.duration_seconds)
+        report['components']['resources']['status']=report['resources']['status']
         background.production_done.set();background.wait();background.cancel();background.join()
         queue.thread.join(config.request_timeout+2)
         if queue.thread.is_alive():queue.close()
@@ -244,6 +256,12 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
             try:
                 report['native']=closed_native_evidence(config,node,native,root/'controller.jsonl',warm_ids,identity)
                 report['components']['native']['status']=report['native']['status']
+                selected={row.get('transport') for path in native.glob('native-*.jsonl')
+                          for row in read_json_lines(path) if row.get('stage')=='transport.selected'}
+                report['actual_transports']=sorted(str(value) for value in selected)
+                if transport!='auto' and selected!={transport}:
+                    report['native']['errors'].append('requested_transport_not_observed')
+                    report['native']['status']='failed';report['components']['native']['status']='failed'
             except Exception as error:
                 report['native']={'status':'failed','errors':[str(error)]}
                 report['components']['native']['status']='failed'
@@ -265,6 +283,7 @@ def run_load(app,manifest,output,*,smoke_seconds=None):
         report['successful']=bool(config is not None and not report['errors'] and report.get('producer_status')==0
             and not report.get('queue_errors') and background_result.get('status')=='passed'
             and complete_restore(config,report.get('restore',{})) and report.get('native',{}).get('status')=='passed'
+            and report.get('resources',{}).get('status')=='passed'
             and report['software_concurrency_observed'] and report['components']['cleanup']['status']=='passed')
         report['point2_passed']=report['successful'] and smoke_seconds is None and report.get('production_elapsed_seconds',0)>=1800
         status=0 if report['successful'] else 1

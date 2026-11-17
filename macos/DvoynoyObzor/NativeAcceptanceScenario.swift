@@ -25,27 +25,40 @@ enum NativeAcceptanceScenario {
     }
     private static func run(_ trace:NativeAcceptanceTrace) async {
         let anchor=NativeAcceptanceClock.now()
-        trace.record("scenario.begin",["input":"scheduled_native_actions","duration_seconds":1800])
+        guard let schedule=try? NativeAcceptanceSchedule(seconds:trace.profile.smokeSeconds ?? 1800) else {
+            trace.record("native.error",["message":"Invalid native scenario duration"]);return
+        }
+        trace.record("scenario.begin",["input":"scheduled_native_actions","duration_seconds":Double(schedule.duration)/1e9])
+        // Independent schedules prevent a ten-second pan from delaying queued
+        // input probes in the compressed smoke. The full-run times are unchanged.
+        async let inputs:Void=runInputs(trace,anchor:anchor,schedule:schedule)
+        async let pans:Void=runPans(trace,anchor:anchor,schedule:schedule)
+        _=await (inputs,pans)
+        trace.record("scenario.completed")
+    }
+    private static func runInputs(_ trace:NativeAcceptanceTrace,anchor:UInt64,schedule:NativeAcceptanceSchedule) async {
         for index in 0..<100 {
-            let due=anchor+UInt64(index)*18_000_000_000
+            let due=anchor+schedule.interactionDue(index)
             guard await wait(until:due) else{return}
             _=trace.beginInteraction(at:due)
             guard let view=await current() else{return}
             if index==0 {view.zoom(0.5)}else{view.pan(index%2==0 ? 0.02:-0.02)}
-            if [10,40,70].contains(index) {
-                let id="pan-\(index)",start=NativeAcceptanceClock.now()
-                trace.record("pan_zoom.begin",["request_id":id],at:start)
-                for tick in 1...600 {
-                    let next=start+UInt64(tick)*16_666_667
-                    guard await wait(until:next) else{return}
-                    _=trace.beginInteraction(at:next)
-                    guard let view=await current() else{return}
-                    view.pan(tick%2==0 ? 0.002:-0.002)
-                }
-                trace.record("pan_zoom.end",["request_id":id])
-            }
         }
-        trace.record("scenario.completed")
+    }
+    private static func runPans(_ trace:NativeAcceptanceTrace,anchor:UInt64,schedule:NativeAcceptanceSchedule) async {
+        for (index,offset) in schedule.panStarts.enumerated() {
+            guard await wait(until:anchor+offset) else{return}
+            let id="pan-\(index)",start=NativeAcceptanceClock.now()
+            trace.record("pan_zoom.begin",["request_id":id],at:start)
+            for tick in 1...600 {
+                let next=start+UInt64(tick)*16_666_667
+                guard await wait(until:next) else{return}
+                _=trace.beginInteraction(at:next)
+                guard let view=await current() else{return}
+                view.pan(tick%2==0 ? 0.002:-0.002)
+            }
+            trace.record("pan_zoom.end",["request_id":id])
+        }
     }
     private static func wait(until target:UInt64) async -> Bool {
         let now=NativeAcceptanceClock.now()

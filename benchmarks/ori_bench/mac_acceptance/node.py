@@ -10,9 +10,11 @@ from .budget import recovery_timeout,wait_for_backup
 
 
 class PackageNode(OwnedCandidate):
-    def __init__(self,binary,output,run_id,*,restore_bundle=None):
+    def __init__(self,binary,output,run_id,*,restore_bundle=None,commit_diagnostics=True):
+        if type(commit_diagnostics) is not bool or (restore_bundle is not None and not commit_diagnostics):
+            raise ValueError('Restore requires owner diagnostics; history may explicitly omit them')
         super().__init__(Path(binary),Path(output))
-        self.run_id=run_id;self.restore_bundle=restore_bundle
+        self.run_id=run_id;self.restore_bundle=restore_bundle;self.commit_diagnostics=commit_diagnostics
         self.receipts=self.output/'evidence';self.receipts.mkdir(mode=0o700)
         self.bundle=self.receipts/'backup';self.backup_requested=False
         self.final_bundle=self.receipts/'final-backup';self.final_requested=False
@@ -23,6 +25,8 @@ class PackageNode(OwnedCandidate):
         return super().start()
 
     def _adapter_command(self,data):
+        if not self.commit_diagnostics:
+            return super()._adapter_command(data)+['--archive-max-bytes',str(64*1024**3)]
         if self.restore_bundle is not None:
             timeout=recovery_timeout(bounded_json(self.restore_bundle/'manifest.json'))
             result=subprocess.run([str(self.binary),'acceptance-restore',str(self.restore_bundle),
@@ -36,6 +40,7 @@ class PackageNode(OwnedCandidate):
         return super()._adapter_command(data)+['--acceptance-profile',str(profile)]
 
     def request_backup(self):
+        if not self.commit_diagnostics:raise BenchmarkError('diagnostics_unavailable','History-only owner has no acceptance backup control')
         if self.backup_requested:raise BenchmarkError('duplicate_backup','One owner backup per run')
         publish_stop(self.receipts/'backup.request',self.run_id)
         self.backup_requested=True
@@ -47,6 +52,7 @@ class PackageNode(OwnedCandidate):
         return dict(phase='requested' if self.backup_requested else 'not_requested')
 
     def request_final_backup(self):
+        if not self.commit_diagnostics:raise BenchmarkError('diagnostics_unavailable','History-only owner has no acceptance backup control')
         if self.final_requested:raise BenchmarkError('duplicate_backup','Final owner backup already requested')
         publish_stop(self.receipts/'final-backup.request',self.run_id);self.final_requested=True
 

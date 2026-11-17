@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import sys
+import subprocess
 import threading
 import time
 
@@ -63,16 +64,31 @@ class Sampler:
         self.roots={'harness':os.getpid()}|config.pids
         self.interval=config.sample_interval
         self.result={label:{'root_pid':pid,'samples':0,'peak_root_rss_bytes':0,
-            'peak_tree_rss_bytes':0,'max_process_count':0,'missing_samples':0} for label,pid in self.roots.items()}
+            'peak_tree_rss_bytes':0,'max_process_count':0,'missing_samples':0,
+            'first_sample_ns':None,'last_sample_ns':None,'max_sample_gap_ns':0} for label,pid in self.roots.items()}
         self.identities={};self.stop_event=threading.Event();self.thread=None
+        self.snapshot_errors=0
     def sample(self):
-        processes=linux_processes()
+        try:
+            if sys.platform=='darwin':
+                from .mac_acceptance.resources import darwin_processes
+                processes=darwin_processes()
+            else:processes=linux_processes()
+        except (OSError,ValueError,RuntimeError,subprocess.SubprocessError):
+            self.snapshot_errors+=1
+            for record in self.result.values():record['missing_samples']+=1
+            return
         if processes is None:return
         for label,pid in self.roots.items():
             record=self.result[label]
             if pid not in processes or (label in self.identities and processes[pid]['start']!=self.identities[label]):
                 record['missing_samples']+=1;continue
             self.identities[label]=processes[pid]['start']
+            stamp=time.monotonic_ns()
+            if record['first_sample_ns'] is None:record['first_sample_ns']=stamp
+            if record['last_sample_ns'] is not None:
+                record['max_sample_gap_ns']=max(record['max_sample_gap_ns'],stamp-record['last_sample_ns'])
+            record['last_sample_ns']=stamp
             children={pid}
             while True:
                 additions={child for child,info in processes.items() if info['parent'] in children}-children
@@ -93,8 +109,9 @@ class Sampler:
     def report(self):
         result={label:record|{'status':'measured' if record['samples'] else 'unmeasured'}
                 for label,record in self.result.items()}
-        return {'status':'measured' if sys.platform=='linux' else 'unmeasured',
-            'method':'sampled /proc RSS sums; shared pages double-counted; short-lived peaks can be missed',
+        return {'status':('failed' if self.snapshot_errors else 'measured') if sys.platform in ('linux','darwin') else 'unmeasured',
+            'method':('sampled Darwin ps RSS' if sys.platform=='darwin' else 'sampled /proc RSS')+' sums; shared pages double-counted; short-lived peaks can be missed',
+            'snapshot_errors':self.snapshot_errors,
             'interval_seconds':self.interval,'process_trees':result,
             'core_process_tree_status':'measured' if any(record['samples'] for label,record in self.result.items()
                                                         if label!='harness') else 'unmeasured'}

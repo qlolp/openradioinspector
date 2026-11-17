@@ -17,19 +17,24 @@ struct NativeSpectrumPlot: View {
     var reference: PlatformSweep? = nil
     @State private var prepared = NativeSpectrumRenderCache()
     @State private var preparedRequest: Request?
-    private struct Request: Equatable {
+    private struct Sources: Equatable {
         let ids: [PlatformExactID]
         let selected: PlatformExactID?
         let bounds: PlatformSpectrumScale?
         let threshold: Double?
         let reference: PlatformExactID?
     }
+    private struct Request: Equatable {
+        let sources:Sources
+        let viewport:ClosedRange<Double>
+    }
 
     var body: some View {
         let timeline = NativeSpectrumTimeline(sweeps, window: window)
         let acceptance=NativeAcceptanceTrace.shared
-        let request=Request(ids:sweeps.map(\.exactID),selected:selected?.exactID,bounds:bounds,threshold:threshold,reference:reference?.exactID)
+        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selected?.exactID,bounds:bounds,threshold:threshold,reference:reference?.exactID),viewport:range)
         let ready=preparedRequest==request
+        let geometryReady=preparedRequest?.sources==request.sources
         // A new marker may certify only geometry prepared from that exact source.
         let evidence=ready ? acceptance?.frame(for:selected?.id,viewport:range):nil
         let markerTag=acceptance?.tag ?? 0
@@ -60,7 +65,7 @@ struct NativeSpectrumPlot: View {
             label("дБм", CGPoint(x: 8, y: 8), anchor: .leading)
             label("МГц", CGPoint(x: 8, y: plot.maxY + 12), anchor: .leading)
             label("UTC", CGPoint(x: 8, y: water.minY - 8), anchor: .leading)
-            if ready, let bounds, let selected {
+            if geometryReady, let bounds, let selected {
                 func y(_ level: Double) -> Double { plot.maxY - bounds.fraction(level) * plot.height }
                 var clipped = context; clipped.clip(to: Path(plot))
                 let span=range.upperBound-range.lowerBound
@@ -104,7 +109,7 @@ struct NativeSpectrumPlot: View {
                 guard let rect = timeline.waterfallRect(for: row, in: water) else { continue }
                 var band = context
                 band.clip(to: Path(rect))
-                if ready, let raster = prepared.rows.first(where: { $0.id == row.sweep.exactID }) {
+                if geometryReady, let raster = prepared.rows.first(where: { $0.id == row.sweep.exactID }) {
                     let span=range.upperBound-range.lowerBound
                     let imageRect=CGRect(x:water.minX+(raster.lower-range.lowerBound)/span*water.width,y:rect.minY,
                         width:(raster.upper-raster.lower)/span*water.width,height:rect.height)
@@ -139,10 +144,10 @@ struct NativeSpectrumPlot: View {
         }
         .background {if evidence != nil, acceptance?.profile.phase=="load" {NativeAcceptanceGeometry()}}
         .task(id: request) {
-            let source=sweeps,selected=selected,scale=bounds,threshold=threshold,reference=reference,previous=prepared
+            let source=sweeps,selected=selected,scale=bounds,threshold=threshold,reference=reference,previous=prepared,viewport=range
             let task=Task.detached(priority:.userInitiated) {
                 try NativeSpectrumRenderCache.prepare(source,selected:selected,bounds:scale,
-                    threshold:threshold,reference:reference,previous:previous)
+                    threshold:threshold,reference:reference,viewport:viewport,previous:previous)
             }
             do {
                 let result=try await withTaskCancellationHandler(operation:{try await task.value},onCancel:{task.cancel()})

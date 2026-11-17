@@ -157,6 +157,7 @@ def main():
     python=runtime(kit);copy_payload(kit/'payload')
     shutil.copy2(args.app_manifest,kit/'app-manifest.json')
     shutil.copy2(ROOT/'packaging/macos/ACCEPTANCE-README.ru.md',kit/'READ-ME.ru.md')
+    shutil.copy2(ROOT/'docs/release/macos-post-test-comprehensive-acceptance.md',kit/'FULL-ACCEPTANCE.ru.md')
     start=kit/'StartTests.command'
     start.write_text('#!/bin/bash\nset -euo pipefail\nori_kit_dir="$(cd -- "$(dirname -- "$0")" && pwd)"\nexec /usr/bin/env -u PYTHONHOME -u PYTHONPATH -u DYLD_LIBRARY_PATH -u DYLD_FRAMEWORK_PATH -u ORI_BENCH_TOKEN PYTHONDONTWRITEBYTECODE=1 "$ori_kit_dir"/'+shlex.quote(str(python.relative_to(kit)))+' -I -S -B "$ori_kit_dir/payload/benchmarks/ori_bench/mac_acceptance/entry.py" --kit-root "$ori_kit_dir" "$@"\n')
     start.chmod(0o755)

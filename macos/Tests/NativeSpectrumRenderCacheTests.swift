@@ -20,7 +20,7 @@ final class NativeSpectrumRenderCacheTests: XCTestCase {
         XCTAssertTrue(first.rows[1].image === next.rows[0].image)
         XCTAssertEqual(next.rasterizedRows,1)
         let same=try NativeSpectrumRenderCache.prepare([b,c],selected:c,bounds:bounds,previous:next)
-        XCTAssertEqual(same.rasterizedRows,0) // Panning is a draw transform, not a cache key.
+        XCTAssertEqual(same.rasterizedRows,0)
     }
     func testEnvelopeUsesOnlyTheSelectedGridAndKeepsRawPeaks() throws {
         let a=try sweep("a",levels:[-90,-50,-80]),b=try sweep("b",levels:[-100,-40,-70])
@@ -48,5 +48,41 @@ final class NativeSpectrumRenderCacheTests: XCTestCase {
         XCTAssertLessThanOrEqual(image.width,4096)
         let bytes=try XCTUnwrap(image.dataProvider?.data) as Data
         XCTAssertEqual(Array(bytes.suffix(4)),[252,255,163,255])
+    }
+    func testGlobalRasterDoesNotFloodTheLowBinWithItsNeighborPeak() throws {
+        let source=try sweep("three",levels:[-100,0,-100])
+        let cache=try NativeSpectrumRenderCache.prepare([source],selected:source,
+            bounds:PlatformSpectrumScale(lower:-100,upper:0))
+        let image=try XCTUnwrap(cache.rows.first?.image)
+        let bytes=try XCTUnwrap(image.dataProvider?.data) as Data
+        XCTAssertEqual(Array(bytes.prefix(4)),[0,0,5,255])
+        XCTAssertEqual(Array(bytes.suffix(4)),[0,0,5,255])
+    }
+    func testZoomRecoversLowAndHighBinsAndReusesOnlyMatchingViewport() throws {
+        let source=try sweep("three",levels:[-100,0,-100])
+        let bounds=PlatformSpectrumScale(lower:-100,upper:0)
+        let full=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds)
+        let low=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds,viewport:100...120,previous:full)
+        let high=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds,viewport:180...220,previous:low)
+        XCTAssertEqual(low.rows[0].lower,100);XCTAssertEqual(low.rows[0].upper,120)
+        for (cache,color) in [(low,[UInt8](arrayLiteral:0,0,5,255)),(high,[252,255,163,255])] {
+            let bytes=try XCTUnwrap(cache.rows[0].image.dataProvider?.data) as Data
+            for i in stride(from:0,to:bytes.count,by:4) {XCTAssertEqual(Array(bytes[i..<i+4]),color)}
+        }
+        XCTAssertTrue(low.current === high.current) // Zoom does not rebuild source paths/envelopes.
+        let same=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds,viewport:180...220,previous:high)
+        XCTAssertEqual(same.rasterizedRows,0);XCTAssertTrue(same.rows[0].image === high.rows[0].image)
+    }
+    func testNarrowZoomOnLargeIrregularGridDoesNotImportAnOutsidePeak() throws {
+        let count=8193
+        var frequencies=(0..<count).map{Int64($0*10)};frequencies[count-1]+=1000
+        var levels=Array(repeating:-100.0,count:count);levels[100]=0;levels[count-1]=0
+        let source=try sweep("irregular",frequencies:frequencies,levels:levels)
+        let bounds=PlatformSpectrumScale(lower:-100,upper:0)
+        let full=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds)
+        let zoom=try NativeSpectrumRenderCache.prepare([source],selected:source,bounds:bounds,viewport:1016...1024,previous:full)
+        let bytes=try XCTUnwrap(zoom.rows[0].image.dataProvider?.data) as Data
+        for i in stride(from:0,to:bytes.count,by:4) {XCTAssertEqual(Array(bytes[i..<i+4]),[0,0,5,255])}
+        XCTAssertEqual(Array((try XCTUnwrap(full.rows[0].image.dataProvider?.data) as Data).suffix(4)),[252,255,163,255])
     }
 }

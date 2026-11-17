@@ -123,6 +123,7 @@ def prepare(app: Path, source: str, core, supervisor, toolchains):
         relative = 'Contents/Helpers/' + name
         components[name] = dict(path=relative, sha256=digest(app / relative), **value)
     build = dict(schema_version=1, release_version=RELEASE_VERSION, bundle_identifier=BUNDLE_ID,
+                 acceptance_protocol=2,
                  source_revision=source, architecture='arm64', minimum_os='14.0', target_os='27.3',
                  built_at=datetime.now(timezone.utc).isoformat(), components=components,
                  toolchains=toolchains, ui=dict(path='Contents/MacOS/' + UI_EXECUTABLE,

@@ -552,7 +552,8 @@ final class RemoteDualModel: ObservableObject {
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             if streamingEnabled, negotiatedMeasurementTransport == nil {
-                let transport = try await client.measurementTransport()
+                let offered = try await client.measurementTransport()
+                let transport = try NativeAcceptanceTransport.resolve(NativeAcceptanceTrace.shared?.profile.transport,offered:offered)
                 guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client else { return }
                 negotiatedMeasurementTransport = transport
             }
