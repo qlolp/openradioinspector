@@ -3,11 +3,57 @@ import Dispatch
 import Observation
 import XCTest
 import SwiftUI
+import AppKit
 import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeStreamingModelTests: XCTestCase {
     @MainActor final class ObservationCount { var value = 0 }
+
+    @MainActor func testWorkbenchWindowUsesFixedMinimumInsteadOfRepeatedIntrinsicSizing() async throws {
+        let host = NSHostingView(rootView: Color.blue.background(WindowCloseObserver { }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        for _ in 0..<100 where !host.sizingOptions.isEmpty || window.contentMinSize != CGSize(width: 1000, height: 700) {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(host.sizingOptions.isEmpty, "Incoming frames must not remeasure the whole window's intrinsic size")
+        XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
+        window.setContentSize(CGSize(width: 1300, height: 850))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 1300, height: 850))
+        XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
+    }
+
+    @MainActor func testWorkbenchWindowSizingAndCloseStayLocalToTheirWindow() {
+        let closed = ObservationCount()
+        let otherHost = NSHostingView(rootView: Color.red)
+        let other = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        other.contentView = otherHost
+        other.contentMinSize = CGSize(width: 200, height: 100)
+        let otherSizing = otherHost.sizingOptions
+        let host = NSHostingView(rootView: Color.blue.background(WindowCloseObserver { closed.value += 1 }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { other.contentView = nil; window.contentView = nil; other.close(); window.close() }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(other.contentMinSize, CGSize(width: 200, height: 100))
+        XCTAssertEqual(otherHost.sizingOptions, otherSizing)
+        other.close()
+        XCTAssertEqual(closed.value, 0)
+        window.close()
+        XCTAssertEqual(closed.value, 1)
+    }
 
     @MainActor func testViewportInvalidatesOnlyItsContentWhilePanning() {
         let viewport = NativeSpectrumViewport()

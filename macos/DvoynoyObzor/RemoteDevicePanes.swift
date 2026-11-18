@@ -274,6 +274,14 @@ struct RemoteUltraPane: View {
     }
 }
 
+@MainActor private protocol WorkbenchWindowSizingHost: AnyObject {
+    func useFixedWorkbenchSizing()
+}
+
+extension NSHostingView: WorkbenchWindowSizingHost {
+    fileprivate func useFixedWorkbenchSizing() { sizingOptions = [] }
+}
+
 // Observe this particular window; other WindowGroup windows keep their own sessions.
 struct WindowCloseObserver: NSViewRepresentable {
     var onClose: () -> Void
@@ -296,6 +304,27 @@ final class WindowCloseView: NSView {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
         if let window {
+            // ContentView already defines this minimum. Automatic intrinsic
+            // constraints otherwise remeasure the entire workbench per frame.
+            var ancestor = superview
+            var host: (any WorkbenchWindowSizingHost)?
+            while let view = ancestor {
+                if let value = view as? any WorkbenchWindowSizingHost { host = value }
+                ancestor = view.superview
+            }
+            if let host {
+                host.useFixedWorkbenchSizing()
+                window.contentMinSize = CGSize(width: 1000, height: 700)
+                // AppKit can finish attaching the hosting view after this hook
+                // and reset its minimum; apply it after that transaction too.
+                DispatchQueue.main.async { [weak self, weak window] in
+                    guard let self, let window, self.window === window else { return }
+                    window.contentMinSize = CGSize(width: 1000, height: 700)
+                    NativeAcceptanceTrace.shared?.record("window.content_sizing", [
+                        "automatic": false, "minimum_width": window.contentMinSize.width,
+                        "minimum_height": window.contentMinSize.height])
+                }
+            }
             NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose),
                 name: NSWindow.willCloseNotification, object: window)
         }
