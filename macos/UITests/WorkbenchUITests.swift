@@ -63,7 +63,7 @@ final class WorkbenchUITests: XCTestCase {
     }
 
     @MainActor private func preparation(in app: XCUIApplication) {
-        tab("Приборы", in: app)
+        tab("Наблюдение", in: app)
         let open = app.buttons["preparation.open"]
         XCTAssertTrue(open.waitForExistence(timeout: 10)); XCTAssertTrue(open.isEnabled)
         open.click()
@@ -74,12 +74,18 @@ final class WorkbenchUITests: XCTestCase {
         let app = try launch(test: #function); defer { app.terminate() }
         let before = app.popUpButtons["workbench.session"].value as? String
         XCTAssertNotNil(before)
-        for title in ["Приборы", "Сигналы", "Архив", "Охрана и исследование", "Контроль диапазона"] {
+        for title in ["Архив", "Наблюдение", "Архив", "Наблюдение"] {
             tab(title, in: app)
             XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
             XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
             XCTAssertTrue(app.buttons["workbench.space"].exists)
         }
+        XCTAssertTrue(element("observation.events", in: app).exists,
+            "The event inbox must be available alongside the spectrum")
+        app.buttons["workbench.settings"].click()
+        XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 10))
+        app.buttons["settings.close"].click()
+        XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
     }
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {
@@ -139,7 +145,8 @@ final class WorkbenchUITests: XCTestCase {
         let research = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Исследование", "Исследование")
         expectation(for: research, evaluatedWith: space)
         waitForExpectations(timeout: 10)
-        tab("Контроль диапазона", in: app)
+        app.buttons["settings.close"].click()
+        tab("Наблюдение", in: app)
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
         XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
     }
