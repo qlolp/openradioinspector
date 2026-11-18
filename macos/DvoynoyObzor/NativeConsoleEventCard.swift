@@ -6,11 +6,23 @@ struct NativeConsoleEventCard: View {
     let summary: NativeGuardSignal
     let detail: NativeGuardSignal?
     let openReceiver: () -> Void
+    var remote: RemoteDualModel?
     @State private var seeded: PlatformExactID?
     @State private var verdict = "unreviewed"
     @State private var comment = ""
+    @State private var queueTask: Task<Void, Never>?
+    @State private var loadingSource = false
+    @State private var queueError = ""
 
     private var signal: NativeGuardSignal { detail ?? summary }
+    private var investigationScope: NativeConsoleInvestigation.Scope? {
+        guard let remote, let source = detail?.source, let receiver = remote.receiver,
+              remote.coreReachable, source.sessionID == PlatformExactID(remote.selectedSessionID),
+              source.streamID == PlatformExactID(remote.analyzer?.id ?? "") else { return nil }
+        return .init(server: remote.serverURL, project: workspace.selected, event: signal.id.rawValue,
+                     session: remote.selectedSessionID, analyzer: source.streamID.rawValue,
+                     receiver: receiver.id, source: source.sweepID.rawValue)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -26,6 +38,17 @@ struct NativeConsoleEventCard: View {
                     if let reason = signal.receiverReason { Text(reason).foregroundStyle(.secondary) }
                     let receiver = signal.value["analysis"]["verification_evidence"]["receiver"]
                     if receiver != .null { Text(receiver["level"].scalar + " " + receiver["level_unit"].text) }
+                    Button("В очередь AR-DV1") { enqueueOriginal() }
+                        .disabled(investigationScope == nil || loadingSource || remote?.consoleInvestigation.pending == true ||
+                                  remote?.consoleInvestigation.investigationID != nil || remote?.consoleInvestigation.requiresReconciliation == true)
+                        .help("По пику исходного свипа внутри полосы события. Постановка в очередь не означает начало приёма.")
+                        .accessibilityIdentifier("observation.enqueue")
+                    if loadingSource || remote?.consoleInvestigation.pending == true {
+                        ProgressView("Проверка исходника и постановка в очередь…").controlSize(.small)
+                    }
+                    if let message = remote?.consoleInvestigation.message, !message.isEmpty { Text(message) }
+                    ErrorLine(text: queueError)
+                    ErrorLine(text: remote?.consoleInvestigation.error ?? "")
                     Button("Очередь и управление AR-DV1…", action: openReceiver)
                         .accessibilityIdentifier("observation.receiver")
                 }.font(.callout).monospacedDigit().frame(maxWidth: .infinity, alignment: .leading)
@@ -65,6 +88,16 @@ struct NativeConsoleEventCard: View {
         }
         .onChange(of: signal.id, initial: true) { _, _ in seeded = nil; seed() }
         .onChange(of: detail?.id) { _, _ in seed() }
+        .onChange(of: investigationScope, initial: true) { _, scope in
+            queueTask?.cancel(); queueTask = nil; loadingSource = false; queueError = ""
+            remote?.consoleInvestigation.configure(scope)
+        }
+        .onChange(of: remote?.connectionGeneration) { _, _ in
+            queueTask?.cancel(); loadingSource = false
+            remote?.consoleInvestigation.configure(nil)
+            remote?.consoleInvestigation.configure(investigationScope)
+        }
+        .onDisappear { queueTask?.cancel() }
     }
 
     private func seed() {
@@ -72,5 +105,30 @@ struct NativeConsoleEventCard: View {
         seeded = detail.id
         verdict = detail.value["disposition"].text.isEmpty ? "unreviewed" : detail.value["disposition"].text
         comment = detail.value["operator_comment"].text
+    }
+
+    private func enqueueOriginal() {
+        guard !loadingSource, let scope = investigationScope, let remote, let client = remote.client,
+              let start = signal.value["start_frequency_hz"].integer,
+              let stop = signal.value["end_frequency_hz"].integer else { return }
+        loadingSource = true; queueError = ""
+        let mode = remote.mode
+        queueTask = Task { @MainActor in
+            defer { if scope == investigationScope { loadingSource = false } }
+            do {
+                let original = try await client.archiveOriginalSweep(sessionID: scope.session.rawValue,
+                    streamID: scope.analyzer.rawValue, sweepID: scope.source.rawValue)
+                try Task.checkCancellation()
+                guard scope == investigationScope, client === remote.client else { return }
+                try await remote.consoleInvestigation.enqueue(scope: scope, original: original, startHz: start, stopHz: stop,
+                    mode: mode, create: { draft in
+                        try await client.createCandidate(sessionID: scope.session.rawValue, draft: draft).id
+                    }, enqueue: { candidate, draft in
+                        try await client.enqueueInvestigation(sessionID: scope.session.rawValue, candidateID: candidate, draft: draft).id
+                    })
+                if scope == investigationScope { await remote.refresh() }
+            } catch is CancellationError { }
+              catch { if scope == investigationScope { queueError = error.localizedDescription } }
+        }
     }
 }

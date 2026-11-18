@@ -80,6 +80,7 @@ final class RemoteDualModel {
     var busy = false
     var status = "Сервер не подключён"
     let spectrumViewMemory = NativeSpectrumViewMemory()
+    let consoleInvestigation = NativeConsoleInvestigation()
     var errorText: String?
     var mode = "FM"
     var threshold = "-80"

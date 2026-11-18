@@ -179,7 +179,7 @@ struct RemoteUltraPane: View {
                                     onFollowFrequency: { model.followFrequency($0) },
                                     bandPlanWorkspace: bandPlanWorkspace,
                                     viewMemory: model.spectrumViewMemory,
-                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map(PlatformExactID.init))
+                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map { PlatformExactID($0) })
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
                      PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
                 .frame(minHeight: compact ? 320 : 370).layoutPriority(1)

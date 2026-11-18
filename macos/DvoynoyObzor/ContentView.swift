@@ -84,7 +84,7 @@ struct ContentView: View {
                             openOriginal: { sweep in
                                 model.reviewedSweep = sweep
                                 model.reviewedSweepRequest = UUID()
-                            }, openReceiver: { navigation.destination.settings = .receiver })
+                            }, openReceiver: { navigation.destination.settings = .receiver }, remote: model)
                             .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
                             .accessibilityIdentifier("observation.events")
                     }

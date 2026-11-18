@@ -7,6 +7,7 @@ struct NativeGuardSignalsPane: View {
     var compact = false
     var openOriginal: ((PlatformSweep) -> Void)?
     var openReceiver: (() -> Void)?
+    var remote: RemoteDualModel?
     @State private var confirming = false
 
     private struct DetailScope: Equatable {
@@ -226,7 +227,7 @@ struct NativeGuardSignalsPane: View {
                 if let summary = workspace.signalQueue.selected {
                     if compact {
                         NativeConsoleEventCard(workspace: workspace, summary: summary, detail: detail,
-                                               openReceiver: openReceiver ?? openGuard)
+                                               openReceiver: openReceiver ?? openGuard, remote: remote)
                     } else { NativeGuardSignalEvidence(summary: summary, detail: detail) }
                     if workspace.signalPending.contains(.detail) && detail == nil {
                         ProgressView("Загрузка карточки…").controlSize(.small)
