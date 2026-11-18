@@ -125,9 +125,12 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertFalse(app.buttons["observation.enqueue"].isEnabled,
             "An old-run source cannot be queued against the current receiver context")
         open.click()
-        let original = app.staticTexts["source-sheet.id"]
+        let original = element("source-sheet.id", in: app)
         XCTAssertTrue(original.waitForExistence(timeout: 10))
-        XCTAssertEqual(original.label, "ui-two-sweep-1")
+        XCTAssertEqual(original.label, "Идентификатор исходного свипа")
+        expectation(for: NSPredicate(format: "value == %@", "ui-two-sweep-1"), evaluatedWith: original)
+        waitForExpectations(timeout: 10)
+        XCTAssertEqual(original.value as? String, "ui-two-sweep-1")
         app.buttons["source-sheet.close"].click()
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
         XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))

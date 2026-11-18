@@ -370,7 +370,10 @@ struct NativeGuardOriginalPane: View {
                 Spacer()
                 Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction).accessibilityIdentifier("source-sheet.close")
             }
-            Text(sweep.id).textSelection(.enabled).accessibilityIdentifier("source-sheet.id")
+            Text(sweep.id).textSelection(.enabled)
+                .accessibilityLabel("Идентификатор исходного свипа")
+                .accessibilityValue(sweep.id)
+                .accessibilityIdentifier("source-sheet.id")
             Text("Сеанс \(sweep.sessionId) · поток \(sweep.streamId)").textSelection(.enabled)
             Text("\(sweep.interval.startedAt) — \(sweep.interval.endedAt) · \(sweep.levels.count) точек")
                 .font(.caption.monospacedDigit()).textSelection(.enabled)
