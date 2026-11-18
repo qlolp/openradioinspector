@@ -167,7 +167,9 @@ struct NativeContinuityBar: View {
                     }
                         .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
                     Text(archiveLabel)
+                        .accessibilityIdentifier("continuity.archive")
                     Text(guardLabel(verified: verified))
+                        .accessibilityIdentifier("continuity.guard")
                     Spacer(minLength: 0)
                     Button("Диагностика") { details.toggle() }.controlSize(.mini)
                         .popover(isPresented: $details) {
@@ -180,8 +182,11 @@ struct NativeContinuityBar: View {
                 }.font(.caption).lineLimit(1)
                 HStack(spacing: 16) {
                     Text("tinySA: " + activity(model.analyzer?.id))
+                        .accessibilityIdentifier("continuity.analyzer")
                     Text("AR-DV1: " + activity(model.receiver?.id))
+                        .accessibilityIdentifier("continuity.receiver")
                     Text(coverage(verified: verified)).help(coverage(verified: verified))
+                        .accessibilityIdentifier("continuity.coverage")
                     Spacer(minLength: 0)
                     if let time = model.acquisitionSweepTime {
                         let age = context.date.timeIntervalSince(time)

@@ -35,6 +35,7 @@ public struct DvoynoyObzorApplication: App {
             ContentView()
                 .defaultAppStorage(NativeAcceptanceTrace.shared?.preferences ?? .standard)
         }
-        .defaultSize(width: 1200, height: 740)
+        .defaultSize(width: 1200, height: 792)
+        .commands { NativeConsoleCommands() }
     }
 }

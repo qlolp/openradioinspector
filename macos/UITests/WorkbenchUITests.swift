@@ -96,9 +96,9 @@ final class WorkbenchUITests: XCTestCase {
         replace(receiver, with: "/dev/cu.ui-fixture")
         XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
         replace(receiver, with: "/dev/cu.ui-receiver")
-        replace(app.textFields["preparation.start-hz"], with: "88e6")
+        replace(app.textFields["preparation.start-mhz"], with: "88e6")
         XCTAssertFalse(app.buttons["preparation.create"].isEnabled)
-        replace(app.textFields["preparation.start-hz"], with: "88000000")
+        replace(app.textFields["preparation.start-mhz"], with: "88")
         XCTAssertTrue(app.buttons["preparation.create"].isEnabled)
     }
 

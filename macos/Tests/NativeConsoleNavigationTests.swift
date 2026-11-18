@@ -5,6 +5,13 @@ import XCTest
 #endif
 
 final class NativeConsoleNavigationTests: XCTestCase {
+    func testMegahertzInputKeepsExactHertzAndRejectsAmbiguousNotation() {
+        XCTAssertEqual(NativeConsoleFrequency.hertz("88,700001"), "88700001")
+        XCTAssertEqual(NativeConsoleFrequency.hertz("800.000000"), "800000000")
+        for value in ["88e6", "88,700,001", "88.0000001", "NaN", "", "800.000001", "0.01"] {
+            XCTAssertNil(NativeConsoleFrequency.hertz(value), value)
+        }
+    }
     func testLegacyTabsKeepArchiveAndExposeConnectionSettings() {
         XCTAssertEqual(NativeConsoleDestination(legacyTab: "archive").page, .archive)
         XCTAssertEqual(NativeConsoleDestination(legacyTab: "devices").settings, .connection)

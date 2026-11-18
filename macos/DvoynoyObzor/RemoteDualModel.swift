@@ -79,6 +79,7 @@ final class RemoteDualModel {
     var authorizationRequired = false
     var busy = false
     var status = "Сервер не подключён"
+    let spectrumViewMemory = NativeSpectrumViewMemory()
     var errorText: String?
     var mode = "FM"
     var threshold = "-80"
@@ -888,6 +889,7 @@ final class RemoteDualModel {
     }
 
     private func clearMeasurements(preservingReplay: Bool = false) {
+        spectrumViewMemory.snapshot = nil
         resetMeasurementHealth()
         if !preservingReplay { measurementStream.stop() }
         archiveCacheVerified = false

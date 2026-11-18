@@ -6,6 +6,10 @@ struct NativeRCPreparationPane: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @StateObject private var flow = NativeRCPreparationModel()
     @State private var ports: [String] = []
+    @State private var stage = 0
+    @State private var startMHz = "88"
+    @State private var stopMHz = "108"
+    private let stages = ["Проект и приборы", "Подключение", "Эталон", "Готовность"]
     @Environment(\.dismiss) private var dismiss
     private var readiness: NativeRCReadiness { .init(preflight: workspace.preflight) }
     private var ownsProject: Bool { flow.owns(workspace) }
@@ -22,11 +26,27 @@ struct NativeRCPreparationPane: View {
                 .font(.callout).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    profile
+                    HStack {
+                        ForEach(stages.indices, id: \.self) { index in
+                            Button("\(index + 1) · \(stages[index])") { stage = index }
+                                .disabled(index > 0 && !ownsProject)
+                                .buttonStyle(.bordered)
+                                .tint(stage == index ? Color.accentColor : Color.secondary)
+                                .accessibilityIdentifier("preparation.step.\(index)")
+                        }
+                    }
+                    if stage == 0 { profile }
                     if ownsProject {
-                        connection
-                        baseline
-                        acceptance
+                        if stage == 1 { connection }
+                        if stage == 2 { baseline }
+                        if stage == 3 { acceptance }
+                    }
+                    if stage > 0 {
+                        HStack {
+                            Button("Назад") { stage -= 1 }
+                            Spacer()
+                            if stage < 3 { Button("Далее") { stage += 1 } }
+                        }
                     }
                     if busy { ProgressView("Ожидание подтверждения ядра…").controlSize(.small) }
                     Text(flow.message).font(.callout)
@@ -42,12 +62,23 @@ struct NativeRCPreparationPane: View {
         .task(id: model.connectionGeneration) {
             flow.configure(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil, workspace: workspace)
             ports = Array(SerialPort.availablePaths().prefix(256))
+            startMHz = NativeAnalyzerDraft.mhz(Int64(flow.draft.startHz) ?? 88_000_000)
+            stopMHz = NativeAnalyzerDraft.mhz(Int64(flow.draft.stopHz) ?? 108_000_000)
+            if ownsProject { stage = workspace.isArmed ? 3 : 1 }
             while !Task.isCancelled, model.connected {
                 if ownsProject { await workspace.refreshStatus(); await workspace.checkPreflight() }
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
         }
+        .onChange(of: ownsProject) { _, owns in if owns { stage = 1 } else { stage = 0 } }
+        .onChange(of: startMHz) { _, value in flow.draft.startHz = NativeConsoleFrequency.hertz(value) ?? "" }
+        .onChange(of: stopMHz) { _, value in flow.draft.stopHz = NativeConsoleFrequency.hertz(value) ?? "" }
         .onDisappear { flow.cancel() }
+    }
+
+    private var validationReason: String? {
+        do { _ = try flow.draft.validated(); return nil }
+        catch { return error.localizedDescription }
     }
 
     private var profile: some View {
@@ -57,15 +88,18 @@ struct NativeRCPreparationPane: View {
                 port("tinySA Ultra", selection: $flow.draft.tinySAPort, identifier: "preparation.tinysa-port")
                 port("AOR AR-DV1", selection: $flow.draft.receiverPort, identifier: "preparation.receiver-port")
                 HStack {
-                    TextField("Начало, Гц", text: $flow.draft.startHz)
-                        .accessibilityIdentifier("preparation.start-hz")
-                    TextField("Конец, Гц", text: $flow.draft.stopHz)
-                        .accessibilityIdentifier("preparation.stop-hz")
+                    TextField("Начало · МГц", text: $startMHz)
+                        .accessibilityIdentifier("preparation.start-mhz")
+                    TextField("Конец · МГц", text: $stopMHz)
+                        .accessibilityIdentifier("preparation.stop-mhz")
                     Stepper("\(flow.draft.points) точек", value: $flow.draft.points, in: 2...290).frame(width: 150)
                     Picker("RBW", selection: $flow.draft.rbwHz) { Text("10 кГц").tag(10_000); Text("30 кГц").tag(30_000) }.frame(width: 150)
                 }.monospacedDigit()
                 Text("Приёмный профиль: 0,1–800 МГц. Предложенный порт ещё не подтверждает модель. При подключении ядро проверит прошивку; несовместимый прибор будет отклонён.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("Частоты в МГц: точка или запятая, до шести знаков после разделителя. В ядро передаются целые Гц.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let reason = validationReason { Text(reason).font(.caption).foregroundStyle(.secondary) }
                 Button("Создать профиль и проект") {
                     Task { await flow.create(workspace: workspace) { id in model.selectSession(id); Task { await model.reloadSessions() } } }
                 }.disabled(!model.connected || busy || workspace.isArmed || (try? flow.draft.validated()) == nil)
@@ -98,7 +132,9 @@ struct NativeRCPreparationPane: View {
                 Toggle("Антенна и приёмный тракт проверены мною", isOn: $workspace.receivePathConfirmed).disabled(!workspace.canEditPreparation)
                 Toggle("Расположение и обычная обстановка подтверждены мною", isOn: $workspace.locationConfirmed).disabled(!workspace.canEditPreparation)
                 HStack {
-                    Button("Подключить приборы и собрать эталон") { Task { await flow.connect(workspace: workspace) } }
+                    Button("Подключить приборы и собрать эталон") {
+                        Task { await flow.connect(workspace: workspace); if workspace.isCollecting { stage = 2 } }
+                    }
                         .disabled(busy || !workspace.canEditPreparation || !workspace.preparationInputValid || !workspace.receivePathConfirmed || !workspace.locationConfirmed)
                     Button("Остановить сбор") { workspace.perform { await workspace.stopPreparation() } }
                         .disabled(busy || !workspace.isCollecting || workspace.isArmed)
@@ -141,7 +177,9 @@ struct NativeRCPreparationPane: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("Подтверждаю пригодность эталона обычной обстановки", isOn: $workspace.baselineConfirmed)
-                Button("Зафиксировать эталон и включить резерв backup") { Task { await flow.saveBaseline(workspace: workspace) } }
+                Button("Подтвердить эталон и резерв копии") {
+                    Task { await flow.saveBaseline(workspace: workspace); if readiness.budgetReady { stage = 3 } }
+                }
                     .disabled(busy || workspace.isArmed || !readiness.baselineCollected || !workspace.baselineConfirmed || !workspace.savedPreparationReady || workspace.preparationDirty)
                 let storage = workspace.preflight["storage"]
                 Text("Поток архива: \(storage["bytes_per_second"].scalar) байт/с · резерв будущей копии: \(storage["backup_reserve_bytes"].scalar) байт").font(.caption).monospacedDigit()

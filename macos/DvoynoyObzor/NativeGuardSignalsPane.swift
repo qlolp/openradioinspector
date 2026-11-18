@@ -4,6 +4,9 @@ import SpektrKomandy
 struct NativeGuardSignalsPane: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     let openGuard: () -> Void
+    var compact = false
+    var openOriginal: ((PlatformSweep) -> Void)?
+    var openReceiver: (() -> Void)?
     @State private var confirming = false
 
     private struct DetailScope: Equatable {
@@ -35,16 +38,26 @@ struct NativeGuardSignalsPane: View {
                     Button("Открыть охрану", action: openGuard)
                 }
             } else {
-                actions
+                if compact {
+                    HStack {
+                        Label("События", systemImage: "waveform.path.badge.magnifyingglass").font(.headline)
+                        Spacer()
+                        Button("Настройки", action: openGuard).labelStyle(.iconOnly)
+                    }
+                    freshness
+                    compactActions
+                } else { actions }
                 ErrorLine(text: workspace.signalErrors[.inbox] ?? "")
-                pageControls
+                if compact { compactPageControls } else { pageControls }
                 ErrorLine(text: workspace.signalErrors[.inboxPage] ?? "")
                 if !workspace.knownSignalNotice.isEmpty {
                     Text(workspace.knownSignalNotice).font(.caption)
                 }
                 VSplitView {
-                    queueTable.frame(minHeight: 160)
-                    evidence.frame(minHeight: 150, maxHeight: .infinity)
+                    Group {
+                        if compact { compactQueue } else { queueTable }
+                    }.frame(minHeight: 130)
+                    evidence.frame(minHeight: 160, maxHeight: .infinity)
                 }
             }
         }
@@ -53,13 +66,74 @@ struct NativeGuardSignalsPane: View {
             if let id = detailScope.eventID { await workspace.loadSignalEvent(id) }
         }
         .onChange(of: detailScope) { _, _ in confirming = false }
+        .onChange(of: workspace.signalOriginal?.id) { _, _ in
+            guard let openOriginal, let sweep = workspace.signalOriginal else { return }
+            openOriginal(sweep)
+            workspace.clearSignalOriginal()
+        }
         .sheet(isPresented: $confirming) {
             if let id = workspace.signalQueue.selectedID {
                 NativeKnownSignalEditor(workspace: workspace, eventID: id)
             }
         }
-        .sheet(item: Binding(get: { workspace.signalOriginal }, set: { _ in workspace.clearSignalOriginal() })) { sweep in
-            NativeGuardOriginalPane(sweep: sweep)
+        .sheet(item: Binding(get: { openOriginal == nil ? workspace.signalOriginal : nil }, set: { _ in workspace.clearSignalOriginal() })) { sweep in
+            if openOriginal == nil { NativeGuardOriginalPane(sweep: sweep) }
+        }
+    }
+
+    private var compactActions: some View {
+        HStack {
+            Button("Открыть исходник") {
+                guard let detail, let source = detail.source else { return }
+                workspace.perform { await workspace.openSignalOriginal(eventID: detail.id, source: source) }
+            }.disabled(detail?.source == nil || workspace.signalPending.contains(.original))
+                .accessibilityIdentifier("observation.open-source")
+            Menu("Ещё") {
+                Button("Обновить события") { workspace.perform { await workspace.refreshSignalPage() } }
+                if workspace.signalCatalogAvailable {
+                    Button("Сохранить в каталог…") { confirming = true }.disabled(detail == nil)
+                }
+                Button("Кандидаты и правила…", action: openGuard)
+            }
+        }.controlSize(.small)
+    }
+
+    private var compactPageControls: some View {
+        HStack {
+            Button("Последние") { workspace.showLatestSignalEvents() }
+                .disabled(workspace.signalQueue.isLatest || workspace.signalPending.contains(.inboxPage))
+            Spacer(minLength: 0)
+            Button("Новее") { workspace.perform { await workspace.newerSignalEvents() } }
+                .disabled(workspace.signalQueue.position == nil || workspace.signalPending.contains(.inboxPage))
+            Button("Старше") { workspace.perform { await workspace.olderSignalEvents() } }
+                .disabled(workspace.signalQueue.olderPosition == nil || workspace.signalPending.contains(.inboxPage))
+        }.controlSize(.small)
+    }
+
+    private var compactQueue: some View {
+        List(selection: selection) {
+            ForEach(workspace.signalQueue.rows) { signal in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        if workspace.signalQueue.unread.contains(signal.id) {
+                            Image(systemName: "circle.fill").foregroundStyle(Color.accentColor)
+                                .font(.caption2).accessibilityLabel("Не просмотрено")
+                        }
+                        Text(NativeGuardSignal.frequency(signal.value["center_frequency_hz"]) + " МГц")
+                            .font(.callout.weight(.semibold)).monospacedDigit()
+                        Spacer(minLength: 0)
+                    }
+                    Text(signal.detectorKind).font(.caption).lineLimit(2)
+                    Text(signal.value["last_seen"].scalar + " UTC").font(.caption2)
+                        .foregroundStyle(.secondary).monospacedDigit()
+                }.padding(.vertical, 4).tag(signal.id)
+                    .accessibilityIdentifier("observation.event." + signal.id.rawValue)
+            }
+        }.overlay {
+            if workspace.signalQueue.refreshedAt != nil && workspace.signalQueue.rows.isEmpty {
+                Text("Новых событий пока нет").font(.callout).foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -150,7 +224,10 @@ struct NativeGuardSignalsPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = workspace.signalQueue.selected {
-                    NativeGuardSignalEvidence(summary: summary, detail: detail)
+                    if compact {
+                        NativeConsoleEventCard(workspace: workspace, summary: summary, detail: detail,
+                                               openReceiver: openReceiver ?? openGuard)
+                    } else { NativeGuardSignalEvidence(summary: summary, detail: detail) }
                     if workspace.signalPending.contains(.detail) && detail == nil {
                         ProgressView("Загрузка карточки…").controlSize(.small)
                     }

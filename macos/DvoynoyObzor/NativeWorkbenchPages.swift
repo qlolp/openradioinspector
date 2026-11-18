@@ -56,13 +56,7 @@ struct NativeSignalsPage: View {
         .onChange(of: workspace.signalCatalogAvailable) { _, available in
             if !available && section == .catalog { section = .events }
         }
-        .task(id: taskScope) {
-            let scope = taskScope
-            while !Task.isCancelled, scope == taskScope, !workspace.selected.isEmpty {
-                await workspace.pollSignalEvents()
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            }
-        }
+
     }
 }
 

@@ -26,8 +26,15 @@ struct ContentView: View {
         _model = State(initialValue: remote)
     }
 
-    @AppStorage("native.workbench.tab") private var tab = "range"
-    @State private var showReceiver = false
+    @AppStorage("native.workbench.tab") private var legacyTab = "range"
+    @AppStorage("native.console.navigation.v1") private var savedNavigation = Data()
+    @State private var navigation = NativeConsoleNavigation()
+    @State private var restoredNavigation = false
+
+    private var consoleContext: NativeConsoleContext {
+        .init(server: model.serverURL, project: workspace.selected,
+              session: model.selectedSessionID, stream: model.analyzer?.id ?? "")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -49,54 +56,74 @@ struct ContentView: View {
                         Image(systemName: "waveform.path")
                     }
                 }.font(.headline)
-                Picker("Рабочая область", selection: $tab) {
-                    Text("Приборы").tag("devices")
-                    Text("Контроль диапазона").tag("range")
-                    Text(workspace.signalQueue.unread.isEmpty ? "Сигналы" : "Сигналы (\(workspace.signalQueue.unread.count))").tag("signals")
-                    Text("Архив").tag("archive")
-                    Text("Охрана и исследование").tag("guard")
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
+                Picker("Рабочая область", selection: Binding(get: { navigation.destination.page },
+                    set: { navigation.destination.page = $0 })) {
+                    ForEach(NativeConsolePage.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
                     .accessibilityIdentifier("workbench.navigation")
                 Spacer(minLength: 0)
-                Button("История уровней") { model.showFrequencyHistory = true }.disabled(!model.connected || model.analyzer == nil)
-                if tab == "range" {
-                    Toggle("AR-DV1", isOn: $showReceiver).toggleStyle(.button).disabled(model.receiver == nil)
-                }
+                Button("Настройки", systemImage: "gearshape") { navigation.destination.settings = .connection }
+                    .accessibilityIdentifier("workbench.settings")
             }.fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
             Divider()
-            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode, openWorkspace: { tab = "guard" })
-            ZStack {
-                devicesPage.workbenchVisible(tab == "devices")
-                HSplitView {
-                    RemoteUltraPane(model: model, research: true, scanBands: currentScanBands, bandPlanWorkspace: workspace)
-                        .frame(minWidth: 640)
-                    if showReceiver, model.receiver != nil {
-                        RemoteArPane(model: model).frame(minWidth: 280, idealWidth: 300, maxWidth: 420)
+            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode,
+                                 openWorkspace: { navigation.destination.settings = .guardSettings })
+            NativeObservationActions(model: model, workspace: workspace,
+                prepare: { showRCPreparation = true },
+                settings: { navigation.destination.settings = $0 })
+            Group {
+                switch navigation.destination.page {
+                case .observation:
+                    HSplitView {
+                        RemoteUltraPane(model: model, research: true, scanBands: currentScanBands,
+                                        bandPlanWorkspace: workspace, compact: true)
+                            .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
+                        NativeGuardSignalsPane(workspace: workspace,
+                            openGuard: { navigation.destination.settings = .guardSettings }, compact: true,
+                            openOriginal: { sweep in
+                                model.reviewedSweep = sweep
+                                model.reviewedSweepRequest = UUID()
+                            }, openReceiver: { navigation.destination.settings = .receiver })
+                            .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
+                            .accessibilityIdentifier("observation.events")
                     }
-                }.workbenchVisible(tab == "range")
-                NativeSignalsPage(model: model, workspace: workspace, openSpectrum: { tab = "range" }, openGuard: { tab = "guard" })
-                    .workbenchVisible(tab == "signals")
-                NativeArchivePage(model: model, openSpectrum: { tab = "range" })
-                    .workbenchVisible(tab == "archive")
-                VStack {
-                    Picker("Режим", selection: $workspaceMode) {
-                        ForEach(NativeWorkspace.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 400).accessibilityIdentifier("workspace.mode-switch")
-                    MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil,
-                        sessionID: model.selectedSessionID, workspace: workspace, mode: mode,
-                        onProjectSession: { id in model.selectSession(id); Task { await model.reloadSessions() } },
-                        onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
-                    Spacer(minLength: 0)
-                }.padding(8).workbenchVisible(tab == "guard")
+                case .archive:
+                    NativeArchivePage(model: model, openSpectrum: { navigation.destination.page = .observation })
+                }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             NativeContinuityBar(model: model, workspace: workspace)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 1000, minHeight: 700)
-        .onChange(of: setupExpanded) { _, expanded in if expanded { tab = "devices"; setupExpanded = false } }
-        .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { tab = "range" } }
+        .focusedSceneValue(\.nativeConsoleActions, NativeConsoleActions(
+            observe: { navigation.destination.page = .observation },
+            archive: { navigation.destination.page = .archive },
+            settings: { navigation.destination.settings = .connection },
+            prepare: { if model.connected { showRCPreparation = true } else { navigation.destination.settings = .connection } }))
+        .background(NativeMonitoringLifecycle(model: model, workspace: workspace))
+        .onChange(of: consoleContext, initial: true) { _, context in
+            if !restoredNavigation {
+                navigation = (try? JSONDecoder().decode(NativeConsoleNavigation.self, from: savedNavigation)) ?? NativeConsoleNavigation()
+                navigation.destination.settings = nil
+                restoredNavigation = true
+            }
+            navigation.activate(context, legacyTab: legacyTab)
+        }
+        .onChange(of: navigation) { _, value in
+            var stored = value
+            stored.destination.settings = nil
+            if let data = try? JSONEncoder().encode(stored) { savedNavigation = data }
+        }
+        .onChange(of: setupExpanded) { _, expanded in
+            if expanded { navigation.destination.settings = .connection; setupExpanded = false }
+        }
+        .sheet(item: Binding(get: { navigation.destination.settings }, set: { navigation.destination.settings = $0 })) { section in
+            NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: $workspaceMode,
+                                      initialSection: section) { devicesPage }
+        }
+        .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { navigation.destination.page = .observation } }
         .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model:model) }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
         .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
@@ -123,7 +150,7 @@ struct ContentView: View {
             guard let evidence=NativeAcceptanceTrace.shared else{return}
             NSApp.activate(ignoringOtherApps:true)
             if evidence.profile.phase=="load" || evidence.profile.phase=="ui-test" {
-                tab="range";model.connect()
+                navigation.destination.page = .observation; model.connect()
                 await model.reloadSessions()
                 model.selectSession(evidence.profile.warmupSessionID ?? evidence.profile.sessionID)
             }
@@ -154,7 +181,6 @@ struct ContentView: View {
         }
         .onChange(of: workspaceMode) { _, value in
             NativeAcceptanceTrace.shared?.record("workspace.changed", ["value": NativeWorkspace(rawValue: value)?.rawValue ?? "unknown"])
-            if value == NativeWorkspace.research.rawValue { tab = "guard" }
         }
         .onChange(of: model.coreReachable) { _, reachable in
             if reachable { setupExpanded = false }
@@ -190,9 +216,6 @@ struct ContentView: View {
                         connectionTask: $developmentConnectionTask, windowClosed: $windowClosed)
                     NativeConnectionPane(model: model, connection: nodeConnection)
                 }
-                Button("Подготовить приборы…") { showRCPreparation = true }
-                    .disabled(!model.connected).buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("preparation.open")
                 if model.receiver != nil { RemoteArPane(model: model).frame(minHeight: 320) }
             }.padding(12)
         }

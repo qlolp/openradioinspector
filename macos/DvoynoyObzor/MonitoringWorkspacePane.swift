@@ -6,11 +6,6 @@ import SwiftUI
 import UniformTypeIdentifiers
 import SpektrKomandy
 
-private struct MonitoringConnectionIdentity: Hashable {
-    let server: PlatformExactID
-    let client: ObjectIdentifier?
-}
-
 struct MonitoringWorkspacePane: View {
     let server: String
     let client: PlatformClient?
@@ -19,7 +14,6 @@ struct MonitoringWorkspacePane: View {
     var mode: NativeWorkspace = .monitoring
     var onProjectSession: (String) -> Void = { _ in }
     var onResearch: () -> Void = {}
-    @State private var sessionFollow = MonitoringProjectSessionFollowState()
     @State private var verdict = "unreviewed"
     @State private var verdictComment = ""
     @State private var name = "Наблюдение"
@@ -80,48 +74,14 @@ struct MonitoringWorkspacePane: View {
             .frame(maxHeight: mode == .monitoring ? 300 : 440)
         }
         .padding(.horizontal)
-        .task(id: MonitoringConnectionIdentity(server: PlatformExactID(server), client: client.map(ObjectIdentifier.init))) {
-            workspace.configure(server, client: client)
-            async let capabilities: Void = workspace.loadMonitoringCapabilities()
-            await workspace.load()
-            await capabilities
-            await workspace.loadBandPlan()
-        }
-        .onChange(of: PlatformExactID(workspace.selected)) { _, _ in
-            workspace.perform { await workspace.refreshStatus(syncConfiguration: true) }
-        }
         .onChange(of: workspace.selectedInput) { _, _ in workspace.audioConfirmed = false }
         .onChange(of: workspace.audioEnabled) { _, _ in workspace.audioConfirmed = false }
-        .onDisappear { workspace.stopAudio(); workspace.stopOperations() }
-        .onChange(of: PlatformExactID(workspace.project["active_session_id"].text)) { _, value in
-            let id = value.rawValue
-            if let next = sessionFollow.sessionToFollow(endpoint: server, projectID: workspace.selected, activeSessionID: id) { onProjectSession(next) }
-        }
+        .onDisappear { workspace.stopAudio() }
         .onChange(of: PlatformExactID(workspace.selectedEvent)) { _, _ in verdict = "unreviewed"; verdictComment = "" }
         .onChange(of: [PlatformExactID(workspace.event["id"].text), PlatformExactID(workspace.event["disposition"].text), PlatformExactID(workspace.event["operator_comment"].text)]) { _, _ in
             let value = workspace.event
             verdict = value["disposition"].text.isEmpty ? "unreviewed" : value["disposition"].text
             verdictComment = value["operator_comment"].text
-        }
-        .task(id: [PlatformExactID(server), PlatformExactID(workspace.selected)]) {
-            let endpoint = server, projectID = workspace.selected
-            guard !endpoint.isEmpty, !projectID.isEmpty, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
-            await workspace.loadOperationsSettings()
-            var tick = 0
-            while !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) {
-                await workspace.pollAlerts()
-                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
-                if workspace.search["active"].bool == true || workspace.coverage == "restoring" {
-                    // Keep the narrow series live even when its disclosure is collapsed.
-                    await workspace.refreshSearch()
-                }
-                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
-                await workspace.refreshStatus()
-                guard !Task.isCancelled, workspace.matchesOperations(endpoint: endpoint, projectID: projectID) else { return }
-                if tick % 6 == 0 { await workspace.refreshStorage() }
-                tick += 1
-                do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
-            }
         }
         .task(id: [PlatformExactID(server), PlatformExactID(workspace.selected), PlatformExactID("preflight"), PlatformExactID(String(preparationExpanded))]) {
             let endpoint = server, projectID = workspace.selected

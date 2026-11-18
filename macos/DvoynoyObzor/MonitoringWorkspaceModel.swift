@@ -532,7 +532,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     private func resetSignalSelection() {
-        cancelSignalRequests([.detail, .original, .confirm])
+        cancelSignalRequests([.detail, .original, .confirm, .review])
         signalEvent = .null
         signalOriginal = nil
         signalDetailPollValue = .null
@@ -560,6 +560,19 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func clearSignalOriginal() { signalOriginal = nil }
+
+    func reviewSignalEvent(eventID: PlatformExactID, disposition: String, comment: String) async {
+        let context = revision
+        let saved = await signalRequest(.review, eventID: eventID, request: { client, project in
+            try await client.monitoringReviewEvent(projectID: project, eventID: eventID.rawValue,
+                                                  disposition: disposition, comment: comment)
+        }) { result in
+            signalEvent = result
+            knownSignalNotice = "Решение оператора сохранено."
+        }
+        guard saved, context == revision, eventID == signalQueue.selectedID, !Task.isCancelled else { return }
+        await loadSignalEvent(eventID)
+    }
 
     func loadKnownSignals(page: Int = 0) async {
         guard signalCatalogAvailable, knownSignalsBefore.indices.contains(page) else { return }

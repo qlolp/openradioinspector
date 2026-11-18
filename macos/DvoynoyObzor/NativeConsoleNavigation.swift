@@ -75,3 +75,18 @@ enum NativeConsoleNextAction: Equatable {
         return armed ? .events : .preparation
     }
 }
+
+enum NativeConsoleFrequency {
+    /// Explicit MHz, one decimal separator, at most six fractional digits.
+    /// Integer arithmetic avoids introducing a display-to-device rounding error.
+    static func hertz(_ text: String) -> String? {
+        let parts = text.replacingOccurrences(of: ",", with: ".").split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count), parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } }),
+              let whole = Int64(parts[0]), whole <= 800 else { return nil }
+        let fraction = parts.count == 2 ? String(parts[1]) : ""
+        guard fraction.count <= 6, let remainder = Int64(fraction + String(repeating: "0", count: 6 - fraction.count)) else { return nil }
+        let value = whole * 1_000_000 + remainder
+        guard (100_000...800_000_000).contains(value) else { return nil }
+        return String(value)
+    }
+}

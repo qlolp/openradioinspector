@@ -132,6 +132,7 @@ struct RemoteUltraPane: View {
     var research = true
     var scanBands: [MonitoringValue] = []
     var bandPlanWorkspace: MonitoringWorkspaceModel?
+    var compact = false
     @State private var detailsExpanded = false
 
     var body: some View {
@@ -150,9 +151,11 @@ struct RemoteUltraPane: View {
                         .disabled(model.worker(for: model.analyzer?.id)?.alive != true || model.busy)
                 }
             }.controlSize(.small)
-            NativeMeasurementStatus(model: model)
-            NativeAnalyzerControls(model: model)
-                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+            if !compact {
+                NativeMeasurementStatus(model: model)
+                NativeAnalyzerControls(model: model)
+                    .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+            }
             if !scanBands.isEmpty || !model.availableScanBandIDs.isEmpty {
                 Picker("Поддиапазон графика", selection: Binding(get: { model.selectedScanBand }, set: model.selectScanBand)) {
                     if model.selectedScanBand.isEmpty { Text("Ожидание измерения").tag("") }
@@ -174,15 +177,17 @@ struct RemoteUltraPane: View {
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
                                     reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
                                     onFollowFrequency: { model.followFrequency($0) },
-                                    bandPlanWorkspace: bandPlanWorkspace)
+                                    bandPlanWorkspace: bandPlanWorkspace,
+                                    viewMemory: model.spectrumViewMemory,
+                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map(PlatformExactID.init))
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
                      PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
-                .frame(minHeight: 370).layoutPriority(1)
+                .frame(minHeight: compact ? 320 : 370).layoutPriority(1)
             HStack {
                 Button("Автомасштаб") { model.fitSpectrum() }
                 Text("Порог показа, дБм").font(.caption)
                 TextField("дБм", text: $model.threshold).frame(width: 65)
-                    .help("Линия на графике. Реакции охраны настраиваются отдельно во вкладке «Охрана и исследование».")
+                    .help("Линия на графике. Реакции охраны настраиваются отдельно в настройках охраны.")
 
                 Spacer()
                 Button(detailsExpanded ? "Скрыть настройки" : "Настройки и анализ") { detailsExpanded.toggle() }
@@ -197,6 +202,10 @@ struct RemoteUltraPane: View {
                 Button("Готово") { detailsExpanded = false }.keyboardShortcut(.cancelAction)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if compact {
+                            NativeMeasurementStatus(model: model)
+                            NativeAnalyzerControls(model: model)
+                        }
                         NativeSpectrumReadout(points: model.displayCurrent)
                         DisclosureGroup("Порог и ручная шкала") {
                             VStack(alignment: .leading, spacing: 8) {
