@@ -275,11 +275,36 @@ struct RemoteUltraPane: View {
 }
 
 @MainActor private protocol WorkbenchWindowSizingHost: AnyObject {
-    func useFixedWorkbenchSizing()
+    func useFixedWorkbenchSizing(preservingLimits: Bool)
 }
 
 extension NSHostingView: WorkbenchWindowSizingHost {
-    fileprivate func useFixedWorkbenchSizing() { sizingOptions = [] }
+    fileprivate func useFixedWorkbenchSizing(preservingLimits: Bool) {
+        guard !sizingOptions.isEmpty else { return }
+        if preservingLimits {
+            needsUpdateConstraints = true
+            updateConstraintsForSubtreeIfNeeded()
+        }
+        let limits = preservingLimits ? constraints.filter {
+            $0.firstItem === self && $0.secondItem == nil && $0.constant.isFinite
+                && ($0.firstAttribute == .width || $0.firstAttribute == .height)
+                && $0.relation != .equal
+        } : []
+        sizingOptions = []
+        guard preservingLimits else { return }
+        updateConstraintsForSubtreeIfNeeded()
+        // Keep the pane's declared limits after AppKit removes its automatic
+        // constraints. Dividers still honor minima/maxima without fitting the
+        // whole pane again for each incoming frame.
+        for limit in limits where !limit.isActive {
+            let fixed = NSLayoutConstraint(item: self, attribute: limit.firstAttribute,
+                relatedBy: limit.relation, toItem: nil, attribute: .notAnAttribute,
+                multiplier: 1, constant: limit.constant)
+            fixed.priority = limit.priority
+            fixed.identifier = "ori.workbench.fixedLimit"
+            fixed.isActive = true
+        }
+    }
 }
 
 // Observe this particular window; other WindowGroup windows keep their own sessions.
@@ -294,11 +319,38 @@ struct WindowCloseObserver: NSViewRepresentable {
 
     func updateNSView(_ view: WindowCloseView, context: Context) {
         view.onClose = onClose
+        view.scheduleWorkbenchSizing()
     }
 }
 
 final class WindowCloseView: NSView {
     var onClose: (() -> Void)?
+    private var sizingUpdateScheduled = false
+
+    func scheduleWorkbenchSizing() {
+        guard let window, !sizingUpdateScheduled else { return }
+        sizingUpdateScheduled = true
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self else { return }
+            self.sizingUpdateScheduled = false
+            guard let window, self.window === window else { return }
+            var ancestor = self.superview
+            var root: NSView?
+            while let view = ancestor {
+                if view is any WorkbenchWindowSizingHost { root = view }
+                ancestor = view.superview
+            }
+            guard let root else { return }
+            // HSplitView creates additional hosts for its panes. Disabling only
+            // the outer host leaves those panes measuring the entire subtree.
+            @MainActor func apply(_ view: NSView) {
+                (view as? any WorkbenchWindowSizingHost)?.useFixedWorkbenchSizing(preservingLimits: true)
+                for child in view.subviews { apply(child) }
+            }
+            apply(root)
+            window.contentMinSize = CGSize(width: 1000, height: 700)
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -313,8 +365,9 @@ final class WindowCloseView: NSView {
                 ancestor = view.superview
             }
             if let host {
-                host.useFixedWorkbenchSizing()
+                host.useFixedWorkbenchSizing(preservingLimits: false)
                 window.contentMinSize = CGSize(width: 1000, height: 700)
+                scheduleWorkbenchSizing()
                 // AppKit can finish attaching the hosting view after this hook
                 // and reset its minimum; apply it after that transaction too.
                 DispatchQueue.main.async { [weak self, weak window] in

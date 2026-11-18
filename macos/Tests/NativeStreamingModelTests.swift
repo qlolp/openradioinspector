@@ -10,6 +10,50 @@ import SpektrKomandy
 final class NativeStreamingModelTests: XCTestCase {
     @MainActor final class ObservationCount { var value = 0 }
 
+    @MainActor func testWorkbenchSplitPanesUseFixedSizingToo() async throws {
+        let host = NSHostingView(rootView: HSplitView {
+            Color.blue.frame(minWidth: 640)
+            Color.red.frame(minWidth: 280, maxWidth: 300)
+        }.background(WindowCloseObserver { }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1020, height: 700),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        func hosts(in view: NSView) -> [any WorkbenchSizingSnapshot] {
+            let current = (view as? any WorkbenchSizingSnapshot).map { [$0] } ?? []
+            return current + view.subviews.flatMap { hosts(in: $0) }
+        }
+        let snapshots = hosts(in: host)
+        XCTAssertGreaterThan(snapshots.count, 1, "Exercise AppKit's split-pane hosting views")
+        for snapshot in snapshots {
+            XCTAssertFalse(snapshot.usesAutomaticWorkbenchSizing,
+                "Split-pane hosts must not remeasure the workbench on every incoming frame: \(snapshot)")
+        }
+        func splitView(in view: NSView) -> NSSplitView? {
+            (view as? NSSplitView) ?? view.subviews.lazy.compactMap { splitView(in: $0) }.first
+        }
+        let split = try XCTUnwrap(splitView(in: host))
+        XCTAssertEqual(split.arrangedSubviews.count, 2)
+        split.setPosition(100, ofDividerAt: 0)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[0].bounds.width, 640)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].bounds.width, 280)
+        XCTAssertLessThanOrEqual(split.arrangedSubviews[1].bounds.width, 300)
+        split.setPosition(10_000, ofDividerAt: 0)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[0].bounds.width, 640)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].bounds.width, 280)
+        XCTAssertLessThanOrEqual(split.arrangedSubviews[1].bounds.width, 300)
+    }
+
     @MainActor func testWorkbenchWindowUsesFixedMinimumInsteadOfRepeatedIntrinsicSizing() async throws {
         let host = NSHostingView(rootView: Color.blue.background(WindowCloseObserver { }))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
@@ -659,4 +703,12 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(model.current.map(\.y), [-65.25, -55.125, -45.5])
         XCTAssertEqual(responses.mutations, 0)
     }
+}
+
+@MainActor private protocol WorkbenchSizingSnapshot: AnyObject {
+    var usesAutomaticWorkbenchSizing: Bool { get }
+}
+
+extension NSHostingView: WorkbenchSizingSnapshot {
+    fileprivate var usesAutomaticWorkbenchSizing: Bool { !sizingOptions.isEmpty }
 }
