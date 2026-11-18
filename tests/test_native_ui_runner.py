@@ -14,6 +14,7 @@ CASES = (
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
     'testEventOpensExactOriginalAlongsideReception',
+    'testHistoricalEventOpensReadOnlyOriginalWithoutSwitchingAcquisition',
 )
 
 
@@ -30,12 +31,14 @@ class NativeUIFixtureTests(unittest.TestCase):
             self.assertEqual(len(projects.list('project')), 2)
             for project in projects.list('project'):
                 events = projects.list('event', project['id'])
-                self.assertEqual(len(events), 1)
-                source = events[0]['source_refs'][0]
-                originals = service.list_sweeps(source['session_id'], stream_id=source['stream_id'])
-                original = next(row for row in originals if row.id == source['sweep_id'])
-                self.assertEqual(original.level_unit, 'dBm')
-                self.assertEqual(list(original.levels), [-100, -51, -0.0])
+                self.assertEqual(len(events), 2 if project['id'] == 'ui-project-one' else 1)
+                for event in events:
+                    source = event['source_refs'][0]
+                    self.assertIn(source['session_id'], project['session_ids'])
+                    originals = service.list_sweeps(source['session_id'], stream_id=source['stream_id'])
+                    original = next(row for row in originals if row.id == source['sweep_id'])
+                    self.assertEqual(original.level_unit, 'dBm')
+                    self.assertEqual(list(original.levels), [-100, -51, -0.0])
                 self.assertFalse(project['autostart'])
                 self.assertEqual(project['state'], 'draft')
 

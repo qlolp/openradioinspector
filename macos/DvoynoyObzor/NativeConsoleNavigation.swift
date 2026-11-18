@@ -49,6 +49,7 @@ struct NativeConsoleNavigation: Codable, Equatable {
 
     mutating func activate(_ context: NativeConsoleContext, legacyTab: String = "") {
         guard context != active else { return }
+        let presentedSettings = destination.settings
         if let active {
             saved.removeAll { $0.context == active }
             // A sheet is transient, not a command to reopen settings on every visit.
@@ -58,8 +59,40 @@ struct NativeConsoleNavigation: Codable, Equatable {
         }
         let next = saved.first { $0.context == context }?.destination
         destination = next ?? NativeConsoleDestination(legacyTab: active == nil ? legacyTab : "")
+        if let presentedSettings { destination.settings = presentedSettings }
         saved = Array(saved.suffix(32))
         active = context
+    }
+}
+
+struct NativeConsolePreflightEvidence {
+    private var verified: ContinuousClock.Instant?
+    mutating func verify(at now: ContinuousClock.Instant = .now) { verified = now }
+    mutating func invalidate() { verified = nil }
+    func isCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
+        guard let verified else { return false }
+        let age = verified.duration(to: now)
+        return age >= .zero && age <= .seconds(15)
+    }
+}
+
+struct NativeConsoleVerdictDraft {
+    var disposition = "unreviewed"
+    var comment = ""
+    private var context: Int?
+    private var event = Data()
+    private var savedDisposition = "unreviewed"
+    private var savedComment = ""
+    var dirty: Bool { disposition != savedDisposition || Data(comment.utf8) != Data(savedComment.utf8) }
+    var valid: Bool {
+        ["unreviewed", "authorized", "false_positive", "investigate"].contains(disposition) && comment.unicodeScalars.count <= 1000
+    }
+    mutating func receive(context: Int, event: String, disposition: String, comment: String, force: Bool = false) {
+        let reset = self.context != context || self.event != Data(event.utf8) || !dirty || force
+        self.context = context; self.event = Data(event.utf8)
+        savedDisposition = disposition.isEmpty ? "unreviewed" : disposition
+        savedComment = comment
+        if reset { self.disposition = savedDisposition; self.comment = savedComment }
     }
 }
 

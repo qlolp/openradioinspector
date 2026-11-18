@@ -110,7 +110,27 @@ final class WorkbenchUITests: XCTestCase {
         app.typeKey("2", modifierFlags: .command)
         app.typeKey("1", modifierFlags: .command)
         XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertEqual(source.value as? String, "ui-one-sweep-1")
         XCTAssertTrue(text(element("spectrum.context", in: app)).contains("ИСТОРИЯ"))
+    }
+
+    @MainActor func testHistoricalEventOpensReadOnlyOriginalWithoutSwitchingAcquisition() throws {
+        let app = try launch(test: #function); defer { app.terminate() }
+        let before = app.popUpButtons["workbench.session"].value as? String
+        let event = element("observation.event.ui-event-older", in: app)
+        XCTAssertTrue(event.waitForExistence(timeout: 15)); event.click()
+        let open = app.buttons["observation.open-source"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: open)
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(app.buttons["observation.enqueue"].isEnabled,
+            "An old-run source cannot be queued against the current receiver context")
+        open.click()
+        let original = app.staticTexts["source-sheet.id"]
+        XCTAssertTrue(original.waitForExistence(timeout: 10))
+        XCTAssertEqual(original.label, "ui-two-sweep-1")
+        app.buttons["source-sheet.close"].click()
+        XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
+        XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
     }
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {

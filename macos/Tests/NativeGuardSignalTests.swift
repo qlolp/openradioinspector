@@ -44,6 +44,58 @@ final class NativeGuardSignalTests: XCTestCase {
     }
 
     @MainActor
+    func testConsoleReviewPreservesIndependentResearchSelection() async throws {
+        let lock = NSLock()
+        var reviewed = false
+        let model = try makeModel { stub in
+            let disposition = lock.withLock { reviewed ? "authorized" : "unreviewed" }
+            let event: [String: Any] = ["id": "console-event", "project_id": "p", "disposition": disposition]
+            switch stub.request.url!.path {
+            case "/api/v1/monitoring-projects/p/events": stub.reply(["items": [event]])
+            case "/api/v1/monitoring-projects/p/events/console-event": stub.reply(event)
+            case "/api/v1/monitoring-projects/p/events/console-event/review":
+                let body = try! JSONSerialization.jsonObject(with: stub.submittedBody()!) as! [String: String]
+                XCTAssertEqual(body, ["disposition": "authorized", "comment": "checked"])
+                lock.withLock { reviewed = true }
+                stub.reply(["id": "console-event", "project_id": "p", "disposition": "authorized", "operator_comment": "checked"])
+            default: XCTFail("Unexpected console request"); stub.reply([:], status: 404)
+            }
+        }
+        model.selectedEvent = "independent-research"
+        await model.pollSignalEvents()
+        model.selectSignalEvent("console-event")
+        await model.loadSignalEvent("console-event")
+        await model.reviewSignalEvent(eventID: "console-event", disposition: "authorized", comment: "checked")
+        XCTAssertEqual(model.signalEvent["disposition"].text, "authorized")
+        XCTAssertEqual(model.selectedEvent, "independent-research")
+        XCTAssertEqual(model.consoleVerdict.comment, "checked")
+        XCTAssertFalse(model.consoleVerdict.dirty)
+        XCTAssertFalse(model.signalPending.contains(.review))
+        XCTAssertNil(model.signalErrors[.review])
+    }
+
+    @MainActor
+    func testFailedPreflightCannotRetainPositiveReadyEvidence() async throws {
+        let lock = NSLock(); var failed = false
+        let model = try makeModel { stub in
+            switch stub.request.url!.path {
+            case "/api/v1/health": stub.reply(["last_event_id": 1])
+            case "/api/v1/monitoring-projects/p/status":
+                stub.reply(["active": false, "project": ["id": "p", "state": "draft"]])
+            case "/api/v1/monitoring-projects/p/preflight":
+                stub.reply(["ready": true], status: lock.withLock { failed ? 503 : 200 })
+            default: XCTFail("Unexpected preflight request"); stub.reply([:], status: 404)
+            }
+        }
+        await model.refreshStatus(); await model.checkPreflight()
+        XCTAssertTrue(model.preflightIsCurrent())
+        lock.withLock { failed = true }
+        await model.checkPreflight()
+        XCTAssertEqual(model.preflight, .null)
+        XCTAssertFalse(model.preflightIsCurrent())
+    }
+
+    @MainActor
     private func makeModel(handler: @escaping (Stub) -> Void) throws -> MonitoringWorkspaceModel {
         Stub.handle = handler
         let configuration = URLSessionConfiguration.ephemeral

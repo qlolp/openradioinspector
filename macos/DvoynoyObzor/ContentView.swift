@@ -30,9 +30,11 @@ struct ContentView: View {
     @AppStorage("native.console.navigation.v1") private var savedNavigation = Data()
     @State private var navigation = NativeConsoleNavigation()
     @State private var restoredNavigation = false
+    @State private var sourceSheet: PlatformSweep?
+    @State private var prepareAfterSettings = false
 
     private var consoleContext: NativeConsoleContext {
-        .init(server: model.serverURL, project: workspace.selected,
+        .init(server: model.client?.baseURL.root.absoluteString ?? "", project: workspace.selected,
               session: model.selectedSessionID, stream: model.analyzer?.id ?? "")
     }
 
@@ -70,7 +72,7 @@ struct ContentView: View {
             NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode,
                                  openWorkspace: { navigation.destination.settings = .guardSettings })
             NativeObservationActions(model: model, workspace: workspace,
-                prepare: { showRCPreparation = true },
+                prepare: presentPreparation,
                 settings: { navigation.destination.settings = $0 })
             Group {
                 switch navigation.destination.page {
@@ -81,11 +83,9 @@ struct ContentView: View {
                             .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
                         NativeGuardSignalsPane(workspace: workspace,
                             openGuard: { navigation.destination.settings = .guardSettings }, compact: true,
-                            openOriginal: { sweep in
-                                model.reviewedSweep = sweep
-                                model.reviewedSweepRequest = UUID()
-                            }, openReceiver: { navigation.destination.settings = .receiver }, remote: model)
+                            openReceiver: { navigation.destination.settings = .receiver }, remote: model)
                             .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
+                            .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("observation.events")
                     }
                 case .archive:
@@ -101,8 +101,12 @@ struct ContentView: View {
             observe: { navigation.destination.page = .observation },
             archive: { navigation.destination.page = .archive },
             settings: { navigation.destination.settings = .connection },
-            prepare: { if model.connected { showRCPreparation = true } else { navigation.destination.settings = .connection } }))
+            prepare: { if model.connected { presentPreparation() } else { navigation.destination.settings = .connection } }))
         .background(NativeMonitoringLifecycle(model: model, workspace: workspace))
+        .task {
+            await NativeConsoleServiceWatch.run(enabled: NativeLocalService.isPersonalRC,
+                                               inspect: { await localService.inspect() })
+        }
         .onChange(of: consoleContext, initial: true) { _, context in
             if !restoredNavigation {
                 navigation = (try? JSONDecoder().decode(NativeConsoleNavigation.self, from: savedNavigation)) ?? NativeConsoleNavigation()
@@ -119,15 +123,27 @@ struct ContentView: View {
         .onChange(of: setupExpanded) { _, expanded in
             if expanded { navigation.destination.settings = .connection; setupExpanded = false }
         }
-        .sheet(item: Binding(get: { navigation.destination.settings }, set: { navigation.destination.settings = $0 })) { section in
+        .sheet(item: Binding(get: { navigation.destination.settings }, set: { navigation.destination.settings = $0 }),
+               onDismiss: {
+                   if prepareAfterSettings { prepareAfterSettings = false; showRCPreparation = true }
+               }) { section in
             NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: $workspaceMode,
-                                      initialSection: section) { devicesPage }
+                                      initialSection: section, access: nodeConnection.authorizedNode?.access) { devicesPage }
         }
+        .onChange(of: workspace.signalOriginal) { _, sweep in
+            guard navigation.destination.settings == nil, let sweep else { return }
+            if PlatformExactID.same(sweep.sessionId, model.selectedSessionID),
+               PlatformExactID.same(sweep.streamId, model.analyzer?.id ?? "") {
+                model.reviewedSweep = sweep; model.reviewedSweepRequest = UUID()
+            } else { sourceSheet = sweep }
+            workspace.clearSignalOriginal()
+        }
+        .sheet(item: $sourceSheet) { NativeGuardOriginalPane(sweep: $0) }
         .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { navigation.destination.page = .observation } }
-        .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model:model) }
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showFrequencyHistory }, set: { model.showFrequencyHistory = $0 })) { NativeFrequencyHistoryPane(model:model) }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
-        .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
-        .sheet(isPresented: $model.showTinySAControl) {
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showSerialForm }, set: { model.showSerialForm = $0 })) { RemoteSerialSessionPane(model: model) }
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showTinySAControl }, set: { model.showTinySAControl = $0 })) {
             RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
                 client: model.client, access: nodeConnection.authorizedNode?.access)
         }
@@ -201,6 +217,12 @@ struct ContentView: View {
         guard !model.selectedSessionID.isEmpty,
               PlatformExactID.same(project["active_session_id"].text, model.selectedSessionID) else { return [] }
         return project["scan_plan"]["config"]["bands"].items
+    }
+
+    private func presentPreparation() {
+        if navigation.destination.settings != nil {
+            prepareAfterSettings = true; navigation.destination.settings = nil
+        } else { showRCPreparation = true }
     }
 
     private var devicesPage: some View {

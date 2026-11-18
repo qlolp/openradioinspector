@@ -518,6 +518,7 @@ final class RemoteDualModel {
         configureAuxiliaryStreams(client: nil, session: nil)
         if let watermark {
             archiveHighWatermark = watermark
+            consoleInvestigation.invalidateArchiveEvidence()
             // A possible write in the old archive cannot confirm evidence in its replacement.
             uncertainReferenceScopes.removeAll(); referenceNoticeScope = nil; referenceWriteNotice = nil
         }
@@ -891,6 +892,7 @@ final class RemoteDualModel {
 
     private func clearMeasurements(preservingReplay: Bool = false) {
         spectrumViewMemory.snapshot = nil
+        consoleInvestigation.configure(nil)
         resetMeasurementHealth()
         if !preservingReplay { measurementStream.stop() }
         archiveCacheVerified = false

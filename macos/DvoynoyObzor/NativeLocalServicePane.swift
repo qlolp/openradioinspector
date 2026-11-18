@@ -34,11 +34,5 @@ struct NativeLocalServicePane: View {
             Text("Аудиозахват и тяжёлая Python/DuckDB-аналитика в RC1 недоступны. Физическая приёмка ещё не выполнена.")
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(12).background(.quaternary)
-            .task {
-                while !Task.isCancelled {
-                    await service.inspect()
-                    do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                }
-            }
     }
 }

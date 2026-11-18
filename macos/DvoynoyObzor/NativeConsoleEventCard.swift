@@ -7,21 +7,19 @@ struct NativeConsoleEventCard: View {
     let detail: NativeGuardSignal?
     let openReceiver: () -> Void
     var remote: RemoteDualModel?
-    @State private var seeded: PlatformExactID?
-    @State private var verdict = "unreviewed"
-    @State private var comment = ""
     @State private var queueTask: Task<Void, Never>?
     @State private var loadingSource = false
     @State private var queueError = ""
 
     private var signal: NativeGuardSignal { detail ?? summary }
     private var investigationScope: NativeConsoleInvestigation.Scope? {
-        guard let remote, let source = detail?.source, let receiver = remote.receiver,
+        guard let remote, let client = remote.client, let source = detail?.source, let receiver = remote.receiver,
+              signal.id == workspace.signalQueue.selectedID, workspace.signalEvent.exactID == signal.id,
               remote.coreReachable, source.sessionID == PlatformExactID(remote.selectedSessionID),
               source.streamID == PlatformExactID(remote.analyzer?.id ?? "") else { return nil }
-        return .init(server: remote.serverURL, project: workspace.selected, event: signal.id.rawValue,
+        return .init(server: client.baseURL.root.absoluteString, project: workspace.selected, event: signal.id.rawValue,
                      session: remote.selectedSessionID, analyzer: source.streamID.rawValue,
-                     receiver: receiver.id, source: source.sweepID.rawValue)
+                     receiver: receiver.id, source: source.sweepID.rawValue, runtime: client.baseURL.runtimeInstanceID ?? "")
     }
 
     var body: some View {
@@ -40,7 +38,7 @@ struct NativeConsoleEventCard: View {
                     if receiver != .null { Text(receiver["level"].scalar + " " + receiver["level_unit"].text) }
                     Button("В очередь AR-DV1") { enqueueOriginal() }
                         .disabled(investigationScope == nil || loadingSource || remote?.consoleInvestigation.pending == true ||
-                                  remote?.consoleInvestigation.investigationID != nil || remote?.consoleInvestigation.requiresReconciliation == true)
+                                  remote?.consoleInvestigation.canEnqueue != true)
                         .help("По пику исходного свипа внутри полосы события. Постановка в очередь не означает начало приёма.")
                         .accessibilityIdentifier("observation.enqueue")
                     if loadingSource || remote?.consoleInvestigation.pending == true {
@@ -62,17 +60,21 @@ struct NativeConsoleEventCard: View {
             }.font(.caption)
             GroupBox("Решение оператора") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("Результат разбора", selection: $verdict) {
+                    Picker("Результат разбора", selection: $workspace.consoleVerdict.disposition) {
                         Text("Не рассмотрено").tag("unreviewed")
                         Text("Разрешённый сигнал").tag("authorized")
                         Text("Ложное срабатывание").tag("false_positive")
                         Text("Исследовать").tag("investigate")
                     }
-                    TextField("Комментарий оператора", text: $comment, axis: .vertical).lineLimit(2...4)
+                    TextField("Комментарий оператора", text: $workspace.consoleVerdict.comment, axis: .vertical).lineLimit(2...4)
+                        .disabled(workspace.signalPending.contains(.review))
+                    Text("\(workspace.consoleVerdict.comment.unicodeScalars.count) / 1000 символов Unicode")
+                        .font(.caption).foregroundStyle(workspace.consoleVerdict.valid ? Color.secondary : Color.red)
+                    if workspace.consoleVerdict.dirty { Text("Есть несохранённые изменения").font(.caption).foregroundStyle(.secondary) }
                     Button("Сохранить решение") {
-                        let id = signal.id, value = verdict, note = comment
+                        let id = signal.id, value = workspace.consoleVerdict.disposition, note = workspace.consoleVerdict.comment
                         workspace.perform { await workspace.reviewSignalEvent(eventID: id, disposition: value, comment: note) }
-                    }.disabled(detail == nil || workspace.signalPending.contains(.review))
+                    }.disabled(detail == nil || !workspace.consoleVerdict.valid || workspace.signalPending.contains(.review))
                         .accessibilityIdentifier("observation.save-review")
                     if workspace.signalPending.contains(.review) { ProgressView("Сохранение…").controlSize(.small) }
                     ErrorLine(text: workspace.signalErrors[.review] ?? "")
@@ -86,8 +88,6 @@ struct NativeConsoleEventCard: View {
                 }
             }.font(.caption).textSelection(.enabled)
         }
-        .onChange(of: signal.id, initial: true) { _, _ in seeded = nil; seed() }
-        .onChange(of: detail?.id) { _, _ in seed() }
         .onChange(of: investigationScope, initial: true) { _, scope in
             queueTask?.cancel(); queueTask = nil; loadingSource = false; queueError = ""
             remote?.consoleInvestigation.configure(scope)
@@ -98,13 +98,6 @@ struct NativeConsoleEventCard: View {
             remote?.consoleInvestigation.configure(investigationScope)
         }
         .onDisappear { queueTask?.cancel() }
-    }
-
-    private func seed() {
-        guard let detail, seeded != detail.id else { return }
-        seeded = detail.id
-        verdict = detail.value["disposition"].text.isEmpty ? "unreviewed" : detail.value["disposition"].text
-        comment = detail.value["operator_comment"].text
     }
 
     private func enqueueOriginal() {
@@ -122,9 +115,11 @@ struct NativeConsoleEventCard: View {
                 guard scope == investigationScope, client === remote.client else { return }
                 try await remote.consoleInvestigation.enqueue(scope: scope, original: original, startHz: start, stopHz: stop,
                     mode: mode, create: { draft in
-                        try await client.createCandidate(sessionID: scope.session.rawValue, draft: draft).id
+                        guard scope == investigationScope, client === remote.client, !Task.isCancelled else { throw CancellationError() }
+                        return try await client.createCandidate(sessionID: scope.session.rawValue, draft: draft).id
                     }, enqueue: { candidate, draft in
-                        try await client.enqueueInvestigation(sessionID: scope.session.rawValue, candidateID: candidate, draft: draft).id
+                        guard scope == investigationScope, client === remote.client, !Task.isCancelled else { throw CancellationError() }
+                        return try await client.enqueueInvestigation(sessionID: scope.session.rawValue, candidateID: candidate, draft: draft).id
                     })
                 if scope == investigationScope { await remote.refresh() }
             } catch is CancellationError { }

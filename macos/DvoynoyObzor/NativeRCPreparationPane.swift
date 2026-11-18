@@ -11,11 +11,16 @@ struct NativeRCPreparationPane: View {
     @State private var stopMHz = "108"
     private let stages = ["Проект и приборы", "Подключение", "Эталон", "Готовность"]
     @Environment(\.dismiss) private var dismiss
-    private var readiness: NativeRCReadiness { .init(preflight: workspace.preflight) }
+    private var verified: Bool { model.coreReachable && workspace.preflightIsCurrent() }
+    private var readiness: NativeRCReadiness { .init(preflight: verified ? workspace.preflight : .null) }
     private var ownsProject: Bool { flow.owns(workspace) }
     private var busy: Bool { flow.busy || workspace.pending || !workspace.operationsPending.isEmpty }
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in content }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Подготовка tinySA Ultra + AR-DV1").font(.title2.weight(.semibold))
@@ -70,7 +75,7 @@ struct NativeRCPreparationPane: View {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
             }
         }
-        .onChange(of: ownsProject) { _, owns in if owns { stage = 1 } else { stage = 0 } }
+        .onChange(of: ownsProject) { _, owns in if owns { stage = workspace.isArmed ? 3 : 1 } else { stage = 0 } }
         .onChange(of: startMHz) { _, value in flow.draft.startHz = NativeConsoleFrequency.hertz(value) ?? "" }
         .onChange(of: stopMHz) { _, value in flow.draft.stopHz = NativeConsoleFrequency.hertz(value) ?? "" }
         .onDisappear { flow.cancel() }
@@ -161,7 +166,7 @@ struct NativeRCPreparationPane: View {
     }
     private var baseline: some View {
         let collection = workspace.preflight["baseline_collection"]
-        let progress = NativeBaselineProgress(preflight: workspace.preflight)
+        let progress = NativeBaselineProgress(preflight: verified ? workspace.preflight : .null)
         return GroupBox("3 · Эталон и бюджет восьми часов") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Совместимые полные свипы: \(collection["sweeps"].scalar) / 20 · интервал: \(collection["elapsed_seconds"].scalar) / 60 с").monospacedDigit()
@@ -192,17 +197,23 @@ struct NativeRCPreparationPane: View {
     private var acceptance: some View {
         GroupBox("4 · Постановка на охрану") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(workspace.preflight["checks"].items.enumerated()), id: \.offset) { _, check in
-                    Label(check["detail"].text, systemImage: check["ok"].bool == true ? "checkmark.circle" : "exclamationmark.circle").font(.caption)
+                if verified {
+                    ForEach(Array(workspace.preflight["checks"].items.enumerated()), id: \.offset) { _, check in
+                        Label(check["detail"].text, systemImage: check["ok"].bool == true ? "checkmark.circle" : "exclamationmark.circle").font(.caption)
+                    }
+                } else {
+                    Label("Готовность не подтверждена. Обновите состояние ядра и проекта.", systemImage: "exclamationmark.circle")
+                    Button("Обновить готовность") { workspace.perform { await workspace.refreshStatus(); await workspace.checkPreflight() } }
+                        .disabled(!model.coreReachable || busy)
                 }
                 HStack {
-                    Button("Поставить на охрану") { workspace.perform { await workspace.command("arm", success: "Охрана включена.") } }
+                    Button("Поставить на охрану") { guard verified else { return }; workspace.perform { await workspace.command("arm", success: "Охрана включена.") } }
                         .buttonStyle(.borderedProminent)
-                        .disabled(busy || !workspace.canArm || workspace.preflight["ready"].bool != true || !readiness.budgetReady)
+                        .disabled(!verified || busy || !workspace.canArm || workspace.preflight["ready"].bool != true || !readiness.budgetReady)
                         .accessibilityIdentifier("preparation.arm")
                     Button("Снять с охраны") { workspace.perform { await workspace.command("disarm", success: "Охрана выключена.") } }
-                        .disabled(busy || !workspace.isArmed)
-                    Text(workspace.isArmed ? "Охрана работает независимо от окна." : "Автопостановка выключена.").font(.caption)
+                        .disabled(!model.coreReachable || !workspace.projectStatusIsCurrent() || busy || !workspace.isArmed)
+                    Text(!workspace.projectStatusIsCurrent() ? "Состояние охраны не подтверждено." : (workspace.isArmed ? "Охрана работает независимо от окна." : "Автопостановка выключена.")).font(.caption)
                 }
                 Text("Аппаратная приёмка остаётся отдельной: 30 минут нагрузки и 8 часов с приборами на фактической macOS 27.3 ещё требуются.")
                     .font(.caption).foregroundStyle(.secondary)

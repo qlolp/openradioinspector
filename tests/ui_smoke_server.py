@@ -54,6 +54,17 @@ def _populate(service):
             analysis=dict(state='no_observations'), source_refs=[dict(
                 session_id=session.id, stream_id='ui-spectrum-' + suffix,
                 sweep_id=f'ui-{suffix}-sweep-1')]))
+    projects = ProjectStore(service._store)
+    first = projects.get('project', 'ui-project-one')
+    first['session_ids'].append('ui-two')
+    projects.put('project', first)
+    older = projects.get('event', 'ui-event-one')
+    older.update(id='ui-event-older', run_session_id='ui-two',
+                 created_at=(base - timedelta(seconds=10)).isoformat(),
+                 first_seen=(base - timedelta(seconds=10)).isoformat(),
+                 last_seen=(base - timedelta(seconds=10)).isoformat(),
+                 source_refs=[dict(session_id='ui-two', stream_id='ui-spectrum-two', sweep_id='ui-two-sweep-1')])
+    projects.put('event', older)
     return {'session': 'ui-one', 'synthetic': True, 'hardware_opened': False}
 
 

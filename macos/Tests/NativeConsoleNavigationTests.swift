@@ -5,6 +5,41 @@ import XCTest
 #endif
 
 final class NativeConsoleNavigationTests: XCTestCase {
+    func testChangingContextKeepsThePresentedSettingsSection() {
+        var navigation = NativeConsoleNavigation()
+        navigation.activate(.init(server: "core", project: "a", session: "one", stream: "tiny"))
+        navigation.destination.settings = .guardSettings
+        navigation.activate(.init(server: "core", project: "b", session: "two", stream: "tiny"))
+        XCTAssertEqual(navigation.destination.settings, .guardSettings)
+    }
+
+    func testPristineVerdictTracksServerAndDirtyDraftWaitsForExplicitSave() {
+        var draft = NativeConsoleVerdictDraft()
+        draft.receive(context: 1, event: "e", disposition: "unreviewed", comment: "")
+        draft.comment = "local edit"
+        draft.receive(context: 1, event: "e", disposition: "authorized", comment: "remote edit")
+        XCTAssertEqual(draft.comment, "local edit")
+        XCTAssertTrue(draft.dirty)
+        draft.receive(context: 1, event: "e", disposition: "investigate", comment: "accepted", force: true)
+        XCTAssertEqual(draft.comment, "accepted")
+        XCTAssertEqual(draft.disposition, "investigate")
+        XCTAssertFalse(draft.dirty)
+        draft.comment = String(repeating: "я", count: 1001)
+        XCTAssertFalse(draft.valid)
+        draft.receive(context: 2, event: "e", disposition: "unreviewed", comment: "another project")
+        XCTAssertEqual(draft.comment, "another project")
+    }
+
+    func testPreflightEvidenceExpiresAndFailureInvalidatesIt() {
+        var evidence = NativeConsolePreflightEvidence()
+        let now = ContinuousClock.now
+        XCTAssertFalse(evidence.isCurrent(at: now))
+        evidence.verify(at: now)
+        XCTAssertTrue(evidence.isCurrent(at: now.advanced(by: .seconds(15))))
+        XCTAssertFalse(evidence.isCurrent(at: now.advanced(by: .seconds(16))))
+        evidence.invalidate()
+        XCTAssertFalse(evidence.isCurrent(at: now))
+    }
     func testMegahertzInputKeepsExactHertzAndRejectsAmbiguousNotation() {
         XCTAssertEqual(NativeConsoleFrequency.hertz("88,700001"), "88700001")
         XCTAssertEqual(NativeConsoleFrequency.hertz("800.000000"), "800000000")

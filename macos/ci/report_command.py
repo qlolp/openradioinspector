@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-ERROR = re.compile(r'(?P<file>[^\r\n]+\.swift):(?P<line>\d+):(?P<column>\d+): error: (?P<message>.*)')
+ERROR = re.compile(r'(?P<file>[^\r\n]+\.swift):(?P<line>\d+)(?::(?P<column>\d+))?: error: (?P<message>.*)')
 
 
 def escape(value, *, property=False):
@@ -25,8 +25,21 @@ def annotation(line):
             path = path.relative_to(ROOT)
         except ValueError:
             return '::error::' + escape(match['message'][:4000])
-    return (f'::error file={escape(path.as_posix(), property=True)},line={match["line"]},'
-            f'col={match["column"]}::' + escape(match['message'][:4000]))
+    column = f',col={match["column"]}' if match['column'] else ''
+    return (f'::error file={escape(path.as_posix(), property=True)},line={match["line"]}{column}::'
+            + escape(match['message'][:4000]))
+
+
+def report_log_annotations(directory):
+    errors = set()
+    for path in sorted(Path(directory).glob('*.log')):
+        with path.open(encoding='utf-8', errors='replace') as stream:
+            for line in stream:
+                error = annotation(line)
+                if error and error not in errors and len(errors) < 30:
+                    errors.add(error)
+                    print(error, flush=True)
+    return len(errors)
 
 
 def main(argv=None):

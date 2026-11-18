@@ -58,6 +58,7 @@ struct NativeConsoleSettingsPane<Connection: View>: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @Binding var workspaceMode: String
     let initialSection: NativeConsoleSettings
+    var access: NativeNodeAccess?
     @ViewBuilder let connection: () -> Connection
     @State private var section = NativeConsoleSettings.connection
     @Environment(\.dismiss) private var dismiss
@@ -99,5 +100,14 @@ struct NativeConsoleSettingsPane<Connection: View>: View {
                 .font(.caption).foregroundStyle(.secondary)
         }.padding(20).frame(minWidth: 900, idealWidth: 960, minHeight: 580, idealHeight: 650)
             .onAppear { section = initialSection }
+            .sheet(item: Binding(get: { workspace.signalOriginal }, set: { _ in workspace.clearSignalOriginal() })) {
+                NativeGuardOriginalPane(sweep: $0)
+            }
+            .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
+            .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model: model) }
+            .sheet(isPresented: $model.showTinySAControl) {
+                RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID,
+                    streamID: model.analyzer?.id ?? "", client: model.client, access: access)
+            }
     }
 }

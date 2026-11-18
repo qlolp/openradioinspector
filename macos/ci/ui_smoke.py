@@ -23,6 +23,7 @@ CASES = {
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
     'testEventOpensExactOriginalAlongsideReception',
+    'testHistoricalEventOpensReadOnlyOriginalWithoutSwitchingAcquisition',
 }
 
 
@@ -127,6 +128,8 @@ def main(argv=None):
         report['successful'] = True
     except Exception as error:
         report['errors'].append(dict(type=type(error).__name__, message=str(error)))
+        from macos.ci.report_command import report_log_annotations
+        report['diagnostic_annotations'] = report_log_annotations(root)
     finally:
         if fixture is not None:
             try:

@@ -129,7 +129,7 @@ final class NativeRCPreparationModel: ObservableObject {
     }
 
     func saveBaseline(workspace: MonitoringWorkspaceModel) async {
-        guard let client, owns(workspace), !busy, workspace.baselineConfirmed,
+        guard let client, owns(workspace), !busy, workspace.baselineConfirmed, workspace.preflightIsCurrent(),
               workspace.savedPreparationReady, !workspace.preparationDirty,
               NativeRCReadiness(preflight: workspace.preflight).baselineCollected else { return }
         let token = revision, id = projectID

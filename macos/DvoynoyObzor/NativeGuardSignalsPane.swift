@@ -5,7 +5,6 @@ struct NativeGuardSignalsPane: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     let openGuard: () -> Void
     var compact = false
-    var openOriginal: ((PlatformSweep) -> Void)?
     var openReceiver: (() -> Void)?
     var remote: RemoteDualModel?
     @State private var confirming = false
@@ -67,19 +66,12 @@ struct NativeGuardSignalsPane: View {
             if let id = detailScope.eventID { await workspace.loadSignalEvent(id) }
         }
         .onChange(of: detailScope) { _, _ in confirming = false }
-        .onChange(of: workspace.signalOriginal?.id) { _, _ in
-            guard let openOriginal, let sweep = workspace.signalOriginal else { return }
-            openOriginal(sweep)
-            workspace.clearSignalOriginal()
-        }
         .sheet(isPresented: $confirming) {
             if let id = workspace.signalQueue.selectedID {
                 NativeKnownSignalEditor(workspace: workspace, eventID: id)
             }
         }
-        .sheet(item: Binding(get: { openOriginal == nil ? workspace.signalOriginal : nil }, set: { _ in workspace.clearSignalOriginal() })) { sweep in
-            if openOriginal == nil { NativeGuardOriginalPane(sweep: sweep) }
-        }
+
     }
 
     private var compactActions: some View {
@@ -128,6 +120,7 @@ struct NativeGuardSignalsPane: View {
                     Text(signal.value["last_seen"].scalar + " UTC").font(.caption2)
                         .foregroundStyle(.secondary).monospacedDigit()
                 }.padding(.vertical, 4).tag(signal.id)
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("observation.event." + signal.id.rawValue)
             }
         }.overlay {
@@ -366,7 +359,7 @@ private struct NativeGuardSignalEvidence: View {
 
 }
 
-private struct NativeGuardOriginalPane: View {
+struct NativeGuardOriginalPane: View {
     let sweep: PlatformSweep
     @Environment(\.dismiss) private var dismiss
 
@@ -375,9 +368,9 @@ private struct NativeGuardOriginalPane: View {
             HStack {
                 Text("Исходный свип tinySA").font(.headline)
                 Spacer()
-                Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction).accessibilityIdentifier("source-sheet.close")
             }
-            Text(sweep.id).textSelection(.enabled)
+            Text(sweep.id).textSelection(.enabled).accessibilityIdentifier("source-sheet.id")
             Text("Сеанс \(sweep.sessionId) · поток \(sweep.streamId)").textSelection(.enabled)
             Text("\(sweep.interval.startedAt) — \(sweep.interval.endedAt) · \(sweep.levels.count) точек")
                 .font(.caption.monospacedDigit()).textSelection(.enabled)

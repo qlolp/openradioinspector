@@ -16,6 +16,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var status: MonitoringValue = .null
     @Published private(set) var projectStatusVerifiedAt: ContinuousClock.Instant?
     @Published var preflight: MonitoringValue = .null
+    @Published private(set) var preflightEvidence = NativeConsolePreflightEvidence()
+    @Published var consoleVerdict = NativeConsoleVerdictDraft()
     @Published var events: [MonitoringValue] = []
     @Published var selectedEvent = ""
     @Published var event: MonitoringValue = .null
@@ -111,6 +113,9 @@ final class MonitoringWorkspaceModel: ObservableObject {
               let verified = projectStatusVerifiedAt else { return false }
         let age = verified.duration(to: now)
         return age >= .zero && age <= .seconds(15)
+    }
+    func preflightIsCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
+        preflight != .null && projectStatusIsCurrent(at: now) && preflightEvidence.isCurrent(at: now)
     }
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
@@ -243,6 +248,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         revision += 1; requestID = UUID(); pending = false
         status = .null; projectStatusVerifiedAt = nil
         preflight = .null; events = []; selectedEvent = ""; event = .null
+        preflightEvidence.invalidate(); consoleVerdict = NativeConsoleVerdictDraft()
         signalQueue = NativeGuardSignalQueue(); signalEvent = .null; signalOriginal = nil
         signalRequests = [:]; signalErrors = [:]; signalPending = []
         signalDetailPollValue = .null; signalDetailRefreshedAt = nil
@@ -442,8 +448,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func checkPreflight() async {
         guard !selected.isEmpty else { return }
+        preflightEvidence.invalidate()
         await operationsRequest("preflight", request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { result in
             preflight = result
+            preflightEvidence.verify()
         }
     }
 
@@ -534,6 +542,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private func resetSignalSelection() {
         cancelSignalRequests([.detail, .original, .confirm, .review])
         signalEvent = .null
+        consoleVerdict = NativeConsoleVerdictDraft(); knownSignalNotice = ""
         signalOriginal = nil
         signalDetailPollValue = .null
         signalDetailRefreshedAt = nil
@@ -546,6 +555,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
             try await client.monitoringEvent(projectID: project, eventID: id.rawValue, recognition: recognition)
         }) {
             signalEvent = $0
+            consoleVerdict.receive(context: revision, event: id.rawValue,
+                disposition: $0["disposition"].text, comment: $0["operator_comment"].text)
             updateSignalQueue { $0.markSelectedRead(id) }
             signalDetailPollValue = observed
             signalDetailRefreshedAt = .now
@@ -562,16 +573,23 @@ final class MonitoringWorkspaceModel: ObservableObject {
     func clearSignalOriginal() { signalOriginal = nil }
 
     func reviewSignalEvent(eventID: PlatformExactID, disposition: String, comment: String) async {
-        let context = revision
-        let saved = await signalRequest(.review, eventID: eventID, request: { client, project in
-            try await client.monitoringReviewEvent(projectID: project, eventID: eventID.rawValue,
-                                                  disposition: disposition, comment: comment)
+        guard comment.unicodeScalars.count <= 1000 else {
+            signalErrors[.review] = "Комментарий: не больше 1000 символов Unicode."; return
+        }
+        cancelSignalRequests([.detail])
+        await signalRequest(.review, eventID: eventID, request: { client, project in
+            let result = try await client.monitoringReviewEvent(projectID: project, eventID: eventID.rawValue,
+                                                              disposition: disposition, comment: comment)
+            guard PlatformExactID.same(result["id"].text, eventID.rawValue) else {
+                throw PlatformError.invalidResponse("Ядро подтвердило другое событие.")
+            }
+            return result
         }) { result in
             signalEvent = result
+            consoleVerdict.receive(context: revision, event: eventID.rawValue,
+                disposition: result["disposition"].text, comment: result["operator_comment"].text, force: true)
             knownSignalNotice = "Решение оператора сохранено."
         }
-        guard saved, context == revision, eventID == signalQueue.selectedID, !Task.isCancelled else { return }
-        await loadSignalEvent(eventID)
     }
 
     func loadKnownSignals(page: Int = 0) async {
@@ -839,6 +857,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
                operationsRequests[channel] == token, eventID == nil || PlatformExactID.same(selectedEvent, eventID), !Task.isCancelled {
                 operationsErrors[channel] = error.localizedDescription
                 if channel == "storage" { storage = .null }
+                if channel == "preflight" { preflight = .null; preflightEvidence.invalidate() }
             }
             return false
         }

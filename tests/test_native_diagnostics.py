@@ -1,6 +1,4 @@
 """Native compiler failures stay inspectable through the checks API."""
-from contextlib import redirect_stdout
-from io import StringIO
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +13,8 @@ class NativeDiagnosticsTests(unittest.TestCase):
         self.assertEqual(annotation(line),
             '::error file=macos/DvoynoyObzor/ContentView.swift,line=12,col=9::bad 50%25 [value]')
         self.assertIsNone(annotation('Build succeeded'))
+        self.assertEqual(annotation('example.swift:12: error: XCTest failed'),
+                         '::error file=example.swift,line=12::XCTest failed')
 
     def test_wrapper_preserves_child_output_and_failure_exit_status(self):
         result = subprocess.run([sys.executable, '-m', 'macos.ci.report_command', '--',
