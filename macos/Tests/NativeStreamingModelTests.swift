@@ -24,9 +24,10 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         XCTAssertTrue(host.sizingOptions.isEmpty, "Incoming frames must not remeasure the whole window's intrinsic size")
         XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
-        window.setContentSize(CGSize(width: 1300, height: 850))
+        // This resize also fits the CI console above the 1000×700 minimum.
+        window.setContentSize(CGSize(width: 1020, height: 700))
         host.layoutSubtreeIfNeeded()
-        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 1300, height: 850))
+        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 1020, height: 700))
         XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
     }
 
