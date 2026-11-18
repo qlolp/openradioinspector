@@ -91,9 +91,15 @@ its post-command audit. Replacing an executable at the same path fails.
 
 The hosted Chocolatey Ninja can put an I386 shim on `PATH` even though its
 upstream Ninja payload is x64. The resolver recognizes only the exact observed
-392,704-byte shim with SHA256
-`6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad`
-and its valid DOS/PE/I386 headers in the Chocolatey `bin` layout. It reads the
+392,704-byte shims with SHA256
+`6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad` or
+`5f28a6e14a6a821714290cd7456be145efed75df6dc01914f1cf5553b0372c15`,
+with valid DOS/PE/I386 headers in the Chocolatey `bin` layout. The second identity
+was observed on `windows-2025-vs2026` image `20261116.315.1` in
+[job 135044456778](https://github.com/qlolp/openradioinspector/actions/runs/44372967753/job/135044456778),
+diagnostic artifact `14460401458`. Recognizing a shim only permits inspection of
+the installed package; it neither executes nor accepts the shim as a build tool.
+The resolver reads the
 existing `lib/ninja/ninja.nupkg`, requires the published 1.13.2 package SHA512 and
 Nuspec identity/version, then verifies the embedded `tools/ninja-win_x32.zip` against
 upstream SHA256 `07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65`.
