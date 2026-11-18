@@ -21,6 +21,7 @@ enum NativeConsoleSettings: String, Codable, CaseIterable, Identifiable {
 struct NativeConsoleDestination: Codable, Equatable {
     var page: NativeConsolePage = .observation
     var settings: NativeConsoleSettings?
+    var research: Bool?
 
     init(legacyTab: String = "") {
         if legacyTab == "archive" { page = .archive }

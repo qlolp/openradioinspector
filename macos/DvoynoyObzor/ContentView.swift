@@ -12,7 +12,10 @@ struct ContentView: View {
     @State private var developmentCore = NativeDevelopmentCore()
     @State private var developmentConnectionTask: Task<Void, Never>?
     @State private var windowClosed = false
-    @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
+    @AppStorage("native.workspace") private var legacyWorkspaceMode = NativeWorkspace.monitoring.rawValue
+    private var workspaceMode: String {
+        navigation.destination.research == true ? NativeWorkspace.research.rawValue : NativeWorkspace.monitoring.rawValue
+    }
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
 
     init() {
@@ -108,12 +111,14 @@ struct ContentView: View {
                                                inspect: { await localService.inspect() })
         }
         .onChange(of: consoleContext, initial: true) { _, context in
+            let migrateMode = !restoredNavigation && savedNavigation.isEmpty
             if !restoredNavigation {
                 navigation = (try? JSONDecoder().decode(NativeConsoleNavigation.self, from: savedNavigation)) ?? NativeConsoleNavigation()
                 navigation.destination.settings = nil
                 restoredNavigation = true
             }
             navigation.activate(context, legacyTab: legacyTab)
+            if migrateMode { navigation.destination.research = legacyWorkspaceMode == NativeWorkspace.research.rawValue }
         }
         .onChange(of: navigation) { _, value in
             var stored = value
@@ -127,7 +132,9 @@ struct ContentView: View {
                onDismiss: {
                    if prepareAfterSettings { prepareAfterSettings = false; showRCPreparation = true }
                }) { section in
-            NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: $workspaceMode,
+            NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: Binding(
+                get: { workspaceMode },
+                set: { navigation.destination.research = $0 == NativeWorkspace.research.rawValue }),
                                       initialSection: section, access: nodeConnection.authorizedNode?.access) { devicesPage }
         }
         .onChange(of: workspace.signalOriginal) { _, sweep in

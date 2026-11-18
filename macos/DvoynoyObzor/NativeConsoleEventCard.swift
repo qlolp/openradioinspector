@@ -65,7 +65,7 @@ struct NativeConsoleEventCard: View {
                         Text("Разрешённый сигнал").tag("authorized")
                         Text("Ложное срабатывание").tag("false_positive")
                         Text("Исследовать").tag("investigate")
-                    }
+                    }.disabled(workspace.signalPending.contains(.review))
                     TextField("Комментарий оператора", text: $workspace.consoleVerdict.comment, axis: .vertical).lineLimit(2...4)
                         .disabled(workspace.signalPending.contains(.review))
                     Text("\(workspace.consoleVerdict.comment.unicodeScalars.count) / 1000 символов Unicode")

@@ -5,6 +5,21 @@ import XCTest
 #endif
 
 final class NativeConsoleNavigationTests: XCTestCase {
+    func testResearchModeBelongsToOneContextAndOneWindow() throws {
+        let migrated = try JSONDecoder().decode(NativeConsoleDestination.self,
+            from: Data(#"{"page":"observation"}"#.utf8))
+        XCTAssertFalse(migrated.research ?? false)
+        let one = NativeConsoleContext(server: "core", project: "a", session: "s", stream: "tiny")
+        let two = NativeConsoleContext(server: "core", project: "b", session: "s", stream: "tiny")
+        var first = NativeConsoleNavigation(), second = NativeConsoleNavigation()
+        first.activate(one); second.activate(one)
+        first.destination.research = true
+        XCTAssertFalse(second.destination.research ?? false)
+        first.activate(two)
+        XCTAssertFalse(first.destination.research ?? false)
+        first.activate(one)
+        XCTAssertTrue(first.destination.research ?? false)
+    }
     func testChangingContextKeepsThePresentedSettingsSection() {
         var navigation = NativeConsoleNavigation()
         navigation.activate(.init(server: "core", project: "a", session: "one", stream: "tiny"))
