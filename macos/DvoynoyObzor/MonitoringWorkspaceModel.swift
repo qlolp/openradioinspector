@@ -546,6 +546,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
             try await client.monitoringEvent(projectID: project, eventID: id.rawValue, recognition: recognition)
         }) {
             signalEvent = $0
+            updateSignalQueue { $0.markSelectedRead(id) }
             signalDetailPollValue = observed
             signalDetailRefreshedAt = .now
         }

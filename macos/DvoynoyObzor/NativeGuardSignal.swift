@@ -219,7 +219,11 @@ struct NativeGuardSignalQueue {
     mutating func select(_ id: PlatformExactID?) {
         guard id == nil || rows.contains(where: { $0.id == id }) else { return }
         selectedID = id
-        if isLatest, let id { unread.remove(id) }
+    }
+
+    mutating func markSelectedRead(_ id: PlatformExactID) {
+        guard selectedID == id, rows.contains(where: { $0.id == id }) else { return }
+        unread.remove(id)
     }
 
     private mutating func reconcileSelection() {

@@ -351,6 +351,8 @@ final class NativeGuardSignalTests: XCTestCase {
         inbox.select(old)
         XCTAssertEqual(inbox.unread, [new])
         inbox.select(new)
+        XCTAssertEqual(inbox.unread, [new], "Selection does not prove that the detail loaded")
+        inbox.markSelectedRead(new)
         XCTAssertTrue(inbox.unread.isEmpty)
         XCTAssertEqual(inbox.selected?.id, new)
 
