@@ -86,6 +86,31 @@ final class WorkbenchUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 10))
         app.buttons["settings.close"].click()
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
+        app.typeKey("2", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["archive.search"].waitForExistence(timeout: 10))
+        app.typeKey("1", modifierFlags: .command)
+        XCTAssertTrue(element("observation.events", in: app).waitForExistence(timeout: 10))
+    }
+
+    @MainActor func testEventOpensExactOriginalAlongsideReception() throws {
+        let app = try launch(test: #function); defer { app.terminate() }
+        let event = element("observation.event.ui-event-one", in: app)
+        XCTAssertTrue(event.waitForExistence(timeout: 15)); event.click()
+        let open = app.buttons["observation.open-source"]
+        let enabled = NSPredicate(format: "enabled == true")
+        expectation(for: enabled, evaluatedWith: open)
+        waitForExpectations(timeout: 10)
+        open.click()
+        let source = element("spectrum.range", in: app)
+        let exact = NSPredicate(format: "value == %@", "ui-one-sweep-1")
+        expectation(for: exact, evaluatedWith: source)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(text(element("spectrum.context", in: app)).contains("ИСТОРИЯ"))
+        XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
+        app.typeKey("2", modifierFlags: .command)
+        app.typeKey("1", modifierFlags: .command)
+        XCTAssertTrue(source.waitForExistence(timeout: 10))
+        XCTAssertTrue(text(element("spectrum.context", in: app)).contains("ИСТОРИЯ"))
     }
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {

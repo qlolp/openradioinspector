@@ -13,7 +13,31 @@ CASES = (
     'testReplayFixtureCannotBePresentedAsLiveHardwarePreparation',
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
+    'testEventOpensExactOriginalAlongsideReception',
 )
+
+
+class NativeUIFixtureTests(unittest.TestCase):
+    def test_each_project_event_resolves_to_the_exact_synthetic_original(self):
+        from radioinspector.session_service import SessionService
+        from radioinspector.session_store import SQLiteSessionStore
+        from radioinspector.monitoring.store import ProjectStore
+        from tests.ui_smoke_server import _populate
+        with SQLiteSessionStore(':memory:') as store:
+            service = SessionService(store=store)
+            _populate(service)
+            projects = ProjectStore(store)
+            self.assertEqual(len(projects.list('project')), 2)
+            for project in projects.list('project'):
+                events = projects.list('event', project['id'])
+                self.assertEqual(len(events), 1)
+                source = events[0]['source_refs'][0]
+                originals = service.list_sweeps(source['session_id'], stream_id=source['stream_id'])
+                original = next(row for row in originals if row.id == source['sweep_id'])
+                self.assertEqual(original.level_unit, 'dBm')
+                self.assertEqual(list(original.levels), [-100, -51, -0.0])
+                self.assertFalse(project['autostart'])
+                self.assertEqual(project['state'], 'draft')
 
 
 class NativeUIRunnerTests(unittest.TestCase):

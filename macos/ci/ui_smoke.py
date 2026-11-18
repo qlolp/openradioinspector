@@ -22,6 +22,7 @@ CASES = {
     'testReplayFixtureCannotBePresentedAsLiveHardwarePreparation',
     'testArchiveOpensOriginalSpectrumAndMarksHistory',
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
+    'testEventOpensExactOriginalAlongsideReception',
 }
 
 

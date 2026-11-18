@@ -460,6 +460,8 @@ struct NativeSpectrumRangeHeader: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))")
                 .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .accessibilityIdentifier("spectrum.range")
+                .accessibilityValue(sweep?.id ?? "Нет исходника")
             if let sweep {
                 let count = sweep.frequenciesHz.count
                 let firstStep = count > 1 ? sweep.frequenciesHz[1] - sweep.frequenciesHz[0] : 0

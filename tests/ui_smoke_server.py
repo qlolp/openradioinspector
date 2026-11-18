@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta, timezone
 
 from tests.smoke_fixture_support import run_fixture
+from radioinspector.contracts import to_primitive
+from radioinspector.monitoring.store import ProjectStore
 
 
 def _populate(service):
@@ -28,6 +30,30 @@ def _populate(service):
                 'settings': {'adapter': 'synthetic-ui-fixture', 'simulated': True,
                              'generator_output': 'off'},
             })
+        # Seed before the fixture takes its read-only archive digest. No worker,
+        # guard, audio source or physical port is started by this scenario.
+        project_id = 'ui-project-' + suffix
+        created = base.isoformat()
+        projects = ProjectStore(service._store)
+        streams = {stream.role.value: to_primitive(stream) for stream in session.streams}
+        projects.put('project', dict(
+            id=project_id, project_id=project_id, created_at=created,
+            name='UI project ' + suffix, site='Synthetic UI fixture', state='draft',
+            session_ids=[session.id], active_session_id=session.id,
+            analyzer_stream_id='ui-spectrum-' + suffix, receiver_stream_id='ui-receiver-' + suffix,
+            baseline_id=None, autostart=False,
+            parameters=dict(margin_db=6., impulse_db=12., hysteresis_db=3.,
+                            confirmations=3, window_sweeps=5, dwell_seconds=10.),
+            profile=dict(analyzer=streams['spectrum_analyzer'], receiver=streams['receiver'])))
+        projects.put('event', dict(
+            id='ui-event-' + suffix, project_id=project_id, created_at=created,
+            run_session_id=session.id, kind='persistent', state='closed',
+            first_seen=created, last_seen=created, disposition='unreviewed', operator_comment='',
+            start_frequency_hz=100_000_000, end_frequency_hz=100_200_000,
+            center_frequency_hz=100_100_000, peak_level=-51., peak_excess_db=18., source_count=1,
+            analysis=dict(state='no_observations'), source_refs=[dict(
+                session_id=session.id, stream_id='ui-spectrum-' + suffix,
+                sweep_id=f'ui-{suffix}-sweep-1')]))
     return {'session': 'ui-one', 'synthetic': True, 'hardware_opened': False}
 
 
