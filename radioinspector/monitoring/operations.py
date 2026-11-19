@@ -217,7 +217,9 @@ class OperationalMonitoring:
             if not self._capacity_samples or now-self._capacity_samples[-1][0]>=1:self._capacity_samples.append((now,size))
             if len(self._capacity_samples)>=2:
                 elapsed=now-self._capacity_samples[0][0]
-                if elapsed>=5:rate=max(rate or 0,max(0,size-self._capacity_samples[0][1])/elapsed)
+                growth = size - self._capacity_samples[0][1]
+                if elapsed >= 5 and growth > 0:
+                    rate = max(rate or 0, growth / elapsed)
         remaining=capacity.get('remaining_bytes')
         available=max(0,free-config['minimum_free_bytes']) if free is not None else 0
         if remaining is not None:available=min(available,remaining)

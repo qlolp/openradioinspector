@@ -16,6 +16,37 @@ fn legacy() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 #[tokio::test]
+async fn storage_forecast_keeps_the_utc_span_of_a_migrated_stream() {
+    let (_dir, path) = legacy();
+    let historical = rusqlite::Connection::open(&path).unwrap();
+    // The v5 migration fills the missing time-index entry from these original timestamps.
+    historical
+        .execute_batch(
+            "UPDATE sweeps SET started_at='2026-11-11T14:59:59.999999+03:00',
+            ended_at='2026-11-11T15:00:01.000001+03:00' WHERE id='arrival-last';
+         DELETE FROM monitoring_sweep_index WHERE sweep_id='arrival-last';",
+        )
+        .unwrap();
+    drop(historical);
+
+    let archive = Archive::open(ArchiveConfig::new(path)).unwrap();
+    let sample = archive
+        .sweep_storage_sample("fixture-сессия", "spectrum/one")
+        .await
+        .unwrap();
+    assert_eq!(sample.count, 4);
+    assert_eq!(
+        sample.first_started_at.as_deref(),
+        Some("2026-11-11T11:59:59.999999Z")
+    );
+    assert_eq!(
+        sample.last_ended_at.as_deref(),
+        Some("2026-11-11T12:00:01.000001Z")
+    );
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn bounded_utf16_history_and_context_use_canonical_utc_and_exact_utf8_id_ties() {
     let (_dir, path) = legacy();
     let archive = Archive::open(ArchiveConfig::new(path)).unwrap();
