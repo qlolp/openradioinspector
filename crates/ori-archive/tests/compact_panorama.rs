@@ -183,6 +183,7 @@ store.close()
         "INSERT INTO sweeps SELECT 'other-sweep',session_id,stream_id,started_at,ended_at,frequencies_json,levels_json,level_unit,settings_json FROM sweeps;
          UPDATE events SET ori_sweep_ref_v1='other-sweep' WHERE sequence=1",
         "UPDATE events SET ori_sweep_ref_v1=NULL WHERE sequence=1",
+        "UPDATE events SET ori_sweep_ref_v1=NULL, payload_json=char(32,9,10,13)||payload_json WHERE sequence=1",
         "UPDATE sweeps SET levels_json='[1,2,3,4]'",
         "UPDATE events SET event_type='other' WHERE sequence=1",
     ].iter().enumerate() {
@@ -195,6 +196,9 @@ store.close()
         let reader = Archive::open(ArchiveConfig::new(&source)).unwrap();
         assert!(reader.events(0,10).await.is_err());
         assert!(reader.latest_events(10).await.is_err());
+        let backup = temp.path().join("rejected-backup");
+        assert!(reader.backup(&backup).await.is_err());
+        assert!(!backup.exists());
         reader.close().await.unwrap();
         let dest = temp.path().join("rejected");
         assert!(materialize_archive(&source,&dest).is_err());

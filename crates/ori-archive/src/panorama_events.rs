@@ -13,8 +13,9 @@ const JOINED: &str = "SELECT e.*, s.session_id AS source_session, s.stream_id AS
     s.started_at AS source_start, s.ended_at AS source_end, s.level_unit AS source_unit,
     s.frequencies_json AS source_hz, s.levels_json AS source_levels
     FROM events e LEFT JOIN sweeps s ON s.id=e.ori_sweep_ref_v1";
+// A detached frame is still an array, even after any legal JSON whitespace.
 const REFERENCES: &str =
-    "(e.ori_sweep_ref_v1 IS NOT NULL OR substr(ltrim(e.payload_json),1,1)='[')";
+    "(e.ori_sweep_ref_v1 IS NOT NULL OR substr(ltrim(e.payload_json,char(9,10,13,32)),1,1)='[')";
 const VALUE_LIMIT: usize = 32 * 1024 * 1024;
 
 fn corrupt() -> ArchiveError {
