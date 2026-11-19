@@ -934,6 +934,7 @@ fn capabilities(core: &Core) -> Value {
         "monitoring_projects",
         "monitoring_scan_plans",
         "scan_plan_coverage",
+        "scan_plan_grid_10khz",
         "panorama_storage_forecast",
         "monitoring_guard",
         "candidate_investigations",

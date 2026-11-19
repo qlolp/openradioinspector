@@ -653,3 +653,15 @@ fn real_serde_protocol_names_and_escape_prefixes_are_preserved_as_metadata() {
     assert_eq!(typed.extra["future"], raw);
     assert_eq!(typed.interval.extra["future"], raw);
 }
+
+#[test]
+fn optional_receive_grid_round_trips_without_changing_legacy_band() {
+    use ori_contracts::runtime::ScanBand;
+    let f: Value = from_json_slice(include_bytes!("../fixtures/scan-grid-v1.json"), 8192).unwrap();
+    for (key, points, step) in [("legacy", 201, None), ("grid", 129991, Some(10000))] {
+        let band = serde_json::from_value::<ScanBand>(f[key].clone()).unwrap();
+        assert_eq!((band.points, band.step_hz), (points, step));
+        let encoded = serde_json::to_value(band).unwrap();
+        assert_eq!(encoded.get("step_hz"), f[key].get("step_hz"));
+    }
+}

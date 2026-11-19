@@ -192,6 +192,7 @@ export interface ScanBand {
   points: Integer;
   rbw_hz: Integer;
   start_hz: Integer;
+  step_hz?: Integer;
   stop_hz: Integer;
   [key: string]: unknown;
 }
@@ -1116,7 +1117,8 @@ const schemas = {...baselineSchemas, ...{
         "type": "string"
       },
       "points": {
-        "maximum": 290,
+        "description": "Logical frequency count when step_hz is present. Bands without step_hz and individual instrument windows are limited to 290 points.",
+        "maximum": 129991,
         "minimum": 2,
         "type": "integer"
       },
@@ -1133,6 +1135,12 @@ const schemas = {...baselineSchemas, ...{
       "start_hz": {
         "maximum": 20000000000,
         "minimum": 100000,
+        "type": "integer"
+      },
+      "step_hz": {
+        "description": "Optional inclusive 10 kHz receive grid. Requires features.scan_plan_grid_10khz. The service checks the endpoints, point count and instrument profile.",
+        "maximum": 10000,
+        "minimum": 10000,
         "type": "integer"
       },
       "stop_hz": {

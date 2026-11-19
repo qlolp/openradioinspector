@@ -104,3 +104,12 @@ test('history operation selection requires the advertised independent route feat
     assert.ok(ids(['derived_history_viewport']).includes('get_api_v1_history_waterfall'));
     assert.ok(!runtime.selectRuntimeOperations('python-legacy').some(op => (op.operation_id as string) === 'post_api_v1_history_jobs'));
 });
+
+test('receive grid and legacy band use the same additive DTO', () => {
+    const bands = parseJSON(readFileSync(new URL('../fixtures/scan-grid-v1.json', import.meta.url), 'utf8')) as any;
+    for (const source of [bands.legacy, bands.grid]) {
+        const band = runtime.decodeScanBand(source);
+        assert.equal(band.step_hz, source.step_hz);
+        assert.deepEqual(parseJSON(runtime.encodeScanBand(band)), source);
+    }
+});

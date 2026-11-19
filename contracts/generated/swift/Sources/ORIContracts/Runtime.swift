@@ -869,15 +869,17 @@ public struct ScanBand: ContractModel, Equatable, Sendable {
     public var points: UInt64
     public var rbw_hz: UInt64
     public var start_hz: UInt64
+    public var step_hz: UInt64?
     public var stop_hz: UInt64
     public var extra: JSONObject
-    public init(id: String, max_revisit_seconds: Double, name: String, points: UInt64, rbw_hz: UInt64, start_hz: UInt64, stop_hz: UInt64, extra: JSONObject = [:]) {
+    public init(id: String, max_revisit_seconds: Double, name: String, points: UInt64, rbw_hz: UInt64, start_hz: UInt64, step_hz: UInt64? = nil, stop_hz: UInt64, extra: JSONObject = [:]) {
         self.id = id
         self.max_revisit_seconds = max_revisit_seconds
         self.name = name
         self.points = points
         self.rbw_hz = rbw_hz
         self.start_hz = start_hz
+        self.step_hz = step_hz
         self.stop_hz = stop_hz
         self.extra = extra
     }
@@ -895,6 +897,7 @@ public struct ScanBand: ContractModel, Equatable, Sendable {
         rbw_hz = try rbw_hzValue.requireUInt64()
         guard let start_hzValue = object.removeValue(forKey: "start_hz") else { throw ContractError.invalid("Missing start_hz") }
         start_hz = try start_hzValue.requireUInt64()
+        if let value = object.removeValue(forKey: "step_hz"), value != .null { step_hz = try value.requireUInt64() } else { step_hz = nil }
         guard let stop_hzValue = object.removeValue(forKey: "stop_hz") else { throw ContractError.invalid("Missing stop_hz") }
         stop_hz = try stop_hzValue.requireUInt64()
         extra = object
@@ -907,6 +910,7 @@ public struct ScanBand: ContractModel, Equatable, Sendable {
         object["points"] = .integer(String(points))
         object["rbw_hz"] = .integer(String(rbw_hz))
         object["start_hz"] = .integer(String(start_hz))
+        if let value = step_hz { object["step_hz"] = .integer(String(value)) }
         object["stop_hz"] = .integer(String(stop_hz))
         return .object(object)
     }

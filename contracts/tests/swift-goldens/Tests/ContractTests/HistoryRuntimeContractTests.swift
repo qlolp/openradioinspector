@@ -3,9 +3,19 @@ import Foundation
 import ORIContracts
 
 final class HistoryRuntimeContractTests: XCTestCase {
-    private func fixture() throws -> JSONValue {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures/history-runtime-v1.json")
+    private func fixture(_ filename: String = "history-runtime-v1.json") throws -> JSONValue {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("fixtures").appendingPathComponent(filename)
         return try StrictJSON.parse(Data(contentsOf: url))
+    }
+
+    func testOptionalReceiveGridPreservesLegacyBandEncoding() throws {
+        let bands = try fixture("scan-grid-v1.json")
+        for key in ["legacy", "grid"] {
+            let source = try XCTUnwrap(bands.object?[key])
+            let band = try ScanBand(json: source)
+            XCTAssertEqual(band.step_hz, key == "grid" ? 10000 : nil)
+            XCTAssertEqual(band.json.object?["step_hz"], source.object?["step_hz"])
+        }
     }
 
     func testHistorySignedTimeNullableUInt64AndNestedUnknownJSON() throws {

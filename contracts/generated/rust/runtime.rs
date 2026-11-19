@@ -688,6 +688,8 @@ pub struct ScanBand {
     pub points: u64,
     pub rbw_hz: u64,
     pub start_hz: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_hz: Option<u64>,
     pub stop_hz: u64,
     #[serde(default, flatten)]
     pub extra: JSONObject,
