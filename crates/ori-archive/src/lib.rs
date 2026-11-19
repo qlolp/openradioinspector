@@ -16,6 +16,8 @@ mod session_lifecycle;
 mod session_queries;
 mod snapshot_export;
 mod validate;
+mod storage_sample;
+pub use storage_sample::SweepStorageSample;
 mod writer;
 pub use backup::{
     BackupCancellation, BackupIoBudget, BackupOptions, restore_backup, verify_backup,

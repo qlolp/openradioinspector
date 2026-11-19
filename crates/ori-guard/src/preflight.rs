@@ -406,28 +406,29 @@ impl GuardService {
             filesystem_free_bytes: None,
             writable: None,
         });
-        let sweeps = self
+        let sample = self
             .archive
-            .list_sweeps(
+            .sweep_storage_sample(
                 s(&project, "active_session_id")?,
-                Some(s(&project, "analyzer_stream_id")?),
-                128,
+                s(&project, "analyzer_stream_id")?,
             )
             .await?;
-        let mut rate: Option<f64> = None;
-        if sweeps.len() >= 2 {
-            let span = elapsed(
-                s(&sweeps[0]["interval"], "started_at")?,
-                s(&sweeps[sweeps.len() - 1]["interval"], "ended_at")?,
-            )?;
+        let mean_stored_sweep_bytes = sample
+            .array_bytes
+            .map(|bytes| bytes as f64 / sample.count as f64);
+        let mut rate = None;
+        if sample.count >= 2
+            && let (Some(first), Some(last), Some(bytes)) = (
+                &sample.first_started_at,
+                &sample.last_ended_at,
+                sample.column_bytes,
+            )
+        {
+            let span = elapsed(first, last)?;
             if span > 0. {
-                let bytes = sweeps
-                    .iter()
-                    .map(|s| spaced_json(s, false).map(|s| s.len()))
-                    .collect::<Result<Vec<_>>>()?
-                    .iter()
-                    .sum::<usize>();
-                rate = Some(2. * bytes as f64 / span);
+                // Forecast the original plus ledger, with room for record envelopes.
+                // Measured whole-archive page growth below may raise this estimate.
+                rate = Some(2. * (bytes as f64 + 256. * sample.count as f64) / span);
             }
         }
         let source_rate_measured = rate.is_some_and(|rate| rate.is_finite() && rate > 0.);
@@ -504,6 +505,11 @@ impl GuardService {
             && capacity["state"] != "full"
             && retention.is_none_or(|r| r >= retention_required as f64);
         let mut report = json!({"capacity":capacity,"filesystem_free_bytes":inspected.filesystem_free_bytes,"minimum_free_bytes":minimum,"available_bytes":available,"bytes_per_second":rate,"estimated_retention_seconds":retention,"required_retention_seconds":retention_required,"ready":ready,"write_probe":if probe{inspected.writable}else{None},"rate_source":"measured_archive_or_conservative_payload_window","automatic_deletion":false});
+        report["sampled_sweeps"] = json!(sample.count);
+        report["mean_stored_sweep_bytes"] = json!(mean_stored_sweep_bytes);
+        report["projected_bytes_per_day"] = json!(rate.filter(|r| *r > 0.).map(|r| r * 86_400.));
+        report["wal_bytes"] = json!(sample.wal_bytes);
+        report["writer_queue"] = json!(self.archive.queue_status());
         if startup_basis_used {
             report["rate_source"] = json!("validated_preflight_startup");
         }

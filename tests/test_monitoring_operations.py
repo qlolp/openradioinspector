@@ -22,6 +22,26 @@ class OperationalTests(unittest.TestCase):
         self.assertFalse(report['ready']);self.assertFalse(report['automatic_deletion'])
         self.assertEqual(self.workers.active_count,0)
 
+    def test_forecast_samples_stored_arrays_and_reports_wal_separately(self):
+        from tests.test_monitoring_detector import sweep
+
+        project_id = self.project['id']
+        empty = self.service.storage_report(project_id)
+        self.assertEqual(empty['sampled_sweeps'], 0)
+        self.assertIsNone(empty['mean_stored_sweep_bytes'])
+        self.assertIsNone(empty['projected_bytes_per_day'])
+        samples = [sweep(i, session=self.session.id, stream=self.project['analyzer_stream_id']) for i in range(2)]
+        for sample in samples:
+            self.sessions.ingest_sweep(sample)
+        report = self.service.storage_report(project_id)
+        expected = sum(len(json.dumps(list(values), separators=(',', ':')).encode('utf-8'))
+                       for values in (samples[0].frequencies_hz, samples[0].levels))
+        self.assertEqual(report['sampled_sweeps'], 2)
+        self.assertEqual(report['mean_stored_sweep_bytes'], expected)
+        self.assertGreater(report['bytes_per_second'], 0)
+        self.assertEqual(report['projected_bytes_per_day'], report['bytes_per_second'] * 86400)
+        self.assertGreaterEqual(report['wal_bytes'], 0)
+
     def test_settings_never_echo_webhook_secret_and_invalid_request_is_atomic(self):
         value=self.service.update_settings(self.project['id'],dict(webhook=dict(enabled=True,url='http://127.0.0.1/hook',secret='private-fixture-secret')))
         self.assertTrue(value['webhook']['secret_configured']);self.assertNotIn('private-fixture-secret',json.dumps(value))

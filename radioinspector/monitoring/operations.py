@@ -15,7 +15,8 @@ import urllib.request
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
-from ..contracts import format_time, parse_time, to_primitive, utc_now
+from ..contracts import format_time, parse_time, utc_now
+from .storage_sample import sweep_storage_sample
 from ..device_workers import WorkerError
 from ..session_store import _archive_time
 from .models import text
@@ -199,6 +200,7 @@ class OperationalMonitoring:
     def storage_report(self, identifier, *, probe=False):
         project=self.project(identifier);config=project.get('archive',DEFAULT_ARCHIVE);capacity=self.sessions.archive_capacity()
         store=self.sessions._store;free=None;rate=None;writable=True
+        count=0;mean_bytes=None;wal_bytes=None
         if store and store.persistent:
             free=shutil.disk_usage(Path(store.path).expanduser().resolve().parent).free
             if probe:
@@ -209,10 +211,8 @@ class OperationalMonitoring:
                             store._connection.execute('UPDATE monitoring_schema SET version=version')
                         except Exception:writable=False
                         finally:store._connection.rollback()
-            sweeps=self.sessions.list_sweeps(project['active_session_id'],stream_id=project['analyzer_stream_id'],limit=128)
-            if len(sweeps)>=2:
-                elapsed=(sweeps[-1].interval.ended_at-sweeps[0].interval.started_at).total_seconds()
-                if elapsed>0:rate=2*sum(len(json.dumps(to_primitive(s),ensure_ascii=False).encode()) for s in sweeps)/elapsed
+            count,mean_bytes,rate,wal_bytes=sweep_storage_sample(
+                store,project['active_session_id'],project['analyzer_stream_id'])
             now=time.monotonic();size=capacity['database_bytes']
             if not self._capacity_samples or now-self._capacity_samples[-1][0]>=1:self._capacity_samples.append((now,size))
             if len(self._capacity_samples)>=2:
@@ -225,6 +225,8 @@ class OperationalMonitoring:
         ready=bool(store and store.persistent and writable and available>0 and capacity.get('state')!='full'
                    and (retention is None or retention>=config['minimum_retention_seconds']))
         return dict(capacity=capacity,filesystem_free_bytes=free,minimum_free_bytes=config['minimum_free_bytes'],
+                    sampled_sweeps=count,mean_stored_sweep_bytes=mean_bytes,wal_bytes=wal_bytes,
+                    projected_bytes_per_day=rate*86400 if rate and rate>0 else None,
                     available_bytes=available,bytes_per_second=rate,estimated_retention_seconds=retention,
                     required_retention_seconds=config['minimum_retention_seconds'],ready=ready,write_probe=writable if probe else None,
                     rate_source='measured_archive_or_conservative_payload_window',automatic_deletion=False)

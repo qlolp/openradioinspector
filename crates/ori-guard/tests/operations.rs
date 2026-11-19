@@ -21,6 +21,11 @@ async fn eight_hour_budget_reserves_a_future_backup_and_refuses_primary_only_spa
     let required = (rate * 43_200.).ceil() as u64;
     let database = report["capacity"]["database_bytes"].as_u64().unwrap();
     assert!(rate > 0.);
+    assert!(report["mean_stored_sweep_bytes"].as_f64().unwrap() > 0.);
+    assert!(report["sampled_sweeps"].as_u64().unwrap() >= 2);
+    assert_eq!(report["projected_bytes_per_day"], json!(rate * 86_400.));
+    assert!(report["wal_bytes"].as_u64().is_some());
+    assert!(report["writer_queue"]["writer_capacity"].as_u64().unwrap() >= 1);
     assert_eq!(
         report["backup_reserve_bytes"].as_u64(),
         database.checked_add(required)
