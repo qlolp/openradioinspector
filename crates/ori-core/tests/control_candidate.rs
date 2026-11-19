@@ -377,6 +377,7 @@ impl TransportFactory for Factory {
                 }
                 responses.entry("repeat 4".into()).or_default();
                 let mut receiver_mode = "00".to_owned();
+                let mut receiver_frequency = "RF0145.50000".to_owned();
                 loop {
                     let mut wire = Vec::new();
                     match io.read_until(b'\r', &mut wire).await {
@@ -396,8 +397,14 @@ impl TransportFactory for Factory {
                             "RN" => "20RNOWNED-SYNTHETIC\r\n".into(),
                             "LM" => "20LM1371\r\n".into(),
                             "MD" => format!("20MD0{receiver_mode}\r\n"),
+                            "RX" => format!(
+                                "20RX VFA {receiver_frequency} ST010.00 MD0{receiver_mode} LM1371\r\n"
+                            ),
                             "RE1" | "VFA" | "EX" => "20\r\n".into(),
-                            c if c.starts_with("RF") => "20\r\n".into(),
+                            c if c.starts_with("RF") => {
+                                receiver_frequency = c.into();
+                                "20\r\n".into()
+                            }
                             c if c.starts_with("MD0") && c.len() == 5 => {
                                 receiver_mode = c[3..].into();
                                 "20\r\n".into()
@@ -855,6 +862,95 @@ impl Server {
             self.factory.drops.load(Ordering::SeqCst)
         );
     }
+}
+
+#[tokio::test]
+async fn http_receiver_segment_graceful_stop_drains_the_inflight_readback() {
+    let server = Server::new().await;
+    let (status, caps) = server
+        .request("GET", "/api/v1/capabilities", None, None)
+        .await;
+    assert_eq!(status, 200);
+    for feature in [
+        "ardv1_sampled_scope",
+        "ardv1_rx_readback",
+        "graceful_device_stop",
+    ] {
+        assert_eq!(caps["data"]["features"][feature], true, "{feature}");
+    }
+    let session = "/api/v1/sessions/bounded-rx";
+    let stream = format!("{session}/streams/probe");
+    let (_, port) = guard_fixture_ports(cfg!(windows));
+    let payload = json!({"id":"bounded-rx","name":"Synthetic receiver segment","streams":[{
+        "id":"probe","device":"Owned AR-DV1","role":"receiver","level_unit":"s_meter_count",
+        "port":port, "settings":{"adapter":"ardv1-serial","receiver_profile":"ardv1-monitor-v1",
+        "mode":"FM","fast_scan":{"start_hz":88_000_000,"stop_hz":88_200_000,"step_hz":100_000,
+        "settle_s":0,"strategy":"rf"}}
+    }]});
+    let (status, body) = server
+        .request("POST", "/api/v1/sessions", Some(payload), None)
+        .await;
+    assert_eq!(status, 201, "{body}");
+    *server.factory.block_command.lock().unwrap() = Some("RX".into());
+    for start in [format!("{session}/start"), format!("{stream}/start")] {
+        let (status, body) = server.request("POST", &start, Some(json!({})), None).await;
+        assert_eq!(status, 200, "{body}");
+    }
+    tokio::time::timeout(Duration::from_secs(3), server.factory.entered.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let end_stream = format!("{stream}/stop");
+    let (status, _) = server
+        .request("POST", &end_stream, Some(json!({"mode":"typo"})), None)
+        .await;
+    assert_eq!(status, 400);
+    let stop = server.request("POST", &end_stream, Some(json!({"mode":"graceful"})), None);
+    let release = async {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let (status, workers) = server
+                    .request("GET", &format!("{session}/workers"), None, None)
+                    .await;
+                assert_eq!(status, 200);
+                let worker = &workers["data"][0];
+                assert_eq!(worker["alive"], true, "{worker}");
+                if worker["stopping"] == true {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        *server.factory.block_command.lock().unwrap() = None;
+        server.factory.release.add_permits(1);
+    };
+    let ((status, worker), ()) = tokio::join!(stop, release);
+    assert_eq!(status, 200, "{worker}");
+    assert_eq!(worker["data"]["alive"], false);
+    assert_eq!(worker["data"]["measurements"], 1);
+    let (status, rows) = server
+        .request(
+            "GET",
+            &format!("{session}/observations?stream_id=probe"),
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(rows["data"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        rows["data"][0]["metadata"]["observed_frequency_hz"],
+        88_000_000
+    );
+    assert_eq!(rows["data"][0]["level_unit"], "s_meter_count");
+    assert_eq!(
+        server.factory.commands.lock().unwrap().last().unwrap(),
+        "EX"
+    );
+    server.stop().await;
 }
 
 #[tokio::test]
@@ -1972,7 +2068,7 @@ async fn explicit_guard_analyzer_handoff_binds_once_and_keeps_actual_acquisition
         .await;
     assert_eq!(status, 200, "{stopped}");
     let opens = server.factory.opens.load(Ordering::SeqCst);
-    // The independently owned receiver continues LM/MD polling. This invariant
+    // The independently owned receiver continues RX polling. This invariant
     // is specifically that the rejected analyzer re-open sends no analyzer I/O.
     let analyzer_count = |wire: &[String]| {
         wire.iter()

@@ -261,6 +261,10 @@ pub struct ReceiverState {
     pub closed: bool,
     pub frequency_source: String,
     pub frequency_readback: bool,
+    pub observed_mode: Option<ReceiverMode>,
+    pub scan_total_points: Option<usize>,
+    pub scan_strategy: Option<String>,
+    pub scan_completed_points: Option<usize>,
     pub firmware: Option<String>,
     pub hardware_validation: String,
 }

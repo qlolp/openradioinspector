@@ -70,6 +70,14 @@ impl Simulated {
                 Ok(Self::Analyzer(Analyzer::new(&settings)?))
             }
             Some("ardv1-sim") => {
+                if settings
+                    .get("fast_scan")
+                    .is_some_and(|plan| !plan.is_null())
+                {
+                    return Err(DeviceError::Invalid(
+                        "fast_scan требует ardv1-serial с проверкой RX".into(),
+                    ));
+                }
                 if stream.role != DeviceRole::Receiver || stream.level_unit != "s_meter_count" {
                     return Err(DeviceError::Invalid(
                         "ardv1-sim требует роль receiver и исходную единицу s_meter_count".into(),

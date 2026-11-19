@@ -12,6 +12,21 @@ use std::{
     time::Duration,
 };
 
+/// Correlate archived receiver samples with a receipt without publishing the
+/// worker's internal instance ID or the guard's control permit.
+pub fn receiver_tune_context(instance: &str, revision: u64, observation_id: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(revision.to_be_bytes());
+    digest.update((instance.len() as u64).to_be_bytes());
+    digest.update(instance.as_bytes());
+    digest.update(observation_id.as_bytes());
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 pub(crate) struct GuardEffects {
     pub guard: Weak<GuardService>,
     pub control: Arc<dyn InstrumentControl>,

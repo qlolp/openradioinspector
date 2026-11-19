@@ -414,9 +414,10 @@ async fn connect(
     let value = match operation {
         "start" => super::setup::start(core, target, auth, grant).await?,
         "stop" => {
+            let graceful = crate::http::graceful_stop(&payload)?;
             grant.check().map_err(|_| api(ControlError::Denied))?;
             let captured = manager
-                .capture_worker(
+                .capture_worker_for_stop(
                     &device_target,
                     gate(
                         auth.clone(),
@@ -426,7 +427,7 @@ async fn connect(
                 )
                 .ok();
             let status = if let Some(captured) = captured {
-                service(core)?.close_retained(&captured).await?
+                service(core)?.close_retained(&captured, graceful).await?
             } else {
                 auth.revalidate()?;
                 grant.check().map_err(|_| api(ControlError::Denied))?;
@@ -435,11 +436,12 @@ async fn connect(
                     .stop_stream(&target.session_id, &target.stream_id)
                     .await?
             };
-            if grant.manual_role().is_some() && grant.stopped_worker_instance().is_none() {
+            if !status.alive
+                && grant.manual_role().is_some()
+                && grant.stopped_worker_instance().is_none()
+            {
                 let mut stopped = guard_worker(status.clone());
-                if !stopped.alive {
-                    stopped.state = "stopped".into();
-                }
+                stopped.state = "stopped".into();
                 guard
                     .confirm_manual_worker_stopped(&grant, &stopped)
                     .map_err(|_| api(ControlError::Denied))?;

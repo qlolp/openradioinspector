@@ -13,6 +13,7 @@ mod manual;
 mod operations;
 mod preflight;
 mod receiver;
+pub use receiver::receiver_tune_context;
 mod runtime;
 mod scan_plan;
 #[cfg(test)]

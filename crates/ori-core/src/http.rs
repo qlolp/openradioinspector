@@ -847,8 +847,15 @@ fn capabilities(core: &Core) -> Value {
     ] {
         value["features"][name] = Value::Bool(archived);
     }
-    value["features"]["explicit_serial_adapters"] =
-        Value::Bool(archived && core.config.devices.transport.is_some());
+    let serial = archived && core.config.devices.transport.is_some();
+    for name in [
+        "explicit_serial_adapters",
+        "ardv1_sampled_scope",
+        "ardv1_rx_readback",
+    ] {
+        value["features"][name] = Value::Bool(serial);
+    }
+    value["features"]["graceful_device_stop"] = Value::Bool(archived);
     let instrument_control = core.instrument_control.get().is_some();
     value["features"]["runtime_owner_scoped_requests"] =
         Value::Bool(core.config.identity.is_some());
@@ -1000,6 +1007,14 @@ fn openapi() -> &'static Value {
     })
 }
 
+pub(crate) fn graceful_stop(payload: &Value) -> ApiResult<bool> {
+    match payload.get("mode") {
+        None => Ok(false),
+        Some(value) if value == "graceful" => Ok(true),
+        Some(value) if value == "force" => Ok(false),
+        _ => Err(ApiError::invalid("mode must be graceful or force")),
+    }
+}
 async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<Response> {
     if parts.len() == 2 && parts[0] == "api" {
         return crate::legacy::post(core, parts, payload)
@@ -1037,7 +1052,9 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
                 devices.start_session(id).await?
             } else {
                 devices.authorize_public_session(id).await?;
-                devices.stop_session(id).await?
+                devices
+                    .stop_session_mode(id, graceful_stop(&payload)?)
+                    .await?
             };
             Ok(envelope(StatusCode::OK, json!(workers)))
         }
@@ -1058,7 +1075,10 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
                 "start" => devices.start_stream(id, stream, gate).await?.value()?,
                 "stop" => {
                     gate.authorize()?;
-                    devices.stop_stream(id, stream).await?.value()?
+                    devices
+                        .stop_stream_mode(id, stream, graceful_stop(&payload)?)
+                        .await?
+                        .value()?
                 }
                 _ => {
                     let frequency = payload

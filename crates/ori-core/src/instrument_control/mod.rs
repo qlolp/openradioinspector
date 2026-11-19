@@ -539,6 +539,7 @@ impl InstrumentControl {
     async fn close_retained(
         &self,
         handle: &devices::RetainedWorkerHandle,
+        graceful: bool,
     ) -> devices::DeviceResult<devices::WorkerStatus> {
         #[cfg(test)]
         if let Some(barrier) = self.bind_barrier.lock().unwrap().as_ref() {
@@ -563,9 +564,11 @@ impl InstrumentControl {
                 })
                 .map_err(|_| devices::DeviceError::Closed)?;
         }
-        let stopped = manager.stop_retained_worker(handle).await?;
-        self.cancel_instance_jobs(&target, handle.worker_instance())
-            .await?;
+        let stopped = manager.stop_retained_worker_mode(handle, graceful).await?;
+        if !stopped.alive {
+            self.cancel_instance_jobs(&target, handle.worker_instance())
+                .await?;
+        }
         Ok(stopped)
     }
     /// Trusted Core/Guard lifecycle hook. Target exclusion covers ready/bind,

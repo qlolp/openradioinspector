@@ -273,10 +273,21 @@ impl GuardService {
             if !stream["settings"].is_object() {
                 stream["settings"] = json!({});
             }
-            if !preparation && role == "receiver" {
-                stream["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
-                stream["settings"]["mode"] =
-                    p.get("receiver_mode").cloned().unwrap_or(json!("AUTO"));
+            if role == "receiver" {
+                // Guard clones use a retunable receiver for event investigations.
+                // An ordinary session may have used that port for a finite segment.
+                stream["settings"]
+                    .as_object_mut()
+                    .expect("receiver settings")
+                    .remove("fast_scan");
+                if !preparation {
+                    stream["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
+                    if stream["settings"]["adapter"] == "ardv1-serial" {
+                        stream["settings"]["monitoring_rx_readback"] = json!(true);
+                    }
+                    stream["settings"]["mode"] =
+                        p.get("receiver_mode").cloned().unwrap_or(json!("AUTO"));
+                }
             }
             if let Some(search) = search {
                 stream["settings"]

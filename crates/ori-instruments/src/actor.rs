@@ -258,7 +258,7 @@ impl ArDv1Actor {
                     matches!(
                         request.command,
                         ArDv1Request::Prepare | ArDv1Request::Tune { .. } | ArDv1Request::Close
-                    ),
+                    ) || (adapter.scanning() && matches!(request.command, ArDv1Request::Poll)),
                     Ordering::SeqCst,
                 );
                 let result = match request.command {
@@ -314,6 +314,8 @@ impl ArDv1Actor {
             state.frequency_hz = None;
             state.mode = None;
             state.frequency_source = "unknown".into();
+            state.frequency_readback = false;
+            state.observed_mode = None;
         }
         state.restart_required |= self.cancel.is_tainted();
         state
