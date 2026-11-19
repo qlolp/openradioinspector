@@ -9,6 +9,7 @@ import platform
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,17 @@ def inventory_components(binaries, source):
                                    or not component.get('sqlite_version')):
             raise ValueError('This RC needs real serial support and bundled SQLite')
         info[name] = {**component, **abi, 'sha256': digest(path)}
+    # These are the exact commands used on first boot and for an older reader.
+    with tempfile.TemporaryDirectory(prefix='ori-pi-format-') as temporary:
+        compact = Path(temporary) / 'sessions.sqlite3'
+        compatible = Path(temporary) / 'compatible.sqlite'
+        core = [*runner, binaries / 'ori-core']
+        subprocess.run([*core, 'archive-init-compact', compact], check=True)
+        subprocess.run([*core, 'archive-materialize', compact, compatible], check=True)
+        for archive, version in [(compact, 7), (compatible, 6)]:
+            with sqlite3.connect(archive.as_uri() + '?mode=ro', uri=True) as db:
+                if db.execute('PRAGMA user_version').fetchone() != (version,) or db.execute('PRAGMA quick_check').fetchone() != ('ok',):
+                    raise ValueError('Packaged archive creation or materialization failed')
     return info
 
 
