@@ -169,25 +169,32 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.invalidate_device_knowledge();
         Err(error)
     }
-    async fn transact(&mut self, command: &str) -> Result<String> {
+    async fn transact(&mut self, phase: &'static str, command: &str) -> Result<String> {
         let text = self.connection.line(command).await?;
-        match body(&text) {
-            Ok(value) if self.scope.is_some() && (!text.starts_with("20") || value.is_empty()) => {
+        match body(phase, command, &text) {
+            Ok((_, value))
+                if self.scope.is_some() && (!text.starts_with("20") || value.is_empty()) =>
+            {
                 self.failed(InstrumentError::Protocol(
                     "AR-DV1 scope requires a terminal query reply".into(),
                 ))
             }
-            Ok(value) => Ok(value.to_owned()),
+            Ok((_, value)) => Ok(value.to_owned()),
             Err(error) => self.failed(error),
         }
     }
-    async fn acknowledge(&mut self, command: &str) -> Result<()> {
+    async fn acknowledge(&mut self, phase: &'static str, command: &str) -> Result<()> {
         let raw = self.connection.line(command).await?;
-        if let Err(error) = body(&raw) {
-            return self.failed(error);
-        }
+        let code = match body(phase, command, &raw) {
+            Ok((code, _)) => code,
+            Err(error) => return self.failed(error),
+        };
         if raw != "20" && (self.scope.is_some() || raw != "10") {
-            return self.failed(InstrumentError::Rejected(format!("{command}: {raw}")));
+            return self.failed(rejection(
+                phase,
+                command,
+                code.unwrap_or("unexpected acknowledgement"),
+            ));
         }
         Ok(())
     }
@@ -197,8 +204,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             return Ok(());
         }
         let result = async {
-            self.acknowledge("RE1").await?;
-            let firmware = self.transact("VR").await?;
+            self.acknowledge("prepare", "RE1").await?;
+            let firmware = self.transact("prepare", "VR").await?;
             let firmware = firmware
                 .strip_prefix("VR")
                 .filter(|s| !s.is_empty())
@@ -211,7 +218,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                     "ardv1-monitor-v1 requires VR2504A".into(),
                 ));
             }
-            let serial = self.transact("RN").await?;
+            let serial = self.transact("prepare", "RN").await?;
             if !serial.starts_with("RN") || serial.len() <= 2 {
                 return Err(InstrumentError::Protocol(
                     "missing AR-DV1 serial response".into(),
@@ -245,9 +252,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         self.invalidate_device_knowledge();
         let result = async {
             self.prepare().await?;
-            self.acknowledge("VFA").await?;
-            self.acknowledge(mode_command(mode)).await?;
-            self.acknowledge(&command).await?;
+            self.acknowledge("tune", "VFA").await?;
+            self.acknowledge("tune", mode_command(mode)).await?;
+            self.acknowledge("tune", &command).await?;
             Ok(())
         }
         .await;
@@ -362,37 +369,42 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         let mut command = "RF";
         if index == 0 {
             self.prepare().await?;
-            self.acknowledge("VFA").await?;
+            self.acknowledge("scan", "VFA").await?;
             if let Some(step) = config.vfo_step.filter(|_| self.verified_dv1) {
-                let saved_step = self.transact("ST").await?;
-                let saved_shift = self.transact("SH").await?;
+                let saved_step = self.transact("scan", "ST").await?;
+                let saved_shift = self.transact("scan", "SH").await?;
                 if !valid_rx_step(&saved_step) || !valid_raster(&saved_shift, "SH") {
                     return Err(InstrumentError::Protocol(
                         "invalid AR-DV1 VFO raster".into(),
                     ));
                 }
                 self.scope.as_mut().unwrap().saved_raster = Some((saved_step, saved_shift));
-                self.acknowledge(&format!(
-                    "VFA {} ST{step} SH000.00 MD0F0",
-                    frequency_command(frequency)?
-                ))
+                self.acknowledge(
+                    "scan",
+                    &format!(
+                        "VFA {} ST{step} SH000.00 MD0F0",
+                        frequency_command(frequency)?
+                    ),
+                )
                 .await?;
-                if self.transact("SH").await? != "SH000.00" {
+                if self.transact("scan", "SH").await? != "SH000.00" {
                     return Err(InstrumentError::Protocol(
                         "AR-DV1 did not confirm zero VFO shift".into(),
                     ));
                 }
             } else {
-                self.acknowledge("MD0F0").await?;
-                self.acknowledge(&frequency_command(frequency)?).await?;
+                self.acknowledge("scan", "MD0F0").await?;
+                self.acknowledge("scan", &frequency_command(frequency)?)
+                    .await?;
             }
         } else if self.scope.as_ref().unwrap().saved_raster.is_some()
             && previous.is_some_and(|value| value + config.step_hz == frequency)
         {
-            self.acknowledge("ZK").await?;
+            self.acknowledge("scan", "ZK").await?;
             command = "ZK";
         } else {
-            self.acknowledge(&frequency_command(frequency)?).await?;
+            self.acknowledge("scan", &frequency_command(frequency)?)
+                .await?;
         }
         self.frequency = Some(frequency);
         self.requested.frequency_hz = frequency;
@@ -408,7 +420,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
         mode: ReceiverMode,
     ) -> Result<(u32, u8, Option<String>, Option<String>)> {
         if self.verify_frequency {
-            let raw = self.transact("RX").await?;
+            let raw = self.transact("sample", "RX").await?;
             let parts = raw.split(' ').collect::<Vec<_>>();
             let ["RX", "VFA", frequency, step, status, level] = parts[..] else {
                 return Err(InstrumentError::Protocol("invalid RX VFO-A status".into()));
@@ -430,9 +442,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
             let (level, squelch) = parse_level(level)?;
             return Ok((level, squelch, Some(status.into()), Some(raw)));
         }
-        let (level, squelch) = parse_level(&self.transact("LM").await?)?;
+        let (level, squelch) = parse_level(&self.transact("sample", "LM").await?)?;
         let status = if self.requested.profile == ReceiverProfile::MonitorV1 {
-            let status = self.transact("MD").await?;
+            let status = self.transact("sample", "MD").await?;
             verify_mode(&status, mode)?;
             Some(status)
         } else {
@@ -451,14 +463,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                     .as_mut()
                     .and_then(|scope| scope.saved_raster.take())
                 {
-                    self.acknowledge(&format!("VFA {step} {shift}")).await?;
-                    if self.transact("ST").await? != step || self.transact("SH").await? != shift {
+                    self.acknowledge("close", &format!("VFA {step} {shift}"))
+                        .await?;
+                    if self.transact("close", "ST").await? != step
+                        || self.transact("close", "SH").await? != shift
+                    {
                         return Err(InstrumentError::Protocol(
                             "AR-DV1 did not confirm VFO raster restoration".into(),
                         ));
                     }
                 }
-                self.acknowledge("EX").await
+                self.acknowledge("close", "EX").await
             }
             .await
         } else {
@@ -533,7 +548,20 @@ fn frequency_command(frequency_hz: u64) -> Result<String> {
     let units = frequency_hz / 10;
     Ok(format!("RF{:04}.{:05}", units / 100_000, units % 100_000))
 }
-fn body(text: &str) -> Result<&str> {
+fn rejection(phase: &str, command: &str, code: &str) -> InstrumentError {
+    // Command arguments and reply payloads belong only in the private wire trace.
+    let name = if command == "RE1" {
+        command
+    } else {
+        command
+            .split(|c: char| !c.is_ascii_uppercase())
+            .next()
+            .unwrap_or(command)
+    };
+    InstrumentError::Rejected(format!("AR-DV1 {phase} {name}: {code}"))
+}
+
+fn body<'a>(phase: &str, command: &str, text: &'a str) -> Result<(Option<&'a str>, &'a str)> {
     if !text.is_ascii() {
         return Err(InstrumentError::Protocol(
             "non-ASCII AR-DV1 response".into(),
@@ -548,20 +576,25 @@ fn body(text: &str) -> Result<&str> {
             || rest.as_bytes()[0].is_ascii_alphabetic();
         if (1..=6).contains(&kind) && plausible {
             if kind >= 3 {
-                return Err(InstrumentError::Rejected(text.into()));
+                let code = if rest.starts_with('?') {
+                    &text[..3]
+                } else {
+                    &text[..2]
+                };
+                return Err(rejection(phase, command, code));
             }
             if bytes[1] == b'1' {
                 return Err(InstrumentError::Protocol(
                     "continued AR-DV1 frame is unsupported".into(),
                 ));
             }
-            return Ok(rest.trim());
+            return Ok((Some(&text[..2]), rest.trim()));
         }
     }
     if text == "?" {
-        return Err(InstrumentError::Rejected(text.into()));
+        return Err(rejection(phase, command, "?"));
     }
-    Ok(text)
+    Ok((None, text))
 }
 fn parse_level(text: &str) -> Result<(u32, u8)> {
     let Some(payload) = text.strip_prefix("LM") else {

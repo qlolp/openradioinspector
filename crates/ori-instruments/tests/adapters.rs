@@ -398,6 +398,69 @@ fn assert_drained(audit: &Arc<Mutex<Audit>>) {
     assert_eq!(audit.lock().unwrap().remaining, 0);
 }
 
+#[tokio::test]
+async fn receiver_rejection_identifies_phase_command_and_code_without_private_data() {
+    for (rejected, phase, name) in [
+        ("RE1", "prepare", "RE1"),
+        ("VR", "prepare", "VR"),
+        ("RN", "prepare", "RN"),
+        ("RF0145.50000", "tune", "RF"),
+    ] {
+        let mut steps = receiver_setup("2504A");
+        steps.extend([
+            Step::line("VFA", "20"),
+            Step::line("MD0F0", "20"),
+            Step::line("RF0145.50000", "20"),
+        ]);
+        let index = steps
+            .iter()
+            .position(|step| step.command == rejected)
+            .unwrap();
+        steps.truncate(index);
+        steps.push(Step::line(rejected, "60? private-payload"));
+        let (wire, audit) = Scripted::new(steps);
+        let mut adapter = ArDv1::new(wire, receiver(), IoLimits::default()).unwrap();
+        let error = adapter.poll_receiver().await.unwrap_err().to_string();
+        assert_eq!(
+            error,
+            format!("device rejected command: AR-DV1 {phase} {name}: 60?")
+        );
+        assert!(adapter.state().restart_required);
+        assert!(adapter.poll_receiver().await.is_err());
+        assert_eq!(sent(&audit).len(), index + 1);
+        assert_drained(&audit);
+    }
+}
+
+#[tokio::test]
+async fn scoped_receiver_reports_only_the_status_of_an_unexpected_acknowledgement() {
+    for (reply, code) in [
+        ("10", "10"),
+        ("20LM1231", "20"),
+        ("private-payload", "unexpected acknowledgement"),
+    ] {
+        let mut steps = receiver_setup("2504A");
+        steps.push(Step::line("VFA", reply));
+        let (wire, audit) = Scripted::new(steps);
+        let scope =
+            ReceiverScope::new(88_000_000, 88_100_000, 100_000, Duration::ZERO, false).unwrap();
+        let config = ReceiverConfig {
+            profile: ReceiverProfile::MonitorV1,
+            ..receiver()
+        };
+        let mut adapter = ArDv1::new(wire, config, IoLimits::default())
+            .unwrap()
+            .with_scope(scope)
+            .unwrap();
+        assert_eq!(
+            adapter.poll_receiver().await.unwrap_err().to_string(),
+            format!("device rejected command: AR-DV1 scan VFA: {code}")
+        );
+        assert!(adapter.state().restart_required);
+        assert_drained(&audit);
+    }
+}
+
 fn inspection_oracle() -> serde_json::Value {
     serde_json::from_str(include_str!(
         "../../../contracts/fixtures/instruments-inspection-v1.json"

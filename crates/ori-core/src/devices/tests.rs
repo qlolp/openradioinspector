@@ -19,6 +19,7 @@ struct RevocationPoint {
     permission: Arc<AtomicBool>,
 }
 struct Factory {
+    reject_firmware_once: AtomicBool,
     opens: AtomicUsize,
     drops: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
@@ -33,6 +34,7 @@ struct Factory {
 impl Factory {
     fn new(shutdown_failure: bool) -> Arc<Self> {
         Arc::new(Self {
+            reject_firmware_once: AtomicBool::new(false),
             opens: AtomicUsize::new(0),
             drops: Arc::default(),
             commands: Arc::default(),
@@ -104,6 +106,8 @@ impl TransportFactory for Factory {
             let started = self.poll_started.clone();
             let release = self.poll_release.clone();
             let analyzer = stream.role == DeviceRole::SpectrumAnalyzer;
+            let reject_firmware =
+                !analyzer && self.reject_firmware_once.swap(false, Ordering::AcqRel);
             let revoke_after = self.revoke_after.clone();
             tokio::spawn(async move {
                 let mut command = Vec::new();
@@ -136,6 +140,7 @@ impl TransportFactory for Factory {
                         format!("{command}\r\n{body}ch> ")
                     } else {
                         match command.as_str() {
+                            "VR" if reject_firmware => "60?\r\n".into(),
                             "VR" => "20VR2504A\r\n".into(),
                             "RN" => "20RNSYNTHETIC\r\n".into(),
                             "LM" => {
@@ -294,6 +299,76 @@ async fn graceful_stop_commits_the_running_poll_before_releasing_transport() {
             .len(),
         1
     );
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rejected_receiver_start_leaves_spectrum_recording_until_explicit_reconnect() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.reject_firmware_once.store(true, Ordering::Release);
+    let core = core(directory.path(), factory.clone()).await;
+    let manager = core.devices.as_ref().unwrap();
+    let archive = core.archive().unwrap();
+    let gate = |stream| manager.public_gate(Target::new("devices", stream));
+    manager
+        .start_stream("devices", "a", gate("a"))
+        .await
+        .unwrap();
+    let error = manager
+        .start_stream("devices", "r", gate("r"))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("AR-DV1 prepare VR: 60?"));
+    let workers = manager.list(Some("devices")).await.unwrap();
+    let receiver = workers.iter().find(|w| w.stream_id == "r").unwrap();
+    assert!(!receiver.alive);
+    assert!(
+        receiver
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("AR-DV1 prepare VR: 60?")
+    );
+    let before = workers
+        .iter()
+        .find(|w| w.stream_id == "a")
+        .unwrap()
+        .measurements;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let workers = manager.list(Some("devices")).await.unwrap();
+            if workers
+                .iter()
+                .any(|w| w.stream_id == "a" && w.alive && w.measurements > before)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !archive
+            .list_sweeps("devices", Some("a"), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        archive
+            .list_observations("devices", Some("r"), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    manager
+        .start_stream("devices", "r", gate("r"))
+        .await
+        .unwrap();
+    assert_eq!(factory.opens.load(Ordering::Acquire), 2);
     core.close().await.unwrap();
 }
 
