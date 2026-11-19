@@ -111,10 +111,14 @@ class CompactPanoramaTests(unittest.TestCase):
                 panorama_events.initialize(destination)
         bad = self.root / "invalid"
         with closing(sqlite3.connect(self.path)) as db:
-            for sql in ("UPDATE events SET ori_sweep_ref_v1='dangling' WHERE sequence=1",
-                        "UPDATE events SET ori_sweep_ref_v1=NULL WHERE sequence=1",
-                        "UPDATE sweeps SET levels_json='[0,0,0,0]'",
-                        "UPDATE events SET event_type='other' WHERE sequence=1"):
+            corruptions = (
+                "UPDATE events SET ori_sweep_ref_v1='dangling' WHERE sequence=1",
+                "UPDATE events SET ori_sweep_ref_v1=NULL WHERE sequence=1",
+                "UPDATE events SET ori_sweep_ref_v1=NULL, payload_json=char(32,9,10,13)||payload_json WHERE sequence=1",
+                "UPDATE sweeps SET levels_json='[0,0,0,0]'",
+                "UPDATE events SET event_type='other' WHERE sequence=1",
+            )
+            for index, sql in enumerate(corruptions):
                 with self.subTest(sql=sql), closing(sqlite3.connect(bad)) as change:
                     db.backup(change)
                     change.execute(sql)
@@ -122,9 +126,14 @@ class CompactPanoramaTests(unittest.TestCase):
                     with closing(SQLiteSessionStore(str(bad))) as store:
                         with self.assertRaises(ValueError):
                             store.events()
+                    backup = self.root / f"rejected-backup-{index}"
                     with self.assertRaises(ValueError):
-                        panorama_events.materialize(bad, self.root / "rejected")
-                    self.assertFalse((self.root / "rejected").exists())
+                        create_backup(bad, backup)
+                    self.assertFalse(backup.exists())
+                    destination = self.root / f"rejected-{index}"
+                    with self.assertRaises(ValueError):
+                        panorama_events.materialize(bad, destination)
+                    self.assertFalse(destination.exists())
             db.execute("PRAGMA user_version=6")
         with self.assertRaises(ValueError):
             SQLiteSessionStore(str(self.path))
