@@ -576,6 +576,16 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(result['observed_unique_renders'],3)
         self.assertEqual(result['metric'],'offered-to-render conservative upper bound')
         self.assertFalse(result['committed_to_render_measured'])
+        self.assertEqual([client['missing'] for client in result['client_coverage']], [0, 0, 0])
+        partial = [header, rows[1], rows[3], dict(rows[-1], records=2)]
+        events.write_text(''.join(json.dumps(row)+'\n' for row in partial))
+        ledger.db.execute('DELETE FROM rendered');ledger.db.commit()
+        incomplete = correlate(events,config,ledger,Histogram())
+        self.assertEqual(incomplete['status'], 'failed')
+        self.assertEqual(incomplete['expected_renders'], 3)
+        self.assertEqual([client['observed'] for client in incomplete['client_coverage']], [1, 0, 1])
+        self.assertEqual(incomplete['client_coverage'][1]['missing_samples'],
+            [dict(id=key, index=0, source_status='accepted', source_verified=True)])
         rows[-1]['dropped']=1
         events.write_text(''.join(json.dumps(row)+'\n' for row in rows))
         # A new ledger avoids reusing already-recorded observation deduplication.

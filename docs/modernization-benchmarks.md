@@ -292,6 +292,9 @@ python -m benchmarks.ori_bench.observe --report-dir /tmp/ori-stress-001 \
 The producer and browser must run on the same host wall clock; hostname hashes,
 clock declarations and nonnegative deltas are checked. Each client must observe
 every offered sweep, with no observer drops, before the render check can pass.
+`client_coverage` reports each client's observed and missing counts. For the
+first eight missing draw markers per client it includes the offered sweep ID,
+source index, acknowledgement status and result of archive verification.
 The metric is **offered-to-render**, a conservative upper bound for
 committed-to-render when producer/browser clocks are shared. It is never
 reported as a measured commit-to-render interval. Without valid evidence the
