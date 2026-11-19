@@ -99,6 +99,9 @@ fn options() -> Result<Option<Options>> {
             println!(
                 "--legacy-library DIR restricts explicit legacy PAN selection. Its scientific worker inherits the configured analysis interpreter and uses the installed radioinspector.legacy_rpc module."
             );
+            println!(
+                "ori-core archive-init-compact NEW.sqlite\nori-core archive-materialize SOURCE.sqlite NEW.sqlite"
+            );
             return Ok(None);
         }
         if key == "--version" {
@@ -313,6 +316,26 @@ async fn main() {
     }
 }
 async fn execute() -> Result<()> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    match args.first().and_then(|arg| arg.to_str()) {
+        Some("archive-init-compact") => {
+            let [_, destination] = args.as_slice() else {
+                return Err(CoreError::Invalid("archive-init-compact NEW.sqlite"));
+            };
+            ori_archive::init_compact_archive(Path::new(destination)).await?;
+            return Ok(());
+        }
+        Some("archive-materialize") => {
+            let [_, source, destination] = args.as_slice() else {
+                return Err(CoreError::Invalid(
+                    "archive-materialize SOURCE.sqlite NEW.sqlite",
+                ));
+            };
+            ori_archive::materialize_archive(Path::new(source), Path::new(destination))?;
+            return Ok(());
+        }
+        _ => {}
+    }
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--build-info")) {
         if std::env::args_os().len() != 2 {
             return Err(CoreError::Invalid("--build-info takes no other arguments"));

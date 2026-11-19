@@ -41,6 +41,14 @@ fn stream_owner(db: &Connection, sid: &str, stream: &str, unit: Option<&str>) ->
     }
 }
 fn event(db: &Connection, draft: EventDraft, output: &mut CommittedBatch) -> Result<()> {
+    store_event(db, draft, output, None)
+}
+fn store_event(
+    db: &Connection,
+    draft: EventDraft,
+    output: &mut CommittedBatch,
+    source_hash: Option<String>,
+) -> Result<()> {
     let sequence: i64 =
         db.query_row("SELECT COALESCE(MAX(sequence),0)+1 FROM events", [], |r| {
             r.get(0)
@@ -48,7 +56,14 @@ fn event(db: &Connection, draft: EventDraft, output: &mut CommittedBatch) -> Res
     if sequence < 1 {
         return Err(ArchiveError::Corrupt("event sequence exhausted".into()));
     }
-    db.execute("INSERT INTO events(sequence,event_type,occurred_at,session_id,payload_json) VALUES(?,?,?,?,?)",params![sequence,draft.event_type,draft.occurred_at,draft.session_id,encode(&draft.payload)?])?;
+    if let Some(hash) = source_hash {
+        let id = string(&draft.payload["sweep"], "id");
+        let frame = crate::panorama_events::encode(&draft.payload, &hash)?;
+        db.execute("INSERT INTO events(sequence,event_type,occurred_at,session_id,payload_json,ori_sweep_ref_v1) VALUES(?,?,?,?,?,?)",
+            params![sequence,draft.event_type,draft.occurred_at,draft.session_id,frame,id])?;
+    } else {
+        db.execute("INSERT INTO events(sequence,event_type,occurred_at,session_id,payload_json) VALUES(?,?,?,?,?)",params![sequence,draft.event_type,draft.occurred_at,draft.session_id,encode(&draft.payload)?])?;
+    }
     let value = json!({"sequence":sequence,"event_type":draft.event_type,"occurred_at":draft.occurred_at,"session_id":draft.session_id,"payload":draft.payload});
     output.first_sequence.get_or_insert(sequence as u64);
     output.last_sequence = Some(sequence as u64);
@@ -79,14 +94,17 @@ fn session(db: &Connection, value: &Value, create: bool) -> Result<Value> {
     }
     rows::session(db, id)?.ok_or(ArchiveError::NotFound)
 }
-fn sweep(db: &Connection, value: &Value) -> Result<u64> {
+fn sweep(db: &Connection, value: &Value, compact: bool) -> Result<(u64, Option<String>)> {
     let id = string(value, "id");
     let sid = string(value, "session_id");
     let stream = string(value, "stream_id");
     stream_owner(db, sid, stream, Some(string(value, "level_unit")))?;
     let start = string(&value["interval"], "started_at");
     let end = string(&value["interval"], "ended_at");
-    db.execute("INSERT INTO sweeps(id,session_id,stream_id,started_at,ended_at,frequencies_json,levels_json,level_unit,settings_json) VALUES(?,?,?,?,?,?,?,?,?)",params![id,sid,stream,start,end,encode(&value["frequencies_hz"] )?,encode(&value["levels"] )?,string(value,"level_unit"),encode(&value["settings"] )?])?;
+    let hz = encode(&value["frequencies_hz"])?;
+    let levels = encode(&value["levels"])?;
+    let hash = compact.then(|| crate::panorama_events::digest(&hz, &levels));
+    db.execute("INSERT INTO sweeps(id,session_id,stream_id,started_at,ended_at,frequencies_json,levels_json,level_unit,settings_json) VALUES(?,?,?,?,?,?,?,?,?)",params![id,sid,stream,start,end,hz,levels,string(value,"level_unit"),encode(&value["settings"] )?])?;
     let frequencies = value["frequencies_hz"]
         .as_array()
         .expect("validated frequencies");
@@ -105,7 +123,7 @@ fn sweep(db: &Connection, value: &Value) -> Result<u64> {
         "INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) VALUES(?,?,?)",
         params![id, sid, stream],
     )?;
-    Ok(db.last_insert_rowid() as u64)
+    Ok((db.last_insert_rowid() as u64, hash))
 }
 fn observation(db: &Connection, value: &Value) -> Result<()> {
     let id = string(value, "id");
@@ -270,9 +288,11 @@ pub(crate) fn apply(
                 }
             }
             Mutation::Sweeps(values) => {
+                let compact = crate::panorama_events::enabled(&tx)?;
                 for value in values {
-                    result.ingestion_boundary = Some(sweep(&tx, &value)?);
-                    event(
+                    let (boundary, hash) = sweep(&tx, &value, compact)?;
+                    result.ingestion_boundary = Some(boundary);
+                    store_event(
                         &tx,
                         EventDraft::now(
                             "sweep.received",
@@ -280,6 +300,7 @@ pub(crate) fn apply(
                             json!({"sweep":value}),
                         ),
                         &mut result,
+                        hash,
                     )?;
                     result.items.push(value);
                 }

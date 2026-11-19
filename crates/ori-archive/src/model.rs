@@ -6,6 +6,8 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 #[derive(Clone, Debug)]
 pub struct ArchiveConfig {
     pub path: PathBuf,
+    /// Select schema 7 when initializing an empty archive. Existing v7 archives reopen automatically.
+    pub compact_sweep_events: bool,
     pub max_database_bytes: Option<u64>,
     pub writer_queue_capacity: usize,
     pub writer_queue_bytes: usize,
@@ -21,6 +23,7 @@ impl ArchiveConfig {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
+            compact_sweep_events: false,
             max_database_bytes: None,
             writer_queue_capacity: 64,
             writer_queue_bytes: 32 * 1024 * 1024,

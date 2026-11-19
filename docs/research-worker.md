@@ -174,7 +174,7 @@ Recovery input must be named `archive.sqlite` beside the recovery
 `manifest.json` and `artifacts.ndjson`. The core must first verify the full
 bundle with `radioinspector.recovery_backup.verify_backup`, including each
 closed artifact checksum. The worker checks the bounded recovery manifest,
-SQLite/file and artifact-manifest digests, archive size, schema 6, required
+SQLite/file and artifact-manifest digests, archive size, schema 6 or the marked schema 7 panorama format, required
 columns, SQLite quick/foreign-key checks, counts, and committed event watermark.
 It refuses WAL/SHM/journal sidecars and opens the snapshot with
 `mode=ro&immutable=1`, `query_only=ON`, no mmap, and a small SQLite cache. It

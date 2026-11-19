@@ -97,6 +97,28 @@ class DurableSseTests(unittest.TestCase):
         for sequence in range(3,7):
             self.assertEqual(self.next_event(response)['sequence'],sequence)
 
+    def test_compact_archive_replays_original_arrays_after_restart(self):
+        self.sessions.close()
+        self.path = str(Path(self.temporary.name) / 'compact.sqlite')
+        self.store = SQLiteSessionStore(self.path, compact_sweep_events=True)
+        self.sessions = SessionService(store=self.store, history_limit=1)
+        self.session = self.sessions.create_session(session_payload())
+        for index in range(4):
+            self.ingest(index)
+        self.sessions.close()
+        self.store = SQLiteSessionStore(self.path)
+        self.sessions = SessionService(store=self.store, history_limit=1)
+        self.start()
+        response = self.connect(after=1)
+        for index in range(4):
+            event = self.next_event(response)
+            self.assertEqual((event['sequence'], event['event_type']), (2 + index, 'sweep.received'))
+            sweep = event['payload']['sweep']
+            self.assertEqual(sweep['id'], f'sweep-{index}')
+            self.assertEqual(sweep['frequencies_hz'], [100, 200])
+            self.assertEqual(math.copysign(1, sweep['levels'][0]), -1)
+            self.assertEqual(sweep['levels'][1], 1.0000000000000002)
+
     def test_busy_independent_readers_delay_stream_without_blocking_measurement_commit(self):
         self.start()
         response=self.connect(after=1)

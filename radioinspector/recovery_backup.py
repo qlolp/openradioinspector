@@ -34,8 +34,10 @@ def _readonly(path):
 def _integrity(db):
     from .observation_precision import check_extension, decode_level
     from .candidate_precision import validate_rows
+    from .panorama_events import verify
     check_extension(db)
     validate_rows(db)
+    verify(db)
     if db.execute('PRAGMA integrity_check(1)').fetchone() != ('ok',):
         raise ValueError('Archive integrity check failed')
     if db.execute('PRAGMA foreign_key_check').fetchone() is not None:

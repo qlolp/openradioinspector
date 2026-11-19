@@ -49,7 +49,7 @@ pub(crate) fn observation(row: &Row<'_>) -> Result<Value> {
 }
 pub(crate) fn event(row: &Row<'_>) -> Result<Value> {
     Ok(
-        json!({"sequence":row.get::<_,i64>("sequence")?,"event_type":row.get::<_,String>("event_type")?,"occurred_at":time(row,"occurred_at")?,"session_id":row.get::<_,Option<String>>("session_id")?,"payload":object(row.get("payload_json")?)?}),
+        json!({"sequence":row.get::<_,i64>("sequence")?,"event_type":row.get::<_,String>("event_type")?,"occurred_at":time(row,"occurred_at")?,"session_id":row.get::<_,Option<String>>("session_id")?,"payload":crate::panorama_events::payload(row)?}),
     )
 }
 pub(crate) fn session(db: &Connection, id: &str) -> Result<Option<Value>> {

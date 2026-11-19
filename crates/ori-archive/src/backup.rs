@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
     io::{BufWriter, Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
@@ -63,7 +63,7 @@ impl Accounting for Budget {
         Ok(())
     }
 }
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 fn digest_file(path: &Path, budget: &mut impl Accounting) -> Result<String> {
@@ -255,7 +255,9 @@ fn absent(path: &Path) -> Result<()> {
 fn restore_destination(path: &Path) -> Result<()> {
     absent(path)?;
     for suffix in ["-wal", "-shm", "-journal"] {
-        absent(&PathBuf::from(format!("{}{suffix}", path.display())))?;
+        let mut sidecar = path.as_os_str().to_owned();
+        sidecar.push(suffix);
+        absent(Path::new(&sidecar))?;
     }
     Ok(())
 }
@@ -283,6 +285,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool> {
         .is_some())
 }
 fn integrity(db: &Connection) -> Result<()> {
+    crate::panorama_events::verify(db)?;
     crate::candidate_precision::validate_rows(db)?;
     if db.query_row("PRAGMA integrity_check(1)", [], |row| {
         row.get::<_, String>(0)
@@ -392,9 +395,10 @@ fn counts(db: &Connection, artifacts: u64) -> Result<Value> {
 fn copy_snapshot(
     source: &Connection,
     path: &Path,
-    deadline: Instant,
+    deadline: impl Into<Option<Instant>>,
     budget: &mut impl Accounting,
 ) -> Result<()> {
+    let deadline = deadline.into();
     budget.check()?;
     source.query_row("SELECT name FROM sqlite_master LIMIT 1", [], |row| {
         row.get::<_, String>(0)
@@ -409,7 +413,7 @@ fn copy_snapshot(
         let mut copied = 0_i64;
         loop {
             budget.check()?;
-            if Instant::now() > deadline {
+            if deadline.is_some_and(|end| Instant::now() > end) {
                 return Err(ArchiveError::QueryBudget);
             }
             let next =
@@ -579,6 +583,67 @@ fn verify_with_budget(directory: &Path, budget: &mut impl Accounting) -> Result<
     Ok(manifest)
 }
 
+/// Publish only complete, standalone databases, exclusively in an existing parent directory.
+fn publish_copy(staged: &Path, destination: &Path) -> Result<()> {
+    private_file(staged)?;
+    sync_file(staged)?;
+    restore_destination(destination)?;
+    fs::hard_link(staged, destination)?;
+    sync_directory(parent(destination)?)
+}
+
+fn copy_staging(destination: &Path, prefix: &str) -> Result<tempfile::TempDir> {
+    restore_destination(destination)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(prefix);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
+    }
+    Ok(builder.tempdir_in(parent(destination)?)?)
+}
+
+pub async fn init_compact_archive(destination: &Path) -> Result<()> {
+    let staging = copy_staging(destination, ".ori-compact-")?;
+    let target = staging.path().join("archive.sqlite");
+    let mut config = ArchiveConfig::new(&target);
+    config.compact_sweep_events = true;
+    Archive::open(config)?.close().await?;
+    let db = Connection::open(&target)?;
+    db.execute_batch("PRAGMA journal_mode=DELETE")?;
+    integrity(&db)?;
+    db.close().map_err(|(_, err)| ArchiveError::Sql(err))?;
+    publish_copy(&target, destination)
+}
+
+/// Online snapshot followed by offline materialization, keeping the input and any live WAL intact.
+pub fn materialize_archive(source: &Path, destination: &Path) -> Result<()> {
+    let staging = copy_staging(destination, ".ori-materialize-")?;
+    let target = staging.path().join("archive.sqlite");
+    {
+        let original = db_open(source)?;
+        original.execute_batch("BEGIN")?;
+        let (main, _, _) = schema::versions(&original)?;
+        if main != schema::MAIN_VERSION && main != crate::panorama_events::VERSION {
+            return Err(crate::error::invalid(
+                "materialization requires archive schema 6 or 7",
+            ));
+        }
+        copy_snapshot(&original, &target, None, &mut Budget::new())?;
+    }
+    let mut db = Connection::open(&target)?;
+    schema::functions(&db)?;
+    db.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON")?;
+    integrity(&db)?;
+    let tx = db.transaction()?;
+    crate::panorama_events::materialize_copy(&tx)?;
+    tx.commit()?;
+    integrity(&db)?;
+    db.close().map_err(|(_, err)| ArchiveError::Sql(err))?;
+    publish_copy(&target, destination)
+}
+
 pub fn restore_backup(directory: &Path, destination: &Path) -> Result<Value> {
     restore_destination(destination)?;
     let manifest = verify_backup(directory)?;
@@ -644,6 +709,7 @@ fn portable(source: &Connection, destination: &Path, timeout: Duration) -> Resul
     db.pragma_update(None, "secure_delete", true)?;
     {
         let tx = db.transaction()?;
+        crate::panorama_events::materialize_copy(&tx)?;
         tx.execute("DELETE FROM monitoring_webhooks", [])?;
         let mut after = 0_i64;
         loop {

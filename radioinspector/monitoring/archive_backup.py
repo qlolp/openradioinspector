@@ -22,6 +22,9 @@ def backup_archive(source,destination):
             original.backup(copied,pages=128)
             copied.execute('PRAGMA secure_delete=ON')
             with copied:
+                from ..panorama_events import materialize_copy
+                copied.execute("BEGIN IMMEDIATE")
+                materialize_copy(copied)
                 if copied.execute("SELECT 1 FROM sqlite_master WHERE name='monitoring_webhooks'").fetchone():
                     copied.execute('DELETE FROM monitoring_webhooks')
                 if copied.execute("SELECT 1 FROM sqlite_master WHERE name='monitoring_records'").fetchone():

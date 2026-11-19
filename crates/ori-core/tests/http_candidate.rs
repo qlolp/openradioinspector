@@ -522,6 +522,63 @@ async fn event_stream_replays_only_committed_events_and_closes_on_owned_shutdown
 }
 
 #[tokio::test]
+async fn compact_panorama_sse_replays_full_source_after_core_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = CoreConfig::replay(dir.path());
+    ori_archive::init_compact_archive(&config.database)
+        .await
+        .unwrap();
+    let mut server = Server::start(config).await;
+    create(&server).await;
+    let (status, _) = server
+        .request(
+            "POST",
+            &route("fixture-сессия", "/sweeps"),
+            Some(&fixture()["sweep"]),
+        )
+        .await;
+    assert_eq!(status, 201);
+    server.stop().await;
+    drop(server);
+    let mut server = Server::start(CoreConfig::replay(dir.path())).await;
+    let mut response = reqwest::get(format!("{}/api/v1/events?after=1", server.url))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let mut bytes = Vec::new();
+    let frame = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            bytes.extend_from_slice(&response.chunk().await.unwrap().unwrap());
+            if let Some(end) = bytes.windows(2).position(|w| w == b"\n\n") {
+                let message = std::str::from_utf8(&bytes[..end]).unwrap();
+                if let Some(data) = message.lines().find_map(|line| line.strip_prefix("data: ")) {
+                    return parse_json_value(data.as_bytes(), 65536).unwrap();
+                }
+                bytes.drain(..end + 2);
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let event = &frame["data"];
+    assert_eq!(event["sequence"], 2);
+    assert_eq!(event["event_type"], "sweep.received");
+    assert_eq!(
+        event["payload"]["sweep"]["frequencies_hz"],
+        fixture()["sweep"]["frequencies_hz"]
+    );
+    assert_eq!(
+        event["payload"]["sweep"]["levels"][1]
+            .as_f64()
+            .unwrap()
+            .to_bits(),
+        (-0.0_f64).to_bits()
+    );
+    drop(response);
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn shutdown_joins_resources_and_closes_a_backpressured_event_socket() {
     let directory = tempfile::tempdir().unwrap();
     let archive = ori_archive::Archive::open(ori_archive::ArchiveConfig::new(
