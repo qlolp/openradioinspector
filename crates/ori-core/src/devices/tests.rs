@@ -20,6 +20,7 @@ struct RevocationPoint {
 }
 struct Factory {
     reject_firmware_once: AtomicBool,
+    reject_exit_once: AtomicBool,
     wrong_rx_at: AtomicUsize,
     opens: AtomicUsize,
     drops: Arc<AtomicUsize>,
@@ -36,6 +37,7 @@ impl Factory {
     fn new(shutdown_failure: bool) -> Arc<Self> {
         Arc::new(Self {
             reject_firmware_once: AtomicBool::new(false),
+            reject_exit_once: AtomicBool::new(false),
             wrong_rx_at: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
             drops: Arc::default(),
@@ -111,6 +113,7 @@ impl TransportFactory for Factory {
             let wrong_rx_at = self.wrong_rx_at.load(Ordering::Acquire);
             let reject_firmware =
                 !analyzer && self.reject_firmware_once.swap(false, Ordering::AcqRel);
+            let reject_exit = !analyzer && self.reject_exit_once.swap(false, Ordering::AcqRel);
             let revoke_after = self.revoke_after.clone();
             tokio::spawn(async move {
                 let mut command = Vec::new();
@@ -145,6 +148,7 @@ impl TransportFactory for Factory {
                     } else {
                         match command.as_str() {
                             "VR" if reject_firmware => "60?\r\n".into(),
+                            "EX" if reject_exit => "60?\r\n".into(),
                             "VR" => "20VR2504A\r\n".into(),
                             "RN" => "20RNSYNTHETIC\r\n".into(),
                             "LM" => {
@@ -814,6 +818,50 @@ async fn cleanup_failure_latches_core_and_retains_writer_ownership_even_after_tr
         ori_runtime::lease::WriterLease::acquire(directory.path()).is_err(),
         "failed cleanup must not release the process's writer lease"
     );
+}
+
+#[tokio::test]
+async fn rejected_segment_exit_keeps_ownership_and_persists_the_terminal_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.reject_exit_once.store(true, Ordering::Release);
+    let core = core(directory.path(), factory.clone()).await;
+    let archive = core.archive().unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let mut segment = session("exit-test");
+    segment["streams"][0]["id"] = json!("exit-r");
+    segment["streams"][1]["id"] = json!("exit-a");
+    segment["streams"][0]["settings"] = json!({"adapter":"ardv1-serial",
+        "receiver_profile":"ardv1-monitor-v1", "mode":"FM", "period_s":0,
+        "fast_scan":{"start_hz":88_000_000,"stop_hz":88_100_000,"step_hz":100_000,"settle_s":0}});
+    archive.create_session(segment).await.unwrap();
+    let gate = manager.public_gate(Target::new("exit-test", "exit-r"));
+    manager
+        .start_stream("exit-test", "exit-r", gate)
+        .await
+        .unwrap();
+    until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    assert!(manager.stop_stream("exit-test", "exit-r").await.is_err());
+    let stored = archive.get_session("exit-test").await.unwrap().unwrap();
+    let receiver = stored["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|stream| stream["id"] == "exit-r")
+        .unwrap();
+    assert_eq!(receiver["state"], "error");
+    assert_eq!(
+        archive
+            .list_observations("exit-test", Some("exit-r"), 5)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    let other = manager.public_gate(Target::new("devices", "r"));
+    assert!(manager.start_stream("devices", "r", other).await.is_err());
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    assert!(core.close().await.is_err());
 }
 
 #[tokio::test]
