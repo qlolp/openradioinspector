@@ -1,5 +1,40 @@
-use ori_archive::{Archive, ArchiveConfig, Mutation};
+use ori_archive::{Archive, ArchiveConfig, EventDraft, Mutation};
 use serde_json::json;
+
+#[tokio::test]
+async fn receipt_budget_counts_exact_utf8_bytes_and_keeps_the_durable_event() {
+    let stamp = "2026-01-01T00:00:00.000000Z";
+    let payload = json!({"annotation":"Радио\n\"A\"", "levels":[-0.0, -88.125]});
+    let expected = json!({"sequence":1,"event_type":"annotation","occurred_at":stamp,
+        "session_id":null,"payload":payload});
+    let length = serde_json::to_vec(&expected).unwrap().len();
+    for budget in [length - 1, length] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.sqlite");
+        let mut config = ArchiveConfig::new(&path);
+        config.max_response_bytes = budget;
+        let archive = Archive::open(config).unwrap();
+        let result = archive
+            .apply(vec![Mutation::Event(EventDraft {
+                event_type: "annotation".into(),
+                occurred_at: stamp.into(),
+                session_id: None,
+                payload: payload.clone(),
+            })])
+            .await
+            .unwrap();
+        assert_eq!(result.events_complete, budget == length);
+        assert_eq!(
+            result.events.first(),
+            (budget == length).then_some(&expected)
+        );
+        assert_eq!(result.last_sequence, Some(1));
+        archive.close().await.unwrap();
+        let reader = Archive::open(ArchiveConfig::new(&path)).unwrap();
+        assert_eq!(reader.events(0, 1).await.unwrap(), vec![expected.clone()]);
+        reader.close().await.unwrap();
+    }
+}
 
 #[tokio::test]
 async fn stopping_more_than_256_jobs_is_atomic_and_bounded_ack_reports_the_full_persisted_event_range()
