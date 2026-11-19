@@ -250,11 +250,22 @@ pub fn from_json_slice<T: DeserializeOwned + RestoreKeys>(
 /// Parse archive/extension JSON without invoking serde_json's ValueVisitor.
 /// Unknown keys and arbitrary integer tokens are retained byte-exactly.
 pub fn parse_json_value(bytes: &[u8], max_bytes: usize) -> Result<Value, CodecError> {
+    parse_json_syntax(bytes, max_bytes, true)
+}
+fn parse_json_syntax(
+    bytes: &[u8],
+    max_bytes: usize,
+    retain_values: bool,
+) -> Result<Value, CodecError> {
     if bytes.len() > max_bytes {
         return Err(CodecError::TooLarge { max_bytes });
     }
     std::str::from_utf8(bytes).map_err(|_| CodecError::Invalid("invalid UTF-8".into()))?;
-    let mut parser = JsonSyntax { bytes, index: 0 };
+    let mut parser = JsonSyntax {
+        bytes,
+        index: 0,
+        retain_values,
+    };
     let value = parser.value(0)?;
     parser.space();
     if parser.index != bytes.len() {
@@ -263,12 +274,15 @@ pub fn parse_json_value(bytes: &[u8], max_bytes: usize) -> Result<Value, CodecEr
     Ok(value)
 }
 fn validate_json(bytes: &[u8]) -> Result<(), CodecError> {
-    parse_json_value(bytes, usize::MAX).map(|_| ())
+    // Validate the same grammar and duplicate keys without materializing a
+    // second tree of every frequency/level in a potentially 16MiB response.
+    parse_json_syntax(bytes, usize::MAX, false).map(|_| ())
 }
 
 struct JsonSyntax<'a> {
     bytes: &'a [u8],
     index: usize,
+    retain_values: bool,
 }
 impl JsonSyntax<'_> {
     fn invalid(message: &str) -> CodecError {
@@ -329,7 +343,17 @@ impl JsonSyntax<'_> {
                 if !self.take(b':') {
                     return Err(Self::invalid("expected JSON colon"));
                 }
-                values.insert(name, self.value(depth + 1)?);
+                let value = self.value(depth + 1)?;
+                // Keys are retained at each open object for strict duplicate
+                // detection, including escaped aliases. Descendants need not be.
+                values.insert(
+                    name,
+                    if self.retain_values {
+                        value
+                    } else {
+                        Value::Null
+                    },
+                );
                 self.space();
                 if self.take(b'}') {
                     return Ok(Value::Object(values));
@@ -346,7 +370,10 @@ impl JsonSyntax<'_> {
                 return Ok(Value::Array(values));
             }
             loop {
-                values.push(self.value(depth + 1)?);
+                let value = self.value(depth + 1)?;
+                if self.retain_values {
+                    values.push(value);
+                }
                 self.space();
                 if self.take(b']') {
                     return Ok(Value::Array(values));
@@ -409,6 +436,9 @@ impl JsonSyntax<'_> {
                 .is_finite()
         {
             return Err(Self::invalid("nonfinite JSON number"));
+        }
+        if !self.retain_values {
+            return Ok(Value::Null);
         }
         let number = if token == "-0" {
             // Python's legacy json.loads treats the integer token -0 as 0.

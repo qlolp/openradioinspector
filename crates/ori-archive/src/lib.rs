@@ -5,6 +5,7 @@ mod candidate_precision;
 mod checkpoint;
 mod domains;
 mod error;
+mod export_indexes;
 mod json;
 mod model;
 mod outbox;

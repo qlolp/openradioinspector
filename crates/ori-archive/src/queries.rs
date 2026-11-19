@@ -362,6 +362,14 @@ pub(crate) fn collect(
     Ok(values)
 }
 fn query_sweeps(db: &Connection, query: &SweepQuery, maximum: usize) -> Result<Page<Value>> {
+    query_sweeps_with(db, query, maximum, Ok)
+}
+fn query_sweeps_with<T>(
+    db: &Connection,
+    query: &SweepQuery,
+    maximum: usize,
+    mut encode: impl FnMut(Value) -> Result<T>,
+) -> Result<Page<T>> {
     if query.session_id.is_none() && query.project_id.is_none() {
         return Err(error::invalid(
             "a session or project history scope is required",
@@ -443,24 +451,27 @@ fn query_sweeps(db: &Connection, query: &SweepQuery, maximum: usize) -> Result<P
         clauses.join(" AND ")
     );
     let mut statement = db.prepare(&sql)?;
-    let mut items = collect(
-        statement.query(params_from_iter(arguments.iter()))?,
-        rows::sweep,
-        maximum,
-    )?;
-    let more = items.len() > query.limit;
-    items.truncate(query.limit);
-    let next_cursor = if more {
-        items.last().map(|value| MeasurementCursor {
-            started_at: value["interval"]["started_at"]
-                .as_str()
-                .expect("decoded timestamp")
-                .into(),
-            id: value["id"].as_str().expect("decoded ID").into(),
-        })
-    } else {
-        None
-    };
+    let mut rows = statement.query(params_from_iter(arguments.iter()))?;
+    let (mut items, mut remaining, mut last, mut more) = (Vec::new(), maximum, None, false);
+    while let Some(row) = rows.next()? {
+        let value = rows::sweep(row)?;
+        // Keep the same byte budget, including the look-ahead row. The wire
+        // path can release each numeric tree before decoding the next row.
+        charge(&value, &mut remaining)?;
+        if items.len() < query.limit {
+            last = Some(MeasurementCursor {
+                started_at: value["interval"]["started_at"]
+                    .as_str()
+                    .expect("decoded timestamp")
+                    .into(),
+                id: value["id"].as_str().expect("decoded ID").into(),
+            });
+            items.push(encode(value)?);
+        } else {
+            more = true;
+        }
+    }
+    let next_cursor = if more { last } else { None };
     Ok(Page { items, next_cursor })
 }
 fn observations(
@@ -641,6 +652,32 @@ impl Archive {
         query.stream_id = stream.map(str::to_owned);
         query.limit = limit;
         let mut values = self.sweep_page(query).await?.items;
+        values.reverse();
+        Ok(values)
+    }
+    /// The same recent-source query/order as list_sweeps, with only one decoded
+    /// numeric row alive at a time. RawValue retains strict, already-decoded
+    /// JSON spelling without reinterpreting literal metadata keys.
+    pub async fn list_sweeps_encoded(
+        &self,
+        session: &str,
+        stream: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Box<serde_json::value::RawValue>>> {
+        validate_limit(limit, 1000)?;
+        let mut query = SweepQuery::session(session);
+        query.stream_id = stream.map(str::to_owned);
+        query.limit = limit;
+        let maximum = self.inner.config.max_response_bytes;
+        let mut values = self
+            .inner
+            .read(move |db| {
+                query_sweeps_with(db, &query, maximum, |value| {
+                    Ok(serde_json::value::to_raw_value(&value)?)
+                })
+                .map(|page| page.items)
+            })
+            .await?;
         values.reverse();
         Ok(values)
     }
