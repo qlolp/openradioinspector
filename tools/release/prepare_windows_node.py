@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WINDOWS = ROOT / 'clients/windows'
 TARGET = 'x86_64-pc-windows-msvc'
 VERSION = '0.4.0-rc.1'
+SQLITE_VERSION = '3.54.1'
 
 
 def digest(path):
@@ -31,6 +32,8 @@ def helper_record(path, name, revision, info):
         raise ValueError(f'{name} does not match the Windows RC revision and target')
     if name == 'ori-core' and info.get('features') != {'serial': True, 'audio': False}:
         raise ValueError('Windows RC requires the receive-only serial build')
+    if name == 'ori-core' and info.get('sqlite_version') != SQLITE_VERSION:
+        raise ValueError('Windows RC requires the locked bundled SQLite engine')
     return {**info, 'sha256': digest(path)}
 
 
@@ -56,7 +59,7 @@ def verify_build_inputs(root):
         return subprocess.check_output(['git', *args], cwd=root)
 
     git('diff', '--quiet', 'HEAD', '--')
-    paths = ('clients/web', 'clients/windows', 'radioinspector/web/static', 'crates',
+    paths = ('.cargo', 'clients/web', 'clients/windows', 'radioinspector/web/static', 'crates',
              'contracts', 'deploy/windows', 'tools/release')
     if git('ls-files', '--others', '--exclude-standard', '-z', '--', *paths):
         raise ValueError('untracked Windows release source input')
@@ -65,7 +68,7 @@ def verify_build_inputs(root):
     # verbatim. Walk the actual input trees independently of Git ignore rules.
     web = root / 'clients/web'
     entries = list(web.glob('.env*'))
-    for tree in (web / 'public', web / 'src', root / 'radioinspector/web/static'):
+    for tree in (root / '.cargo', web / 'public', web / 'src', root / 'radioinspector/web/static'):
         if tree.is_symlink():
             raise ValueError('symlinked Windows release source input')
         entries.extend(tree.rglob('*'))
@@ -79,7 +82,7 @@ def main():
         raise SystemExit('Build the native NSIS installer on Windows x64.')
     revision = run('git', 'rev-parse', 'HEAD', capture_output=True, text=True).stdout.strip()
     verify_build_inputs(ROOT)
-    env = {**os.environ, 'ORI_BUILD_SOURCE_SHA': revision}
+    env = {**os.environ, 'ORI_BUILD_SOURCE_SHA': revision, 'LIBSQLITE3_SYS_USE_PKG_CONFIG': '0'}
     npm = shutil.which('npm.cmd')
     if not npm:
         raise SystemExit('npm.cmd unavailable')

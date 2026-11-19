@@ -77,7 +77,8 @@ foreach ($name in @('ori-supervisor','ori-core')) {
     $helper = Join-Path $runtime ($name + '.exe')
     $info = & $helper --build-info | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $info.source_revision -ne $manifest.source_revision -or
-        (Get-FileHash $helper).Hash -ne $manifest.components.$name.sha256) {
+        (Get-FileHash $helper).Hash -ne $manifest.components.$name.sha256 -or
+        ($name -eq 'ori-core' -and ($info.sqlite_version -ne '3.54.1' -or $manifest.components.$name.sqlite_version -ne $info.sqlite_version))) {
         throw "Installed helper mismatch: $name"
     }
 }
