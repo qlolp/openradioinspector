@@ -236,12 +236,28 @@ async fn receiver_scope_commits_the_final_point_before_releasing_its_port() {
     archive.create_session(session).await.unwrap();
     let manager = core.devices.as_ref().unwrap();
     let target = Target::new("scope", "scope-r");
-    manager
-        .start_stream("scope", "scope-r", manager.public_gate(target))
+    let started = manager
+        .start_stream("scope", "scope-r", manager.public_gate(target.clone()))
         .await
         .unwrap();
     until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    let receipt = manager
+        .retain_started_worker(
+            &target,
+            started.worker_instance.as_deref().unwrap(),
+            manager.public_gate(target.clone()),
+        )
+        .unwrap();
+    assert_eq!(receipt.check_start(true).unwrap().unwrap().measurements, 3);
+    assert!(
+        receipt.check().is_err(),
+        "a completed segment cannot take new control commands"
+    );
     let report = manager.stop_stream("scope", "scope-r").await.unwrap();
+    assert!(
+        receipt.check_start(true).is_err(),
+        "an explicit stop supersedes the old start receipt"
+    );
     assert_eq!(report.measurements, 3);
     assert!(!report.alive && report.last_error.is_none());
     let mut observations = archive

@@ -66,7 +66,7 @@ pub(super) async fn start(
         service.before_bind().await;
         let bound = (|| {
             cell.check(generation)?;
-            retained.check()?;
+            retained.check_start(grant.manual_role().is_none())?;
             auth.revalidate()
                 .map_err(|_| devices::DeviceError::Denied)?;
             grant.check().map_err(|_| devices::DeviceError::Denied)?;
@@ -92,7 +92,9 @@ pub(super) async fn start(
                     .confirm_instrument_coverage(&grant)
                     .await?;
             }
-            retained.check()?;
+            let status = retained
+                .check_start(grant.manual_role().is_none())?
+                .unwrap_or(status);
             cell.check(generation)?;
             auth.revalidate()?;
             if service.closed.load(Ordering::Acquire) {

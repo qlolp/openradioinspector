@@ -189,6 +189,36 @@ impl RetainedWorkerHandle {
         }
         Ok(())
     }
+    /// A short segment can naturally finish between the ready notification and
+    /// the HTTP start response. Its receipt only reports the original worker.
+    pub(crate) fn check_start(
+        &self,
+        allow_completed_segment: bool,
+    ) -> DeviceResult<Option<WorkerStatus>> {
+        if allow_completed_segment && let Some(total) = self.worker.scope_points {
+            let status = self.worker.snapshot();
+            if status.measurements == total as u64 && status.last_error.is_none() {
+                let manager = self.worker.manager.upgrade().ok_or(DeviceError::Closed)?;
+                let current = manager.registry.lock().map_err(|_| DeviceError::Closed)?;
+                if current.closed
+                    || self.worker.stop_mode.load(Ordering::Acquire) != WorkerStop::Running as u8
+                    || self.worker.start_generation
+                        != self.worker.lifecycle.generation.load(Ordering::Acquire)
+                    || !current
+                        .workers
+                        .get(&self.target)
+                        .is_some_and(|worker| Arc::ptr_eq(worker, &self.worker))
+                {
+                    return Err(DeviceError::Denied);
+                }
+                drop(current);
+                self.gate.check(Some(&self.worker))?;
+                return Ok(Some(status));
+            }
+        }
+        self.check()?;
+        Ok(None)
+    }
     /// The same supplied callback and immutable expected worker; no new permit.
     pub(crate) fn execution_gate(&self) -> ExecutionGate {
         self.gate.clone()
