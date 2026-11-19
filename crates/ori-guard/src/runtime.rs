@@ -302,7 +302,9 @@ impl GuardService {
                 let high = center
                     .checked_add(span - span / 2)
                     .ok_or_else(|| invalid("search frequency range"))?;
-                if let Some(plan) = crate::scan_plan::narrow_grid(p, center, low, high)? {
+                if let Some(plan) =
+                    crate::scan_plan::narrow_grid(p, search.get("scan_origin"), center, low, high)?
+                {
                     let first = plan.bands[0].window(0).expect("validated narrow grid");
                     stream["settings"]["scan_plan"] =
                         json!({"schema_version":1,"id":id,"revision":1,"config":plan});
@@ -321,8 +323,11 @@ impl GuardService {
             streams.push(stream);
         }
         let mut metadata = json!({"monitoring_project_id":p["id"]});
-        let name = if search.is_some() {
+        let name = if let Some(search) = search {
             metadata["source_search"] = json!(true);
+            if let Some(origin) = search.get("scan_origin") {
+                metadata["scan_origin"] = origin.clone();
+            }
             format!("{} · поиск", s(p, "name")?)
         } else if preparation {
             metadata["baseline_collection"] = json!(true);

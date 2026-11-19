@@ -95,6 +95,7 @@ pub(crate) fn source_scope<'a>(
 /// the requested interval. A separate plan ID prevents wide detector reuse.
 pub(crate) fn narrow_grid(
     project: &Value,
+    origin: Option<&Value>,
     center: u64,
     lo: u64,
     hi: u64,
@@ -105,17 +106,35 @@ pub(crate) fn narrow_grid(
     let Some(plan) = configured_plan(project)? else {
         return Ok(None);
     };
-    let Some(parent) = plan
+    let mut candidates = plan
         .bands
         .iter()
-        .find(|band| band.step_hz.is_some() && (band.start_hz..=band.stop_hz).contains(&center))
-    else {
-        return Ok(None);
+        .filter(|b| b.step_hz.is_some() && (b.start_hz..=b.stop_hz).contains(&center));
+    let parent = if let Some(origin) = origin {
+        let band = s(origin, "band_id")?;
+        let index = u32::try_from(integer(origin, "window_index")?)
+            .map_err(|_| invalid("Неверное окно события"))?;
+        candidates
+            .find(|b| {
+                b.id == band
+                    && b.window(index)
+                        .is_some_and(|window| (window.start_hz..=window.stop_hz).contains(&center))
+            })
+            .ok_or_else(|| invalid("Исходное окно события не найдено"))?
+    } else {
+        let Some(band) = candidates.next() else {
+            return Ok(None);
+        };
+        if candidates.next().is_some() {
+            return Err(invalid(
+                "Для пересекающихся сеток нужен исходный поддиапазон события",
+            ));
+        }
+        band
     };
     let step = ori_monitoring::scan::GRID_STEP_HZ;
-    let phase = parent.start_hz % step;
-    let low = (lo.max(100_000) - phase).div_ceil(step) * step + phase;
-    let high = (hi.min(ori_monitoring::scan::GRID_MAX_HZ) - phase) / step * step + phase;
+    let low = parent.start_hz + (lo.max(parent.start_hz) - parent.start_hz).div_ceil(step) * step;
+    let high = parent.start_hz + (hi.min(parent.stop_hz) - parent.start_hz) / step * step;
     if high <= low {
         return Err(invalid(
             "Для узкого обзора выше 800 МГц нужны две частоты исходной сетки 10 кГц",
