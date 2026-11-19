@@ -1,16 +1,71 @@
 ﻿# Run in a fresh interactive Windows test account, using the installed RC.
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$Installer, [string]$ExpectedRevision)
+param(
+    [Parameter(Mandatory)][string]$Installer, [string]$ExpectedRevision, [string]$ReportPath,
+    [string]$PriorInstaller, [string]$PriorInstallerSha256, [string]$PriorRevision
+)
 $ErrorActionPreference = 'Stop'
+$report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'}
+function Save-SmokeReport {
+    if ($ReportPath) {
+        $target = [IO.Path]::GetFullPath($ReportPath)
+        $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+        [IO.File]::WriteAllText($target, ($report | ConvertTo-Json -Depth 4))
+    }
+}
+function Enter-SmokePhase([string]$Name) {
+    # Only fixed phase names, numeric exit codes and exception types enter CI artifacts.
+    $report.phase = $Name
+    $report.reached += $Name
+    Save-SmokeReport
+}
+function Invoke-TestInstaller([string]$Package, [string[]]$Arguments) {
+    $process = Start-Process -FilePath (Resolve-Path -LiteralPath $Package) -ArgumentList $Arguments -Wait -PassThru
+    $report.installer_exit_code = $process.ExitCode
+    if ($process.ExitCode -ne 0) { throw "NSIS operation failed ($($process.ExitCode))" }
+}
+function Assert-Revision([string]$Revision) {
+    foreach ($name in @('ori-supervisor','ori-core')) {
+        $info = & (Join-Path $runtime ($name + '.exe')) --build-info | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or $info.source_revision -ne $Revision -or $info.target_arch -ne 'x86_64') {
+            throw 'Installed package is from an unexpected revision'
+        }
+    }
+}
+function Uninstall-TestPackage {
+    Invoke-TestInstaller (Join-Path $app 'uninstall.exe') @('/S')
+    $end = [DateTime]::UtcNow.AddSeconds(60)
+    while ((Test-Path -LiteralPath $desktopExe) -or (Test-Path -LiteralPath $core) -or (Test-Path -LiteralPath $supervisor)) {
+        if ([DateTime]::UtcNow -ge $end) { throw 'Uninstaller left installed executables' }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not (Test-Path $database) -or -not (Test-Path (Join-Path $data 'tasks.json')) -or
+        (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
+        throw 'Uninstall did not preserve the archive/task book or remove its sign-in task'
+    }
+}
+try {
+Enter-SmokePhase 'fresh_account'
 $data = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector-Windows-RC1'
-if (Test-Path -LiteralPath $data) { throw 'This acceptance test needs a fresh Windows test account.' }
-$install = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList '/S' -Wait -PassThru
-if ($install.ExitCode -ne 0) { throw "NSIS installation failed ($($install.ExitCode))" }
 $app = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector RC'
+if ((Test-Path -LiteralPath $data) -or (Test-Path -LiteralPath $app)) { throw 'This acceptance test needs a fresh Windows test account.' }
+Enter-SmokePhase 'install_nsis'
+if ($PriorInstaller -or $PriorInstallerSha256 -or $PriorRevision) {
+    if (-not $PriorInstaller -or $PriorRevision -notmatch '^[a-fA-F0-9]{40}$' -or
+        $PriorInstallerSha256 -notmatch '^[a-fA-F0-9]{64}$' -or
+        (Get-FileHash -LiteralPath $PriorInstaller).Hash -ne $PriorInstallerSha256 -or
+        (Get-FileHash -LiteralPath $Installer).Hash -eq $PriorInstallerSha256) {
+        throw 'The prior installer needs a distinct package with a pinned SHA-256 and source revision'
+    }
+    $report.package_rollback = 'not_run'
+}
+Invoke-TestInstaller $Installer @('/S')
+Enter-SmokePhase 'verify_installed_components'
 $runtime = Join-Path $app 'runtime'
 $supervisor = Join-Path $runtime 'ori-supervisor.exe'
 $core = Join-Path $runtime 'ori-core.exe'
 $manifest = Get-Content -Raw -Encoding UTF8 (Join-Path $runtime 'rc-build-info.json') | ConvertFrom-Json
+if ($PriorInstaller -and $PriorRevision -eq $manifest.source_revision) { throw 'Prior package has the current revision' }
 if ($ExpectedRevision -and $manifest.source_revision -ne $ExpectedRevision) { throw 'Installed release revision mismatch' }
 $desktopExe = Join-Path $app 'openradioinspector-windows.exe'
 $desktopInfo = & $desktopExe --build-info | ConvertFrom-Json
@@ -42,6 +97,12 @@ function Assert-RawSweep([string]$Route) {
     }
 }
 
+function Assert-TaskBook {
+    $tasks = (Invoke-RestMethod "$url/api/v1/task-scheduler/tasks").data
+    $saved = @($tasks.items | Where-Object { $_.name -eq 'windows-rc-operator-plan' })
+    if ($saved.Count -ne 1 -or $saved[0].duration_s -ne 15) { throw 'Operator task did not survive' }
+}
+
 function Find-Button($Client, [string[]]$Labels) {
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
     $type = [System.Windows.Automation.ControlType]::Button
@@ -60,16 +121,20 @@ function Find-Button($Client, [string[]]$Labels) {
     throw "Installed UI button unavailable: $Labels"
 }
 
+Enter-SmokePhase 'verify_no_implicit_start'
 $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $task = 'OpenRadioInspector RC1 ' + $owner
 if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Unexpected automatic sign-in registration' }
 if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Installer started monitoring implicitly' }
+Enter-SmokePhase 'launch_desktop'
 $client = Start-Process -FilePath $desktopExe -PassThru
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
+    Enter-SmokePhase 'invoke_local_choice'
     $button = Find-Button $client @('Connect to the local node','Подключить локальный узел')
     $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Enter-SmokePhase 'wait_for_owned_core'
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     do {
         if ([DateTime]::UtcNow -gt $deadline) { throw 'Local node did not reach readiness from the installed UI' }
@@ -78,15 +143,19 @@ try {
     } until ($node.status.ready)
     if (-not $node.status.writer_owned -or -not $node.status.preflight_complete) { throw 'Writer/preflight unavailable' }
     $id = $node.status.instance_id
+    Enter-SmokePhase 'reject_duplicate_owner'
     if ((Invoke-Node 'start').status.instance_id -ne $id) { throw 'Second start replaced the owner' }
     $duplicate = Start-Process -FilePath $supervisor -ArgumentList 'windows-node run' -PassThru -Wait -NoNewWindow
     if ($duplicate.ExitCode -eq 0 -or (Invoke-Node 'status').status.instance_id -ne $id) { throw 'Duplicate service admitted' }
+    Enter-SmokePhase 'close_desktop'
     if (-not $client.CloseMainWindow() -or -not $client.WaitForExit(15000)) { throw 'Could not close the installed UI normally' }
     if ((Invoke-Node 'status').status.instance_id -ne $id) { throw 'Closing UI interrupted monitoring' }
 
+    Enter-SmokePhase 'verify_archive_acl'
     $acl = Get-Acl -LiteralPath $data
     $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
     if (-not $acl.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $owner) { throw 'RC data DACL is not private' }
+    Enter-SmokePhase 'verify_logon_task'
     Invoke-Node 'register' | Out-Null
     $registered = Get-ScheduledTask -TaskName $task
     if ($registered.Actions.Execute -ne $supervisor -or $registered.Actions.Arguments -ne 'windows-node run' -or
@@ -96,6 +165,7 @@ try {
     Invoke-Node 'unregister' | Out-Null
     if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Sign-in task still registered' }
 
+    Enter-SmokePhase 'verify_offline_assets'
     $url = 'http://127.0.0.1:8770'
     $webClient = New-Object System.Net.WebClient
     $webClient.Proxy = $null
@@ -108,10 +178,12 @@ try {
             if ($hash -ne $file.Value) { throw "Installed offline asset changed: $($file.Name)" }
         }
     } finally { $webClient.Dispose() }
+    Enter-SmokePhase 'check_live_capabilities'
     $caps = (Invoke-RestMethod "$url/api/v1/capabilities").data
     if ($caps.candidate.mode -ne 'live' -or -not $caps.persistent_archive -or -not $caps.features.explicit_serial_adapters -or $caps.features.analog_audio_inputs) {
         throw 'Incorrect installed live capabilities'
     }
+    Enter-SmokePhase 'commit_measurement'
     $sample = @{id='windows-rc-smoke';name='Installed Windows node';streams=@(@{id='spectrum';device='synthetic';role='spectrum_analyzer';level_unit='dBm'})}
     $null = Invoke-RestMethod "$url/api/v1/sessions" -Method Post -ContentType 'application/json' -Body ($sample | ConvertTo-Json -Depth 5)
     $route = "$url/api/v1/sessions/windows-rc-smoke"
@@ -121,14 +193,32 @@ try {
         frequencies_hz=@(100000001,100000011);levels=@(-95.375,-87.25);level_unit='dBm';
         settings=@{adapter='synthetic-contract';generator_output=$false}}
     $null = Invoke-RestMethod "$route/sweeps" -Method Post -ContentType 'application/json' -Body ($sampleSweep | ConvertTo-Json -Depth 5)
+    $taskInput = Join-Path $data 'smoke-input.task'
+    [IO.File]::WriteAllText($taskInput, 'unused receive-only test input')
+    $plan = @{name='windows-rc-operator-plan'; start_at=[DateTime]::UtcNow.AddDays(7).ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ');
+        duration_s=15; task_file=$taskInput}
+    $null = Invoke-RestMethod "$url/api/v1/task-scheduler/tasks" -Method Post -ContentType 'application/json' -Body ($plan | ConvertTo-Json)
+    Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
     Invoke-Node 'check-stopped' | Out-Null
     if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Explicit shutdown was not completed' }
+    Enter-SmokePhase 'reinstall_update'
+    # Move one package resource from this fresh test account to prove /UPDATE
+    # actually writes files. The application archive stays outside the install.
+    $readme = Join-Path $runtime 'README.txt'
+    $readmeHash = (Get-FileHash $readme).Hash
+    Move-Item -LiteralPath $readme -Destination (Join-Path $data 'smoke-preinstall-readme.txt')
+    Invoke-TestInstaller $Installer @('/S','/UPDATE')
+    if ((Get-FileHash $readme).Hash -ne $readmeHash) { throw 'NSIS did not restore its installed resource' }
+    Assert-Revision $manifest.source_revision
+    Enter-SmokePhase 'recover_after_explicit_shutdown'
     $null = Invoke-Node 'start'
     $restored = (Invoke-RestMethod "$url/api/v1/sessions/windows-rc-smoke").data
     if ($restored.id -ne 'windows-rc-smoke') { throw 'Committed session not recovered after restart' }
     Assert-RawSweep $route
+    Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
+    Enter-SmokePhase 'materialize_v6'
     $previous = Join-Path $data 'smoke-format-v6.sqlite3'
     & $core archive-materialize (Join-Path $data 'sessions.sqlite3') $previous
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previous)) { throw 'Installed compatibility export failed' }
@@ -137,15 +227,51 @@ try {
     foreach ($suffix in @('-wal','-shm','-journal')) {
         if (Test-Path -LiteralPath ($database + $suffix)) { throw 'Source archive has live sidecars' }
     }
+    Enter-SmokePhase 'open_existing_v6'
     Move-Item -LiteralPath $database -Destination (Join-Path $data 'smoke-source-v7.sqlite3')
     Move-Item -LiteralPath $previous -Destination $database
+    Enter-SmokePhase 'uninstall_preserving_data'
+    Invoke-Node 'register' | Out-Null
+    Uninstall-TestPackage
+    if ($PriorInstaller) {
+        Enter-SmokePhase 'install_prior_package'
+        $report.package_rollback = 'failed'
+        Invoke-TestInstaller $PriorInstaller @('/S')
+        Assert-Revision $PriorRevision
+        $null = Invoke-Node 'start'
+        Assert-RawSweep $route
+        Assert-TaskBook
+        Invoke-Node 'shutdown' | Out-Null
+        $report.package_rollback = 'passed'
+        Enter-SmokePhase 'upgrade_prior_package'
+        Invoke-TestInstaller $Installer @('/S','/UPDATE')
+    } else {
+        Enter-SmokePhase 'install_current_over_saved_data'
+        Invoke-TestInstaller $Installer @('/S')
+    }
+    Assert-Revision $manifest.source_revision
     $null = Invoke-Node 'start'
     Assert-RawSweep $route
+    Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
+    Enter-SmokePhase 'final_uninstall'
+    Invoke-Node 'register' | Out-Null
+    Uninstall-TestPackage
 } finally {
     if (-not $client.HasExited) { $null = $client.CloseMainWindow() }
-    $status = Invoke-Node 'status'
-    if ($status.status) { Invoke-Node 'shutdown' | Out-Null }
-    Invoke-Node 'unregister' | Out-Null
+    if (Test-Path -LiteralPath $supervisor) {
+        $status = Invoke-Node 'status'
+        if ($status.status) { Invoke-Node 'shutdown' | Out-Null }
+        Invoke-Node 'unregister' | Out-Null
+    }
     $client.Dispose()
+}
+$report.result = 'passed'
+} catch {
+    $report.result = 'failed'
+    $report.error_type = $_.Exception.GetType().Name
+    $report.error_line = $_.InvocationInfo.ScriptLineNumber
+    throw
+} finally {
+    Save-SmokeReport
 }

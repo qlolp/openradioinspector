@@ -1,6 +1,7 @@
 //! Per-user Windows operator node. The controller is a separate process from
 //! the Tauri UI. The installed node accepts status and graceful shutdown only.
 mod pipe;
+use pipe::Endpoint;
 
 use crate::{
     Error, Result,
@@ -75,6 +76,10 @@ fn configuration(data: &Path, installation: &Path) -> Result<ServiceConfig> {
             ));
         }
     }
+    let archive_path = data
+        .to_str()
+        .ok_or_else(|| Error::Unsafe("Windows archive path is not Unicode".into()))?;
+    let task_book = data.join("tasks.json");
     let address: std::net::SocketAddr = ADDRESS.parse().expect("fixed loopback address");
     Ok(ServiceConfig {
         data_directory: data.to_owned(),
@@ -85,9 +90,9 @@ fn configuration(data: &Path, installation: &Path) -> Result<ServiceConfig> {
                 "--mode".into(),
                 "live".into(),
                 "--data-dir".into(),
-                data.to_str()
-                    .ok_or_else(|| Error::Unsafe("Windows archive path is not Unicode".into()))?
-                    .into(),
+                archive_path.into(),
+                "--task-book".into(),
+                task_book.to_str().expect("Unicode archive path").into(),
                 "--host".into(),
                 "127.0.0.1".into(),
                 "--port".into(),
@@ -136,7 +141,14 @@ async fn initialize_archive(config: &ServiceConfig) -> Result<()> {
 
 pub(crate) async fn serve(mut config: ServiceConfig, installed: bool) -> Result<()> {
     let mut supervisor = Supervisor::new(&config.data_directory)?;
-    let mut server = pipe::listen(&config.data_directory)?;
+    let mut server = pipe::listen(
+        &config.data_directory,
+        if installed {
+            Endpoint::Installed
+        } else {
+            Endpoint::Generic
+        },
+    )?;
     if installed {
         initialize_archive(&config).await?;
     } else {
@@ -221,15 +233,15 @@ fn disconnected(error: &io::Error) -> bool {
 }
 
 pub(crate) fn admin_pipe_path(data: &Path) -> Result<PathBuf> {
-    pipe::path(data)
+    pipe::path(data, Endpoint::Generic)
 }
 
 pub(crate) async fn admin(data: &Path, action: AdminCommand) -> Result<Value> {
-    pipe::request(data, action).await
+    pipe::request(data, Endpoint::Generic, action).await
 }
 
 async fn status(data: &Path) -> Result<Option<Value>> {
-    match admin(data, AdminCommand::Status).await {
+    match pipe::request(data, Endpoint::Installed, AdminCommand::Status).await {
         Ok(value)
             if value["ok"] == true
                 && value["status"]["ready"] == true
@@ -247,6 +259,9 @@ async fn start(data: &Path) -> Result<Value> {
     pipe::ensure_data_directory(data)?;
     if let Some(value) = status(data).await? {
         return Ok(value);
+    }
+    if pipe::exists(data, Endpoint::Generic)? {
+        return Err(Error::Busy);
     }
     let mut child = Command::new(std::env::current_exe()?)
         .args(["windows-node", "run"])
@@ -323,7 +338,8 @@ pub async fn command(action: &str) -> Result<()> {
             .await?
             .unwrap_or(json!({"ok":true, "service_state":"stopped"})),
         "shutdown" => {
-            let response = admin(&data, AdminCommand::Shutdown).await?;
+            let response =
+                pipe::request(&data, Endpoint::Installed, AdminCommand::Shutdown).await?;
             if response["ok"] != true {
                 return Err(Error::Protocol("Windows core shutdown unconfirmed".into()));
             }

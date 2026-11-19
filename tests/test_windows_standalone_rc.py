@@ -1,6 +1,7 @@
 """Portable checks for RC staging. Native control/installation run on Windows."""
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -36,6 +37,27 @@ class WindowsNodePackageTests(unittest.TestCase):
             hashes = release.stage_web(source, frontend)
             self.assertEqual(hashes, {name: release.digest(frontend / 'modern' / name) for name in files})
             self.assertEqual((frontend / 'index.html').read_bytes(), (source / 'index.html').read_bytes())
+
+    def test_rejects_untracked_and_gitignored_vite_and_core_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+            (root / '.gitignore').write_text('*.csv\n.env.local\n')
+            for folder in ('clients/web/src', 'clients/web/public', 'radioinspector/web/static'):
+                (root / folder).mkdir(parents=True)
+                (root / folder / 'tracked.js').write_text('export default 1')
+            subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Package test', '-c', 'user.email=test@invalid',
+                            'commit', '-qm', 'fixture'], cwd=root, check=True)
+            release.verify_build_inputs(root)
+            for name in ('clients/web/src/local.ts', 'clients/web/public/hidden.csv',
+                         'radioinspector/web/static/hidden.csv', 'clients/web/.env.local'):
+                with self.subTest(name=name):
+                    local = root / name
+                    local.write_text('fixture')
+                    with self.assertRaises(ValueError):
+                        release.verify_build_inputs(root)
+                    local.unlink()
 
     def test_normal_tauri_build_packages_a_current_user_offline_node(self):
         config = json.loads((release.WINDOWS / 'tauri.conf.json').read_text())

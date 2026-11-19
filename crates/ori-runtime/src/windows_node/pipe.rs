@@ -44,6 +44,20 @@ fn check(value: i32) -> io::Result<()> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum Endpoint {
+    Generic,
+    Installed,
+}
+impl Endpoint {
+    fn namespace(self) -> &'static [u8] {
+        match self {
+            Self::Generic => b"service-config-v1",
+            Self::Installed => b"windows-operator-rc1",
+        }
+    }
+}
+
 struct Identity {
     // TOKEN_USER and its pointer to the contained SID live in this aligned buffer.
     user: Vec<usize>,
@@ -85,8 +99,9 @@ impl Identity {
     fn sid(&self) -> PSID {
         unsafe { (*self.user.as_ptr().cast::<TOKEN_USER>()).User.Sid }
     }
-    fn name(&self, data: &Path) -> Result<String> {
+    fn name(&self, data: &Path, endpoint: Endpoint) -> Result<String> {
         let mut digest = Sha256::new();
+        digest.update(endpoint.namespace());
         digest.update(self.text.as_bytes());
         for unit in std::fs::canonicalize(data)?.as_os_str().encode_wide() {
             digest.update(unit.to_le_bytes());
@@ -186,13 +201,32 @@ fn create(name: &str, sddl: &str) -> Result<NamedPipeServer> {
             )
     }?)
 }
-pub(super) fn path(data: &Path) -> Result<std::path::PathBuf> {
-    Ok(Identity::current()?.name(data)?.into())
+pub(super) fn path(data: &Path, endpoint: Endpoint) -> Result<std::path::PathBuf> {
+    Ok(Identity::current()?.name(data, endpoint)?.into())
 }
-pub(super) fn listen(data: &Path) -> Result<NamedPipeServer> {
+pub(super) fn exists(data: &Path, endpoint: Endpoint) -> Result<bool> {
+    use windows_sys::Win32::{Foundation::ERROR_SEM_TIMEOUT, System::Pipes::WaitNamedPipeW};
+    let name: Vec<_> = path(data, endpoint)?
+        .as_os_str()
+        .encode_wide()
+        .chain([0])
+        .collect();
+    if unsafe { WaitNamedPipeW(name.as_ptr(), 1) } != 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(ERROR_SEM_TIMEOUT as i32) {
+        return Ok(true);
+    }
+    if error.kind() == io::ErrorKind::NotFound {
+        return Ok(false);
+    }
+    Err(error.into())
+}
+pub(super) fn listen(data: &Path, endpoint: Endpoint) -> Result<NamedPipeServer> {
     let user = Identity::current()?;
     let pipe = create(
-        &user.name(data)?,
+        &user.name(data, endpoint)?,
         &format!("O:{0}D:P(A;;GA;;;{0})", user.text),
     )?;
     user.verify(pipe.as_raw_handle(), false)?;
@@ -253,9 +287,13 @@ pub(super) async fn reply(stream: &mut NamedPipeServer, response: &serde_json::V
     .await;
 }
 
-pub(super) async fn request(data: &Path, command: AdminCommand) -> Result<serde_json::Value> {
+pub(super) async fn request(
+    data: &Path,
+    endpoint: Endpoint,
+    command: AdminCommand,
+) -> Result<serde_json::Value> {
     let user = Identity::current()?;
-    let name = user.name(data)?;
+    let name = user.name(data, endpoint)?;
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut client = loop {
         match ClientOptions::new().open(&name) {
@@ -285,12 +323,27 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn installed_controls_do_not_start_attach_or_stop_a_generic_supervisor() {
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("private");
+        ensure_data_directory(&data).unwrap();
+        let _generic = listen(&data, Endpoint::Generic).unwrap();
+        assert!(super::super::status(&data).await.unwrap().is_none());
+        assert!(matches!(super::super::start(&data).await, Err(Error::Busy)));
+        assert!(
+            matches!(request(&data, Endpoint::Installed, AdminCommand::Shutdown).await,
+            Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound)
+        );
+        assert!(exists(&data, Endpoint::Generic).unwrap());
+    }
+
+    #[tokio::test]
     async fn both_ends_check_the_actual_current_sid_and_protected_single_ace() {
         let dir = tempfile::tempdir().unwrap();
         let user = Identity::current().unwrap();
-        let name = user.name(dir.path()).unwrap();
-        let server = listen(dir.path()).unwrap();
-        assert!(listen(dir.path()).is_err());
+        let name = user.name(dir.path(), Endpoint::Installed).unwrap();
+        let server = listen(dir.path(), Endpoint::Installed).unwrap();
+        assert!(listen(dir.path(), Endpoint::Installed).is_err());
         let client = ClientOptions::new().open(&name).unwrap();
         user.verify(client.as_raw_handle(), false).unwrap();
         drop(client);
@@ -305,7 +358,7 @@ mod tests {
             Err(Error::Unauthorized)
         ));
         assert!(matches!(
-            request(dir.path(), AdminCommand::Shutdown).await,
+            request(dir.path(), Endpoint::Installed, AdminCommand::Shutdown).await,
             Err(Error::Unauthorized)
         ));
     }

@@ -50,11 +50,35 @@ def run(*args, **kwargs):
     return subprocess.run([str(arg) for arg in args], cwd=ROOT, check=True, **kwargs)
 
 
+def verify_build_inputs(root):
+    """Every file that can enter the Vite/static bundles must belong to HEAD."""
+    def git(*args):
+        return subprocess.check_output(['git', *args], cwd=root)
+
+    git('diff', '--quiet', 'HEAD', '--')
+    paths = ('clients/web', 'clients/windows', 'radioinspector/web/static', 'crates',
+             'contracts', 'deploy/windows', 'tools/release')
+    if git('ls-files', '--others', '--exclude-standard', '-z', '--', *paths):
+        raise ValueError('untracked Windows release source input')
+    tracked = {os.fsdecode(p) for p in git('ls-files', '-z', '--', *paths).split(b'\0') if p}
+    # Ignore rules may hide a local CSV/font/secret while Vite copies public
+    # verbatim. Walk the actual input trees independently of Git ignore rules.
+    web = root / 'clients/web'
+    entries = list(web.glob('.env*'))
+    for tree in (web / 'public', web / 'src', root / 'radioinspector/web/static'):
+        if tree.is_symlink():
+            raise ValueError('symlinked Windows release source input')
+        entries.extend(tree.rglob('*'))
+    for entry in entries:
+        if entry.is_symlink() or (entry.is_file() and entry.relative_to(root).as_posix() not in tracked):
+            raise ValueError('untracked or linked Windows release asset')
+
+
 def main():
     if sys.platform != 'win32':
         raise SystemExit('Build the native NSIS installer on Windows x64.')
     revision = run('git', 'rev-parse', 'HEAD', capture_output=True, text=True).stdout.strip()
-    run('git', 'diff', '--quiet', 'HEAD', '--')
+    verify_build_inputs(ROOT)
     env = {**os.environ, 'ORI_BUILD_SOURCE_SHA': revision}
     npm = shutil.which('npm.cmd')
     if not npm:
