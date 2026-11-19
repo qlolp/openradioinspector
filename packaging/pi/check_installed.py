@@ -52,7 +52,7 @@ def exercise(url, phase):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=('inspect', 'install', 'upgrade', 'rollback', 'restart'))
+    parser.add_argument('phase', choices=('inspect', 'install', 'upgrade', 'rollback', 'restart', 'existing-v6'))
     parser.add_argument('--url', default='http://127.0.0.1:8770')
     parser.add_argument('--manifest', type=Path, default=Path('/usr/share/doc/openradioinspector-pi-rc/release.json'))
     args = parser.parse_args()

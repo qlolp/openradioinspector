@@ -18,7 +18,7 @@ unit="$package.service"
 state=/var/lib/$package
 dropin=/run/systemd/system/$unit.d
 ns=ori-pi-rc-ci
-for path in "$state" "/etc/$package" "$dropin" "/run/netns/$ns" "$report"; do
+for path in "$state" "$state.ci-retained" "/etc/$package" "$dropin" "/run/netns/$ns" "$report"; do
     if [ -e "$path" ] || [ -L "$path" ]; then echo "CI test requires a fresh path: $path" >&2; exit 1; fi
 done
 if dpkg-query -s "$package" >/dev/null 2>&1; then echo 'Package already present' >&2; exit 1; fi
@@ -110,4 +110,19 @@ for filename, version in [('sessions.sqlite3', 7), ('compat-v6.sqlite', 6)]:
         assert db.execute('SELECT COUNT(*) FROM sweeps').fetchone() == (1,)
         assert db.execute('SELECT COUNT(*) FROM observations').fetchone() == (1,)
 PY
-echo 'Verified ARM64 install, restart, upgrade, downgrade and removal offline. Fixture archive retained.'
+# Keep the entire original archive (including any sidecars) while exercising
+# a separate v6 data directory. The package must preserve an existing schema.
+mv -- "$state" "$state.ci-retained"
+install -d -o ori-pi-rc -g ori-pi-rc -m 0700 "$state"
+runuser -u ori-pi-rc -- cp "$state.ci-retained/compat-v6.sqlite" "$state/sessions.sqlite3"
+offline dpkg -i "${rc[0]}"
+verify existing-v6
+offline dpkg --purge "$package"
+python3 - "$state/sessions.sqlite3" <<'PYV6'
+from pathlib import Path
+import sqlite3, sys
+with sqlite3.connect(Path(sys.argv[1]).as_uri() + '?mode=ro', uri=True) as db:
+    assert db.execute('PRAGMA user_version').fetchone() == (6,)
+    assert db.execute('PRAGMA integrity_check').fetchone() == ('ok',)
+PYV6
+echo 'Verified ARM64 install, restart, upgrade, downgrade, retained v7 data and compatible v6 restart offline.'
