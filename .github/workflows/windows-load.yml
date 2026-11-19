@@ -81,7 +81,7 @@ jobs:
       - run: npm run build --prefix clients/web
       - run: python tools/build_modern_web.py
       - run: python tools/build_modern_web.py --check
-      - run: cargo build --release --locked --features serial -p ori-core --example benchmark_background
+      - run: cargo +1.99.1 build --release --locked --features serial -p ori-core --example benchmark_background
       - name: Run live export, verified cursor history and online backup during original acquisition
         shell: python
         run: |

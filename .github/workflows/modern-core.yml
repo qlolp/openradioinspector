@@ -168,7 +168,7 @@ jobs:
       - name: Build the native archive writer and install locked fixture dependencies
         run: |
           python -m pip install --require-hashes -r requirements/core.lock
-          cargo build --release --locked -p ori-archive --example panorama_storage
+          cargo +1.99.1 build --release --locked -p ori-archive --example panorama_storage
       - name: Exercise the scan and archive evidence checks
         run: python -m unittest benchmarks.tests.test_scan_rate benchmarks.tests.test_panorama_storage
       - name: Verify raw data, checkpointed footprint and 30 percent savings on each grid
