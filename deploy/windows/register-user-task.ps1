@@ -3,15 +3,24 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Register', 'Unregister')][string]$Action = 'Register',
-    [string]$SupervisorExe = (Join-Path $PSScriptRoot 'ori-supervisor.exe'),
+    [string]$SupervisorExe,
     [string]$Configuration,
     [string]$TaskName
 )
 $ErrorActionPreference = 'Stop'
+$stage = 'identity'
+trap {
+    # ASCII stage and numeric HRESULT are safe to retain from a detached helper.
+    [Console]::Error.WriteLine("ORI_TASK_ERROR $stage $($_.Exception.HResult)")
+    break
+}
 $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$stage = 'supervisor_path'
+if (-not $SupervisorExe) { $SupervisorExe = [IO.Path]::Combine($PSScriptRoot, 'ori-supervisor.exe') }
 $supervisorPath = (Resolve-Path -LiteralPath $SupervisorExe).Path
 if ($Configuration) {
     # Existing installations may still register an explicit generic config.
+    $stage = 'configuration_path'
     $configPath = (Resolve-Path -LiteralPath $Configuration).Path
     $arguments = 'run "' + $configPath + '"'
     if (-not $TaskName) { $TaskName = 'OpenRadioInspector supervisor' }
@@ -20,8 +29,19 @@ if ($Configuration) {
     if (-not $TaskName) { $TaskName = 'OpenRadioInspector RC1 ' + $identity.User.Value }
 }
 
-$existing = Get-ScheduledTask -TaskName $TaskName -TaskPath '\' -ErrorAction SilentlyContinue
+$stage = 'scheduler_module'
+$systemModules = [IO.Path]::Combine($env:SystemRoot, 'System32\WindowsPowerShell\v1.0\Modules')
+Import-Module -Name ([IO.Path]::Combine($systemModules, 'ScheduledTasks', 'ScheduledTasks.psd1')) -ErrorAction Stop
+$stage = 'query_task'
+try {
+    $existing = Get-ScheduledTask -TaskName $TaskName -TaskPath '\' -ErrorAction Stop
+} catch {
+    if ($_.CategoryInfo.Category -ne 'ObjectNotFound' -or
+        $_.FullyQualifiedErrorId -notmatch '^CmdletizationQuery_NotFound(?:_[A-Za-z]+)?,Get-ScheduledTask$') { throw }
+    $existing = $null
+}
 if ($existing) {
+    $stage = 'verify_existing'
     $principalId = $existing.Principal.UserId
     if ($principalId -match '^S-1-') {
         $existingSid = $principalId
@@ -35,15 +55,19 @@ if ($existing) {
         throw "Task '$TaskName' belongs to another installation or user."
     }
     if ($Action -eq 'Unregister') {
+        $stage = 'remove_task'
         Unregister-ScheduledTask -InputObject $existing -Confirm:$false
     } else {
+        $stage = 'enable_task'
         Enable-ScheduledTask -InputObject $existing | Out-Null
     }
     return
 }
 if ($Action -eq 'Unregister') { return }
+$stage = 'prepare_task'
 $launch = New-ScheduledTaskAction -Execute $supervisorPath -Argument $arguments
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity.Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$stage = 'register_task'
 Register-ScheduledTask -TaskPath '\' -TaskName $TaskName -Action $launch -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
