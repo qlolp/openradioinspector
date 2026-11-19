@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { openDesk } from './helpers';
+import { CORE, ownProject } from './binary-fixture';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
@@ -437,4 +439,127 @@ test('gridded source keeps its measured window separate from whole-band coverage
     )
     .toBe(true);
   await page.unrouteAll({ behavior: 'wait' });
+});
+
+test('1366×768 displays peaks from two distinct committed waterfall periods', async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const { session, project } = await ownProject(request, 'Лаборатория · синтетический водопад');
+  const projectPath = CORE + '/monitoring-projects/' + project.id;
+  const frequencies = Array.from({ length: 201 }, (_, index) => 88000000 + index * 100000);
+  const now = Date.now();
+  const count = 192;
+  const source = (index: number) => {
+    const start = now - (count - index) * 4000;
+    const carrier = index < count / 2 ? 44 : 156;
+    const levels = frequencies.map((_, bin) =>
+      Math.max(
+        -107 + ((bin * 7 + index * index) % 13),
+        -70 - Math.abs(bin - 114) * 5,
+        index < 0 ? -120 : -32 - Math.abs(bin - carrier) * 6,
+        index < 0 ? -120 : -72 - Math.abs(bin - (78 + (Math.floor(index / 5) % 20))) * 7,
+      ),
+    );
+    return {
+      id: session.id + '-synthetic-waterfall-' + index,
+      stream_id: session.streams[0].id,
+      interval: {
+        started_at: new Date(start).toISOString(),
+        ended_at: new Date(start + 1000).toISOString(),
+      },
+      frequencies_hz: frequencies,
+      levels,
+      level_unit: 'dBm',
+      settings: { ...session.streams[0].settings, synthetic: true },
+    };
+  };
+  const commitRows = async (first: number, end: number) => {
+    for (let index = first; index < end; index += 32) {
+      const items = Array.from({ length: Math.min(32, end - index) }, (_, offset) =>
+        source(index + offset),
+      );
+      const response = await request.post(CORE + '/sessions/' + session.id + '/sweeps/batch', {
+        data: { items },
+      });
+      expect(response.ok(), await response.text()).toBe(true);
+      expect((await response.json()).data.count).toBe(items.length);
+    }
+  };
+  await commitRows(-24, 0);
+  const baseline = await request.post(projectPath + '/baselines', {
+    data: { name: 'Синтетический фон', location: 'Лаборатория', confirm: true },
+  });
+  expect(baseline.ok(), await baseline.text()).toBe(true);
+  await page.addInitScript((id) => localStorage.setItem('ori-modern-project', id), project.id);
+  const subscription = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/v1/events');
+  await openDesk(page);
+  await subscription;
+  await expect(page.locator('canvas.spectrum').first()).toHaveAttribute(
+    'data-sweep-id',
+    source(-1).id,
+  );
+  await page.getByTestId('locale-select').selectOption('ru');
+  await commitRows(0, count);
+  for (let start = 0; start < count; start += 64) {
+    const analysis = await request.post(projectPath + '/analyze', { data: {} });
+    expect(analysis.ok(), await analysis.text()).toBe(true);
+  }
+  await expect(page.getByTestId('event-row').first()).toBeVisible();
+  await expect(page.locator('canvas.spectrum').first()).toHaveAttribute(
+    'data-sweep-id',
+    source(count - 1).id,
+  );
+  const waterfall = page.locator('.waterfall');
+  await expect(waterfall).toHaveAttribute('aria-label', /192/);
+  const box = (await waterfall.boundingBox())!;
+  expect(Math.min(box.height, 768 - box.y)).toBeGreaterThanOrEqual(110);
+
+  const screenshot = await page.screenshot({
+    path: test.info().outputPath('monitoring-multirow-1366.png'),
+  });
+  const pixels = await page.evaluate(
+    async ({ png, box }) => {
+      const bytes = Uint8Array.from(atob(png), (ch) => ch.charCodeAt(0));
+      const frame = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = frame.width;
+      canvas.height = frame.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(frame, 0, 0);
+      frame.close();
+      const sample = (fraction: number, age: number) =>
+        Array.from(
+          ctx.getImageData(
+            Math.floor(box.x + box.width * fraction),
+            Math.floor(box.y + (box.height * age) / 256),
+            1,
+            1,
+          ).data,
+        );
+      return {
+        recentLeft: sample(0.22, 12),
+        recentRight: sample(0.78, 12),
+        earlierLeft: sample(0.22, 140),
+        earlierRight: sample(0.78, 140),
+      };
+    },
+    { png: screenshot.toString('base64'), box },
+  );
+  expect(pixels.recentRight[0]).toBeGreaterThan(pixels.recentLeft[0] + 80);
+  expect(pixels.earlierLeft[0]).toBeGreaterThan(pixels.earlierRight[0] + 80);
+  const evidence = test.info().outputPath('waterfall-screen-samples.json');
+  await writeFile(
+    evidence,
+    JSON.stringify(
+      { fixture: 'synthetic committed sweeps', sourceCount: count, box, pixels },
+      null,
+      2,
+    ),
+  );
+  await test
+    .info()
+    .attach('waterfall-screen-samples', { contentType: 'application/json', path: evidence });
 });

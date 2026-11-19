@@ -1,4 +1,11 @@
 import { defineConfig } from '@playwright/test';
+export const coreFixtureServer = {
+  command: `${process.env.ORI_PYTHON || 'python3'} tests/core_fixture.py`,
+  url: 'http://127.0.0.1:18771/api/v1/health',
+  reuseExistingServer: false,
+  timeout: 30000,
+};
+
 export default defineConfig({
   testDir: './e2e',
   workers: 1,
@@ -14,12 +21,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: [
-    {
-      command: `${process.env.ORI_PYTHON || 'python3'} tests/core_fixture.py`,
-      url: 'http://127.0.0.1:18771/api/v1/health',
-      reuseExistingServer: false,
-      timeout: 30000,
-    },
+    coreFixtureServer,
     {
       command: 'npm run dev -- --port 18772 --strictPort',
       url: 'http://127.0.0.1:18772/modern/',
