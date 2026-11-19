@@ -42,6 +42,18 @@ class PiReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             native_notices.selected_packages(metadata, {'missing'})
 
+    def test_incomplete_notice_collection_can_be_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'bundle' / 'notices'
+            with patch.object(native_notices, 'write_notices', side_effect=ValueError('missing input')), self.assertRaises(ValueError):
+                native_notices.collect(output, 'aarch64-unknown-linux-gnu')
+            self.assertFalse(output.exists())
+            with patch.object(native_notices, 'write_notices') as write:
+                native_notices.collect(output, 'aarch64-unknown-linux-gnu')
+                write.assert_called_once()
+            with self.assertRaises(FileExistsError):
+                native_notices.collect(output, 'aarch64-unknown-linux-gnu')
+
     def test_notices_include_nested_native_files_and_reject_an_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,7 +57,18 @@ def copy_notices(source, destination, output, declared=None):
 
 
 def collect(output, target, tauri=False, metadata=None):
-    output.mkdir(exist_ok=False, parents=True)
+    output = Path(output).absolute()
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.ori-notices-', dir=output.parent) as temporary:
+        staged = Path(temporary) / 'notices'
+        staged.mkdir()
+        write_notices(staged, target, tauri, metadata)
+        staged.rename(output)
+
+
+def write_notices(output, target, tauri, metadata):
     shutil.copyfile(ROOT / 'LICENSE', output / 'OpenRadioInspector-LICENSE.txt')
     shutil.copyfile(ROOT / 'Cargo.lock', output / 'Cargo.lock')
     metadata = metadata or cargo_metadata(ROOT / 'Cargo.toml', target, ['--no-default-features', '--features', 'ori-core/serial'])
