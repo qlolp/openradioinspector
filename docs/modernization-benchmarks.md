@@ -99,6 +99,20 @@ the ledger and report. An expected fault/overload run can exit 0 with
 finished with consistent accounting, not that every offered source was archived.
 Invalid archive content or an invalid acknowledgement still fails the run.
 
+The first 32 transport failures include only bounded per-offer diagnostics.
+For a TCP connection, socket send, response header or response body failure,
+`phase` names the operation where the standard HTTP client raised the error.
+A resolver, proxy tunnel or TLS failure has its own phase when its frame is
+available. Unrecognized frames retain the broader `request_or_headers` phase.
+`request_write_completed` indicates that the local HTTP request write returned.
+The field is omitted when the phase is unknown. A body read failure also records
+the HTTP status observed in the headers. Monotonic offer, request start and
+failure timestamps can be compared with background activity on the same host.
+After verification, `retained_source_verified` is true for a matched source,
+false for a source absent from a completed verification, or null when the
+retained source is unknown. `source_verifier` identifies the session NDJSON
+export for measurements or the artifact verification for audio.
+
 The separate accelerated source-time scenario is:
 
 ```sh

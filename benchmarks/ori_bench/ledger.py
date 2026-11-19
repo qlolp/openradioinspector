@@ -44,11 +44,24 @@ class Ledger:
             self.db.execute('UPDATE offers SET status=?,http_status=?,acknowledged_ns=? WHERE id=?',
                 (status,http_status,time.monotonic_ns(),identifier))
     def transport_failure(self, identifier, error, started_ns):
+        failed_ns = time.monotonic_ns()
         with self.lock:
             self.status(identifier, 'transport_unknown')
             if len(self.transport_failure_samples) < 32:
                 self.transport_failure_samples.append(dict(id=identifier, **error.details,
-                    elapsed_ms=(time.monotonic_ns() - started_ns) / 1_000_000))
+                    started_monotonic_ns=started_ns, failed_monotonic_ns=failed_ns,
+                    elapsed_ms=(failed_ns - started_ns) / 1_000_000))
+    def transport_report(self, *, ndjson_complete, audio_complete):
+        result = []
+        for sample in self.transport_failure_samples:
+            row = self.get(sample['id'])
+            audio = row['kind'] == 'audio'
+            compared = audio_complete if audio else ndjson_complete
+            retained = bool(row['verified']) if row['verified'] or compared else None
+            result.append(dict(sample, offered_monotonic_ns=row['offered_ns'],
+                source_verifier='audio_artifact' if audio else 'session_ndjson',
+                retained_source_verified=retained))
+        return result
     def get(self,identifier):
         with self.lock:return self.db.execute('SELECT * FROM offers WHERE id=?',(identifier,)).fetchone()
     def offer_many(self,config,kind,indexes):

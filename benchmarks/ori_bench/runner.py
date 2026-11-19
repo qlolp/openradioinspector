@@ -295,7 +295,9 @@ def run(config):
         report['counts']=counts
         report.setdefault('audio',ledger.audio_counts())
         report['gap_samples']=ledger.gap_samples()
-        report['transport_failure_samples'] = ledger.transport_failure_samples
+        report['transport_failure_samples'] = ledger.transport_report(
+            ndjson_complete=report['checks']['archive_integrity']['status'] == 'passed',
+            audio_complete='listed_segments' in report['audio'])
         report['checks']['offered_accounting']={'status':'passed' if accounted and all_offered else 'failed',
             'all_planned_inputs_offered':all_offered}
         report['checks']['complete_delivery']={'status':'passed' if complete else 'failed',

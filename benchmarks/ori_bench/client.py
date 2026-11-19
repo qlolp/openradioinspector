@@ -27,11 +27,42 @@ class HTTPFailure(BenchmarkError):
         super().__init__('http_failure','HTTP request failed with status '+str(status))
 
 
+def request_failure_phase(cause):
+    # Inspect only the exception raised by the original opener. Do not retain
+    # or export frames, paths, hostnames, exception messages or locals.
+    frames = set()
+    trace = cause.__traceback__
+    while trace is not None:
+        frame = trace.tb_frame
+        frames.add((frame.f_globals.get('__name__'), frame.f_code.co_name))
+        trace = trace.tb_next
+    # send() lazily calls connect(). A resolver, TLS or proxy error belongs to
+    # the nested operation. getresponse() runs only after request() returns.
+    for frame, phase in (
+        (('socket', 'getaddrinfo'), 'name_resolution'),
+        (('socket', 'create_connection'), 'tcp_connect'),
+        (('http.client', '_tunnel'), 'proxy_tunnel'),
+        (('ssl', 'do_handshake'), 'tls_handshake'),
+        (('http.client', 'connect'), 'connection_setup'),
+        (('http.client', 'send'), 'request_send'),
+        (('http.client', 'getresponse'), 'response_headers'),
+    ):
+        if frame in frames:
+            return phase
+    return 'request_or_headers'
+
+
 class TransportFailure(BenchmarkError):
-    def __init__(self, phase, error):
+    def __init__(self, phase, error, response_status=None):
         cause = error.reason if isinstance(error, URLError) and isinstance(error.reason, BaseException) else error
         # Messages and partial HTTP bodies may include credentials or payloads.
+        if phase == 'request_or_headers':
+            phase = request_failure_phase(cause)
         self.details = dict(phase=phase, exception=type(cause).__name__)
+        if phase != 'request_or_headers':
+            self.details['request_write_completed'] = phase in ('response_headers', 'response_body')
+        if response_status is not None:
+            self.details['response_status'] = response_status
         for field in ('errno', 'winerror'):
             code = getattr(cause, field, None)
             if type(code) is int:
@@ -67,13 +98,13 @@ class Client:
             try:
                 raw = response.read(JSON_LIMIT + 1)
             except (OSError, HTTPException) as error:
-                raise TransportFailure('response_body', error) from None
+                raise TransportFailure('response_body', error, response.status) from None
             if len(raw)>JSON_LIMIT:raise BenchmarkError('invalid_response','JSON response exceeds 16 MiB')
             length = response.headers.get('Content-Length')
             if isinstance(length, str) and len(length) <= 20 and length.isascii() and length.isdecimal():
                 missing = int(length) - len(raw)
                 if missing > 0:
-                    raise TransportFailure('response_body', IncompleteRead(b'', missing))
+                    raise TransportFailure('response_body', IncompleteRead(b'', missing), response.status)
             try:
                 value=json.loads(raw)
                 return value['data']

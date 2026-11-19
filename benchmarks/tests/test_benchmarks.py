@@ -161,8 +161,10 @@ class Fixture:
                     elif path.endswith('/sweeps/batch') or path.endswith('/observations/batch'):
                         if fixture.first_source_wall_ns is None:fixture.first_source_wall_ns=time.time_ns()
                         kind='sweep' if '/sweeps/' in path else 'observation'
-                        if kind == 'sweep' and fixture.disconnect_first_sweep:
+                        disconnect = fixture.disconnect_first_sweep if kind == 'sweep' else False
+                        if disconnect:
                             fixture.disconnect_first_sweep = False
+                        if disconnect == 'before_commit':
                             self.close_connection = True
                             self.connection.shutdown(socket.SHUT_RDWR)
                             return
@@ -173,7 +175,19 @@ class Fixture:
                         for item in items:
                             fixture.db.execute('INSERT INTO measurements VALUES (?,?,?)',
                                                (item['id'],kind,json.dumps(item)))
-                        fixture.db.commit();self.reply(201,{'items':items,'count':0 if fixture.invalid_ack else len(items)})
+                        fixture.db.commit()
+                        if disconnect == 'partial_ack':
+                            self.send_response(201)
+                            self.send_header('Content-Length', '40')
+                            self.end_headers()
+                            self.wfile.write(b'{"data":')
+                            self.close_connection = True
+                            return
+                        if disconnect == 'after_commit':
+                            self.close_connection = True
+                            self.connection.shutdown(socket.SHUT_RDWR)
+                            return
+                        self.reply(201,{'items':items,'count':0 if fixture.invalid_ack else len(items)})
                     elif path.endswith('/audio-segments'):
                         raw=base64.b64decode(value['data_base64'])
                         with wave.open(io.BytesIO(raw)) as audio: frames=audio.getnframes()
@@ -376,7 +390,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(report['checks']['complete_delivery']['status'], 'failed')
 
     def test_dropped_request_records_transport_evidence_without_retrying_the_offer(self):
-        with http_fixture(self.root / 'peer.sqlite', disconnect_first_sweep=True) as (fixture, url):
+        with http_fixture(self.root / 'peer.sqlite', disconnect_first_sweep='before_commit') as (fixture, url):
             process = self.command(url)
             self.assertEqual(sum(path.endswith('/sweeps/batch') for path in fixture.posts), 2)
         report = json.loads((self.root / 'results/report.json').read_text())
@@ -385,9 +399,103 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(report['counts']['sweep']['verified'], 1)
         sample, = report['transport_failure_samples']
         self.assertEqual(sample['id'], report['gap_samples'][0]['id'])
-        self.assertEqual(sample['phase'], 'request_or_headers')
+        self.assertEqual(sample['phase'], 'response_headers')
+        self.assertIs(sample['request_write_completed'], True)
+        self.assertIs(sample['retained_source_verified'], False)
+        self.assertEqual(sample['source_verifier'], 'session_ndjson')
+        self.assertLessEqual(sample['offered_monotonic_ns'], sample['started_monotonic_ns'])
+        self.assertLessEqual(sample['started_monotonic_ns'], sample['failed_monotonic_ns'])
         self.assertTrue(sample['exception'])
-        self.assertGreaterEqual(sample['elapsed_ms'], 0)
+        self.assertEqual(sample['elapsed_ms'],
+            (sample['failed_monotonic_ns'] - sample['started_monotonic_ns']) / 1_000_000)
+
+    def test_lost_response_after_commit_preserves_delivery_and_archive_evidence(self):
+        with http_fixture(self.root / 'peer.sqlite', disconnect_first_sweep='after_commit') as (fixture, url):
+            process = self.command(url)
+            self.assertEqual(sum(path.endswith('/sweeps/batch') for path in fixture.posts), 2)
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(report['checks']['complete_delivery']['status'], 'failed')
+        self.assertEqual(report['counts']['sweep']['acknowledged'], 1)
+        self.assertEqual(report['counts']['sweep']['verified'], 2)
+        sample, = report['transport_failure_samples']
+        self.assertEqual(sample['phase'], 'response_headers')
+        self.assertIs(sample['request_write_completed'], True)
+        self.assertIs(sample['retained_source_verified'], True)
+
+    def test_incomplete_verification_and_unrecognized_stack_remain_unknown(self):
+        from urllib.error import URLError
+        from benchmarks.ori_bench.client import TransportFailure
+        from benchmarks.ori_bench.config import Config
+        from benchmarks.ori_bench.ledger import Ledger
+        from benchmarks.ori_bench.source import identifier
+
+        ledger = Ledger(self.root / 'offers.sqlite')
+        self.addCleanup(ledger.close)
+        config = Config('http://127.0.0.1:1', self.root)
+        started = ledger.offer(config, 'sweep', 0, time.monotonic_ns())
+        error = TransportFailure('request_or_headers', URLError(TimeoutError('private')))
+        ledger.transport_failure(identifier(config, 'sweep', 0), error, started)
+        sample, = ledger.transport_report(ndjson_complete=False, audio_complete=False)
+        self.assertEqual(sample['phase'], 'request_or_headers')
+        self.assertNotIn('request_write_completed', sample)
+        self.assertIsNone(sample['retained_source_verified'])
+        self.assertNotIn('private', json.dumps(sample))
+
+    def test_real_partial_ack_contains_the_status_and_retained_source_witness(self):
+        with http_fixture(self.root / 'peer.sqlite', disconnect_first_sweep='partial_ack') as (fixture, url):
+            process = self.command(url)
+            self.assertEqual(sum(path.endswith('/sweeps/batch') for path in fixture.posts), 2)
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(report['counts']['sweep']['transport_unknown'], 1)
+        sample, = report['transport_failure_samples']
+        self.assertEqual(sample['phase'], 'response_body')
+        self.assertEqual(sample['response_status'], 201)
+        self.assertIs(sample['request_write_completed'], True)
+        self.assertIs(sample['retained_source_verified'], True)
+
+    def test_tcp_connect_send_and_header_timeout_use_the_original_opener(self):
+        from unittest.mock import patch
+        from benchmarks.ori_bench.client import Client, TransportFailure
+        from benchmarks.ori_bench.config import Config
+
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            url = 'http://127.0.0.1:' + str(listener.getsockname()[1])
+            client = Client(Config(url, self.root))
+            def request():
+                return client.open('/api/v1/sessions', method='POST', payload={'id': 'fixture'}, timeout=.25)
+
+            # The bound port has no listener yet.
+            with self.assertRaises(TransportFailure) as caught:
+                request()
+            self.assertEqual(caught.exception.details['phase'], 'tcp_connect')
+            self.assertIs(caught.exception.details['request_write_completed'], False)
+
+            listener.listen()
+            # Only the underlying sendall is faulted. urllib still opens the connection.
+            with patch.object(socket.socket, 'sendall', side_effect=TimeoutError('sensitive fixture data')), \
+                    self.assertRaises(TransportFailure) as caught:
+                request()
+            self.assertEqual(caught.exception.details['phase'], 'request_send')
+            self.assertIs(caught.exception.details['request_write_completed'], False)
+            self.assertNotIn('sensitive', json.dumps(caught.exception.details))
+            connection, _ = listener.accept()
+            connection.close()
+
+            # The peer sends no headers until the client's bounded wait finishes.
+            with self.assertRaises(TransportFailure) as caught:
+                request()
+            self.assertEqual(caught.exception.details['phase'], 'response_headers')
+            self.assertEqual(caught.exception.details['exception'], 'TimeoutError')
+            self.assertIs(caught.exception.details['request_write_completed'], True)
+            connection, _ = listener.accept()
+            with connection, connection.makefile('rb') as stream:
+                self.assertEqual(stream.readline(), b'POST /api/v1/sessions HTTP/1.1\r\n')
+                while stream.readline() not in (b'\r\n', b''):
+                    pass
+                self.assertEqual(json.loads(stream.read()), {'id': 'fixture'})
 
     def test_incomplete_acknowledgement_body_is_an_unknown_transport_outcome(self):
         from http.client import IncompleteRead
@@ -404,6 +512,8 @@ class BenchmarkTests(unittest.TestCase):
         with self.assertRaises(TransportFailure) as caught:
             client.json('/api/v1/sessions', method='POST', payload={}, status=201)
         self.assertEqual(caught.exception.details['phase'], 'response_body')
+        self.assertEqual(caught.exception.details['response_status'], 201)
+        self.assertIs(caught.exception.details['request_write_completed'], True)
         self.assertEqual(caught.exception.details['exception'], 'IncompleteRead')
         self.assertNotIn('private body', json.dumps(caught.exception.details))
         client.opener.open.assert_called_once()
