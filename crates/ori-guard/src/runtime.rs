@@ -296,16 +296,24 @@ impl GuardService {
                     .remove("scan_plan");
                 let center = integer(search, "center_frequency_hz")?;
                 let span = integer(search, "span_hz")?;
-                stream["settings"]["start_hz"] = json!(
-                    center
-                        .checked_sub(span / 2)
-                        .ok_or_else(|| invalid("search frequency range"))?
-                );
-                stream["settings"]["stop_hz"] = json!(
-                    center
-                        .checked_add(span - span / 2)
-                        .ok_or_else(|| invalid("search frequency range"))?
-                );
+                let low = center
+                    .checked_sub(span / 2)
+                    .ok_or_else(|| invalid("search frequency range"))?;
+                let high = center
+                    .checked_add(span - span / 2)
+                    .ok_or_else(|| invalid("search frequency range"))?;
+                if let Some(plan) = crate::scan_plan::narrow_grid(p, center, low, high)? {
+                    let first = plan.bands[0].window(0).expect("validated narrow grid");
+                    stream["settings"]["scan_plan"] =
+                        json!({"schema_version":1,"id":id,"revision":1,"config":plan});
+                    stream["settings"]["start_hz"] = json!(first.start_hz);
+                    stream["settings"]["stop_hz"] = json!(first.stop_hz);
+                    stream["settings"]["points"] = json!(first.points);
+                    stream["settings"]["rbw_hz"] = json!(first.rbw_hz);
+                } else {
+                    stream["settings"]["start_hz"] = json!(low);
+                    stream["settings"]["stop_hz"] = json!(high);
+                }
                 if stream["settings"]["adapter"] == "tinysa-serial" {
                     crate::preflight::receive_settings(&stream["settings"])?;
                 }
@@ -592,6 +600,12 @@ impl GuardService {
         self.control.stop_session(&old).await?;
         self.stop_archived_session(&old).await?;
         let mut created = self.clone_session(&original, false, None)?;
+        if crate::scan_plan::configured_plan(&original)?
+            .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
+        {
+            created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
+                "revision":original["scan_plan"]["revision"],"windows":original["band_baselines"]});
+        }
         if let Some(context) = context {
             created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
         }

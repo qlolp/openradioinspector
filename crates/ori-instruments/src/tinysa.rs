@@ -12,6 +12,9 @@ pub const FIRMWARE: &str = "tinySA4_v1.4-235-gea71dfd";
 pub struct TinySa<T> {
     connection: Connection<T>,
     receive: ReceiveConfig,
+    // Only a validated logical grid may request the RX extension.
+    grid_mode: bool,
+    needs_wide_identity: bool,
     ready: bool,
     device_mode: DeviceMode,
     control_mode: ControlMode,
@@ -27,10 +30,31 @@ pub struct TinySa<T> {
 }
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
     pub fn new(transport: T, receive: ReceiveConfig, limits: IoLimits) -> Result<Self> {
-        validate_receive(receive)?;
+        Self::with_grid(transport, receive, limits, false, false)
+    }
+
+    pub fn new_for_grid(
+        transport: T,
+        receive: ReceiveConfig,
+        limits: IoLimits,
+        wide: bool,
+    ) -> Result<Self> {
+        Self::with_grid(transport, receive, limits, true, wide)
+    }
+
+    fn with_grid(
+        transport: T,
+        receive: ReceiveConfig,
+        limits: IoLimits,
+        grid_mode: bool,
+        wide: bool,
+    ) -> Result<Self> {
+        validate_receive(receive, if wide { 1_300_000_000 } else { 800_000_000 })?;
         Ok(Self {
             connection: Connection::new(transport, limits)?,
             receive,
+            grid_mode,
+            needs_wide_identity: wide,
             ready: false,
             device_mode: DeviceMode::Unknown,
             control_mode: ControlMode::Monitoring,
@@ -124,6 +148,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             ] {
                 self.ack(&command).await?;
             }
+            if self.grid_mode {
+                self.set_grid_path(self.receive.stop_hz > 800_000_000)
+                    .await?;
+            }
             self.ready = true;
             Ok(())
         }
@@ -143,7 +171,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         let firmware = self.connection.text("version", timeout, false).await?;
         let deviceid = self.connection.text("deviceid", timeout, false).await?;
         self.identity = json!({"info":info,"firmware":firmware,"deviceid":deviceid});
-        if !matches_identity(&info, &firmware) || deviceid.trim().is_empty() {
+        if !matches_identity(&info, &firmware)
+            || (self.needs_wide_identity && !exact_grid_revision(&firmware))
+            || deviceid.trim().is_empty()
+        {
             return Err(InstrumentError::UnsupportedProfile(profile.into()));
         }
         self.identity_verified = true;
@@ -228,7 +259,45 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
     /// Switch only verified receive settings on the existing owned connection.
     /// Unknown/output/lab state is rejected before any reconfiguration I/O.
     pub async fn poll_band(&mut self, config: ReceiveConfig) -> Result<SpectrumSample> {
-        validate_receive(config)?;
+        validate_receive(config, 800_000_000)?;
+        self.poll_window(config, false).await
+    }
+
+    pub async fn poll_grid(&mut self, config: ReceiveConfig) -> Result<SpectrumSample> {
+        validate_receive(
+            config,
+            if self.needs_wide_identity {
+                1_300_000_000
+            } else {
+                800_000_000
+            },
+        )?;
+        if !self.grid_mode
+            || config.stop_hz - config.start_hz != u64::from(config.points - 1) * 10_000
+        {
+            return Err(InstrumentError::InvalidRequest(
+                "invalid 10 kHz RX window".into(),
+            ));
+        }
+        self.poll_window(config, true).await
+    }
+
+    async fn set_grid_path(&mut self, wide: bool) -> Result<()> {
+        if wide
+            && (!self.identity_verified
+                || !exact_grid_revision(self.identity["firmware"].as_str().unwrap_or("")))
+        {
+            return self.failed(InstrumentError::UnsupportedProfile(
+                "ZS405 HW0.4.5.1 wide RX".into(),
+            ));
+        }
+        self.ack(if wide { "ultra on" } else { "ultra off" })
+            .await?;
+        self.settings["ultra"] = json!(wide);
+        Ok(())
+    }
+
+    async fn poll_window(&mut self, config: ReceiveConfig, grid: bool) -> Result<SpectrumSample> {
         self.connection.ensure()?;
         if !self.ready {
             return Err(InstrumentError::UnsafeState(
@@ -241,7 +310,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                 "scan plan is paused in lab mode".into(),
             ));
         }
-        if self.receive.rbw_hz != config.rbw_hz {
+        if self.grid_mode && self.settings["ultra"] != (config.stop_hz > 800_000_000) {
+            self.set_grid_path(config.stop_hz > 800_000_000).await?;
+        }
+        if self.settings["rbw_hz"].as_u64() != Some(u64::from(config.rbw_hz)) {
             self.ack(&format!("rbw {}", config.rbw_hz / 1000)).await?;
         }
         self.receive = config;
@@ -249,7 +321,27 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         self.settings["stop_hz"] = json!(config.stop_hz);
         self.settings["points"] = json!(config.points);
         self.settings["rbw_hz"] = json!(config.rbw_hz);
-        self.poll_spectrum().await
+        let mut sample = self.poll_spectrum().await?;
+        if grid
+            && sample
+                .frequencies_hz
+                .iter()
+                .enumerate()
+                .any(|(i, &hz)| hz != config.start_hz + i as u64 * 10_000)
+        {
+            return self.failed(InstrumentError::Protocol(
+                "scan frequencies differ from requested 10 kHz window".into(),
+            ));
+        }
+        if grid {
+            sample.settings["scan_rx_evidence"] = crate::provenance::grid_rx_evidence(
+                self.identity["deviceid"]
+                    .as_str()
+                    .expect("verified unit ID"),
+                &self.settings,
+            );
+        }
+        Ok(sample)
     }
     pub async fn poll_spectrum(&mut self) -> Result<SpectrumSample> {
         self.connection.ensure()?;
@@ -574,6 +666,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                 TinySaControl::OutputOff => self.safe_off().await?,
                 TinySaControl::ResumeMonitoring => {
                     self.safe_off().await?;
+                    if self.grid_mode {
+                        for command in ["lna", "attenuate", "calc", "ultra", "rbw"] {
+                            self.require_command(command)?;
+                        }
+                    }
                     self.checked_ack("mode input").await?;
                     for command in [
                         "lna off",
@@ -592,6 +689,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
                     self.settings["calculation"] = json!("off");
                     self.settings["trigger_mode"] = json!("auto");
                     self.settings["trace_unit"] = json!("dBm");
+                    if self.grid_mode {
+                        self.set_grid_path(self.receive.stop_hz > 800_000_000)
+                            .await?;
+                        self.ack(&format!("rbw {}", self.receive.rbw_hz / 1000))
+                            .await?;
+                        self.settings["rbw_hz"] = json!(self.receive.rbw_hz);
+                    }
                     self.control_mode = ControlMode::Monitoring;
                 }
                 TinySaControl::Set(setting) => self.apply_setting(setting).await?,
@@ -940,9 +1044,16 @@ fn help_commands(text: &str) -> HashSet<String> {
     }
     words
 }
-fn validate_receive(config: ReceiveConfig) -> Result<()> {
-    if !(100_000..=800_000_000).contains(&config.start_hz)
-        || config.stop_hz > 800_000_000
+fn exact_grid_revision(firmware: &str) -> bool {
+    firmware
+        .trim()
+        .lines()
+        .eq([FIRMWARE, "HW Version:V0.4.5.1"])
+}
+
+fn validate_receive(config: ReceiveConfig, maximum: u64) -> Result<()> {
+    if config.start_hz < 100_000
+        || config.stop_hz > maximum
         || config.stop_hz <= config.start_hz
         || !(2..=290).contains(&config.points)
         || !matches!(config.rbw_hz, 10_000 | 30_000)

@@ -84,10 +84,13 @@ impl GuardService {
             reset_detectors(&mut current);
             current["state"] = json!("draft");
             current["profile"]["analyzer"]["settings"]["scan_plan"] = plan.clone();
-            for key in ["start_hz", "stop_hz", "points", "rbw_hz"] {
-                current["profile"]["analyzer"]["settings"][key] =
-                    plan["config"]["bands"][0][key].clone();
-            }
+            let config = crate::scan_plan::configured_plan(&current)?.expect("validated plan");
+            let window = config.bands[0].window(0).expect("validated band");
+            let settings = &mut current["profile"]["analyzer"]["settings"];
+            settings["start_hz"] = json!(window.start_hz);
+            settings["stop_hz"] = json!(window.stop_hz);
+            settings["points"] = json!(window.points);
+            settings["rbw_hz"] = json!(window.rbw_hz);
             mutations.push(Self::mutation("scan-plan", plan));
         }
         mutations.push(Self::mutation("project", current.clone()));

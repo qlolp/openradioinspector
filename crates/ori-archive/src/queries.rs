@@ -1,8 +1,10 @@
+mod scan_windows;
 use crate::*;
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{
     Connection, OptionalExtension, named_params, params, params_from_iter, types::Value as SqlValue,
 };
+pub(crate) use scan_windows::{insert_scan_window_scope, install_scan_window_scope};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;

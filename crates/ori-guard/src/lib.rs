@@ -26,6 +26,6 @@ mod supervisor;
 mod test_common;
 mod util;
 pub use history::HistoryQuery;
-pub use ori_monitoring::{ScanBand, ScanPlan};
+pub use ori_monitoring::{ScanBand, ScanPlan, ScanWindow};
 pub use service::{Clock, GuardError, GuardService, IdKind, IdSource, Result};
 pub use supervisor::GuardShutdown;

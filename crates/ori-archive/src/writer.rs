@@ -119,6 +119,7 @@ fn sweep(db: &Connection, value: &Value, compact: bool) -> Result<(u64, Option<S
             frequencies.last().and_then(Value::as_i64)
         ],
     )?;
+    crate::queries::insert_scan_window_scope(db, value)?;
     db.execute(
         "INSERT INTO sweep_ingestion(sweep_id,session_id,stream_id) VALUES(?,?,?)",
         params![id, sid, stream],

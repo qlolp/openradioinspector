@@ -661,8 +661,14 @@ impl DeviceManager {
             }
         }
         let settings = stream.settings.clone().unwrap_or_default();
-        let period = simulator::period(&settings)?;
         let scan_plan = scan::Plan::read(&stream)?;
+        let period = if scan_plan.as_ref().is_some_and(|p| p.uses_grid())
+            && !settings.contains_key("period_s")
+        {
+            Duration::ZERO
+        } else {
+            simulator::period(&settings)?
+        };
         let max_errors = simulator::integer(&settings, "max_consecutive_errors", 3, 1, 100)?;
         let mut scope_points = None;
         let adapter_name = settings
@@ -713,7 +719,16 @@ impl DeviceManager {
             let (transport, released) = transport::OwnedTransport::new(transport);
             let native = match profile {
                 Profile::Analyzer(config) => Native::Analyzer(TinySaActor::spawn(
-                    TinySa::new(transport, config, self.options.io_limits.clone())?,
+                    if let Some(plan) = scan_plan.as_ref().filter(|p| p.uses_grid()) {
+                        TinySa::new_for_grid(
+                            transport,
+                            config,
+                            self.options.io_limits.clone(),
+                            plan.needs_wide_identity(),
+                        )?
+                    } else {
+                        TinySa::new(transport, config, self.options.io_limits.clone())?
+                    },
                     1,
                 )?),
                 Profile::Receiver(config, scope, readback) => {
@@ -1083,6 +1098,15 @@ impl Profile {
                         "tinysa-serial requires spectrum_analyzer in raw dBm".into(),
                     ));
                 }
+                if let Some(plan) = scan::Plan::read(stream)? {
+                    let window = plan.config.bands[0].window(0).expect("validated plan");
+                    return Ok(Self::Analyzer(ReceiveConfig {
+                        start_hz: window.start_hz,
+                        stop_hz: window.stop_hz,
+                        points: window.points,
+                        rbw_hz: window.rbw_hz,
+                    }));
+                }
                 let config = ReceiveConfig {
                     start_hz: simulator::integer(&s, "start_hz", 88_000_000, 100_000, 800_000_000)?,
                     stop_hz: simulator::integer(&s, "stop_hz", 108_000_000, 100_000, 800_000_000)?,
@@ -1306,13 +1330,19 @@ impl Worker {
         }
         status.worker_instance = Some(self.instance.clone());
         if let Some(plan) = &self.scan_plan {
+            if plan.uses_grid() {
+                status.current["scan_timing"] = self.scan_timing();
+            }
             status.current["scan_coverage"] = self
                 .scan_coverage
                 .lock()
                 .expect("scan coverage poisoned")
                 .report(
                     plan,
-                    self.stopping.load(Ordering::Acquire) || self.control.paused(),
+                    !status.alive
+                        || status.state == "error"
+                        || self.stopping.load(Ordering::Acquire)
+                        || self.control.paused(),
                 );
         }
         status
@@ -1534,13 +1564,13 @@ impl Worker {
     async fn poll(
         self: &Arc<Self>,
         adapter: &mut Adapter,
-        band: Option<&ori_guard::ScanBand>,
+        window: Option<ori_guard::ScanWindow>,
     ) -> DeviceResult<Value> {
         self.live()?;
         match adapter {
             Adapter::Simulated(simulator) => {
-                if let Some(band) = band {
-                    simulator.select_band(band)?;
+                if let Some(window) = window {
+                    simulator.select_window(window)?;
                 }
                 simulator.poll(&self.stream)
             }
@@ -1548,15 +1578,21 @@ impl Worker {
                 let worker = self.clone();
                 match actor
                     .enqueue_guarded(
-                        band.map(|band| {
-                            TinySaRequest::PollBand(ReceiveConfig {
-                                start_hz: band.start_hz,
-                                stop_hz: band.stop_hz,
-                                points: band.points,
-                                rbw_hz: band.rbw_hz,
+                        window
+                            .map(|window| {
+                                let config = ReceiveConfig {
+                                    start_hz: window.start_hz,
+                                    stop_hz: window.stop_hz,
+                                    points: window.points,
+                                    rbw_hz: window.rbw_hz,
+                                };
+                                if window.step_hz.is_some() {
+                                    TinySaRequest::PollGrid(config)
+                                } else {
+                                    TinySaRequest::PollBand(config)
+                                }
                             })
-                        })
-                        .unwrap_or(TinySaRequest::Poll),
+                            .unwrap_or(TinySaRequest::Poll),
                         move || {
                             worker
                                 .live()
@@ -1581,11 +1617,15 @@ impl Worker {
                                 revision: self.control.revision(),
                             }
                         });
-                        let settings = ori_instruments::legacy_monitoring_settings(
+                        let mut settings = ori_instruments::legacy_monitoring_settings(
                             &sample,
                             &state,
                             context.as_ref(),
                         )?;
+                        if window.is_some_and(|w| w.step_hz.is_some()) {
+                            settings["scan_ultra_input"] = state.settings["ultra"].clone();
+                            settings["scan_ultra_source"] = json!("command_acknowledged");
+                        }
                         object.insert("settings".into(), settings);
                         object.remove("kind");
                         object.insert("id".into(), crate::new_id().into());
@@ -1779,6 +1819,7 @@ impl Worker {
         self.acquisition_ready();
         let _ = initialized.send(Ok(()));
         let mut scan_index = 0usize;
+        let mut window_index = 0u32;
         'running: loop {
             if self.stopping.load(Ordering::Acquire) {
                 break;
@@ -1810,13 +1851,18 @@ impl Worker {
             self.active_io.store(true, Ordering::Release);
             self.acquisition_poll_started();
             let band = self.scan_plan.as_ref().map(|p| &p.config.bands[scan_index]);
+            let window = band.map(|band| band.window(window_index).expect("validated scan cursor"));
+            let grid = band.is_some_and(|b| b.step_hz.is_some());
+            let result = self
+                .poll(&mut adapter, window)
+                .await
+                .and_then(|mut source| {
+                    if let (Some(plan), Some(band)) = (&self.scan_plan, band) {
+                        plan.stamp(band, window_index, &mut source)?;
+                    }
+                    Ok(source)
+                });
             let observed_at = std::time::Instant::now();
-            let result = self.poll(&mut adapter, band).await.and_then(|mut source| {
-                if let (Some(plan), Some(band)) = (&self.scan_plan, band) {
-                    plan.stamp(band, &mut source)?;
-                }
-                Ok(source)
-            });
             self.acquisition_poll_finished();
             self.active_io.store(false, Ordering::Release);
             if self.stopping.load(Ordering::Acquire) && (!self.draining_poll() || result.is_err()) {
@@ -1854,30 +1900,46 @@ impl Worker {
                 }
                 Err(error) => Err(error),
             };
+            let mut continue_band = false;
             match committed {
                 Ok(committed) => {
                     let source = &committed.items[0];
-                    if let Some(plan) = &self.scan_plan {
+                    if let (Some(plan), Some(band), Some(window)) = (&self.scan_plan, band, window)
+                    {
                         self.scan_coverage
                             .lock()
                             .expect("scan coverage poisoned")
-                            .committed(scan_index, observed_at, source);
-                        scan_index = (scan_index + 1) % plan.config.bands.len();
+                            .committed(
+                                scan_index,
+                                window_index,
+                                window,
+                                band.window_count(),
+                                observed_at,
+                                source,
+                            );
+                        window_index = (window_index + 1) % band.window_count();
+                        continue_band = grid && window_index != 0;
+                        if window_index == 0 {
+                            scan_index = (scan_index + 1) % plan.config.bands.len();
+                        }
                     }
-                    let scope_complete = {
+                    let (scope_complete, running) = {
                         let mut status = self.status.lock().expect("worker status poisoned");
                         status.measurements += 1;
                         status.consecutive_errors = 0;
                         status.last_measurement_id = source["id"].as_str().map(str::to_owned);
                         status.last_measurement_at =
                             source["interval"]["ended_at"].as_str().map(str::to_owned);
-                        self.scope_points
-                            .is_some_and(|points| status.measurements == points as u64)
+                        (
+                            self.scope_points
+                                .is_some_and(|points| status.measurements == points as u64),
+                            status.state == "running",
+                        )
                     };
                     if scope_complete {
                         break;
                     }
-                    if self.snapshot().state != "running" && self.state("running").await.is_err() {
+                    if !running && self.state("running").await.is_err() {
                         break;
                     }
                 }
@@ -1919,7 +1981,9 @@ impl Worker {
             if self.stopping.load(Ordering::Acquire) {
                 break;
             }
-            if self.period.is_zero() {
+            // The requested pause separates logical bands. Hardware windows
+            // within one band run back-to-back, servicing priority work between them.
+            if self.period.is_zero() || continue_band {
                 tokio::task::yield_now().await;
             } else {
                 tokio::select! {biased; _=self.stopped()=>break,command=priority.recv()=>{match command{Some(command)=>self.apply_priority(command).await,None=>break}},command=commands.recv()=>{match command{Some(command)=>self.apply_command(&mut adapter,command).await,None=>break}},_=tokio::time::sleep(self.period)=>{}}

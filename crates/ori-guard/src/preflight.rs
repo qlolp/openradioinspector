@@ -12,10 +12,22 @@ pub(crate) fn receive_settings(settings: &Value) -> Result<Value> {
     {
         return Err(invalid("tinySA: неизвестный receive_profile"));
     }
+    let maximum = if let Some(record) = settings.get("scan_plan") {
+        let plan: ori_monitoring::ScanPlan = serde_json::from_value(record["config"].clone())
+            .map_err(|_| invalid("Повреждён сохранённый план обзора"))?;
+        plan.validate_receive_plan(800_000_000)?;
+        if plan.bands[0].step_hz.is_some() {
+            1_300_000_000
+        } else {
+            800_000_000
+        }
+    } else {
+        800_000_000
+    };
     let mut out = json!({});
     for (key, default, low, high) in [
-        ("start_hz", 88_000_000, 100_000, 800_000_000),
-        ("stop_hz", 108_000_000, 100_000, 800_000_000),
+        ("start_hz", 88_000_000, 100_000, maximum),
+        ("stop_hz", 108_000_000, 100_000, maximum),
         ("points", 201, 2, 290),
         ("rbw_hz", 10_000, 10_000, 30_000),
     ] {
@@ -83,10 +95,51 @@ pub(crate) fn receiver_frequency(value: &Value) -> Result<u64> {
     Ok(frequency)
 }
 impl GuardService {
+    pub(crate) async fn window_counts(
+        &self,
+        project: &Value,
+        band: &ori_monitoring::ScanBand,
+    ) -> Result<Vec<(u32, u64, f64)>> {
+        Ok(self
+            .archive
+            .scan_window_counts(
+                s(project, "active_session_id")?,
+                s(project, "analyzer_stream_id")?,
+                s(&project["scan_plan"], "id")?,
+                integer(&project["scan_plan"], "revision")?,
+                &band.id,
+            )
+            .await?)
+    }
     pub async fn baseline_collection(&self, project: &Value) -> Result<Value> {
         if let Some(plan) = crate::scan_plan::configured_plan(project)? {
             let mut bands = vec![];
             for band in plan.bands {
+                if band.step_hz.is_some() {
+                    let count = band.window_count();
+                    let windows = self.window_counts(project, &band).await?;
+                    let mut sweeps = u64::MAX;
+                    let mut elapsed = f64::MAX;
+                    let mut ready = 0;
+                    let mut confirmed = 0;
+                    for index in 0..count {
+                        let (_, n, t) = windows
+                            .binary_search_by_key(&index, |w| w.0)
+                            .ok()
+                            .map(|i| windows[i])
+                            .unwrap_or((index, 0, 0.));
+                        sweeps = sweeps.min(n);
+                        elapsed = elapsed.min(t);
+                        ready += u32::from(n >= 20 && t >= 60.);
+                        confirmed += u32::from(
+                            project["band_baselines"][band.context_key(index)].is_string(),
+                        );
+                    }
+                    bands.push(json!({"band_id":band.id,"name":band.name,"sweeps":sweeps,"elapsed_seconds":elapsed,
+                        "minimum_sweeps":20,"minimum_seconds":60,"window_count":count,"ready_windows":ready,
+                        "confirmed_windows":confirmed,"ready":ready==count,"baseline_id":project["band_baselines"][&band.id]}));
+                    continue;
+                }
                 let selected = self
                     .archive
                     .baseline_selection_for_scan_band(
@@ -156,7 +209,11 @@ impl GuardService {
         let mut requested = receive_settings(&project["profile"]["analyzer"]["settings"])?;
         requested["attenuation_db"] = json!("auto");
         requested["lna"] = json!(false);
-        requested["ultra"] = json!(false);
+        requested["ultra"] = json!(
+            requested["stop_hz"]
+                .as_u64()
+                .is_some_and(|s| s > 800_000_000)
+        );
         requested["calculation"] = json!("off");
         let expected = json!({"profile":CONTROL_PROFILE,"settings":requested,"device_mode":"input","device_mode_readback":false,"settings_source":"command_acknowledged","settings_readback":false,"settings_complete":false,"hardware_validation":"not_run"});
         if ori_monitoring::stable(instrument)? != expected
@@ -205,7 +262,7 @@ impl GuardService {
             } else {
                 20_000_000_000
             };
-            check("scan_plan_receive_profile",plan.validate(maximum).is_ok(),
+            check("scan_plan_receive_profile",plan.validate_receive_plan(maximum).is_ok(),
                 "Все поддиапазоны должны соответствовать RX-профилю; эталон каждого подтверждается отдельно".into());
         }
         check(

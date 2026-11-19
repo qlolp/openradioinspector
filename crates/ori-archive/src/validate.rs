@@ -13,6 +13,7 @@ pub(crate) const KINDS: &[&str] = &[
     "source-search",
     "position-mark",
     "scan-plan",
+    "scan-window-detector",
 ];
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value
@@ -321,8 +322,46 @@ pub(crate) fn candidate(value: &mut Value) -> Result<()> {
     strings(value, "observation_ids")?;
     Ok(())
 }
+// A full 10 kHz survey has 449 physical windows. Publish the complete
+// confirmed band and its project pointer in one normal SQLite transaction.
+// Byte and writer admission budgets apply to this batch as for all others.
+fn complete_grid_baselines(values: &[Mutation]) -> bool {
+    let Some((
+        Mutation::Monitoring {
+            kind,
+            value: project,
+        },
+        records,
+    )) = values.split_last()
+    else {
+        return false;
+    };
+    if kind != "project" || records.len() > 449 {
+        return false;
+    }
+    let Some(Mutation::Monitoring { value: first, .. }) = records.first() else {
+        return false;
+    };
+    let Some(band) = first["scan_band_id"].as_str() else {
+        return false;
+    };
+    records.iter().enumerate().all(|(index, item)| {
+        let Mutation::Monitoring { kind, value } = item else {
+            return false;
+        };
+        kind == "baseline"
+            && value["project_id"] == project["id"]
+            && value["scan_plan_id"] == project["scan_plan"]["id"]
+            && value["scan_plan_revision"] == project["scan_plan"]["revision"]
+            && value["scan_band_id"] == band
+            && value["scan_window_index"].as_u64() == Some(index as u64)
+            && value["scan_window_count"].as_u64() == Some(records.len() as u64)
+            && value["id"] == project["band_baselines"][format!("{band}:{index}")]
+    })
+}
+
 pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
-    if values.is_empty() || values.len() > 256 {
+    if values.is_empty() || (values.len() > 256 && !complete_grid_baselines(values)) {
         return Err(invalid("mutation batch count"));
     }
     for mutation in values {

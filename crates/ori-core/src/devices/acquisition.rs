@@ -23,6 +23,8 @@ pub(super) struct Phases {
     ready: bool,
     started_at: Instant,
     poll_started_at: Option<Instant>,
+    last_poll_finished_at: Option<Instant>,
+    between_polls: Option<Duration>,
     last_poll_duration: Option<Duration>,
     commit_started_at: Option<Instant>,
     last_commit_duration: Option<Duration>,
@@ -35,6 +37,8 @@ impl Default for Phases {
             ready: false,
             started_at: Instant::now(),
             poll_started_at: None,
+            last_poll_finished_at: None,
+            between_polls: None,
             last_poll_duration: None,
             commit_started_at: None,
             last_commit_duration: None,
@@ -49,20 +53,34 @@ impl Worker {
             .lock()
             .is_ok_and(|phase| phase.poll_started_at.is_some())
     }
+    pub(super) fn scan_timing(&self) -> Value {
+        let phase = self.acquisition.lock().expect("acquisition phase poisoned");
+        json!({"poll_seconds":phase.last_poll_duration.map(|d|d.as_secs_f64()),
+            "commit_seconds":phase.last_commit_duration.map(|d|d.as_secs_f64()),
+            "between_polls_seconds":phase.between_polls.map(|d|d.as_secs_f64()),
+            "committed_windows":phase.completed_cycles})
+    }
     pub(super) fn acquisition_ready(&self) {
         let mut phase = self.acquisition.lock().expect("acquisition phase poisoned");
         phase.ready = true;
         phase.started_at = Instant::now();
     }
     pub(super) fn acquisition_poll_started(&self) {
-        self.acquisition
-            .lock()
-            .expect("acquisition phase poisoned")
-            .poll_started_at = Some(Instant::now());
+        let now = Instant::now();
+        let mut phase = self.acquisition.lock().expect("acquisition phase poisoned");
+        phase.between_polls = phase
+            .last_poll_finished_at
+            .map(|prev| now.saturating_duration_since(prev));
+        phase.poll_started_at = Some(now);
     }
     pub(super) fn acquisition_poll_finished(&self) {
         let mut phase = self.acquisition.lock().expect("acquisition phase poisoned");
-        phase.last_poll_duration = phase.poll_started_at.take().map(|at| at.elapsed());
+        let now = Instant::now();
+        phase.last_poll_duration = phase
+            .poll_started_at
+            .take()
+            .map(|at| now.saturating_duration_since(at));
+        phase.last_poll_finished_at = Some(now);
     }
     pub(super) fn acquisition_commit_started(&self) {
         self.acquisition

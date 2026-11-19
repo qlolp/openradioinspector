@@ -8,4 +8,4 @@ pub use canonical::{python_canonical_json, stable};
 pub use detector::{Detector, build_baseline, canonical_fingerprint_json, fingerprint};
 pub use models::*;
 pub use ori_contracts::Sweep;
-pub use scan::{ScanBand, ScanPlan};
+pub use scan::{ScanBand, ScanPlan, ScanWindow};
