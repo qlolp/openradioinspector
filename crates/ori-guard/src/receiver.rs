@@ -4,6 +4,7 @@ use crate::{
     *,
 };
 use ori_archive::{Artifact, Mutation};
+use ori_contracts::{TimeInterval, UtcTimestamp};
 use ori_session::{SessionEffects, SessionError, SessionFuture, TuneCompletionCheck, TuneReceipt};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -25,6 +26,65 @@ pub fn receiver_tune_context(instance: &str, revision: u64, observation_id: &str
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn matches_tune(
+    sample: &Value,
+    receipt: &TuneReply,
+    adapter: &str,
+    ended_at: &UtcTimestamp,
+) -> bool {
+    let metadata = &sample["metadata"];
+    let Some(instance) = receipt.worker.worker_instance.as_deref() else {
+        return false;
+    };
+    let Some(observation_id) = sample["id"].as_str() else {
+        return false;
+    };
+    let Some(level) = sample["level"].as_f64() else {
+        return false;
+    };
+    let Some(open) = sample["squelch_open"].as_bool() else {
+        return false;
+    };
+    if receipt.acknowledged != Some(true)
+        || receipt.applied_tune_revision == 0
+        || sample["session_id"] != receipt.worker.session_id
+        || sample["stream_id"] != receipt.worker.stream_id
+        || receipt.tuned.get("frequency_hz") != Some(&sample["frequency_hz"])
+        || receipt.tuned.get("mode") != Some(&sample["mode"])
+        || sample["level_unit"] != "s_meter_count"
+        || !(0.0..=f64::from(u32::MAX)).contains(&level)
+        || level.fract() != 0.0
+        || metadata["adapter"] != adapter
+        || metadata["replay"] == true
+        || metadata["receiver_tune_context"]
+            != receiver_tune_context(instance, receipt.applied_tune_revision, observation_id)
+    {
+        return false;
+    }
+    let verified = match adapter {
+        "ardv1-serial" => {
+            metadata["simulated"] == false
+                && metadata["frequency_readback"] == true
+                && metadata["frequency_source"] == "receiver_RX"
+                && metadata["mode_source"] == "receiver_RX"
+                && metadata["raw_receiver_status"]
+                    .as_str()
+                    .is_some_and(|status| !status.is_empty())
+                && metadata["raw_squelch_status"]
+                    .as_u64()
+                    .is_some_and(|state| state <= 3 && open == (state != 0))
+        }
+        "ardv1-sim" => metadata["simulated"] == true,
+        _ => false,
+    };
+    verified
+        && decode::<TimeInterval>(&sample["interval"]).is_ok_and(|interval| {
+            receipt.acknowledged_at <= interval.started_at
+                && interval.started_at <= interval.ended_at
+                && interval.ended_at <= *ended_at
+        })
 }
 
 pub(crate) struct GuardEffects {
@@ -242,13 +302,18 @@ impl GuardService {
             let candidate=self.sessions.create_candidate(&r.sid,json!({"source_stream_id":p["analyzer_stream_id"],"interval":{"started_at":event["first_seen"],"ended_at":event["last_seen"]},"center_frequency_hz":event["center_frequency_hz"],"peak_level":event["peak_level"],"level_unit":"dBm","observation_ids":references})).await.map_err(domain_error)?;
             let queued=self.sessions.enqueue_investigation(&r.sid,s(&candidate,"id")?,json!({"target_stream_id":r.receiver,"target_frequency_hz":target_frequency,"mode":mode,"priority":1})).await.map_err(domain_error)?;let job_id=s(&queued,"id")?.to_owned();investigation=Some(queued);
             self.check_job(id,&r.token,r.epoch,&r.receiver)?;let context=Arc::new(TuneContext{target:Self::target(&r,&r.receiver),permit:self.permit(id,&r),state:Mutex::new(TuneState::default())});let effects=Arc::new(GuardEffects{guard:self.weak.clone(),control:self.control.clone(),context:Some(context.clone())});let listening=self.sessions.start_investigation_with_effects(&r.sid,&job_id,effects).await.map_err(domain_error)?;investigation=Some(listening.clone());if listening["state"]!="listening"{return Err(GuardError::Conflict(listening["error"].as_str().unwrap_or("Настройка не подтверждена").into()));}
-            self.check_job(id,&r.token,r.epoch,&r.receiver)?;let tuned_at=self.clock.now();let seconds=number(&p["parameters"],"dwell_seconds")?;if !(1.0..=30.).contains(&seconds){return Err(invalid("dwell_seconds должен быть 1..30"));}let deadline=self.clock.monotonic()+Duration::from_secs_f64(seconds);let mut artifact=None;let mut audio_error=Some("Аудиоисточник не выбран оператором".to_owned());
+            self.check_job(id, &r.token, r.epoch, &r.receiver)?;
+            let (check, tune_reply) = {
+                let state = context.state.lock().map_err(|_| ControlError::Denied)?;
+                (state.check.clone().ok_or(ControlError::Denied)?, state.original_reply.clone().ok_or(ControlError::Denied)?)
+            };
+            let tuned_at = &tune_reply.acknowledged_at;
+            let seconds=number(&p["parameters"],"dwell_seconds")?;if !(1.0..=30.).contains(&seconds){return Err(invalid("dwell_seconds должен быть 1..30"));}let deadline=self.clock.monotonic()+Duration::from_secs_f64(seconds);let mut artifact=None;let mut audio_error=Some("Аудиоисточник не выбран оператором".to_owned());
             if let Some(config)=p.get("audio").filter(|v|!v.is_null()){
                 let captured=async{
                     let devices=self.control.audio_inputs().await?;if devices.available!=Some(true){return Err(ControlError::Unavailable("audio_inputs").into());}let device=integer(config,"device")?;let name=s(config,"name")?;let input=devices.devices.into_iter().find(|d|u64::from(d.index)==device&&d.name==name).ok_or_else(||invalid("Назначенный аудиовход исчез или изменился"))?;self.check_job(id,&r.token,r.epoch,&r.receiver)?;
-                    let (check,tune_reply)={let state=context.state.lock().map_err(|_|ControlError::Denied)?;(state.check.clone().ok_or(ControlError::Denied)?,state.original_reply.clone().ok_or(ControlError::Denied)?)};
                     check.revalidate().map_err(domain_error)?;
-                    let raw=self.control.record_audio(AudioRequest{target:Self::target(&r,&r.receiver),permit:self.permit(id,&r),tune_reply,input:input.clone(),seconds,sample_rate_hz:24000}).await?;self.check_job(id,&r.token,r.epoch,&r.receiver)?;if raw.wav_bytes.len()>32*1024*1024{return Err(invalid("audio artifact size"));}
+                    let raw=self.control.record_audio(AudioRequest{target:Self::target(&r,&r.receiver),permit:self.permit(id,&r),tune_reply:tune_reply.clone(),input:input.clone(),seconds,sample_rate_hz:24000}).await?;self.check_job(id,&r.token,r.epoch,&r.receiver)?;if raw.wav_bytes.len()>32*1024*1024{return Err(invalid("audio artifact size"));}
                     let checksum=Sha256::digest(&raw.wav_bytes).iter().map(|byte|format!("{byte:02x}")).collect::<String>();
                     let item=Artifact{id:self.ids.next_id(IdKind::Artifact),session_id:r.sid.clone(),stream_id:r.receiver.clone(),schema_version:1,kind:"audio".into(),mime_type:"audio/wav".into(),filename:"ardv1-event.wav".into(),sha256:checksum,created_at:self.clock.now().as_str().into(),payload:raw.wav_bytes,metadata:json!({"occurred_at":tuned_at.as_str(),"ended_at":self.clock.now().as_str(),"event_id":event_id,"investigation_id":job_id,"frequency_hz":target_frequency,"detected_frequency_hz":event["center_frequency_hz"],"requested_mode":mode,"source":"core_analog_input","device_name":input.name,"capture_started_at":raw.started_at.as_str(),"capture_ended_at":raw.ended_at.as_str(),"sample_rate_hz":raw.sample_rate_hz,"channels":raw.channels})};
                     let _tx=self.coordinator.lock().await;self.check_job(id,&r.token,r.epoch,&r.receiver)?;check.revalidate().map_err(domain_error)?;let batch=self.archive.apply(vec![Mutation::Artifact(item)]).await?;batch.items.into_iter().next().ok_or_else(||invalid("artifact summary"))
@@ -256,8 +321,23 @@ impl GuardService {
                 match captured{Ok(saved)=>{artifact=Some(saved);audio_error=None;},Err(error)=>audio_error=Some(error.to_string())}
             }
             while self.clock.monotonic()<deadline{self.check_job(id,&r.token,r.epoch,&r.receiver)?;tokio::select!{_ = tokio::time::sleep(Duration::from_millis(50))=>{},_ = self.wake.notified()=>{}}}
-            self.check_job(id,&r.token,r.epoch,&r.receiver)?;let observations=self.archive.list_observations(&r.sid,Some(&r.receiver),1000).await?.into_iter().filter(|o|o["frequency_hz"].as_u64()==Some(target_frequency)&&o["mode"].as_str()==Some(&mode)&&o["interval"]["started_at"].as_str().is_some_and(|s|s>=tuned_at.as_str())).collect::<Vec<_>>();
-            let state=if observations.is_empty(){self.sessions.fail_investigation(&r.sid,&job_id,"Нет наблюдений после подтверждённой настройки").await.map_err(domain_error)?;"no_observations"}else{let check=context.state.lock().map_err(|_|ControlError::Denied)?.check.clone().ok_or(ControlError::Denied)?;self.sessions.complete_investigation_with_check(&r.sid,&job_id,check).await.map_err(domain_error)?;if observations.iter().any(|o|o["squelch_open"]==true){"observed"}else{"not_present_at_receiver"}};
+            self.check_job(id, &r.token, r.epoch, &r.receiver)?;
+            let ended_at = self.clock.now();
+            let adapter = s(&p["profile"]["receiver"]["settings"], "adapter")?;
+            let observations = self.archive.list_observations(&r.sid, Some(&r.receiver), 1000)
+                .await?.into_iter()
+                .filter(|sample| matches_tune(sample, &tune_reply, adapter, &ended_at))
+                .collect::<Vec<_>>();
+            let state = if observations.is_empty() {
+                self.sessions.fail_investigation(&r.sid, &job_id, "Нет наблюдений после подтверждённой настройки")
+                    .await.map_err(domain_error)?;
+                "no_observations"
+            } else {
+                let verified = observations.iter().filter_map(|row| row["id"].as_str()).collect();
+                self.sessions.complete_verified_investigation(&r.sid, &job_id, check, &verified)
+                    .await.map_err(domain_error)?;
+                if observations.iter().any(|row| row["squelch_open"] == true) { "observed" } else { "not_present_at_receiver" }
+            };
             let classifications=observations.iter().filter_map(|o|o["decoded_mode"].as_str().filter(|s|!s.is_empty()).map(|mode|json!({"mode":mode,"observation_id":o["id"],"source":o["metadata"].get("decoder_source").cloned().unwrap_or(json!("simulated"))}))).collect::<Vec<_>>();
             Ok::<Value,GuardError>(json!({"state":state,"investigation_id":job_id,"requested_mode":mode,"target_frequency_hz":target_frequency,"detected_frequency_hz":event["center_frequency_hz"],"tuned_at":tuned_at.as_str(),"ended_at":self.clock.now().as_str(),"audio":artifact,"audio_error":audio_error,"observation_ids":observations.iter().map(|o|o["id"].clone()).collect::<Vec<_>>(),"receiver_status":observations.iter().skip(observations.len().saturating_sub(10)).cloned().collect::<Vec<_>>(),"classifications":classifications}))
         }.await;
@@ -320,5 +400,63 @@ impl GuardService {
             return Err(GuardError::NotFound);
         }
         Ok(item)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_events_require_the_original_rx_receipt_and_raw_units() {
+        let now: UtcTimestamp = "2026-11-11T13:00:00.123456Z".parse().unwrap();
+        let reply = TuneReply {
+            acknowledged: Some(true),
+            applied_tune_revision: 3,
+            acknowledged_at: now.clone(),
+            worker: WorkerStatus {
+                session_id: "session".into(),
+                stream_id: "radio".into(),
+                state: "running".into(),
+                alive: true,
+                current: Default::default(),
+                extra: Default::default(),
+                worker_instance: Some("owned-receiver".into()),
+            },
+            tuned: [
+                ("frequency_hz".into(), json!(145_500_000)),
+                ("mode".into(), json!("FM")),
+            ]
+            .into(),
+        };
+        let sample = json!({
+            "id":"sample", "session_id":"session", "stream_id":"radio", "frequency_hz":145_500_000,
+            "mode":"FM", "level":104, "level_unit":"s_meter_count", "squelch_open":true,
+            "interval":{"started_at":now, "ended_at":now},
+            "metadata":{ "adapter":"ardv1-serial", "simulated":false, "frequency_readback":true,
+                "frequency_source":"receiver_RX", "mode_source":"receiver_RX", "raw_squelch_status":3,
+                "raw_receiver_status":"RX VFA RF0145.50000 ST010.00 MD0F0 LM1043",
+                "receiver_tune_context":receiver_tune_context("owned-receiver", 3, "sample") }
+        });
+        assert!(matches_tune(&sample, &reply, "ardv1-serial", &now));
+        for (field, bad) in [
+            ("/metadata/frequency_source", json!("command_acknowledged")),
+            ("/metadata/frequency_readback", json!(false)),
+            ("/metadata/mode_source", json!("receiver_MD")),
+            ("/metadata/simulated", json!(true)),
+            ("/metadata/raw_squelch_status", json!(0)),
+            ("/metadata/raw_receiver_status", json!("")),
+            ("/level_unit", json!("dBm")),
+            ("/level", json!(104.5)),
+            ("/frequency_hz", json!(145_510_000)),
+            ("/id", json!("another")),
+        ] {
+            let mut altered = sample.clone();
+            *altered.pointer_mut(field).unwrap() = bad;
+            assert!(
+                !matches_tune(&altered, &reply, "ardv1-serial", &now),
+                "{field}"
+            );
+        }
     }
 }

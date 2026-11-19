@@ -3,6 +3,13 @@ use common::*;
 use ori_archive::MonitoringQuery;
 use serde_json::{Value, json};
 
+fn receiver_metadata(stream: &str, id: &str, revision: u64) -> Value {
+    json!({
+        "adapter":"ardv1-sim", "simulated": true, "decoder_source": "fixture_wire",
+        "receiver_tune_context": ori_guard::receiver_tune_context(&format!("instance-{stream}"), revision, id),
+    })
+}
+
 async fn latest_event(h: &Harness, id: &str) -> Value {
     h.archive
         .list_monitoring(
@@ -42,7 +49,7 @@ async fn receiver_queue_is_independent_and_uses_only_post_acknowledgement_origin
     let event = fresh_peak(&h, &id).await;
     let sid = p["active_session_id"].as_str().unwrap();
     let receiver = p["receiver_stream_id"].as_str().unwrap();
-    let observation = |name: &str, start: &str| json!({"id":name,"session_id":sid,"stream_id":receiver,"interval":{"started_at":start,"ended_at":start},"frequency_hz":100040000,"mode":"AUTO","level":113.0,"level_unit":"s_meter_count","squelch_open":true,"decoded_mode":"DMR","metadata":{"decoder_source":"fixture_wire"}});
+    let observation = |name: &str, start: &str| json!({"id":name,"session_id":sid,"stream_id":receiver,"interval":{"started_at":start,"ended_at":start},"frequency_hz":100040000,"mode":"AUTO","level":113.0,"level_unit":"s_meter_count","squelch_open":true,"decoded_mode":"DMR","metadata":receiver_metadata(receiver, name, 1)});
     h.archive
         .append_observations(vec![observation("stale", "2026-11-11T12:59:59.123456Z")])
         .await
@@ -81,12 +88,22 @@ async fn receiver_queue_is_independent_and_uses_only_post_acknowledgement_origin
             .any(|w| w.stream_id == p["analyzer_stream_id"].as_str().unwrap() && w.alive)
     );
     h.archive
-        .append_observations(vec![observation(
-            "fresh/%+α",
-            "2026-11-11T13:00:00.123457Z",
-        )])
+        .append_observations({
+            let utc = "2026-11-11T13:00:00.123457Z";
+            let mut previous = observation("previous-tune", utc);
+            previous["metadata"] = receiver_metadata(receiver, "previous-tune", 0);
+            let mut replay = observation("replayed", utc);
+            replay["metadata"]["replay"] = json!(true);
+            vec![
+                previous,
+                replay,
+                observation("future", "2026-11-11T13:00:30.123456Z"),
+                observation("fresh/%+α", utc),
+            ]
+        })
         .await
         .unwrap();
+    *h.sources.now.lock().unwrap() = "2026-11-11T13:00:11.123456Z".parse().unwrap();
     h.sources.advance(11);
     let completed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
@@ -110,6 +127,13 @@ async fn receiver_queue_is_independent_and_uses_only_post_acknowledgement_origin
         completed["analysis"]["observation_ids"],
         json!(["fresh/%+α"])
     );
+    let (_, job) = h
+        .archive
+        .get_investigation(completed["analysis"]["investigation_id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(job["result_observation_ids"], json!(["fresh/%+α"]));
     assert_eq!(completed["analysis"]["receiver_status"][0]["level"], 113.0);
     assert_eq!(
         completed["analysis"]["receiver_status"][0]["level_unit"],
@@ -436,7 +460,15 @@ async fn explicit_audio_callback_persists_exact_wave_and_scoped_evidence_without
     let armed = h.service.arm(&id, json!({})).await.unwrap();
     let event = fresh_peak(&h, &id).await;
     h.service.tick(&id).await.unwrap();
-    h.archive.append_observations(vec![json!({"id":"audio-observation","session_id":armed["active_session_id"],"stream_id":armed["receiver_stream_id"],"interval":{"started_at":"2026-11-11T13:00:00.123457Z","ended_at":"2026-11-11T13:00:00.123457Z"},"frequency_hz":100040000,"mode":"AUTO","level":113.0,"level_unit":"s_meter_count","squelch_open":true,"metadata":{}})]).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while h.control.audio_requests.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    h.archive.append_observations(vec![json!({"id":"audio-observation","session_id":armed["active_session_id"],"stream_id":armed["receiver_stream_id"],"interval":{"started_at":"2026-11-11T13:00:00.123457Z","ended_at":"2026-11-11T13:00:00.123457Z"},"frequency_hz":100040000,"mode":"AUTO","level":113.0,"level_unit":"s_meter_count","squelch_open":true,"metadata":receiver_metadata(armed["receiver_stream_id"].as_str().unwrap(), "audio-observation", 1)})]).await.unwrap();
+    *h.sources.now.lock().unwrap() = "2026-11-11T13:00:02.123456Z".parse().unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
             h.sources.advance(2);
