@@ -1,5 +1,5 @@
-//! The single server instance reserves its name for the supervisor's entire
-//! lifetime. Both peers verify the live kernel object's owner and DACL.
+//! A listening instance reserves the name for the supervisor's entire lifetime.
+//! Each exchange uses a fresh handle. Both peers verify the kernel owner and DACL.
 use crate::{Error, Result, service::AdminCommand};
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -187,14 +187,14 @@ fn attributes(descriptor: &LocalMemory) -> SECURITY_ATTRIBUTES {
         bInheritHandle: 0,
     }
 }
-fn create(name: &str, sddl: &str) -> Result<NamedPipeServer> {
+fn create(name: &str, sddl: &str, first: bool) -> Result<NamedPipeServer> {
     let descriptor = descriptor(sddl)?;
     let mut attrs = attributes(&descriptor);
     Ok(unsafe {
         ServerOptions::new()
-            .first_pipe_instance(true)
+            .first_pipe_instance(first)
             .reject_remote_clients(true)
-            .max_instances(1)
+            .max_instances(2)
             .create_with_security_attributes_raw(
                 name,
                 (&mut attrs as *mut SECURITY_ATTRIBUTES).cast(),
@@ -223,14 +223,50 @@ pub(super) fn exists(data: &Path, endpoint: Endpoint) -> Result<bool> {
     }
     Err(error.into())
 }
-pub(super) fn listen(data: &Path, endpoint: Endpoint) -> Result<NamedPipeServer> {
+pub(super) struct Listener {
+    name: String,
+    user: Identity,
+    next: NamedPipeServer,
+}
+
+impl Listener {
+    fn instance(name: &str, user: &Identity, first: bool) -> Result<NamedPipeServer> {
+        let server = create(name, &format!("O:{0}D:P(A;;GA;;;{0})", user.text), first)?;
+        user.verify(server.as_raw_handle(), false)?;
+        Ok(server)
+    }
+
+    pub(super) async fn connect(&self) -> io::Result<()> {
+        self.next.connect().await
+    }
+
+    pub(super) async fn advance(&mut self) -> Result<NamedPipeServer> {
+        // Mio starts another overlapped read after consuming a frame, including
+        // the acknowledgement. Never reconnect a handle carrying that old IO.
+        // Keep the current instance alive until a fresh verified instance owns
+        // the name. A retired handle may briefly count against the two-instance
+        // kernel limit while its cancelled IO completes.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match Self::instance(&self.name, &self.user, false) {
+                Ok(next) => return Ok(std::mem::replace(&mut self.next, next)),
+                Err(Error::Io(error))
+                    if error.raw_os_error() == Some(ERROR_PIPE_BUSY as i32)
+                        && Instant::now() < deadline =>
+                {
+                    sleep(Duration::from_millis(10)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+pub(super) fn listen(data: &Path, endpoint: Endpoint) -> Result<Listener> {
     let user = Identity::current()?;
-    let pipe = create(
-        &user.name(data, endpoint)?,
-        &format!("O:{0}D:P(A;;GA;;;{0})", user.text),
-    )?;
-    user.verify(pipe.as_raw_handle(), false)?;
-    Ok(pipe)
+    let name = user.name(data, endpoint)?;
+    let next = Listener::instance(&name, &user, true)?;
+    Ok(Listener { name, user, next })
 }
 
 pub(super) fn ensure_data_directory(path: &Path) -> Result<()> {
@@ -277,8 +313,8 @@ async fn write(stream: &mut (impl AsyncWrite + Unpin), value: &impl Serialize) -
     Ok(())
 }
 pub(super) async fn reply(stream: &mut NamedPipeServer, response: &serde_json::Value) {
-    // DisconnectNamedPipe discards unread bytes. Let the client acknowledge
-    // receipt before recycling the single instance. A broken client is bounded.
+    // Let the client acknowledge the framed reply before closing this
+    // connection. An abandoned client cannot hold it open indefinitely.
     let _ = timeout(Duration::from_secs(2), async {
         write(stream, response).await?;
         stream.read_u8().await?;
@@ -311,7 +347,13 @@ pub(super) async fn request(
     timeout(Duration::from_secs(150), async {
         write(&mut client, &command).await?;
         let response = read(&mut client).await?;
-        client.write_u8(1).await?;
+        // The full authenticated response is already in memory. The server
+        // may have closed after its bounded receipt wait.
+        if let Err(error) = client.write_u8(1).await
+            && !super::disconnected(&error)
+        {
+            return Err(error.into());
+        }
         Ok(response)
     })
     .await
@@ -338,6 +380,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn abandoned_and_competing_status_clients_get_independent_framed_replies() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let mut listener = listen(data, Endpoint::Installed).unwrap();
+        let abandoned = ClientOptions::new().open(&listener.name).unwrap();
+        listener.connect().await.unwrap();
+        let mut old = listener.advance().await.unwrap();
+        assert_ne!(old.as_raw_handle(), listener.next.as_raw_handle());
+        assert!(listen(data, Endpoint::Installed).is_err());
+        drop(abandoned);
+        assert!(
+            timeout(Duration::from_secs(2), read::<AdminCommand>(&mut old))
+                .await
+                .unwrap()
+                .is_err()
+        );
+        drop(old);
+
+        let service = async {
+            for sequence in 0..16 {
+                listener.connect().await.unwrap();
+                let mut connection = listener.advance().await.unwrap();
+                assert_ne!(connection.as_raw_handle(), listener.next.as_raw_handle());
+                assert!(listen(data, Endpoint::Installed).is_err());
+                assert!(matches!(
+                    read(&mut connection).await.unwrap(),
+                    AdminCommand::Status
+                ));
+                reply(
+                    &mut connection,
+                    &serde_json::json!({"ok":true, "sequence":sequence}),
+                )
+                .await;
+            }
+        };
+        let callers = async {
+            for pair in 0..8 {
+                let (first, second) = tokio::join!(
+                    request(data, Endpoint::Installed, AdminCommand::Status),
+                    request(data, Endpoint::Installed, AdminCommand::Status),
+                );
+                let mut sequences = [
+                    first.unwrap()["sequence"].as_u64().unwrap(),
+                    second.unwrap()["sequence"].as_u64().unwrap(),
+                ];
+                sequences.sort();
+                assert_eq!(sequences, [pair * 2, pair * 2 + 1]);
+            }
+        };
+        timeout(Duration::from_secs(20), async {
+            tokio::join!(service, callers)
+        })
+        .await
+        .unwrap();
+        assert!(listen(data, Endpoint::Installed).is_err());
+    }
+
+    #[tokio::test]
+    async fn status_reopens_after_peer_closes_before_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        let mut listener = listen(data, Endpoint::Installed).unwrap();
+        let service = async {
+            listener.connect().await.unwrap();
+            let mut retired = listener.advance().await.unwrap();
+            assert!(matches!(
+                read(&mut retired).await.unwrap(),
+                AdminCommand::Status
+            ));
+            drop(retired);
+            listener.connect().await.unwrap();
+            let mut connected = listener.advance().await.unwrap();
+            assert!(matches!(
+                read(&mut connected).await.unwrap(),
+                AdminCommand::Status
+            ));
+            reply(
+                &mut connected,
+                &serde_json::json!({
+                    "ok":true, "status":{"ready":true,"writer_owned":true,"preflight_complete":true}
+                }),
+            )
+            .await;
+        };
+        let (_, status) = timeout(Duration::from_secs(10), async {
+            tokio::join!(service, super::super::status(data))
+        })
+        .await
+        .unwrap();
+        assert_eq!(status.unwrap().unwrap()["status"]["ready"], true);
+    }
+
+    #[tokio::test]
     async fn both_ends_check_the_actual_current_sid_and_protected_single_ace() {
         let dir = tempfile::tempdir().unwrap();
         let user = Identity::current().unwrap();
@@ -351,6 +486,7 @@ mod tests {
         let broad = create(
             &name,
             &format!("O:{0}D:P(A;;GA;;;{0})(A;;GR;;;WD)", user.text),
+            true,
         )
         .unwrap();
         assert!(matches!(
