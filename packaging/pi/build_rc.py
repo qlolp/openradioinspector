@@ -77,8 +77,8 @@ def inventory_components(binaries, source):
                 or not component.get('version')):
             raise ValueError(f'Wrong revision, architecture or component identity for {name}')
         if name == 'ori-core' and (component.get('features') != {'serial': True, 'audio': False}
-                                   or not component.get('sqlite_version')):
-            raise ValueError('This RC needs real serial support and bundled SQLite')
+                                   or component.get('sqlite_version') != '3.54.1'):
+            raise ValueError('This RC requires serial support and bundled SQLite 3.54.1')
         info[name] = {**component, **abi, 'sha256': digest(path)}
     # These are the exact commands used on first boot and for an older reader.
     with tempfile.TemporaryDirectory(prefix='ori-pi-format-') as temporary:
@@ -153,7 +153,7 @@ def build_rc(output, rehearsal=None):
             raise ValueError('Each release output must be a distinct new directory')
         directory.parent.mkdir(exist_ok=True, parents=True)
     source = revision()
-    env = dict(os.environ, ORI_BUILD_SOURCE_SHA=source,
+    env = dict(os.environ, ORI_BUILD_SOURCE_SHA=source, LIBSQLITE3_SYS_USE_PKG_CONFIG='0',
                SOURCE_DATE_EPOCH=capture('git', 'show', '-s', '--format=%ct', source))
     rust = capture('rustc', '--version')
     node = capture('node', '--version')

@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -56,6 +57,14 @@ class PiReleaseTests(unittest.TestCase):
                        ELF + '(RUNPATH) [/opt/build]\n', ELF.replace('/lib/ld-linux-aarch64', '/opt/out/ld-linux-aarch64')):
             with self.subTest(output=output), patch.object(package, 'capture', return_value=output), self.assertRaises(ValueError):
                 package.inspect_elf(Path('ori-core'))
+
+    def test_release_refuses_a_different_statically_linked_sqlite_engine(self):
+        source = 'a' * 40
+        component = dict(component='ori-core', target_arch='aarch64', target_os='linux', version='0.1.0',
+                         source_revision=source, features={'serial': True, 'audio': False}, sqlite_version='3.54.0')
+        with patch.object(package, 'inspect_elf', return_value={}), patch.object(package, 'capture', return_value=json.dumps(component)):
+            with self.assertRaisesRegex(ValueError, 'bundled SQLite 3.54.1'):
+                package.inventory_components(Path('bin'), source)
 
     def test_cargo_notices_follow_the_selected_dependency_kinds(self):
         metadata = {'workspace_members': ['core', 'other'], 'packages': [
