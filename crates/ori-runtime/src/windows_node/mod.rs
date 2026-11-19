@@ -141,7 +141,7 @@ async fn initialize_archive(config: &ServiceConfig) -> Result<()> {
 
 pub(crate) async fn serve(mut config: ServiceConfig, installed: bool) -> Result<()> {
     let mut supervisor = Supervisor::new(&config.data_directory)?;
-    let mut server = pipe::listen(
+    let mut listener = pipe::listen(
         &config.data_directory,
         if installed {
             Endpoint::Installed
@@ -169,7 +169,7 @@ pub(crate) async fn serve(mut config: ServiceConfig, installed: bool) -> Result<
     tokio::pin!(interrupt);
     let mut health = tokio::time::interval(Duration::from_secs(1));
     loop {
-        tokio::select! {
+        let connected = tokio::select! {
             _ = &mut interrupt => return supervisor.shutdown().await,
             _ = health.tick() => {
                 if !supervisor.backend_running()? {
@@ -177,15 +177,16 @@ pub(crate) async fn serve(mut config: ServiceConfig, installed: bool) -> Result<
                 }
                 continue;
             }
-            connected = server.connect() => {
-                if let Err(error) = connected {
-                    if disconnected(&error) {
-                        let _ = server.disconnect();
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-            }
+            connected = listener.connect() => connected,
+        };
+        let abandoned = match connected {
+            Ok(()) => false,
+            Err(error) if disconnected(&error) => true,
+            Err(error) => return Err(error.into()),
+        };
+        let mut server = listener.advance().await?;
+        if abandoned {
+            continue;
         }
         let request = timeout(
             Duration::from_secs(2),
@@ -209,11 +210,7 @@ pub(crate) async fn serve(mut config: ServiceConfig, installed: bool) -> Result<
             _ => json!({"ok":false, "error":"invalid_request"}),
         };
         pipe::reply(&mut server, &response).await;
-        if let Err(error) = server.disconnect()
-            && !disconnected(&error)
-        {
-            return Err(error.into());
-        }
+        drop(server);
         if stopped {
             return Ok(());
         }
@@ -241,18 +238,37 @@ pub(crate) async fn admin(data: &Path, action: AdminCommand) -> Result<Value> {
 }
 
 async fn status(data: &Path) -> Result<Option<Value>> {
-    match pipe::request(data, Endpoint::Installed, AdminCommand::Status).await {
-        Ok(value)
-            if value["ok"] == true
-                && value["status"]["ready"] == true
-                && value["status"]["writer_owned"] == true =>
-        {
-            Ok(Some(value))
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let value = loop {
+        match pipe::request(data, Endpoint::Installed, AdminCommand::Status).await {
+            Ok(value) => break value,
+            Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            // A status query has no side effects. Reopen and revalidate the
+            // private endpoint when a peer disappears mid-frame.
+            Err(Error::Io(error))
+                if (disconnected(&error) || error.kind() == io::ErrorKind::UnexpectedEof)
+                    && Instant::now() < deadline =>
+            {
+                sleep(Duration::from_millis(25)).await;
+            }
+            Err(other) => return Err(other),
         }
-        Ok(_) => Err(Error::Protocol("owned Windows node is not ready".into())),
-        Err(Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(other) => Err(other),
+    };
+    if value["ok"] == true
+        && value["status"]["ready"] == true
+        && value["status"]["writer_owned"] == true
+        && value["status"]["preflight_complete"] == true
+    {
+        return Ok(Some(value));
     }
+    Err(Error::Protocol(
+        match value["error"].as_str() {
+            Some("invalid_request") => "private Windows status frame was refused",
+            Some("status_unavailable") => "owned Windows backend status unavailable",
+            _ => "owned Windows node is not ready",
+        }
+        .into(),
+    ))
 }
 
 async fn start(data: &Path) -> Result<Value> {

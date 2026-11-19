@@ -27,6 +27,9 @@ _NEGATIVE_PROBE = object()
 TARGET = 'x86_64-pc-windows-msvc'
 LLVM_VERSION = '20.1.8'
 NINJA_SHIM_SHA256 = '6a4dd2358fccbb483729091586413cc2f2f74e72d329187f5a6b4cbba3c025ad'
+# Observed, never executed: windows-2025-vs2026 20261116.315.1,
+# Actions job 135044456778 / diagnostics artifact 14460401458.
+NINJA_SHIM_20261116_SHA256 = '5f28a6e14a6a821714290cd7456be145efed75df6dc01914f1cf5553b0372c15'
 NINJA_NUPKG_SHA512 = ('e9b198480ff29be979dadf0b09be0e3be261f681d03bcdcbb8a4f8fe0a5607e6'
                      'e480b48931ed7e9bc7c06eda658b878e8377eb3ff9a0458d04d21ff8b9c65a1e')
 NINJA_ZIP_SHA256 = '07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65'
@@ -329,7 +332,8 @@ def _resolve_chocolatey_ninja(shim, environment, evidence):
         if not _same_path(str(shim), str(root / 'bin/ninja.exe')):
             raise LLVMError('observed Ninja shim does not match the Chocolatey bin layout')
         shim_bytes = _checked_chocolatey_file(shim, root, 392704)
-        if len(shim_bytes) != 392704 or hashlib.sha256(shim_bytes).hexdigest() != NINJA_SHIM_SHA256:
+        if len(shim_bytes) != 392704 or hashlib.sha256(shim_bytes).hexdigest() not in (
+                NINJA_SHIM_SHA256, NINJA_SHIM_20261116_SHA256):
             raise LLVMError('Chocolatey Ninja shim no longer matches the observed identity')
         package = root / 'lib/ninja/ninja.nupkg'
         evidence['package_path'] = str(package)
@@ -839,7 +843,7 @@ def preflight(directory, environment, *, run_command, timeout, shutdown_timeout)
                 if error.rejected_receipt is not None:
                     report.setdefault('rejected_tools', {})[key] = error.rejected_receipt
                 rejected = error.rejected_receipt or {}
-                if (key != 'ninja' or rejected.get('sha256') != NINJA_SHIM_SHA256 or
+                if (key != 'ninja' or rejected.get('sha256') not in (NINJA_SHIM_SHA256, NINJA_SHIM_20261116_SHA256) or
                         rejected.get('bytes') != 392704 or rejected.get('dos_signature_hex') != '4d5a' or
                         rejected.get('pe_offset') != 128 or rejected.get('pe_signature_hex') != '50450000' or
                         rejected.get('machine_code') != 0x014c or rejected.get('path_truncated')):

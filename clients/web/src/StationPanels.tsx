@@ -362,13 +362,13 @@ export function BandOverview({
       <canvas
         ref={canvas}
         width={width}
-        height={52}
+        height={96}
         role="img"
         aria-label={t('Peak levels across retained windows. Gaps have no retained samples.')}
       />
       <small>
         {t('Latest window peaks on this client')} · {band?.windows.size ?? 0} / {band?.count ?? '—'}{' '}
-        · {t('dBm')}
+        · −130 … +10 {t('dBm')}
       </small>
       {band && (
         <details className="panorama-inspector">

@@ -392,6 +392,25 @@ export function App({
   const actualFrequency = receiverSettings?.observed_frequency_hz;
   const requestedFrequency = receiverSettings?.requested_frequency_hz;
   const coverageBand = coverageBands(analyzerWorker).find((band) => band.id === planBand?.id);
+  const waterfallRange =
+    bandRange ??
+    (latest && {
+      low: latest.frequencies_hz[0],
+      high: latest.frequencies_hz.at(-1)!,
+    });
+  const waterfall = (
+    <>
+      <div className="waterfall-title">
+        <h3>{t('Waterfall')}</h3>
+        {waterfallRange && (
+          <span>
+            {hz(waterfallRange.low)} – {hz(waterfallRange.high)}
+          </span>
+        )}
+      </div>
+      <Waterfall key={selectedBand} rows={displayRows} band={bandRange} />
+    </>
+  );
   const setScreen = (value: string) => {
     setWorkspace(value);
     save('workspace', value);
@@ -827,7 +846,7 @@ export function App({
             ) : (
               <>
                 {scanBands.length > 0 && (
-                  <label>
+                  <label className="displayed-band">
                     {t('Displayed band')}
                     <select
                       value={selectedBand}
@@ -856,6 +875,7 @@ export function App({
                       openOriginal={(id) => void openOriginal(id)}
                       busy={desk.busy}
                     />
+                    {waterfall}
                     {coverageBand && <CoverageRow band={coverageBand} />}
                     <h3>{t('Latest hardware window')}</h3>
                     {latest && (
@@ -869,7 +889,11 @@ export function App({
                     )}
                   </>
                 )}
-                <Spectrum sweep={latest} liveSources={{ rows: displayRows, presentation }} />
+                <Spectrum
+                  sweep={latest}
+                  liveSources={{ rows: displayRows, presentation }}
+                  belowPlot={!bandRange && waterfall}
+                />
               </>
             )}
             <div className="chart-caption" role="group" aria-label={t('Latest saved measurement')}>
@@ -879,15 +903,7 @@ export function App({
                 {' ' + t('original points · display only')}
               </span>
             </div>
-            <div className="waterfall-title">
-              <h3>{t('Waterfall')}</h3>
-              {bandRange && (
-                <span>
-                  {hz(bandRange.low)} – {hz(bandRange.high)}
-                </span>
-              )}
-            </div>
-            <Waterfall key={selectedBand} rows={displayRows} band={bandRange} />
+            {unavailable && waterfall}
             <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
               <span data-testid="source-id">
                 {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}

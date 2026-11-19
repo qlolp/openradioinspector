@@ -1,7 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { openDesk } from './helpers';
 import { CORE, ownProject } from './binary-fixture';
+
+async function visibleWaterfall(page: Page) {
+  const box = (await page.locator('.waterfall').boundingBox())!;
+  expect(Math.min(box.height, page.viewportSize()!.height - box.y)).toBeGreaterThanOrEqual(134);
+  return box;
+}
+
+async function checkSystemFontLayout(page: Page) {
+  const positions = [];
+  for (const family of ['DejaVu Sans', 'Liberation Sans']) {
+    const style = await page.addStyleTag({
+      content: `:root, body { font-family: "${family}", sans-serif !important; }`,
+    });
+    positions.push({ family, waterfall: await visibleWaterfall(page) });
+    await style.evaluate((element) => element.remove());
+  }
+  return positions;
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
@@ -181,8 +199,7 @@ for (const [name, width, height, scale] of [
       expect(box!.x).toBeGreaterThan(graph!.x + graph!.width);
       expect(box!.y).toBeLessThan(height);
       if (height >= 768) {
-        const waterfall = await page.locator('.waterfall').boundingBox();
-        expect(Math.min(waterfall!.height, height - waterfall!.y)).toBeGreaterThanOrEqual(110);
+        await visibleWaterfall(page);
       }
       const writes: string[] = [];
       page.on('request', (r) => {
@@ -332,6 +349,7 @@ test('gridded source keeps its measured window separate from whole-band coverage
   page,
   request,
 }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
   const api = 'http://127.0.0.1:18772/api/v1';
   const list = (await (await request.get(api + '/monitoring-projects')).json()).data.items;
   const project = list.find((item: { name: string }) => item.name === 'North laboratory'),
@@ -424,6 +442,14 @@ test('gridded source keeps its measured window separate from whole-band coverage
   await expect(panel.getByRole('heading', { name: 'Latest hardware window' })).toBeVisible();
   await expect(panel.locator('canvas.spectrum')).toHaveAttribute('data-sweep-id', 'fixture-window');
   await expect(panel.locator('.waterfall-title')).toContainText('108,000,000 Hz');
+  const overviewBox = (await panel.locator('.band-overview canvas').boundingBox())!;
+  const waterfallBox = await visibleWaterfall(page);
+  const windowBox = (await panel
+    .getByRole('heading', { name: 'Latest hardware window' })
+    .boundingBox())!;
+  expect(overviewBox.y + overviewBox.height).toBeLessThan(waterfallBox.y);
+  expect(waterfallBox.y + waterfallBox.height).toBeLessThan(windowBox.y);
+  const fontLayouts = await checkSystemFontLayout(page);
   await expect
     .poll(() =>
       panel.locator('.band-overview canvas').evaluate((element: HTMLCanvasElement) => {
@@ -438,6 +464,15 @@ test('gridded source keeps its measured window separate from whole-band coverage
       }),
     )
     .toBe(true);
+  await page.screenshot({ path: test.info().outputPath('monitoring-grid-1366.png') });
+  await writeFile(
+    test.info().outputPath('monitoring-grid-geometry.json'),
+    JSON.stringify(
+      { fixture: 'gridded source', overviewBox, waterfallBox, windowBox, fontLayouts },
+      null,
+      2,
+    ),
+  );
   await page.unrouteAll({ behavior: 'wait' });
 });
 
@@ -514,8 +549,8 @@ test('1366×768 displays peaks from two distinct committed waterfall periods', a
   );
   const waterfall = page.locator('.waterfall');
   await expect(waterfall).toHaveAttribute('aria-label', /192/);
-  const box = (await waterfall.boundingBox())!;
-  expect(Math.min(box.height, 768 - box.y)).toBeGreaterThanOrEqual(110);
+  const fontLayouts = await checkSystemFontLayout(page);
+  const box = await visibleWaterfall(page);
 
   const screenshot = await page.screenshot({
     path: test.info().outputPath('monitoring-multirow-1366.png'),
@@ -554,7 +589,7 @@ test('1366×768 displays peaks from two distinct committed waterfall periods', a
   await writeFile(
     evidence,
     JSON.stringify(
-      { fixture: 'synthetic committed sweeps', sourceCount: count, box, pixels },
+      { fixture: 'synthetic committed sweeps', sourceCount: count, box, pixels, fontLayouts },
       null,
       2,
     ),
@@ -562,4 +597,15 @@ test('1366×768 displays peaks from two distinct committed waterfall periods', a
   await test
     .info()
     .attach('waterfall-screen-samples', { contentType: 'application/json', path: evidence });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addStyleTag({
+    content: ':root, body { font-family: "DejaVu Sans", sans-serif !important; }',
+  });
+  const guard = page.locator('.guard-strip .actions');
+  for (const action of await guard.locator('a, button').all()) {
+    const rect = (await action.boundingBox())!;
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(390);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

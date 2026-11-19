@@ -5,7 +5,7 @@ param(
     [string]$PriorInstaller, [string]$PriorInstallerSha256, [string]$PriorRevision
 )
 $ErrorActionPreference = 'Stop'
-$report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'}
+$report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); helper_errors=@(); cleanup_errors=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'}
 function Save-SmokeReport {
     if ($ReportPath) {
         $target = [IO.Path]::GetFullPath($ReportPath)
@@ -14,7 +14,7 @@ function Save-SmokeReport {
     }
 }
 function Enter-SmokePhase([string]$Name) {
-    # Only fixed phase names, numeric exit codes and exception types enter CI artifacts.
+    # Diagnostics use fixed operation/reason names, numeric codes and exception types.
     $report.phase = $Name
     $report.reached += $Name
     Save-SmokeReport
@@ -85,8 +85,26 @@ foreach ($name in @('ori-supervisor','ori-core')) {
 if (-not (Test-Path (Join-Path $runtime 'notices/licenses.json'))) { throw 'Installed notices missing' }
 
 function Invoke-Node([string]$Action) {
-    $output = & $supervisor windows-node $Action | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0 -or -not $output.ok) { throw "Supervisor failed: $Action" }
+    $PSNativeCommandUseErrorActionPreference = $false
+    $lines = @(& $supervisor windows-node $Action 2>&1)
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        $reason = 'helper_exit'
+        $native = $null
+        $diagnostic = $lines -join ' '
+        if ($diagnostic -match '\(os error ([0-9]{1,6})\)') {
+            $reason = 'windows_io'
+            $native = [int]$Matches[1]
+        } elseif ($diagnostic -match 'private Windows status frame was refused') { $reason = 'status_frame_refused' }
+        elseif ($diagnostic -match 'owned Windows backend status unavailable') { $reason = 'backend_status_unavailable' }
+        elseif ($diagnostic -match 'owned Windows node is not ready') { $reason = 'backend_not_ready' }
+        if ($report.helper_errors.Count -lt 8) {
+            $report.helper_errors += [ordered]@{phase=$report.phase; action=$Action; exit=$code; reason=$reason; win32=$native}
+        }
+        throw "Windows node $Action failed ($reason)"
+    }
+    $output = ($lines -join [Environment]::NewLine) | ConvertFrom-Json
+    if (-not $output.ok) { throw "Windows node $Action returned a refused response" }
     $output
 }
 
@@ -129,6 +147,7 @@ if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Un
 if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Installer started monitoring implicitly' }
 Enter-SmokePhase 'launch_desktop'
 $client = Start-Process -FilePath $desktopExe -PassThru
+$primaryError = $null
 try {
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
@@ -258,14 +277,29 @@ try {
     Enter-SmokePhase 'final_uninstall'
     Invoke-Node 'register' | Out-Null
     Uninstall-TestPackage
+} catch {
+    $primaryError = $_
+    throw
 } finally {
-    if (-not $client.HasExited) { $null = $client.CloseMainWindow() }
-    if (Test-Path -LiteralPath $supervisor) {
-        $status = Invoke-Node 'status'
-        if ($status.status) { Invoke-Node 'shutdown' | Out-Null }
-        Invoke-Node 'unregister' | Out-Null
+    # Teardown must preserve the original operation and continue independent cleanup.
+    foreach ($part in @('close_ui','shutdown','unregister','dispose_ui')) {
+        try {
+            switch ($part) {
+                'close_ui' { if (-not $client.HasExited) { $null = $client.CloseMainWindow() } }
+                'shutdown' {
+                    if (Test-Path -LiteralPath $supervisor) {
+                        $status = Invoke-Node 'status'
+                        if ($status.status) { Invoke-Node 'shutdown' | Out-Null }
+                    }
+                }
+                'unregister' { if (Test-Path -LiteralPath $supervisor) { Invoke-Node 'unregister' | Out-Null } }
+                'dispose_ui' { $client.Dispose() }
+            }
+        } catch {
+            $report.cleanup_errors += [ordered]@{operation=$part; type=$_.Exception.GetType().Name; line=$_.InvocationInfo.ScriptLineNumber}
+        }
     }
-    $client.Dispose()
+    if (-not $primaryError -and $report.cleanup_errors.Count -gt 0) { throw 'Installed smoke teardown failed' }
 }
 $report.result = 'passed'
 } catch {
