@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -20,6 +21,32 @@ ELF = """Class: ELF64
 
 
 class PiReleaseTests(unittest.TestCase):
+    def test_build_rejects_untracked_or_ignored_assets_and_keeps_build_outputs_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+            (root / '.gitignore').write_text('*.csv\n.env.local\nnode_modules/\n')
+            subprocess.run(['git', 'add', '.gitignore'], cwd=root, check=True)
+            subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                            '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture'], cwd=root, check=True)
+            for relative in ['clients/web/node_modules/build/input.js', 'clients/web/dist/assets/generated.js',
+                             'tools/release/__pycache__/native_notices.pyc']:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'generated')
+            self.assertEqual(len(package.revision(root)), 40)
+            for relative in ['clients/web/public/untracked.css', 'clients/web/public/ignored.csv',
+                             'clients/web/public/node_modules/app.js', 'clients/web/.env.local',
+                             'clients/web/src/ignored.csv', 'radioinspector/web/static/unknown.js',
+                             'crates/ori-extra/src/lib.rs', '.cargo/config.toml']:
+                with self.subTest(relative=relative):
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'untracked')
+                    with self.assertRaisesRegex(ValueError, 'Untracked build input'):
+                        package.revision(root)
+                    path.unlink()
+
     def test_installer_rejects_another_abi_or_host_development_path(self):
         with patch.object(package, 'capture', return_value=ELF):
             abi = package.inspect_elf(Path('ori-core'))

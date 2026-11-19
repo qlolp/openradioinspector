@@ -111,7 +111,7 @@ def write_notices(output, target, tauri, metadata):
         shutil.copyfile(sysroot / 'share/doc/rust' / name, output / ('Rust-' + name))
     write_json(output / 'licenses.json', {
         'schema_version': 1, 'target': target,
-        'scope': 'Cargo normal and build dependency closure for the selected target; npm production lock and Rust toolchain notices.',
+        'scope': 'Cargo normal and build dependencies for the selected target, production npm packages and Rust toolchain notices.',
         'cargo': [crates[key] for key in sorted(crates)], 'npm': npm,
     })
 

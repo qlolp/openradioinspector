@@ -36,12 +36,21 @@ def capture(*args, env=None):
     return subprocess.check_output(args, cwd=ROOT, text=True, env=env).strip()
 
 
-def revision():
-    subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], cwd=ROOT, check=True)
-    sources = ['crates', 'contracts', 'radioinspector/web/static', 'clients/web/src', 'packaging/pi', 'tools/release']
-    if capture('git', 'ls-files', '--others', '--exclude-standard', '--', *sources):
-        raise ValueError('Commit untracked build inputs before creating a release')
-    return capture('git', 'rev-parse', 'HEAD')
+def revision(root=ROOT):
+    subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--'], cwd=root, check=True)
+    # Vite copies public/ wholesale and reads .env.* even when Git ignores them.
+    # Check the entire source tree with explicit exceptions for generated outputs.
+    inputs = ['.cargo', '.npmrc', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'LICENSE',
+              'crates', 'contracts', 'radioinspector/web/static', 'radioinspector/monitoring/storage_window.sql',
+              'clients/web', 'packaging/pi/rc', 'packaging/pi/build_rc.py', 'docs/pi-rc1.md',
+              'tools/build_modern_web.py', 'tools/release']
+    inputs.extend(':(top,exclude)clients/web/' + name for name in
+                  ['node_modules', 'dist', '.vite', 'test-results', 'playwright-report'])
+    inputs.append(':(top,exclude,glob)tools/release/**/__pycache__/**')
+    untracked = subprocess.check_output(['git', 'ls-files', '-z', '--others', '--', *inputs], cwd=root)
+    if untracked:
+        raise ValueError('Untracked build input: ' + os.fsdecode(untracked.split(b'\0', 1)[0]))
+    return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
 
 
 def inspect_elf(path):
@@ -109,7 +118,7 @@ def assemble(stage, output, debian_revision, env, build):
         f'Depends: {DEPENDENCIES}\nInstalled-Size: {(size + 1023) // 1024}\n'
         'Description: Offline Raspberry Pi monitoring release candidate\n'
         ' Supervised serial measurement core and embedded WebUI for Raspberry Pi OS 64-bit.\n', encoding='ascii')
-    # dpkg --verify uses MD5; distribution and executable integrity use SHA-256.
+    # dpkg --verify uses MD5. Distribution and executable integrity use SHA-256.
     with (control / 'md5sums').open('w', encoding='utf-8') as sums:
         for path in payload:
             sums.write(hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
