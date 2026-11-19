@@ -20,6 +20,12 @@ pub(crate) fn validate_path(path: &Path) -> Result<()> {
     let mut cursor = PathBuf::new();
     for component in path.components() {
         cursor.push(component);
+        #[cfg(windows)]
+        if matches!(component, Component::Prefix(_)) {
+            // Probe the actual drive root after RootDir is appended. A bare
+            // drive designator (especially a verbatim path) is drive-relative.
+            continue;
+        }
         match fs::symlink_metadata(&cursor) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 return Err(Error::Unsafe("symlink in private path".into()));
@@ -32,6 +38,17 @@ pub(crate) fn validate_path(path: &Path) -> Result<()> {
                         "untrusted writable ancestor in private path".into(),
                     ));
                 }
+            }
+            #[cfg(windows)]
+            Ok(meta)
+                if {
+                    use std::os::windows::fs::MetadataExt;
+                    meta.file_attributes()
+                        & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                        != 0
+                } =>
+            {
+                return Err(Error::Unsafe("reparse point in private path".into()));
             }
             #[cfg(not(unix))]
             Ok(_) => {}
@@ -156,7 +173,7 @@ impl Lease {
     pub(crate) fn acquire(path: &Path) -> Result<Self> {
         let file = open_private(path)?;
         FileExt::try_lock_exclusive(&file).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::WouldBlock {
+            if e.raw_os_error() == fs2::lock_contended_error().raw_os_error() {
                 Error::Busy
             } else {
                 Error::Io(e)
@@ -191,9 +208,13 @@ pub fn state_directory(data: &Path) -> Result<PathBuf> {
     let path = data.join(".ori-runtime");
     // Leases are useful in loopback mode even on Windows; private LAN state remains fail-closed.
     #[cfg(windows)]
-    if !path.exists() {
-        fs::create_dir(&path)?;
+    match fs::create_dir(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
     }
+    #[cfg(windows)]
+    check_private(&path, true)?;
     #[cfg(not(windows))]
     private_directory(&path)?;
     Ok(path)

@@ -25,6 +25,10 @@ async fn execute() -> Result<()> {
             );
             Ok(())
         }
+        #[cfg(windows)]
+        [command, action] if command == "windows-node" => {
+            ori_runtime::windows_node::command(action).await
+        }
         [operation] if operation == "macos-agent" => ori_runtime::macos_agent::run().await,
         [operation, configuration] if operation == "run" => {
             let bytes = std::fs::read(configuration)?;

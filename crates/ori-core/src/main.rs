@@ -379,8 +379,11 @@ async fn execute() -> Result<()> {
     {
         let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
-            stop.send_replace(true);
+            // A per-user Windows node may have no console. The authenticated
+            // supervisor endpoint and stdin lifeline still own shutdown.
+            if tokio::signal::ctrl_c().await.is_ok() {
+                stop.send_replace(true);
+            }
         });
     }
     if options.mode.writes_archive() {
