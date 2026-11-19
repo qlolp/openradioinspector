@@ -2,7 +2,7 @@ export { Spectrum } from './spectrum';
 import { t } from './i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { DisplaySweep } from './types';
-import { waterfallPixels } from './spectrum-view';
+import { waterfallPixels, type FrequencyRange } from './spectrum-view';
 import { isSwiftShaderContext } from './graphics-policy';
 
 // A fixed ring texture receives only new rows. The renderer never uploads the whole history per frame.
@@ -21,6 +21,7 @@ class WaterfallRenderer {
     private canvas: HTMLCanvasElement,
     fallbackCanvas: HTMLCanvasElement,
     private report: (mode: string) => void,
+    private band?: FrequencyRange,
   ) {
     this.gl = canvas.getContext('webgl2', {
       alpha: false,
@@ -105,7 +106,7 @@ class WaterfallRenderer {
     const history = !gl && reset ? new Uint8ClampedArray(this.width * this.height * 4) : undefined;
     for (let index = 0; index < pending.length; index++) {
       const sweep = pending[index],
-        pixels = waterfallPixels(sweep, this.width);
+        pixels = waterfallPixels(sweep, this.width, this.band);
       if (gl) {
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
         gl.texSubImage2D(
@@ -151,7 +152,7 @@ class WaterfallRenderer {
   }
 }
 
-export function Waterfall({ rows }: { rows: DisplaySweep[] }) {
+export function Waterfall({ rows, band }: { rows: DisplaySweep[]; band?: FrequencyRange }) {
   const canvas = useRef<HTMLCanvasElement>(null),
     fallback = useRef<HTMLCanvasElement>(null),
     renderer = useRef<WaterfallRenderer | null>(null);
@@ -160,7 +161,7 @@ export function Waterfall({ rows }: { rows: DisplaySweep[] }) {
   const [mode, setMode] = useState('Starting renderer');
   useEffect(() => {
     const element = canvas.current!;
-    renderer.current = new WaterfallRenderer(element, fallback.current!, setMode);
+    renderer.current = new WaterfallRenderer(element, fallback.current!, setMode, band);
     const lost = (event: Event) => {
       event.preventDefault();
       renderer.current?.lost(rowsRef.current);
@@ -177,7 +178,7 @@ export function Waterfall({ rows }: { rows: DisplaySweep[] }) {
       element.removeEventListener('webglcontextrestored', restored);
       renderer.current?.dispose();
     };
-  }, []);
+  }, [band?.low, band?.high]);
   useEffect(() => {
     renderer.current?.update(rows);
   }, [rows]);

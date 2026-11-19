@@ -9,8 +9,10 @@ import {
 import type { Connection } from './transport';
 import type { DisplaySweep, Observation, Sweep } from './types';
 import type { PresentationReceipt } from './live-presentation';
+import { updatePanorama, type PlanPanorama } from './panorama';
 
 export interface LiveSnapshot {
+  panorama?: PlanPanorama;
   scanPresentations?: ReadonlyMap<string, PresentationReceipt>;
   rows: DisplaySweep[];
   presentation: PresentationReceipt;
@@ -21,6 +23,7 @@ export interface LiveSnapshot {
   gaps: number;
 }
 export interface LiveCheckpoint {
+  panorama?: PlanPanorama;
   sequence: EventSequence;
   rows: DisplaySweep[];
   observation?: Observation;
@@ -48,6 +51,7 @@ export class LiveStore {
   private raf = 0;
   private observation?: Observation;
   private unsupported?: UnsupportedSweep;
+  private panorama?: PlanPanorama;
   private receiver = '';
   private session = '';
   private stream = '';
@@ -107,6 +111,7 @@ export class LiveStore {
     if (!this.anchored) return;
     return {
       sequence: this.gate.last,
+      panorama: this.panorama,
       rows: [...this.buffer.rows],
       observation: this.observation,
       unsupported: this.unsupported,
@@ -127,6 +132,7 @@ export class LiveStore {
     this.gate.reset(value.sequence);
     this.anchored = true;
     for (const row of value.rows.slice(-256)) this.buffer.append(row);
+    this.panorama = value.panorama;
     this.observation = value.observation;
     this.unsupported = value.unsupported;
     this.seeded = value.seeded;
@@ -137,6 +143,7 @@ export class LiveStore {
   }
   scope(session: string, stream: string, receiver: string, receiverSession = session) {
     if (session !== this.session || stream !== this.stream) {
+      this.panorama = undefined;
       this.unsupported = undefined;
       this.fencePresentation();
     }
@@ -161,7 +168,14 @@ export class LiveStore {
     if (!this.buffer.rows.length) {
       for (const sweep of sweeps) {
         const prepared = prepareSweep(sweep);
-        if (prepared.sweep) this.buffer.append(prepared.sweep);
+        if (
+          prepared.sweep &&
+          prepared.sweep.session_id === this.session &&
+          prepared.sweep.stream_id === this.stream
+        ) {
+          this.buffer.append(prepared.sweep);
+          this.panorama = updatePanorama(this.panorama, prepared.sweep);
+        }
         if (prepared.unsupported) this.unsupported = prepared.unsupported;
       }
       this.provisional = this.buffer.rows.length > 0;
@@ -230,12 +244,14 @@ export class LiveStore {
         frame.sweep.stream_id === this.stream
       ) {
         this.buffer.clear();
+        this.panorama = undefined;
         this.provisional = false;
         this.fencePresentation();
       }
       const previous = this.buffer.rows;
       this.buffer.append(frame.sweep);
       if (this.buffer.rows !== previous) {
+        this.panorama = updatePanorama(this.panorama, frame.sweep);
         this.presentation = { epoch: this.presentation.epoch, total: this.presentation.total + 1n };
         if (frame.sweep.scan_context) {
           const context = frame.sweep.scan_context;
@@ -281,6 +297,7 @@ export class LiveStore {
       this.snapshot = {
         rows: this.buffer.rows,
         presentation: this.presentation,
+        panorama: this.panorama,
         ...(this.scanPresentations.size
           ? { scanPresentations: new Map(this.scanPresentations) }
           : {}),
@@ -311,6 +328,7 @@ export class LiveStore {
     this.gate.reset(after);
     this.anchored = true;
     this.buffer.clear();
+    this.panorama = undefined;
     this.provisional = false;
     this.seeded = false;
     this.observation = undefined;

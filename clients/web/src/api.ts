@@ -95,6 +95,7 @@ export interface ReceiveForm {
   simulator: boolean;
   analyzerPort: string;
   receiverPort: string;
+  monitoringReadback?: boolean;
   startHz: number;
   stopHz: number;
   points: number;
@@ -149,6 +150,7 @@ export function receiveSession(form: ReceiveForm) {
           frequency_hz: 100_000_000,
           mode: 'FM',
           receiver_profile: 'ardv1-monitor-v1',
+          ...(!form.simulator && form.monitoringReadback ? { monitoring_rx_readback: true } : {}),
           period_s: 1,
         },
       },

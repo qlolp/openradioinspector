@@ -16,6 +16,7 @@ import type {
   Project,
   SearchStatus,
   Session,
+  StorageReport,
   Sweep,
 } from './types';
 const checkpoints = new WeakMap<
@@ -64,6 +65,8 @@ export function useDesk(transport: Connection) {
   const [projectId, setProjectId] = useState(() => remember('project', ''));
   const [guard, setGuard] = useState<GuardStatus>(),
     [preflight, setPreflight] = useState<Preflight>();
+  const [storage, setStorage] = useState<StorageReport>();
+  const storageRead = useRef(0);
   const [events, setEvents] = useState<MonitoringEvent[]>([]),
     [allowed, setAllowed] = useState<Allowed[]>([]),
     [search, setSearch] = useState<SearchStatus>();
@@ -85,6 +88,12 @@ export function useDesk(transport: Connection) {
     projectAfter = useRef('');
   const project = guard?.project;
   const scopeProject = useRef(restored.projectId);
+
+  const reloadSessions = useCallback(async () => {
+    const epoch = connectionEpoch.current;
+    const list = await api.get<Session[]>('/sessions');
+    if (mounted.current && connectionEpoch.current === epoch) setSessions(list);
+  }, [api]);
 
   const loadProjects = useCallback(
     async (after = '', history: string[] = [], pin?: Project) => {
@@ -109,7 +118,9 @@ export function useDesk(transport: Connection) {
   );
 
   const refresh = useCallback(
-    async (resources: string[] = ['status', 'events', 'preflight', 'allowed', 'search']) => {
+    async (
+      resources: string[] = ['status', 'events', 'preflight', 'allowed', 'search', 'storage'],
+    ) => {
       const id = selection.current,
         ticket = currentScope.current;
       if (!id || !ticket || ticket.signal.aborted) return;
@@ -125,6 +136,13 @@ export function useDesk(transport: Connection) {
         calls.push(
           read<Page<MonitoringEvent>>('events?limit=100', (page) => setEvents(page.items)),
         );
+      if (resources.includes('storage')) {
+        const receipt = ++storageRead.current;
+        const publish = (value?: StorageReport) => {
+          if (valid() && receipt === storageRead.current) setStorage(value);
+        };
+        calls.push(read<StorageReport>('storage', publish).catch(() => publish()));
+      }
       if (resources.includes('preflight')) calls.push(read<Preflight>('preflight', setPreflight));
       if (resources.includes('allowed'))
         calls.push(read<Page<Allowed>>('allowed?limit=200', (page) => setAllowed(page.items)));
@@ -334,6 +352,7 @@ export function useDesk(transport: Connection) {
     currentScope.current = scope.current.next();
     setGuard(undefined);
     setPreflight(undefined);
+    setStorage(undefined);
     setEvents([]);
     setAllowed([]);
     setSearch(undefined);
@@ -364,7 +383,8 @@ export function useDesk(transport: Connection) {
     if (!connected) return;
     let statusReading = false,
       eventsReading = false,
-      healthReading = false;
+      healthReading = false,
+      storageReading = false;
     const statusTimer = setInterval(async () => {
       if (statusReading || running.current) return;
       statusReading = true;
@@ -376,6 +396,15 @@ export function useDesk(transport: Connection) {
         statusReading = false;
       }
     }, 3000);
+    const storageTimer = setInterval(async () => {
+      if (storageReading || running.current) return;
+      storageReading = true;
+      try {
+        await refresh(['storage']);
+      } finally {
+        storageReading = false;
+      }
+    }, 30000);
     const eventsTimer = setInterval(async () => {
       if (eventsReading || running.current) return;
       eventsReading = true;
@@ -447,6 +476,7 @@ export function useDesk(transport: Connection) {
     return () => {
       clearInterval(statusTimer);
       clearInterval(eventsTimer);
+      clearInterval(storageTimer);
       clearInterval(healthTimer);
       clearTimeout(invalidationTimer);
       liveStore.onGap = () => {};
@@ -555,6 +585,7 @@ export function useDesk(transport: Connection) {
         setCapabilities(undefined);
         setGuard(undefined);
         setPreflight(undefined);
+        setStorage(undefined);
         setEvents([]);
         setAllowed([]);
         setSearch(undefined);
@@ -588,6 +619,7 @@ export function useDesk(transport: Connection) {
     sessions,
     guard,
     preflight,
+    storage,
     events,
     allowed,
     search,
@@ -602,6 +634,7 @@ export function useDesk(transport: Connection) {
     command,
     connect,
     loadProjects,
+    reloadSessions,
     nextProjects,
     previousProjects,
     projectsCursor,

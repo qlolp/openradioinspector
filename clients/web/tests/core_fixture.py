@@ -15,8 +15,8 @@ import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from radioinspector.web.server import create_server
-from radioinspector.contracts import TimeInterval, format_time, utc_now
-from radioinspector.device_workers import TinySASimulator
+from radioinspector.contracts import TimeInterval, format_time, to_primitive, utc_now
+from radioinspector.device_workers import ARDV1Simulator, TinySASimulator
 from binary_fixture import install as install_binary_fixture
 
 
@@ -57,7 +57,11 @@ def main():
             dict(kind='audio', mime_type='audio/wav', filename='synthetic.wav',
                  data_base64=base64.b64encode(audio.getvalue()).decode(), sha256=hashlib.sha256(audio.getvalue()).hexdigest(),
                  metadata={'synthetic': True, 'occurred_at': format_time(now)}))
-        event['analysis'] = dict(state='observed', mode='FM', audio=dict(id=artifact['id'], session_id=session.id, stream_id=session.streams[1].id))
+        receiver = ARDV1Simulator(session.streams[1])
+        observation = receiver.poll()
+        sessions.ingest_observation(observation)
+        event['analysis'] = dict(state='observed', mode='FM',
+            observation_ids=[observation.id], receiver_status=[to_primitive(observation)], audio=dict(id=artifact['id'], session_id=session.id, stream_id=session.streams[1].id))
         monitoring.store.put('event', event)
         # A second independent project verifies cancellation/selection without hardware.
         monitoring.create(dict(name='Unprepared project', site='Second synthetic scope', session_id=session.id))

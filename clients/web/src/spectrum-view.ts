@@ -152,13 +152,18 @@ export function peakPosition(
 }
 
 /** One display texture row. Bucket maxima keep even a one-point source peak. */
-export function waterfallPixels(sweep: DisplaySweep, width = 1024): Uint8Array<ArrayBuffer> {
+export function waterfallPixels(
+  sweep: DisplaySweep,
+  width = 1024,
+  band?: FrequencyRange,
+): Uint8Array<ArrayBuffer> {
   const output = new Uint8Array(width * 4),
     maxima = new Float64Array(width);
   maxima.fill(-Infinity);
-  const low = sweep.frequencies_hz[0],
-    high = sweep.frequencies_hz.at(-1)!;
+  const low = band?.low ?? sweep.frequencies_hz[0],
+    high = band?.high ?? sweep.frequencies_hz.at(-1)!;
   for (let i = 0; i < sweep.levels.length; i++) {
+    if (sweep.frequencies_hz[i] < low || sweep.frequencies_hz[i] > high) continue;
     const bucket = Math.min(
       width - 1,
       Math.floor(((sweep.frequencies_hz[i] - low) / (high - low || 1)) * width),
@@ -168,6 +173,10 @@ export function waterfallPixels(sweep: DisplaySweep, width = 1024): Uint8Array<A
   let point = 0;
   const bounds = sourceLevels(sweep);
   for (let x = 0; x < width; x++) {
+    if (band && maxima[x] === -Infinity) {
+      output[x * 4 + 3] = 255;
+      continue;
+    }
     const hz = low + ((high - low) * x) / Math.max(1, width - 1);
     while (
       point + 1 < sweep.levels.length &&

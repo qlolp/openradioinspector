@@ -105,6 +105,23 @@ export function prepareSweep(
             scan_context: {
               plan_id: sweep.settings.scan_plan_id,
               band_id: sweep.settings.scan_band_id,
+              ...(typeof sweep.settings.scan_plan_revision === 'number' &&
+              Number.isSafeInteger(sweep.settings.scan_plan_revision) &&
+              sweep.settings.scan_plan_revision >= 1
+                ? { revision: sweep.settings.scan_plan_revision }
+                : {}),
+              ...(sweep.settings.scan_step_hz === 10000 ? { step_hz: 10000 } : {}),
+              ...(typeof sweep.settings.scan_window_index === 'number' &&
+              Number.isSafeInteger(sweep.settings.scan_window_index) &&
+              sweep.settings.scan_window_index >= 0 &&
+              typeof sweep.settings.scan_window_count === 'number' &&
+              Number.isSafeInteger(sweep.settings.scan_window_count) &&
+              sweep.settings.scan_window_count > sweep.settings.scan_window_index
+                ? {
+                    window_index: sweep.settings.scan_window_index,
+                    window_count: sweep.settings.scan_window_count,
+                  }
+                : {}),
             },
           }
         : {}),

@@ -370,3 +370,77 @@ it('counts committed display sources separately per scan band and resets them wi
   expect(store.getSnapshot().scanPresentations?.size ?? 0).toBe(0);
   store.dispose();
 });
+
+it('retains the first and last of 449 physical windows beyond the waterfall ring, replaces a lower peak and fences scope', async () => {
+  const { panoramaColumns, PANORAMA_POINTS } = await import('../src/panorama');
+  const { store, deliver, parser } = fixture();
+  store.scope('s', 'a', 'r');
+  await store.start(0);
+  let sequence = 0;
+  async function window(index: number, level: number, revision = 1) {
+    const left = 100000 + index * 290 * 10000,
+      points = Math.min(290, 129991 - index * 290);
+    const body = JSON.parse(event(BigInt(++sequence)));
+    const raw = body.data.payload.sweep;
+    raw.id = 'source-' + sequence;
+    raw.frequencies_hz = Array.from({ length: points }, (_, i) => left + i * 10000);
+    raw.levels = Array.from({ length: points }, (_, i) => (i === 1 ? level : -105));
+    raw.settings = {
+      scan_plan_id: 'plan',
+      scan_plan_revision: revision,
+      scan_band_id: 'full',
+      scan_window_index: index,
+      scan_window_count: 449,
+      scan_step_hz: 10000,
+    };
+    const pending = deliver(JSON.stringify(body));
+    parser().complete();
+    await pending;
+  }
+  try {
+    for (let i = 0; i < 449; i++) await window(i, i === 0 ? -20 : i === 448 ? -30 : -85);
+    await vi.waitFor(() =>
+      expect(store.getSnapshot().panorama?.bands.get('full')?.windows.size).toBe(449),
+    );
+    const before = store.getSnapshot().panorama!.bands.get('full')!;
+    expect(store.getSnapshot().rows.length).toBe(256);
+    expect(store.getSnapshot().rows[0].id).not.toBe('source-1');
+    expect(
+      [...before.windows.values()].reduce((sum, w) => sum + w.levels.length, 0),
+    ).toBeLessThanOrEqual(PANORAMA_POINTS);
+    expect(before.windows.get(0)?.id).toBe('source-1');
+    expect(before.windows.get(448)?.id).toBe('source-449');
+    expect(before.windows.get(0)?.peakIndices[0]).toBe(1);
+    const axis = { low: 100000, high: 1300000000 };
+    expect(panoramaColumns(before, axis, 512)[0]).toBe(-20);
+    expect(panoramaColumns(before, axis, 512).at(-1)).toBe(-30);
+    await window(0, -65);
+    await vi.waitFor(() =>
+      expect(store.getSnapshot().panorama?.bands.get('full')?.windows.get(0)?.id).toBe(
+        'source-450',
+      ),
+    );
+    const updated = store.getSnapshot().panorama!.bands.get('full')!;
+    expect(panoramaColumns(updated, axis, 512)[0]).toBe(-65);
+    expect(panoramaColumns(before, axis, 512)[0]).toBe(-20);
+    const checkpoint = store.checkpoint()!;
+    await window(0, -55, 2);
+    await vi.waitFor(() => expect(store.getSnapshot().panorama?.revision).toBe(2));
+    expect(store.getSnapshot().panorama?.bands.get('full')?.windows.size).toBe(1);
+    expect(panoramaColumns(store.getSnapshot().panorama?.bands.get('full'), axis, 512).at(-1)).toBe(
+      -Infinity,
+    );
+    store.restore(checkpoint);
+    await vi.waitFor(() =>
+      expect(store.getSnapshot().panorama?.bands.get('full')?.windows.size).toBe(449),
+    );
+    store.scope('other', 'analyzer', 'receiver');
+    await vi.waitFor(() => expect(store.getSnapshot().panorama).toBeUndefined());
+    store.restore(checkpoint);
+    store.resetArchive(0);
+    await vi.waitFor(() => expect(store.getSnapshot().rows.length).toBe(0));
+    expect(store.getSnapshot().panorama).toBeUndefined();
+  } finally {
+    store.dispose();
+  }
+});

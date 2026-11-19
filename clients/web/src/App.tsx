@@ -7,7 +7,16 @@ import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
 import { Research } from './Research';
 import { ScanPlan } from './ScanPlan';
-import { scanChoices, scanKey } from './scan-plan';
+import { coverageBands, scanChoices, scanKey } from './scan-plan';
+import { prepareSweep } from './pipeline';
+import {
+  BandOverview,
+  CoverageRow,
+  EventQueue,
+  EventReceiver,
+  Recovery,
+  StationStatus,
+} from './StationPanels';
 import { remember, save, useDesk, type Desk } from './useDesk';
 import type { Connection } from './transport';
 import type { MonitoringEvent, Page, Sweep } from './types';
@@ -46,7 +55,9 @@ function PreparationPanel({ desk }: { desk: Desk }) {
         <button
           className="text-button"
           disabled={desk.busy || !desk.project}
-          onClick={() => void desk.run('Run preflight', () => desk.refresh(['preflight']), [])}
+          onClick={() =>
+            void desk.run('Run preflight', () => desk.refresh(['preflight', 'storage']), [])
+          }
         >
           {t('Run preflight')}
         </button>
@@ -76,12 +87,12 @@ function PreparationPanel({ desk }: { desk: Desk }) {
         </strong>
         <span className="mono">
           {progress?.bands ? (
-            'Подтвердите эталоны поддиапазонов в плане обзора'
+            t('Confirm the band baselines in the scan plan')
           ) : (
             <>
-              {progress?.sweeps || 0}
+              {progress?.sweeps ?? '—'}
               {' ' + t('sweeps ·') + ' '}
-              {(progress?.elapsed_seconds || 0).toFixed(1)}
+              {progress?.elapsed_seconds?.toFixed(1) ?? '—'}
               {' ' + t('s')}
             </>
           )}
@@ -313,15 +324,18 @@ function AllowedPanel({ desk }: { desk: Desk }) {
 export function App({
   transport,
   onConnectionSettings,
+  connectionLabel,
 }: {
   transport: Connection;
   onConnectionSettings?: () => void;
+  connectionLabel?: string;
 }) {
   useLocale();
   const desk = useDesk(transport);
   const [workspace, setWorkspace] = useState(() => remember('workspace', 'monitoring'));
   const [theme, setTheme] = useState(() => remember('theme', 'system'));
   const [scanBand, setScanBand] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState<string>();
   const [wizard, setWizard] = useState(false),
     [event, setEvent] = useState<MonitoringEvent>(),
     [original, setOriginal] = useState<Sweep>();
@@ -338,9 +352,26 @@ export function App({
   const selectedBand = scanBands.some((b) => b.key === scanBand)
     ? scanBand
     : (scanBands[0]?.key ?? '');
-  const displayRows = selectedBand
-    ? desk.live.rows.filter((row) => scanKey(row) === selectedBand)
-    : desk.live.rows;
+  const displayRows = useMemo(
+    () =>
+      selectedBand ? desk.live.rows.filter((row) => scanKey(row) === selectedBand) : desk.live.rows,
+    [selectedBand, desk.live.rows],
+  );
+  const planBand = p?.scan_plan?.config.bands.find(
+    (band) => JSON.stringify([p.scan_plan!.id, band.id]) === selectedBand,
+  );
+  const bandRange =
+    planBand?.step_hz === 10000
+      ? { low: Number(planBand.start_hz), high: Number(planBand.stop_hz) }
+      : undefined;
+  const originalPlot = useMemo(() => {
+    if (!original) return;
+    try {
+      return prepareSweep(original).sweep;
+    } catch {
+      return undefined;
+    }
+  }, [original]);
   const emptyBandReceipt = useMemo(
     () => ({ epoch: {}, total: 0n }),
     [selectedBand, desk.live.presentation.epoch],
@@ -357,6 +388,10 @@ export function App({
   const analyzerWorker = desk.guard?.workers.find(
     (worker) => worker.stream_id === p?.analyzer_stream_id,
   );
+  const receiverSettings = receiverWorker?.current;
+  const actualFrequency = receiverSettings?.observed_frequency_hz;
+  const requestedFrequency = receiverSettings?.requested_frequency_hz;
+  const coverageBand = coverageBands(analyzerWorker).find((band) => band.id === planBand?.id);
   const setScreen = (value: string) => {
     setWorkspace(value);
     save('workspace', value);
@@ -373,6 +408,7 @@ export function App({
   }, [theme]);
   useEffect(() => {
     setEvent(undefined);
+    setSelectedEvent(undefined);
     setOriginal(undefined);
     setAudioUrl('');
     dialogGeneration.current++;
@@ -410,6 +446,7 @@ export function App({
   }
   async function openEvent(summary: MonitoringEvent) {
     closeEvent();
+    setSelectedEvent(summary.id);
     setEvent(summary);
     setDisposition(summary.disposition || 'unreviewed');
     setComment(summary.operator_comment || '');
@@ -528,121 +565,135 @@ export function App({
       <a className="skip-link" href="#main">
         {t('Skip to workspace')}
       </a>
-      <header className="topbar">
-        <a
-          className="brand"
-          href="/modern/"
-          aria-label={t('OpenRadioInspector home')}
-          onClick={(event) => {
-            if (transport.native) {
-              event.preventDefault();
-              setScreen('monitoring');
-            }
-          }}
-        >
-          <span className="brand-mark" aria-hidden="true">
-            ◈
-          </span>
-          <span>
-            {t('OPENRADIO')}
-            <span className="brand-light">{t('INSPECTOR')}</span>
-            <small>{t('SPECTRUM OPERATIONS')}</small>
-          </span>
-        </a>
-        <div className="topbar-right">
-          <LocaleControls />
-          <span className="node-pill">
-            <span className={'dot ' + (desk.health ? 'ok' : 'warn')} />
-            {desk.health ? t('Core online') : t('Connecting core')}
-          </span>
-          <label className="theme-select">
-            <span className="sr-only">{t('Theme')}</span>
-            <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-              <option value="system">{t('System')}</option>
-              <option value="dark">{t('Dark')}</option>
-              <option value="light">{t('Light')}</option>
-            </select>
-          </label>
-          {onConnectionSettings && (
-            <button className="text-button" onClick={onConnectionSettings}>
-              {t('Connection settings')}
-            </button>
-          )}
-          <a className="legacy-link" href="/" onClick={legacy}>
-            {t('Legacy UI ↗')}
+      <header className="station-header">
+        <div className="topbar">
+          <a
+            className="brand"
+            href="/modern/"
+            aria-label={t('OpenRadioInspector home')}
+            onClick={(event) => {
+              if (transport.native) {
+                event.preventDefault();
+                setScreen('monitoring');
+              }
+            }}
+          >
+            <span className="brand-mark" aria-hidden="true">
+              ◈
+            </span>
+            <span>
+              {t('OPENRADIO')}
+              <span className="brand-light">{t('INSPECTOR')}</span>
+            </span>
           </a>
+          <div className="topbar-right">
+            <LocaleControls />
+            <span className="node-pill">
+              <span className={'dot ' + (desk.health ? 'ok' : 'warn')} />
+              {connectionLabel && (
+                <span className="node-address" title={connectionLabel}>
+                  {connectionLabel}
+                </span>
+              )}
+              {desk.health ? t('Core online') : t('Connecting core')}
+            </span>
+            <label className="theme-select">
+              <span className="sr-only">{t('Theme')}</span>
+              <select value={theme} onChange={(e) => setTheme(e.target.value)}>
+                <option value="system">{t('System')}</option>
+                <option value="dark">{t('Dark')}</option>
+                <option value="light">{t('Light')}</option>
+              </select>
+            </label>
+            {onConnectionSettings && (
+              <button className="text-button" onClick={onConnectionSettings}>
+                {t('Connection settings')}
+              </button>
+            )}
+            <a className="legacy-link" href="/" onClick={legacy}>
+              {t('Legacy UI ↗')}
+            </a>
+          </div>
+        </div>
+        <div className="workspace-bar" title={t('Local view · global guard state')}>
+          <nav aria-label={t('Workspace')}>
+            <button
+              aria-keyshortcuts="Alt+M"
+              aria-pressed={workspace === 'monitoring'}
+              onClick={() => setScreen('monitoring')}
+            >
+              {t('Monitoring')}
+            </button>
+            <button
+              aria-keyshortcuts="Alt+R"
+              aria-pressed={workspace === 'research'}
+              onClick={() => setScreen('research')}
+            >
+              {t('Research')}
+            </button>
+          </nav>
+          <span className="workspace-note">{t('Local view · global guard state')}</span>
+          <span className="shortcut">{t('Alt M / Alt R')}</span>
         </div>
       </header>
-      <div className="workspace-bar">
-        <nav aria-label={t('Workspace')}>
-          <button aria-pressed={workspace === 'monitoring'} onClick={() => setScreen('monitoring')}>
-            {t('Monitoring')}
-          </button>
-          <button aria-pressed={workspace === 'research'} onClick={() => setScreen('research')}>
-            {t('Research')}
-          </button>
-        </nav>
-        <span className="workspace-note">{t('Local view · global guard state')}</span>
-        <span className="shortcut">{t('Alt M / Alt R')}</span>
-      </div>
       <main id="main">
-        <div className="page-heading">
-          <div>
-            <div className="eyebrow">{t('RECEIVE · OBSERVE · INVESTIGATE')}</div>
-            <h1 data-testid="workspace-heading">{t('Spectrum desk')}</h1>
-            <p className="muted">{t('One core. Independent instruments. Original evidence.')}</p>
-          </div>
-          <button
-            className="primary"
-            onClick={() => setWizard(true)}
-            disabled={desk.busy || !desk.connected}
-          >
-            {t('＋ Prepare project')}
-          </button>
-        </div>
-        <div className="project-strip">
-          <label>
-            {t('Project')}
-            <select
-              aria-label={t('Project')}
-              data-testid="project-select"
-              disabled={desk.busy}
-              value={desk.projectId}
-              onChange={(e) => desk.setProjectId(e.target.value)}
-            >
-              <option value="">{t('Choose a monitoring project')}</option>
-              {desk.projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="project-meta">
-            <strong>{p?.site || t('Select or prepare a project')}</strong>
-            <small>
-              {p?.active_session_id
-                ? t('Session') + ' ' + p.active_session_id
-                : t('Selection stays on this client')}
-            </small>
-          </div>
-          <div className="actions">
+        <div className="station-context">
+          <div className="page-heading">
+            <div>
+              <h1 data-testid="workspace-heading">{t('Spectrum desk')}</h1>
+            </div>
             <button
-              className="icon-button"
-              aria-label={t('Previous projects')}
-              disabled={desk.busy || !desk.projectsHistory.length}
-              onClick={() => void desk.previousProjects()}
+              className="primary"
+              onClick={() => setWizard(true)}
+              disabled={desk.busy || !desk.connected}
             >
-              ←
+              {t('＋ Prepare project')}
             </button>
-            <button
-              className="icon-button"
-              aria-label={t('Next projects')}
-              disabled={desk.busy || !desk.projectsCursor}
-              onClick={() => void desk.nextProjects()}
-            >
-              →
-            </button>
+          </div>
+          <div className="project-strip">
+            <label>
+              {t('Project')}
+              <select
+                aria-label={t('Project')}
+                data-testid="project-select"
+                disabled={desk.busy}
+                value={desk.projectId}
+                onChange={(e) => desk.setProjectId(e.target.value)}
+              >
+                <option value="">{t('Choose a monitoring project')}</option>
+                {desk.projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="project-meta">
+              <strong>{p?.site || t('Select or prepare a project')}</strong>
+              <small>
+                {p?.active_session_id
+                  ? t('Session') + ' ' + p.active_session_id
+                  : t('Selection stays on this client')}
+              </small>
+            </div>
+            <div className="actions">
+              <button
+                className="icon-button"
+                aria-label={t('Previous projects')}
+                disabled={desk.busy || !desk.projectsHistory.length}
+                onClick={() => void desk.previousProjects()}
+              >
+                ←
+              </button>
+              <button
+                className="icon-button"
+                aria-label={t('Next projects')}
+                disabled={desk.busy || !desk.projectsCursor}
+                onClick={() => void desk.nextProjects()}
+              >
+                →
+              </button>
+            </div>
           </div>
         </div>
         <div className={'guard-strip ' + (desk.guard?.active ? 'guard-active' : '')}>
@@ -675,6 +726,13 @@ export function App({
             </small>
           </div>
           <div className="actions">
+            <a
+              className="preparation-link"
+              href="#receive-preparation"
+              onClick={() => setScreen('monitoring')}
+            >
+              {t('Preparation checks')}
+            </a>
             <button
               className="primary"
               disabled={
@@ -711,6 +769,7 @@ export function App({
             </button>
           )}
         </div>
+        <Recovery desk={desk} />
         <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
           <Research
             desk={desk}
@@ -722,7 +781,7 @@ export function App({
         <div className="live-grid">
           <Panel
             title={t('Live spectrum')}
-            eyebrow={t('tinySA ULTRA · ORIGINAL dBm')}
+            eyebrow={t('tinySA Ultra')}
             className="spectrum-panel"
             aside={
               <span className="live-badge" data-testid="live-state">
@@ -769,7 +828,7 @@ export function App({
               <>
                 {scanBands.length > 0 && (
                   <label>
-                    {t('Поддиапазон графика')}
+                    {t('Displayed band')}
                     <select
                       value={selectedBand}
                       onChange={(event) => setScanBand(event.target.value)}
@@ -782,6 +841,34 @@ export function App({
                     </select>
                   </label>
                 )}
+                {bandRange && (
+                  <>
+                    <BandOverview
+                      key={selectedBand}
+                      band={
+                        desk.live.panorama?.id === p?.scan_plan?.id &&
+                        desk.live.panorama?.revision === p?.scan_plan?.revision &&
+                        planBand
+                          ? desk.live.panorama?.bands.get(planBand.id)
+                          : undefined
+                      }
+                      range={bandRange}
+                      openOriginal={(id) => void openOriginal(id)}
+                      busy={desk.busy}
+                    />
+                    {coverageBand && <CoverageRow band={coverageBand} />}
+                    <h3>{t('Latest hardware window')}</h3>
+                    {latest && (
+                      <p className="muted">
+                        {latest.scan_context?.window_index == null
+                          ? '—'
+                          : latest.scan_context.window_index + 1}{' '}
+                        / {latest.scan_context?.window_count ?? '—'} ·{' '}
+                        {hz(latest.frequencies_hz[0])} – {hz(latest.frequencies_hz.at(-1))}
+                      </p>
+                    )}
+                  </>
+                )}
                 <Spectrum sweep={latest} liveSources={{ rows: displayRows, presentation }} />
               </>
             )}
@@ -792,7 +879,15 @@ export function App({
                 {' ' + t('original points · display only')}
               </span>
             </div>
-            <Waterfall key={selectedBand} rows={displayRows} />
+            <div className="waterfall-title">
+              <h3>{t('Waterfall')}</h3>
+              {bandRange && (
+                <span>
+                  {hz(bandRange.low)} – {hz(bandRange.high)}
+                </span>
+              )}
+            </div>
+            <Waterfall key={selectedBand} rows={displayRows} band={bandRange} />
             <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
               <span data-testid="source-id">
                 {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
@@ -810,6 +905,13 @@ export function App({
             )}
           </Panel>
           <div className="side-stack">
+            {workspace === 'monitoring' && (
+              <EventQueue
+                desk={desk}
+                selected={selectedEvent}
+                open={(item) => void openEvent(item)}
+              />
+            )}
             <Panel
               title={t('AR-DV1')}
               eyebrow={t('INDEPENDENT RECEIVER')}
@@ -817,11 +919,38 @@ export function App({
                 <span className={'badge ' + (receiverWorker?.alive ? 'good' : '')}>
                   {receiverWorker?.alive
                     ? t('Receiving')
-                    : titleCase(receiverWorker?.state || t('idle'))}
+                    : titleCase(receiverWorker?.state || 'unavailable')}
                 </span>
               }
             >
+              <small>{t('Last saved receiver frequency')}</small>
               <div className="receiver-frequency mono">{hz(receiver?.frequency_hz)}</div>
+              {receiverSettings &&
+              (requestedFrequency != null || receiverSettings.frequency_source) ? (
+                <dl className="status-list receiver-readback">
+                  <div>
+                    <dt>{t('Requested target')}</dt>
+                    <dd>
+                      {hz(
+                        typeof requestedFrequency === 'number' ||
+                          typeof requestedFrequency === 'bigint'
+                          ? requestedFrequency
+                          : undefined,
+                      )}{' '}
+                      · {String(receiverSettings.requested_mode ?? '—')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('Receiver readback')}</dt>
+                    <dd>
+                      {receiverSettings.frequency_readback === true &&
+                      (typeof actualFrequency === 'number' || typeof actualFrequency === 'bigint')
+                        ? hz(actualFrequency) + ' · ' + (receiverSettings.observed_mode ?? '—')
+                        : t('Unavailable')}
+                    </dd>
+                  </div>
+                </dl>
+              ) : null}
               <div className="receiver-stats">
                 <div>
                   <small>{t('MODE')}</small>
@@ -831,7 +960,7 @@ export function App({
                   <small>{t('RAW LEVEL')}</small>
                   <strong className="mono">
                     {receiver?.level ?? '—'}{' '}
-                    <small>{receiver?.level_unit || t('s_meter_count')}</small>
+                    <small>{receiver?.level_unit ? t(receiver.level_unit) : ''}</small>
                   </strong>
                 </div>
                 <div>
@@ -846,7 +975,11 @@ export function App({
                 </div>
                 <div>
                   <small>{t('INVESTIGATION')}</small>
-                  <strong>{desk.guard?.receiver_busy ? t('In progress') : t('Idle')}</strong>
+                  <strong>
+                    {desk.guard
+                      ? t(desk.guard.receiver_busy ? 'In progress' : 'Idle')
+                      : t('Unavailable')}
+                  </strong>
                 </div>
               </div>
               <p className="muted">
@@ -854,7 +987,7 @@ export function App({
               </p>
               <div className="device-footer">
                 <span className="mono">
-                  {receiverWorker?.measurements || 0}
+                  {receiverWorker?.measurements ?? '—'}
                   {' ' + t('observations')}
                 </span>
                 <span>{receiverWorker?.adapter || t('No active worker')}</span>
@@ -863,111 +996,11 @@ export function App({
                 <p className="error-text">{receiverWorker.last_error}</p>
               )}
             </Panel>
-            <Panel title={t('Node & evidence')} eyebrow={t('CORE STATUS')}>
-              <dl className="status-list">
-                <div>
-                  <dt>{t('tinySA')}</dt>
-                  <dd>
-                    {analyzerWorker?.alive
-                      ? t('Receiving')
-                      : titleCase(analyzerWorker?.state || t('idle'))}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('Archive')}</dt>
-                  <dd>{desk.capabilities?.session_storage || t('Unknown')}</dd>
-                </div>
-                <div>
-                  <dt>{t('Event evidence')}</dt>
-                  <dd>
-                    {desk.events.length}
-                    {' ' + t('loaded')}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('Audio input')}</dt>
-                  <dd>{desk.guard?.audio_configured ? t('Configured') : t('Not configured')}</dd>
-                </div>
-                <div>
-                  <dt>{t('Hardware validation')}</dt>
-                  <dd className="warning-text">{t('Not run')}</dd>
-                </div>
-              </dl>
-              <details>
-                <summary>{t('Capability limits')}</summary>
-                <p className="muted">
-                  {t(
-                    'IQ, network identities, extended RF ranges, generator control, and unverified digital modes are unavailable in this client. Advanced analysis, exports, task scheduling, and instrument diagnostics remain in the',
-                  )}{' '}
-                  <a href="/" onClick={legacy}>
-                    {t('legacy UI')}
-                  </a>
-                  .
-                </p>
-              </details>
-            </Panel>
+            <StationStatus desk={desk} analyzer={analyzerWorker} />
           </div>
         </div>
         <section hidden={workspace !== 'monitoring'} aria-label={t('Monitoring workspace')}>
-          <Panel
-            title={t('Detected events')}
-            eyebrow={t('COMMITTED EVIDENCE')}
-            aside={
-              <button
-                disabled={desk.busy || !p}
-                onClick={() =>
-                  void desk.run('Refresh detected events', () => desk.refresh(['events']), [])
-                }
-              >
-                {t('Refresh events')}
-              </button>
-            }
-          >
-            {desk.events.length ? (
-              <div className="event-table">
-                <div className="event-table-header">
-                  <span>{t('Frequency / event')}</span>
-                  <span>{t('First seen · UTC')}</span>
-                  <span>{t('Peak')}</span>
-                  <span>{t('Analysis')}</span>
-                  <span>{t('Evidence')}</span>
-                </div>
-                {desk.events.map((item) => (
-                  <div className="event-row" data-testid="event-row" key={item.id}>
-                    <div>
-                      <strong className="mono">{hz(item.center_frequency_hz)}</strong>
-                      <small>
-                        {titleCase(item.kind)} · {t(item.state)}
-                      </small>
-                    </div>
-                    <div className="mono event-time">{utc(item.first_seen)}</div>
-                    <div className="mono">
-                      {item.peak_level.toFixed(1)}
-                      {' ' + t('dBm')}
-                    </div>
-                    <div>
-                      <span className="badge">
-                        {titleCase(item.analysis?.state || t('pending'))}
-                      </span>
-                      <small>
-                        {item.analysis?.audio ? t('Audio available') : t('No audio evidence')}
-                      </small>
-                    </div>
-                    <div>
-                      <button disabled={desk.busy} onClick={() => void openEvent(item)}>
-                        {t('Details')}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="empty">
-                {t('No detected events. Collection and detection belong to the core.')}
-              </p>
-            )}
-          </Panel>
-          <div className="preparation-grid">
+          <div className="preparation-grid" id="receive-preparation" tabIndex={-1}>
             <PreparationPanel desk={desk} />
             <ScanPlan desk={desk} />
             <AllowedPanel desk={desk} />
@@ -981,7 +1014,6 @@ export function App({
       {wizard && <Prepare desk={desk} close={() => setWizard(false)} />}
       {event && (
         <Modal label={t('Event details')} close={closeEvent}>
-          <div className="eyebrow">{t('EVENT EVIDENCE')}</div>
           <h2>{t('Event details')}</h2>
           <div className="event-frequency mono">{hz(event.center_frequency_hz)}</div>
           <p>
@@ -1016,6 +1048,7 @@ export function App({
               {t('Play audio')}
             </button>
           </div>
+          <EventReceiver event={event} api={desk.api} />
           <audio
             ref={audio}
             controls
@@ -1088,6 +1121,14 @@ export function App({
             <br />
             {utc(original.interval.started_at)} → {utc(original.interval.ended_at)}
           </p>
+          {originalPlot ? (
+            <div className="evidence-spectrum">
+              <h3>{t('Source panorama')}</h3>
+              <Spectrum sweep={originalPlot} />
+            </div>
+          ) : (
+            <p className="muted">{t('Source frequency outside supported display range')}</p>
+          )}
           <div className="original-table">
             <table>
               <thead>

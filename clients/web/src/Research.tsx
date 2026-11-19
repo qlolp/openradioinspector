@@ -1,4 +1,5 @@
 import { t } from './i18n';
+import { ReceiverSegment } from './ReceiverSegment';
 import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
 import { historyQuery, ResourceScope, type HistoryFilters } from './api';
@@ -504,6 +505,9 @@ export function Research({
             </>
           )}
         </Panel>
+        {desk.capabilities?.features.ardv1_sampled_scope === true && (
+          <ReceiverSegment desk={desk} />
+        )}
         <Panel
           title={t('Source search')}
           eyebrow={titleCase(desk.search?.coverage || t('stopped'))}

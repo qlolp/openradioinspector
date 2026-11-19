@@ -17,7 +17,14 @@ export interface Sweep {
 }
 export type DisplayNumbers = number[] | Float64Array<ArrayBuffer>;
 export interface DisplaySweep extends Omit<Sweep, 'settings' | 'frequencies_hz' | 'levels'> {
-  scan_context?: { plan_id: string; band_id: string };
+  scan_context?: {
+    plan_id: string;
+    band_id: string;
+    revision?: number;
+    step_hz?: number;
+    window_index?: number;
+    window_count?: number;
+  };
   frequencies_hz: DisplayNumbers;
   levels: DisplayNumbers;
   source_indices: number[] | Uint32Array<ArrayBuffer>;
@@ -35,6 +42,7 @@ export interface Observation {
   level?: number | null;
   squelch_open?: boolean | null;
   decoded_mode?: string | null;
+  metadata?: Record<string, unknown>;
 }
 export interface Stream {
   id: string;
@@ -49,6 +57,7 @@ export interface Session {
   name: string;
   state: string;
   streams: Stream[];
+  metadata?: Record<string, unknown>;
 }
 export interface Project {
   scan_plan?: import('../../../contracts/generated/typescript/runtime').ScanPlanRevision;
@@ -79,8 +88,50 @@ export interface WorkerStatus {
   adapter: string;
   last_error?: string;
   measurements: number;
+  started_at?: string;
   last_measurement_at?: string;
   current: Record<string, unknown>;
+}
+export interface BandCoverage {
+  id: string;
+  name: string;
+  state: string;
+  deadline_missed: boolean;
+  age_seconds: number | null;
+  last_revisit_seconds: number | null;
+  step_hz?: number;
+  observed_windows?: number;
+  window_count?: number;
+  completed_passes?: number;
+  last_window?: {
+    index: number;
+    start_hz: number;
+    stop_hz: number;
+    points: number;
+    measurement_id: string;
+    started_at: string;
+    ended_at: string;
+  } | null;
+}
+export interface StorageReport {
+  capacity?: { database_bytes?: number; state?: string };
+  writer_queue?: {
+    queued_operations: number;
+    writer_capacity: number;
+    retained_bytes: number;
+    writer_byte_limit: number;
+  };
+  ready?: boolean;
+  write_probe?: boolean | null;
+  available_bytes?: number | null;
+  filesystem_free_bytes?: number | null;
+  minimum_free_bytes?: number;
+  estimated_retention_seconds?: number | null;
+  required_retention_seconds?: number;
+  mean_stored_sweep_bytes?: number | null;
+  projected_bytes_per_day?: number | null;
+  wal_bytes?: number | null;
+  backup_reserve_bytes?: number | null;
 }
 export interface GuardStatus {
   project: Project;
@@ -94,11 +145,15 @@ export interface GuardStatus {
 }
 export interface Preflight {
   ready: boolean;
+  storage?: StorageReport | null;
   checks: { name: string; ok: boolean; detail: string }[];
   baseline_ready: boolean;
   baseline_collection: {
     bands?: {
       band_id: string;
+      window_count?: number;
+      ready_windows?: number;
+      confirmed_windows?: number;
       name: string;
       sweeps: number;
       elapsed_seconds: number;
@@ -118,6 +173,7 @@ export interface Preflight {
 export interface MonitoringEvent {
   id: string;
   project_id: string;
+  run_session_id?: string;
   kind: string;
   state: string;
   first_seen: string;
@@ -135,6 +191,8 @@ export interface MonitoringEvent {
     mode?: string;
     decoded_mode?: string;
     level?: number;
+    receiver_status?: Observation[];
+    observation_ids?: string[];
     audio?: { id: string };
   };
   source_refs?: { sweep_id: string; session_id: string; stream_id: string }[];

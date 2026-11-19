@@ -4,6 +4,8 @@ import {
   decodeSession,
   decodeSweep,
   encodeSweep,
+  encodeReceiverObservation,
+  type ReceiverObservation as ContractObservation,
   parseJSON,
   stringifyJSON,
   encodePathSegment,
@@ -28,6 +30,8 @@ function array(value: JSONValue): JSONValue[] {
 export const sweepValue = (value: JSONValue): Sweep => decodeSweep(value) as unknown as Sweep;
 export const observationValue = (value: JSONValue): Observation =>
   decodeReceiverObservation(value) as unknown as Observation;
+export const originalObservationJSON = (value: Observation) =>
+  encodeReceiverObservation(value as unknown as ContractObservation);
 export const originalJSON = (value: Sweep) => encodeSweep(value as unknown as ContractSweep);
 export function parseWire(raw: string | Uint8Array): JSONValue {
   return parseJSON(raw, MAX_JSON);
@@ -42,7 +46,14 @@ function numbers(value: JSONValue, keys: string[]): JSONObject {
 }
 function eventValue(value: JSONValue): JSONObject {
   const event = numbers(value, ['peak_level']);
-  if (event.analysis) event.analysis = numbers(event.analysis, ['level']);
+  if (event.analysis) {
+    const analysis = numbers(event.analysis, ['level']);
+    if (Array.isArray(analysis.receiver_status))
+      analysis.receiver_status = analysis.receiver_status.map(
+        observationValue,
+      ) as unknown as JSONValue;
+    event.analysis = analysis;
+  }
   return event;
 }
 export function responseValue(path: string, raw: string | Uint8Array): unknown {
@@ -54,6 +65,8 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
     data = array(data).map((value) => sweepValue(value)) as unknown as JSONValue;
   else if (/^\/api\/v1\/sessions\/[^/]+\/observations$/.test(route))
     data = array(data).map((value) => observationValue(value)) as unknown as JSONValue;
+  else if (/^\/api\/v1\/sessions\/[^/]+\/observations\/[^/]+$/.test(route))
+    data = observationValue(data) as unknown as JSONValue;
   else if (route === '/api/v1/sessions' && Array.isArray(data))
     data = data.map((value) => decodeSession(value)) as unknown as JSONValue;
   else if (/^\/api\/v1\/monitoring-projects\/[^/]+\/history$/.test(route)) {
@@ -64,7 +77,11 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
   else if (/^\/api\/v1\/monitoring-projects\/[^/]+\/events$/.test(route)) {
     const page = object(data);
     data = { ...page, items: array(page.items).map(eventValue) };
-  } else if (/^\/api\/v1\/monitoring-projects\/[^/]+\/events\/[^/]+(?:\/disposition)?$/.test(route))
+  } else if (
+    /^\/api\/v1\/monitoring-projects\/[^/]+\/events\/[^/]+(?:\/(?:disposition|review))?$/.test(
+      route,
+    )
+  )
     data = eventValue(data);
   else if (/^\/api\/v1\/sessions\/[^/]+\/sweep-summaries$/.test(route)) {
     const page = object(data);
