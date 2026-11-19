@@ -244,15 +244,21 @@ def run(config):
             finally:
                 if observer is not None:
                     report['observer_completed']=observer.close()
-            report['history']=verify.history(client,config,capabilities,histogram,ledger)
+            # Measure the original history request before the full export warms
+            # the cache. Preserve independent source evidence on a history error.
+            history_error = None
+            try:
+                report['history'] = verify.history(client,config,capabilities,histogram,ledger)
+            except BenchmarkError as error:
+                history_error = error
             report['checks']['archive_integrity']=verify.archive(client,config,ledger)
             if config.planned_counts()['audio']:report['audio']=verify.audio(client,config,ledger,output)
             else:report['audio']=ledger.audio_counts()
             missing=ledger.db.execute("SELECT COUNT(*) FROM offers WHERE status='accepted' AND verified=0").fetchone()[0]
             if missing:raise BenchmarkError('archive_invalid','Acknowledged source input is missing from the archive')
-            newest=[row[0] for row in ledger.db.execute("SELECT id FROM offers WHERE kind='sweep' AND verified=1 ORDER BY idx DESC LIMIT 100")]
-            if report['history']['first_page_source_ids']!=newest:
-                raise BenchmarkError('history_invalid','First history page does not identify the newest retained sources')
+            if history_error is not None:
+                raise history_error
+            verify.verify_history_ids(report['history'], ledger)
             report['event_watermark_after']=client.json('/api/v1/health').get('last_event_id')
             render_path=observer.render_path if observer is not None else config.render_events
             if render_path:

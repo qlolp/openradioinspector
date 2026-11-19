@@ -28,7 +28,7 @@ class Fixture:
     """A minimal protocol peer, deliberately not evidence of core behavior."""
     def __init__(self, path, *, audio=True, reject=0, corrupt=False, summaries=True, audio_metadata_corrupt=False,
                  summary_corrupt=False, invalid_ack=False, drop_audio=False, guard_active=None, export_delay=0,
-                 unsafe_created_project=False):
+                 unsafe_created_project=False, omit_summary=False):
         self.db=sqlite3.connect(path,check_same_thread=False)
         self.db.executescript('CREATE TABLE sessions(id PRIMARY KEY,payload);'
             'CREATE TABLE measurements(id PRIMARY KEY,kind,payload);'
@@ -37,6 +37,7 @@ class Fixture:
         self.audio,self.reject,self.corrupt,self.summaries=audio,reject,corrupt,summaries
         self.audio_metadata_corrupt=audio_metadata_corrupt
         self.summary_corrupt=summary_corrupt
+        self.omit_summary=omit_summary
         self.invalid_ack,self.drop_audio=invalid_ack,drop_audio
         self.time_corrupt=None
         self.guard_active=guard_active
@@ -129,6 +130,7 @@ class Fixture:
                                      'peak_level':max(r['levels']),
                                      'peak_frequency_hz':r['frequencies_hz'][r['levels'].index(max(r['levels']))]} for r in rows]
                             if fixture.summary_corrupt and rows:rows[0]['point_count']+=1
+                            if fixture.omit_summary:rows=rows[:-1]
                             self.reply(200,{'items':rows,'next_cursor':None})
                         else: self.reply(200,rows)
                     elif pieces[-1]=='artifacts':
@@ -353,6 +355,20 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(report['checks']['complete_delivery']['status'],'failed')
             self.assertEqual(process.returncode,0,process.stderr)
 
+    def test_nominal_run_with_rejections_still_verifies_each_retained_source(self):
+        with http_fixture(self.root / 'peer.sqlite', reject=3) as (_, url):
+            process = self.command(url, more=('--workers', '1', '--duration-seconds', '1',
+                '--audio-segment-seconds', '1', '--queue-capacity', '100'))
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertNotEqual(process.returncode, 0)
+        sweeps = report['counts']['sweep']
+        self.assertGreater(sweeps['rejected'], 0)
+        self.assertGreater(sweeps['acknowledged'], 0)
+        self.assertEqual(sweeps['verified'], sweeps['acknowledged'])
+        self.assertEqual(len(report['history']['first_page_source_ids']), sweeps['verified'])
+        self.assertEqual(report['checks']['archive_integrity']['status'], 'passed')
+        self.assertEqual(report['checks']['complete_delivery']['status'], 'failed')
+
     def test_small_fast_run_does_not_pass_the_million_sweep_history_target(self):
         with http_fixture(self.root/'peer.sqlite') as (_,url):
             self.assertEqual(self.command(url).returncode,0)
@@ -462,6 +478,15 @@ class BenchmarkTests(unittest.TestCase):
             self.assertNotEqual(process.returncode,0)
             report=json.loads((self.root/'results/report.json').read_text())
             self.assertEqual(report['errors'][0]['code'],'history_invalid')
+            self.assertEqual(report['checks']['archive_integrity']['status'], 'passed')
+
+    def test_history_omitting_a_retained_sweep_fails_even_when_delivery_is_complete(self):
+        with http_fixture(self.root / 'peer.sqlite', omit_summary=True) as (_, url):
+            process = self.command(url)
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(report['checks']['complete_delivery']['status'], 'passed')
+        self.assertEqual(report['errors'][0]['code'], 'history_invalid')
 
     def test_existing_ledger_open_cannot_change_an_unowned_sqlite_database(self):
         from benchmarks.ori_bench.ledger import Ledger

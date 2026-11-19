@@ -117,11 +117,6 @@ def history(client,config,capabilities,histograms,ledger):
         rows=result.get('items') if summaries else result
         if not isinstance(rows,list) or len(rows)>100:
             raise BenchmarkError('history_invalid','First history page is not bounded to 100 rows')
-        expected=min(100,config.planned_counts()['sweep'])
-        if len(rows)!=expected:
-            # Rejected offered inputs can reduce source counts in fault runs.
-            if config.scenario not in ('fault','overload'):
-                raise BenchmarkError('history_invalid','First history page source count is wrong')
         if summaries and any('levels' in row or 'frequencies_hz' in row for row in rows):
             raise BenchmarkError('history_invalid','Summary endpoint returned raw arrays')
         ordering=[]
@@ -137,8 +132,22 @@ def history(client,config,capabilities,histograms,ledger):
             if ordering!=sorted(set(ordering),reverse=True):raise ValueError()
         except (ValueError,KeyError,TypeError,OverflowError):
             raise BenchmarkError('history_invalid','History source metadata, peak, or newest-first ordering changed') from None
-        if attempt:histograms[metric].add(elapsed)
-        else:first=elapsed;first_ids=[item['id'] for item in rows]
+        ids = [item['id'] for item in rows]
+        if attempt:
+            if ids != first_ids:
+                raise BenchmarkError('history_invalid', 'First page changed after the producer stopped')
+            histograms[metric].add(elapsed)
+        else:
+            first, first_ids = elapsed, ids
     return {'endpoint_kind':'summaries' if summaries else 'full_measurements',
             'first_request_ms':first,'repeat_count':config.history_repeats,'warm_cache_requested':True,
             'first_page_source_ids':first_ids}
+
+
+def verify_history_ids(history_result, ledger):
+    # Rejections and queue drops stay in the delivery denominator. The public
+    # history page must exactly match the newest independently verified sources.
+    newest = ledger.db.execute("SELECT id FROM offers WHERE kind='sweep' AND verified=1 "
+                               "ORDER BY idx DESC LIMIT 100")
+    if history_result['first_page_source_ids'] != [row[0] for row in newest]:
+        raise BenchmarkError('history_invalid', 'First history page does not identify the newest retained sources')
