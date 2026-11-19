@@ -10,6 +10,7 @@ from .source import identifier
 
 class Ledger:
     def __init__(self,path,*,existing=False):
+        self.transport_failure_samples = []
         if existing:
             check=sqlite3.connect(path.resolve().as_uri()+'?mode=ro&immutable=1',uri=True)
             try:
@@ -42,6 +43,12 @@ class Ledger:
         with self.lock,self.db:
             self.db.execute('UPDATE offers SET status=?,http_status=?,acknowledged_ns=? WHERE id=?',
                 (status,http_status,time.monotonic_ns(),identifier))
+    def transport_failure(self, identifier, error, started_ns):
+        with self.lock:
+            self.status(identifier, 'transport_unknown')
+            if len(self.transport_failure_samples) < 32:
+                self.transport_failure_samples.append(dict(id=identifier, **error.details,
+                    elapsed_ms=(time.monotonic_ns() - started_ns) / 1_000_000))
     def get(self,identifier):
         with self.lock:return self.db.execute('SELECT * FROM offers WHERE id=?',(identifier,)).fetchone()
     def offer_many(self,config,kind,indexes):

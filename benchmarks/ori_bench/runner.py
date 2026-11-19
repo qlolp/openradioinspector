@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 
 from . import VERSION
-from .client import Client,HTTPFailure,segment
+from .client import Client,HTTPFailure,TransportFailure,segment
 from .config import BenchmarkError
 from .ledger import Ledger
 from .metrics import Histogram,Sampler,host
@@ -123,6 +123,7 @@ def send(client,config,ledger,kind,index,histograms):
         ledger.status(key,'accepted',201)
         histograms['offered_to_ack_ms'].add((time.monotonic_ns()-row['offered_ns'])/1e6)
     except HTTPFailure as error:ledger.status(key,'rejected',error.status)
+    except TransportFailure as error:ledger.transport_failure(key, error, started)
     except BenchmarkError as error:
         ledger.status(key,'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
     except (ValueError,TypeError,KeyError,OverflowError):ledger.status(key,'invalid_ack')
@@ -200,6 +201,9 @@ def run_history(config,client,capabilities,ledger,histograms):
             histograms['offered_to_ack_ms'].add((time.monotonic_ns()-offered)/1e6)
         except HTTPFailure as error:
             for index in indexes:ledger.status(identifier(config,'sweep',index),'rejected',error.status)
+        except TransportFailure as error:
+            for index in indexes:
+                ledger.transport_failure(identifier(config, 'sweep', index), error, started)
         except BenchmarkError as error:
             for index in indexes:ledger.status(identifier(config,'sweep',index),
                 'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
@@ -291,6 +295,7 @@ def run(config):
         report['counts']=counts
         report.setdefault('audio',ledger.audio_counts())
         report['gap_samples']=ledger.gap_samples()
+        report['transport_failure_samples'] = ledger.transport_failure_samples
         report['checks']['offered_accounting']={'status':'passed' if accounted and all_offered else 'failed',
             'all_planned_inputs_offered':all_offered}
         report['checks']['complete_delivery']={'status':'passed' if complete else 'failed',

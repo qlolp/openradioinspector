@@ -28,7 +28,7 @@ class Fixture:
     """A minimal protocol peer, deliberately not evidence of core behavior."""
     def __init__(self, path, *, audio=True, reject=0, corrupt=False, summaries=True, audio_metadata_corrupt=False,
                  summary_corrupt=False, invalid_ack=False, drop_audio=False, guard_active=None, export_delay=0,
-                 unsafe_created_project=False, omit_summary=False):
+                 unsafe_created_project=False, omit_summary=False, disconnect_first_sweep=False):
         self.db=sqlite3.connect(path,check_same_thread=False)
         self.db.executescript('CREATE TABLE sessions(id PRIMARY KEY,payload);'
             'CREATE TABLE measurements(id PRIMARY KEY,kind,payload);'
@@ -38,6 +38,7 @@ class Fixture:
         self.audio_metadata_corrupt=audio_metadata_corrupt
         self.summary_corrupt=summary_corrupt
         self.omit_summary=omit_summary
+        self.disconnect_first_sweep=disconnect_first_sweep
         self.invalid_ack,self.drop_audio=invalid_ack,drop_audio
         self.time_corrupt=None
         self.guard_active=guard_active
@@ -160,6 +161,11 @@ class Fixture:
                     elif path.endswith('/sweeps/batch') or path.endswith('/observations/batch'):
                         if fixture.first_source_wall_ns is None:fixture.first_source_wall_ns=time.time_ns()
                         kind='sweep' if '/sweeps/' in path else 'observation'
+                        if kind == 'sweep' and fixture.disconnect_first_sweep:
+                            fixture.disconnect_first_sweep = False
+                            self.close_connection = True
+                            self.connection.shutdown(socket.SHUT_RDWR)
+                            return
                         items=value['items']
                         if (fixture.reject and len(fixture.posts)%fixture.reject==0) or any(
                             kind=='sweep' and not x['frequencies_hz'] for x in items):
@@ -368,6 +374,39 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(len(report['history']['first_page_source_ids']), sweeps['verified'])
         self.assertEqual(report['checks']['archive_integrity']['status'], 'passed')
         self.assertEqual(report['checks']['complete_delivery']['status'], 'failed')
+
+    def test_dropped_request_records_transport_evidence_without_retrying_the_offer(self):
+        with http_fixture(self.root / 'peer.sqlite', disconnect_first_sweep=True) as (fixture, url):
+            process = self.command(url)
+            self.assertEqual(sum(path.endswith('/sweeps/batch') for path in fixture.posts), 2)
+        report = json.loads((self.root / 'results/report.json').read_text())
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(report['counts']['sweep']['transport_unknown'], 1)
+        self.assertEqual(report['counts']['sweep']['verified'], 1)
+        sample, = report['transport_failure_samples']
+        self.assertEqual(sample['id'], report['gap_samples'][0]['id'])
+        self.assertEqual(sample['phase'], 'request_or_headers')
+        self.assertTrue(sample['exception'])
+        self.assertGreaterEqual(sample['elapsed_ms'], 0)
+
+    def test_incomplete_acknowledgement_body_is_an_unknown_transport_outcome(self):
+        from http.client import IncompleteRead
+        from unittest.mock import MagicMock
+        from benchmarks.ori_bench.client import Client, TransportFailure
+        from benchmarks.ori_bench.config import Config
+
+        client = Client(Config('http://127.0.0.1:1', self.root))
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.status = 201
+        response.read.side_effect = IncompleteRead(b'private body', 64)
+        client.opener.open = MagicMock(return_value=response)
+        with self.assertRaises(TransportFailure) as caught:
+            client.json('/api/v1/sessions', method='POST', payload={}, status=201)
+        self.assertEqual(caught.exception.details['phase'], 'response_body')
+        self.assertEqual(caught.exception.details['exception'], 'IncompleteRead')
+        self.assertNotIn('private body', json.dumps(caught.exception.details))
+        client.opener.open.assert_called_once()
 
     def test_small_fast_run_does_not_pass_the_million_sweep_history_target(self):
         with http_fixture(self.root/'peer.sqlite') as (_,url):
