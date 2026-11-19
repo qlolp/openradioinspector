@@ -22,8 +22,23 @@ impl GuardService {
             return Err(invalid("span_hz должен быть 1000..100000000"));
         }
         let center = integer(&event, "center_frequency_hz")?;
-        let search = json!({"event_id":event["id"],"center_frequency_hz":center,"span_hz":span});
-        let original = self.project(id).await?;
+        let mut search =
+            json!({"event_id":event["id"],"center_frequency_hz":center,"span_hz":span});
+        let mut original = self.project(id).await?;
+        if event.get("scan_window_index").is_some() {
+            // A selected historical event can precede the active plan. Resolve
+            // its original project-owned revision before selecting the RX grid.
+            let source = self
+                .get_record("scan-plan", s(&event, "scan_plan_id")?, Some(id))
+                .await?;
+            let revision = integer(&event, "scan_plan_revision")?;
+            if source["revision"] != revision {
+                return Err(invalid("Событие относится к другой ревизии плана"));
+            }
+            search["scan_origin"] = json!({"plan_id":source["id"],"revision":revision,
+                "band_id":s(&event,"scan_band_id")?,"window_index":integer(&event,"scan_window_index")?});
+            original["scan_plan"] = source;
+        }
         let created = self.clone_session(&original, false, Some(&search))?;
         let (session, mut mutations) = self.running_mutations(created)?;
         let sid = s(&session, "id")?.to_owned();
