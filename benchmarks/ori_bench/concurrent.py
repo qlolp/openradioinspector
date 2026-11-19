@@ -288,6 +288,8 @@ def restore(node, output, timeout):
         result = bounded_json(receipt)
         if result.get('status') != 'passed' or result.get('manifest') != node.backup_state().get('manifest'):
             raise BenchmarkError('restore_failed', 'Verified restore differs from the original backup receipt')
+        if node.workload_profile == 'paged-history' and result['manifest'].get('archive_schema') != 7:
+            raise BenchmarkError('restore_failed', 'Restored paged-history fixture did not retain the fresh compact v7 archive')
         return result | dict(joined=True, physical_carrier_independence='unmeasured')
     finally:
         try:

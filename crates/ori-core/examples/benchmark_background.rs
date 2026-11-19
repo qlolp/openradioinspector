@@ -219,6 +219,9 @@ mod fixture {
         }
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let mut config = CoreConfig::replay(&profile.data);
+        if profile.workload_profile == "paged-history" {
+            ori_archive::init_compact_archive(&config.database).await?;
+        }
         config.devices.transport = None;
         if profile.workload_profile == "macos-rc1" {
             config.max_archive_bytes = Some(64 * 1024 * 1024 * 1024);
