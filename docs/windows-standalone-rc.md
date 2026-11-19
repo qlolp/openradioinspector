@@ -54,3 +54,28 @@ npm --prefix clients/windows run build -- --ci -- --locked
 Проверка установки повторно запускает этот же NSIS с `/S /UPDATE`, проверяет восстановление ресурса, затем запускает реальный деинсталлятор. План оператора и исходная панорама должны пережить повторную установку. Для проверки отката передайте `-PriorInstaller`, `-PriorInstallerSha256` и `-PriorRevision`. Сценарий проверяет контрольную сумму, устанавливает предыдущий пакет в очищенный каталог приложения, сверяет ревизию установленных helpers, читает панораму и задание через предыдущее ядро, затем обновляет приложение текущим пакетом. Исходный файл v7 сохраняется рядом с тестовой копией v6.
 
 При ручном запуске Windows workflow поля `prior_run_id`, `prior_installer_sha256` и `prior_revision` указывают на архив сборки предыдущего совместимого пакета. Без него отчёт сохраняет `pending_missing_prior_package`. Артефакт `windows-x64-offline-rc-candidate` публикуется с SHA-256 сразу после сборки. Отдельный `windows-x64-rc-diagnostics` содержит результат проверки пакета и этап ошибки даже при отсутствии установщика.
+
+## Concurrent full-PCM release fixture
+
+The Windows concurrent reference workflow uses the shared native replay core, an isolated archive and three Chromium operator clients. Pull requests exercise 60 seconds. A manual run with `full` selected schedules the original 1,800 seconds at 10 sweeps and 10 observations per second, 4,096 points per sweep and all 86,400,000 mono 48 kHz PCM frames. The release installer and physical-radio tests have separate receipts.
+
+To run locally from the repository with the pinned Rust, Python and Node versions, install the Web lock and Chromium, build and embed the production frontend, and build the native fixture. Choose a fresh path outside every Git checkout.
+
+```powershell
+npm ci --prefix clients/web
+Push-Location clients/web
+npx playwright install chromium
+Pop-Location
+npm run build --prefix clients/web
+python tools/build_modern_web.py
+python tools/build_modern_web.py --check
+cargo build --release --locked --features serial -p ori-core --example benchmark_background
+$env:ORI_PLAYWRIGHT_MODULE = (Resolve-Path clients/web/node_modules/playwright/index.mjs).Path
+$exe = (Resolve-Path target/release/examples/benchmark_background.exe).Path
+$out = Join-Path $env:TEMP ("ori-reference-" + [Guid]::NewGuid())
+python -m benchmarks.ori_bench.concurrent --candidate $exe --output-dir $out --history-profile paged-history
+```
+
+`--smoke-seconds 60` selects the short run. Each Core, restore and observer process tree stays in its own retained Windows Job. Graceful release requires zero live members. The browser driver reports after-draw receipts for its three independent pages.
+
+`paged-history` explicitly chooses the production sweep-summary API. The controller follows a snapshot cursor, compares every returned summary against its original sweep and requires a subsequent page to start and finish while the live NDJSON export and online backup are both active. Verified producer offers must bracket the page. The report contains these observations, complete export counts and digest, the restored backup manifest and the Core process's lifetime peak working set. Scientific research retains its original containment requirement. Windows currently has no scientific-worker profile with that containment. The paged run records `scientific_worker=not_requested`. A successful short run leaves full-duration acceptance open.

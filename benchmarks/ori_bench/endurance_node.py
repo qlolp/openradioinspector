@@ -36,6 +36,14 @@ def publish_stop(path,nonce):
         os.unlink(temporary)
 
 
+def start_owned(*args, **kwargs):
+    if os.name == 'nt':
+        from .windows_owner import WindowsOwnedCommand
+        return WindowsOwnedCommand.start(*args, **kwargs)
+    from tests.release_process_ownership import OwnedCommand
+    return OwnedCommand.start(*args, **kwargs)
+
+
 class OwnedCandidate:
     """Reuse a fresh archive only after original owner wait/release proves JOIN."""
     def __init__(self,binary,output):
@@ -61,7 +69,6 @@ class OwnedCandidate:
         if self.owner is not None or self.failed:
             raise BenchmarkError('cleanup_failed','Previous owned candidate has not closed successfully')
         self.unchanged()
-        from tests.release_process_ownership import OwnedCommand
         phase = self.output/('node-'+str(len(self.records)))
         phase.mkdir(mode=0o700)
         data = self.output/'data'
@@ -77,7 +84,7 @@ class OwnedCandidate:
         self.current = dict(epoch=len(self.records),joined=False,graceful=False)
         self.records.append(self.current)
         try:
-            self.owner = OwnedCommand.start(command,environment=environment,registry=self.registry,
+            self.owner = start_owned(command,environment=environment,registry=self.registry,
                                             root=ROOT,log=self.log,shutdown_timeout=15)
             deadline = time.monotonic()+15
             while time.monotonic()<deadline:

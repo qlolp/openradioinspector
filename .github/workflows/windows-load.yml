@@ -1,0 +1,74 @@
+name: Windows concurrent reference workload
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
+  pull_request:
+    paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run the original 1,800-second schedule with all PCM and three real browser clients'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  reference:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    env:
+      CARGO_BUILD_JOBS: 2
+      LIBSQLITE3_SYS_USE_PKG_CONFIG: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '26.13.0'
+          cache: npm
+          cache-dependency-path: clients/web/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.15.1'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Exercise original Job membership and cursor-page proofs
+        run: python -m unittest benchmarks.tests.test_concurrent benchmarks.tests.test_paged_history
+      - run: npm ci --prefix clients/web
+      - run: npx playwright install chromium
+        working-directory: clients/web
+      - run: npm run build --prefix clients/web
+      - run: python tools/build_modern_web.py
+      - run: python tools/build_modern_web.py --check
+      - run: cargo build --release --locked --features serial -p ori-core --example benchmark_background
+      - name: Run live export, verified cursor history and online backup during original acquisition
+        shell: pwsh
+        env:
+          FULL_RUN: ${{ inputs.full }}
+        run: |
+          $exe = (Resolve-Path 'target/release/examples/benchmark_background.exe').Path
+          $env:ORI_PLAYWRIGHT_MODULE = (Resolve-Path 'clients/web/node_modules/playwright/index.mjs').Path
+          $arguments = @('--output-dir', "$env:RUNNER_TEMP/reference", '--candidate', $exe,
+            '--history-profile', 'paged-history', '--run-id', "winrc-$env:GITHUB_RUN_ID")
+          if ($env:FULL_RUN -ne 'true') { $arguments += @('--smoke-seconds', '60') }
+          python -m benchmarks.ori_bench.concurrent @arguments
+          exit $LASTEXITCODE
+      - name: Preserve synthetic timing and concurrency reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/reference/report.json
+            ${{ runner.temp }}/reference/producer/report.json
+            ${{ runner.temp }}/reference/producer/observer.log
+            ${{ runner.temp }}/reference/node-0/process.log
+            ${{ runner.temp }}/reference/restored/receipt.json
+          retention-days: 14

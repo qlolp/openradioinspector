@@ -95,6 +95,16 @@ def audio(client,config,ledger,output):
             counts['offered_frames']==counts['verified_frames'] and expected_pcm.digest()==actual_pcm.digest()}
 
 
+def verify_sweep_summary(config, item, value):
+    peak=max(value['levels']);peak_index=value['levels'].index(peak)
+    expected={key:value[key] for key in ('id','session_id','stream_id','interval','level_unit')}
+    expected.update(point_count=config.points,min_frequency_hz=value['frequencies_hz'][0],
+        max_frequency_hz=value['frequencies_hz'][-1],peak_frequency_hz=value['frequencies_hz'][peak_index])
+    if any(item.get(key)!=field for key,field in expected.items()) \
+            or any(type(item.get(key)) is not int for key in ('point_count','min_frequency_hz','max_frequency_hz','peak_frequency_hz')) \
+            or struct.pack('>d',item['peak_level'])!=struct.pack('>d',peak):raise ValueError()
+
+
 def history(client,config,capabilities,histograms,ledger):
     summaries=capabilities.get('features',{}).get('sweep_summaries') is True
     metric='history_summary_ms' if summaries else 'history_full_payload_ms'
@@ -122,13 +132,7 @@ def history(client,config,capabilities,histograms,ledger):
                 value=sweep(config,source['idx'])
                 ordering.append((start_us(config,'sweep',source['idx']),item['id'].encode('utf-8')))
                 if summaries:
-                    peak=max(value['levels']);peak_index=value['levels'].index(peak)
-                    expected={key:value[key] for key in ('id','session_id','stream_id','interval','level_unit')}
-                    expected.update(point_count=config.points,min_frequency_hz=value['frequencies_hz'][0],
-                        max_frequency_hz=value['frequencies_hz'][-1],peak_frequency_hz=value['frequencies_hz'][peak_index])
-                    if any(item.get(key)!=field for key,field in expected.items()) \
-                            or any(type(item.get(key)) is not int for key in ('point_count','min_frequency_hz','max_frequency_hz','peak_frequency_hz')) \
-                            or struct.pack('>d',item['peak_level'])!=struct.pack('>d',peak):raise ValueError()
+                    verify_sweep_summary(config, item, value)
                 elif measurement_hash('sweep',item)!=measurement_hash('sweep',value):raise ValueError()
             if ordering!=sorted(set(ordering),reverse=True):raise ValueError()
         except (ValueError,KeyError,TypeError,OverflowError):
