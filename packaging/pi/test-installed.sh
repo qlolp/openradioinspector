@@ -5,7 +5,9 @@ if [ "$#" -ne 3 ]; then
     echo "Usage: sudo $0 RELEASE_DIR REHEARSAL_DIR NEW_REPORT_DIR" >&2
     exit 2
 fi
-[ "$(id -u)" = 0 ] && [ "$(uname -m)" = aarch64 ] && [ "$(dpkg --print-architecture)" = arm64 ]
+[ "$(id -u)" = 0 ]
+[ "$(uname -m)" = aarch64 ]
+[ "$(dpkg --print-architecture)" = arm64 ]
 [ "$(cat /proc/1/comm)" = systemd ]
 release=$(realpath "$1")
 second=$(realpath "$2")
@@ -25,7 +27,8 @@ mkdir -m 755 "$report"
 (cd "$second" && sha256sum -c SHA256SUMS)
 rc=("$release"/*.deb)
 upgrade=("$second"/*.deb)
-[ "${#rc[@]}" = 1 ] && [ "${#upgrade[@]}" = 1 ]
+[ "${#rc[@]}" = 1 ]
+[ "${#upgrade[@]}" = 1 ]
 for pkg in "${rc[0]}" "${upgrade[0]}"; do [ "$(dpkg-deb -f "$pkg" Package)" = "$package" ]; done
 dpkg --compare-versions "$(dpkg-deb -f "${rc[0]}" Version)" lt "$(dpkg-deb -f "${upgrade[0]}" Version)"
 
@@ -65,6 +68,20 @@ groups = next(row for row in (proc / 'status').read_text().splitlines() if row.s
 assert str(grp.getgrnam('dialout').gr_gid) in groups
 assert (proc / 'ns/net').stat().st_ino == Path('/run/netns/ori-pi-rc-ci').stat().st_ino
 PY
+python3 - "$package" <<'CHECK'
+import hashlib, json, subprocess, sys
+from pathlib import Path
+package = sys.argv[1]
+doc = Path('/usr/share/doc') / package
+manifest = json.loads((doc / 'release.json').read_text())
+assert hashlib.sha256((doc / 'notices/licenses.json').read_bytes()).hexdigest() == manifest['license_manifest_sha256']
+for name, expected in manifest['components'].items():
+    binary = Path('/usr/lib') / package / name
+    assert hashlib.sha256(binary.read_bytes()).hexdigest() == expected['sha256']
+    actual = json.loads(subprocess.check_output([binary, '--build-info']))
+    assert actual['source_revision'] == manifest['source_revision']
+    assert all(expected[key] == value for key, value in actual.items())
+CHECK
 verify install
 # An operator-edited dpkg conffile must survive both upgrade and downgrade.
 printf '\n' >> "/etc/$package/supervisor.json"
