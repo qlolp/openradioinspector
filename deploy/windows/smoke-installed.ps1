@@ -91,15 +91,22 @@ function Invoke-Node([string]$Action) {
     if ($code -ne 0) {
         $reason = 'helper_exit'
         $native = $null
+        $schedulerStage = $null
+        $schedulerHResult = $null
         $diagnostic = $lines -join ' '
         if ($diagnostic -match '\(os error ([0-9]{1,6})\)') {
             $reason = 'windows_io'
             $native = [int]$Matches[1]
-        } elseif ($diagnostic -match 'private Windows status frame was refused') { $reason = 'status_frame_refused' }
+        } elseif ($diagnostic -match 'Windows Task Scheduler (?:Register|Unregister) failed at (identity|supervisor_path|configuration_path|scheduler_module|query_task|verify_existing|remove_task|enable_task|prepare_task|register_task) \(HRESULT (-?[0-9]{1,10})\)') {
+            $reason = 'scheduler_script'
+            $schedulerStage = $Matches[1]
+            $schedulerHResult = [int]$Matches[2]
+        } elseif ($diagnostic -match 'Windows Task Scheduler (?:Register|Unregister) failed before a stage receipt') { $reason = 'scheduler_launch' }
+        elseif ($diagnostic -match 'private Windows status frame was refused') { $reason = 'status_frame_refused' }
         elseif ($diagnostic -match 'owned Windows backend status unavailable') { $reason = 'backend_status_unavailable' }
         elseif ($diagnostic -match 'owned Windows node is not ready') { $reason = 'backend_not_ready' }
         if ($report.helper_errors.Count -lt 8) {
-            $report.helper_errors += [ordered]@{phase=$report.phase; action=$Action; exit=$code; reason=$reason; win32=$native}
+            $report.helper_errors += [ordered]@{phase=$report.phase; action=$Action; exit=$code; reason=$reason; win32=$native; scheduler_stage=$schedulerStage; hresult=$schedulerHResult}
         }
         throw "Windows node $Action failed ($reason)"
     }

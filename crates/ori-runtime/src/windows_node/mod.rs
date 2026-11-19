@@ -17,7 +17,7 @@ use std::{
     fs, io,
     os::windows::process::CommandExt,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     time::Duration,
 };
 use tokio::time::{Instant, sleep, timeout};
@@ -314,12 +314,19 @@ fn assert_stopped(data: &Path) -> Result<()> {
     Ok(())
 }
 
-fn logon(action: &str) -> Result<Value> {
+fn logon_command(runtime: &Path, action: &str) -> Result<Command> {
     let system = std::env::var_os("SystemRoot")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .ok_or_else(|| Error::Unsafe("Windows directory unavailable".into()))?;
-    let result = Command::new(system.join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+    let shell = system.join(r"System32\WindowsPowerShell\v1.0");
+    let mut command = Command::new(shell.join("powershell.exe"));
+    // pwsh removes its own incompatible PSModulePath entries when it launches
+    // powershell.exe directly. This native intermediary must select the matching
+    // Windows PowerShell system modules itself.
+    command
+        .env("PSModulePath", shell.join("Modules"))
+        .current_dir(runtime)
         .args([
             "-NoLogo",
             "-NoProfile",
@@ -327,17 +334,54 @@ fn logon(action: &str) -> Result<Value> {
             "-ExecutionPolicy",
             "RemoteSigned",
             "-File",
+            r".\register-user-task.ps1",
+            "-Action",
+            action,
+            "-SupervisorExe",
+            r".\ori-supervisor.exe",
         ])
-        .arg(installation()?.join("register-user-task.ps1"))
-        .arg("-Action")
-        .arg(action)
         .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .output()?;
+        .stdin(Stdio::null());
+    Ok(command)
+}
+
+fn scheduler_error(action: &str, result: &Output) -> Error {
+    for stream in [&result.stderr, &result.stdout] {
+        for line in String::from_utf8_lossy(stream).lines() {
+            let mut fields = line.trim().split_ascii_whitespace();
+            if let (Some("ORI_TASK_ERROR"), Some(stage), Some(code), None) =
+                (fields.next(), fields.next(), fields.next(), fields.next())
+                && matches!(
+                    stage,
+                    "identity"
+                        | "supervisor_path"
+                        | "configuration_path"
+                        | "scheduler_module"
+                        | "query_task"
+                        | "verify_existing"
+                        | "remove_task"
+                        | "enable_task"
+                        | "prepare_task"
+                        | "register_task"
+                )
+                && let Ok(hresult) = code.parse::<i32>()
+            {
+                return Error::Protocol(format!(
+                    "Windows Task Scheduler {action} failed at {stage} (HRESULT {hresult})"
+                ));
+            }
+        }
+    }
+    Error::Protocol(format!(
+        "Windows Task Scheduler {action} failed before a stage receipt (exit {})",
+        result.status.code().unwrap_or(-1)
+    ))
+}
+
+fn logon(action: &str) -> Result<Value> {
+    let result = logon_command(&installation()?, action)?.output()?;
     if !result.status.success() {
-        return Err(Error::Protocol(format!(
-            "Windows Task Scheduler {action} failed; run the installed register-user-task.ps1 for details"
-        )));
+        return Err(scheduler_error(action, &result));
     }
     Ok(json!({"ok":true}))
 }
@@ -387,4 +431,59 @@ pub async fn command(action: &str) -> Result<()> {
     };
     println!("{}", serde_json::to_string(&value)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod task_tests {
+    use super::*;
+
+    #[test]
+    fn packaged_logon_uses_windows_powershell_modules_and_reports_private_failure_stage() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = root.path().join("runtime with spaces");
+        fs::create_dir(&runtime).unwrap();
+        fs::write(
+            runtime.join("register-user-task.ps1"),
+            include_bytes!("../../../../deploy/windows/register-user-task.ps1"),
+        )
+        .unwrap();
+        let name = format!(
+            "OpenRadioInspector RC fixture {}",
+            crate::security::random_secret()
+        );
+
+        let mut lookup = logon_command(&runtime, "Unregister").unwrap();
+        let modules = lookup
+            .get_envs()
+            .find(|(key, _)| *key == "PSModulePath")
+            .and_then(|(_, value)| value)
+            .unwrap();
+        assert_eq!(
+            Path::new(modules),
+            Path::new(lookup.get_program())
+                .parent()
+                .unwrap()
+                .join("Modules")
+        );
+        let missing = lookup.args(["-TaskName", &name]).output().unwrap();
+        assert!(!missing.status.success());
+        assert!(
+            scheduler_error("Unregister", &missing)
+                .to_string()
+                .contains("failed at supervisor_path (HRESULT ")
+        );
+        // Unregister a unique absent task; no executable is launched and no
+        // Task Scheduler registration is created by this test.
+        fs::write(runtime.join("ori-supervisor.exe"), b"unused fixture").unwrap();
+        let found = logon_command(&runtime, "Unregister")
+            .unwrap()
+            .args(["-TaskName", &name])
+            .output()
+            .unwrap();
+        assert!(
+            found.status.success(),
+            "{}",
+            scheduler_error("Unregister", &found)
+        );
+    }
 }
