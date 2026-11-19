@@ -40,6 +40,56 @@ mod desktop {
         }
     }
 
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum LocalAction {
+        Start,
+        Shutdown,
+        Register,
+        Unregister,
+    }
+    #[tauri::command]
+    async fn local_node(app: tauri::AppHandle, action: LocalAction) -> Result<(), String> {
+        use std::{
+            os::windows::process::CommandExt,
+            process::{Command, Stdio},
+        };
+        let helper = app
+            .path()
+            .resource_dir()
+            .map_err(|_| "Installed runtime unavailable")?
+            .join("runtime")
+            .join("ori-supervisor.exe");
+        let command = match action {
+            LocalAction::Start => "start",
+            LocalAction::Shutdown => "shutdown",
+            LocalAction::Register => "register",
+            LocalAction::Unregister => "unregister",
+        };
+        tauri::async_runtime::spawn_blocking(move || {
+            let output = Command::new(helper)
+                .args(["windows-node", command])
+                .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
+                .stdin(Stdio::null())
+                .output()
+                .map_err(|_| "Could not launch the installed Windows supervisor".to_owned())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+            }
+            let response: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .map_err(|_| "Invalid reply from the Windows supervisor")?;
+            if response["ok"] != true
+                || (command == "start"
+                    && (response["status"]["ready"] != true
+                        || response["status"]["writer_owned"] != true))
+            {
+                return Err("Windows supervisor did not confirm the requested operation".into());
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| "Windows supervisor request interrupted")?
+    }
     #[tauri::command]
     async fn connect_node(state: tauri::State<'_, State>, node: String) -> Result<(), String> {
         let validated = Bridge::new(&node, "")?;
@@ -295,6 +345,7 @@ mod desktop {
         tauri::Builder::default()
             .manage(State::default())
             .invoke_handler(tauri::generate_handler![
+                local_node,
                 connect_node,
                 pair_node,
                 revoke_pairing,
@@ -337,5 +388,14 @@ mod desktop {
 }
 #[cfg(windows)]
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--build-info") {
+        println!(
+            "{}",
+            serde_json::json!({"schema_version":1,"component":"openradioinspector-windows",
+            "version":env!("CARGO_PKG_VERSION"),"target_arch":std::env::consts::ARCH,"target_os":"windows",
+            "source_revision":option_env!("ORI_BUILD_SOURCE_SHA")})
+        );
+        return;
+    }
     desktop::run();
 }

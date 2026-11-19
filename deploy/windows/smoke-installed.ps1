@@ -1,0 +1,151 @@
+﻿# Run in a fresh interactive Windows test account, using the installed RC.
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$Installer, [string]$ExpectedRevision)
+$ErrorActionPreference = 'Stop'
+$data = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector-Windows-RC1'
+if (Test-Path -LiteralPath $data) { throw 'This acceptance test needs a fresh Windows test account.' }
+$install = Start-Process -FilePath (Resolve-Path $Installer) -ArgumentList '/S' -Wait -PassThru
+if ($install.ExitCode -ne 0) { throw "NSIS installation failed ($($install.ExitCode))" }
+$app = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector RC'
+$runtime = Join-Path $app 'runtime'
+$supervisor = Join-Path $runtime 'ori-supervisor.exe'
+$core = Join-Path $runtime 'ori-core.exe'
+$manifest = Get-Content -Raw -Encoding UTF8 (Join-Path $runtime 'rc-build-info.json') | ConvertFrom-Json
+if ($ExpectedRevision -and $manifest.source_revision -ne $ExpectedRevision) { throw 'Installed release revision mismatch' }
+$desktopExe = Join-Path $app 'openradioinspector-windows.exe'
+$desktopInfo = & $desktopExe --build-info | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $desktopInfo.source_revision -ne $manifest.source_revision -or
+    $desktopInfo.target_arch -ne 'x86_64' -or $desktopInfo.version -ne $manifest.release_version) {
+    throw 'Installed Windows UI revision or target mismatch'
+}
+foreach ($name in @('ori-supervisor','ori-core')) {
+    $helper = Join-Path $runtime ($name + '.exe')
+    $info = & $helper --build-info | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $info.source_revision -ne $manifest.source_revision -or
+        (Get-FileHash $helper).Hash -ne $manifest.components.$name.sha256) {
+        throw "Installed helper mismatch: $name"
+    }
+}
+if (-not (Test-Path (Join-Path $runtime 'notices/licenses.json'))) { throw 'Installed notices missing' }
+
+function Invoke-Node([string]$Action) {
+    $output = & $supervisor windows-node $Action | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or -not $output.ok) { throw "Supervisor failed: $Action" }
+    $output
+}
+
+function Assert-RawSweep([string]$Route) {
+    $saved = (Invoke-RestMethod "$Route/sweeps/windows-rc-sweep").data
+    if ($saved.id -ne 'windows-rc-sweep' -or ($saved.frequencies_hz -join ',') -ne '100000001,100000011' -or
+        $saved.level_unit -ne 'dBm' -or $saved.levels[0] -ne -95.375 -or $saved.levels[1] -ne -87.25) {
+        throw 'Recovered measurement differs from the original sweep'
+    }
+}
+
+function Find-Button($Client, [string[]]$Labels) {
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    $type = [System.Windows.Automation.ControlType]::Button
+    $condition = New-Object System.Windows.Automation.PropertyCondition ([System.Windows.Automation.AutomationElement]::ControlTypeProperty, $type)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $Client.Refresh()
+        if ($Client.HasExited) { throw "Installed UI exited ($($Client.ExitCode))" }
+        if ($Client.MainWindowHandle -ne 0) {
+            $window = [System.Windows.Automation.AutomationElement]::FromHandle($Client.MainWindowHandle)
+            foreach ($button in $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)) {
+                if ($Labels -contains $button.Current.Name) { return $button }
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "Installed UI button unavailable: $Labels"
+}
+
+$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$task = 'OpenRadioInspector RC1 ' + $owner
+if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Unexpected automatic sign-in registration' }
+if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Installer started monitoring implicitly' }
+$client = Start-Process -FilePath $desktopExe -PassThru
+try {
+    Add-Type -AssemblyName UIAutomationClient
+    Add-Type -AssemblyName UIAutomationTypes
+    $button = Find-Button $client @('Connect to the local node','Подключить локальный узел')
+    $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $deadline = [DateTime]::UtcNow.AddSeconds(90)
+    do {
+        if ([DateTime]::UtcNow -gt $deadline) { throw 'Local node did not reach readiness from the installed UI' }
+        Start-Sleep -Milliseconds 200
+        $node = Invoke-Node 'status'
+    } until ($node.status.ready)
+    if (-not $node.status.writer_owned -or -not $node.status.preflight_complete) { throw 'Writer/preflight unavailable' }
+    $id = $node.status.instance_id
+    if ((Invoke-Node 'start').status.instance_id -ne $id) { throw 'Second start replaced the owner' }
+    $duplicate = Start-Process -FilePath $supervisor -ArgumentList 'windows-node run' -PassThru -Wait -NoNewWindow
+    if ($duplicate.ExitCode -eq 0 -or (Invoke-Node 'status').status.instance_id -ne $id) { throw 'Duplicate service admitted' }
+    if (-not $client.CloseMainWindow() -or -not $client.WaitForExit(15000)) { throw 'Could not close the installed UI normally' }
+    if ((Invoke-Node 'status').status.instance_id -ne $id) { throw 'Closing UI interrupted monitoring' }
+
+    $acl = Get-Acl -LiteralPath $data
+    $rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+    if (-not $acl.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $owner) { throw 'RC data DACL is not private' }
+    Invoke-Node 'register' | Out-Null
+    $registered = Get-ScheduledTask -TaskName $task
+    if ($registered.Actions.Execute -ne $supervisor -or $registered.Actions.Arguments -ne 'windows-node run' -or
+        $registered.Principal.RunLevel -ne 'Limited' -or $registered.Triggers.CimClass.CimClassName -ne 'MSFT_TaskLogonTrigger') {
+        throw 'Incorrect per-user logon task'
+    }
+    Invoke-Node 'unregister' | Out-Null
+    if (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue) { throw 'Sign-in task still registered' }
+
+    $url = 'http://127.0.0.1:8770'
+    $webClient = New-Object System.Net.WebClient
+    $webClient.Proxy = $null
+    try {
+        foreach ($file in $manifest.web.PSObject.Properties) {
+            $bytes = $webClient.DownloadData($url + '/modern/' + $file.Name)
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try { $hash = [BitConverter]::ToString($hasher.ComputeHash($bytes)).Replace('-','') }
+            finally { $hasher.Dispose() }
+            if ($hash -ne $file.Value) { throw "Installed offline asset changed: $($file.Name)" }
+        }
+    } finally { $webClient.Dispose() }
+    $caps = (Invoke-RestMethod "$url/api/v1/capabilities").data
+    if ($caps.candidate.mode -ne 'live' -or -not $caps.persistent_archive -or -not $caps.features.explicit_serial_adapters -or $caps.features.analog_audio_inputs) {
+        throw 'Incorrect installed live capabilities'
+    }
+    $sample = @{id='windows-rc-smoke';name='Installed Windows node';streams=@(@{id='spectrum';device='synthetic';role='spectrum_analyzer';level_unit='dBm'})}
+    $null = Invoke-RestMethod "$url/api/v1/sessions" -Method Post -ContentType 'application/json' -Body ($sample | ConvertTo-Json -Depth 5)
+    $route = "$url/api/v1/sessions/windows-rc-smoke"
+    $null = Invoke-RestMethod "$route/start" -Method Post -ContentType 'application/json' -Body '{}'
+    $sampleSweep = @{id='windows-rc-sweep';session_id=$sample.id;stream_id='spectrum';
+        interval=@{started_at='2026-11-01T12:00:00Z';ended_at='2026-11-01T12:00:01Z'};
+        frequencies_hz=@(100000001,100000011);levels=@(-95.375,-87.25);level_unit='dBm';
+        settings=@{adapter='synthetic-contract';generator_output=$false}}
+    $null = Invoke-RestMethod "$route/sweeps" -Method Post -ContentType 'application/json' -Body ($sampleSweep | ConvertTo-Json -Depth 5)
+    Invoke-Node 'shutdown' | Out-Null
+    Invoke-Node 'check-stopped' | Out-Null
+    if ((Invoke-Node 'status').service_state -ne 'stopped') { throw 'Explicit shutdown was not completed' }
+    $null = Invoke-Node 'start'
+    $restored = (Invoke-RestMethod "$url/api/v1/sessions/windows-rc-smoke").data
+    if ($restored.id -ne 'windows-rc-smoke') { throw 'Committed session not recovered after restart' }
+    Assert-RawSweep $route
+    Invoke-Node 'shutdown' | Out-Null
+    $previous = Join-Path $data 'smoke-format-v6.sqlite3'
+    & $core archive-materialize (Join-Path $data 'sessions.sqlite3') $previous
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previous)) { throw 'Installed compatibility export failed' }
+    # Only this test's freshly created files are used. Preserve the v7 source.
+    $database = Join-Path $data 'sessions.sqlite3'
+    foreach ($suffix in @('-wal','-shm','-journal')) {
+        if (Test-Path -LiteralPath ($database + $suffix)) { throw 'Source archive has live sidecars' }
+    }
+    Move-Item -LiteralPath $database -Destination (Join-Path $data 'smoke-source-v7.sqlite3')
+    Move-Item -LiteralPath $previous -Destination $database
+    $null = Invoke-Node 'start'
+    Assert-RawSweep $route
+    Invoke-Node 'shutdown' | Out-Null
+} finally {
+    if (-not $client.HasExited) { $null = $client.CloseMainWindow() }
+    $status = Invoke-Node 'status'
+    if ($status.status) { Invoke-Node 'shutdown' | Out-Null }
+    Invoke-Node 'unregister' | Out-Null
+    $client.Dispose()
+}

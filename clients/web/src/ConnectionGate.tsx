@@ -14,6 +14,9 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
   const [node, setNode] = useState(() =>
     transport.native ? remember('node', 'https://radio.local:8770') : location.origin,
   );
+  const [local, setLocal] = useState(false);
+  const [logonNotice, setLogonNotice] = useState('');
+  const localUrl = 'http://127.0.0.1:8770';
   const [phase, setPhase] = useState<Phase>(transport.native ? 'node' : 'checking'),
     [status, setStatus] = useState<SecurityStatus>();
   const [settings, setSettings] = useState(false),
@@ -105,7 +108,8 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
     try {
       await action();
     } catch (reason) {
-      if (mounted.current) setError(reason instanceof Error ? reason.message : 'Connection failed');
+      if (mounted.current)
+        setError(reason instanceof Error ? reason.message : String(reason || 'Connection failed'));
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -117,7 +121,13 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
       </main>
     );
   if (phase === 'ready' && !settings)
-    return <App transport={readyTransport} onConnectionSettings={() => setSettings(true)} />;
+    return (
+      <App
+        transport={readyTransport}
+        onConnectionSettings={() => setSettings(true)}
+        connectionLabel={local ? t('Local Windows node') : connectedOrigin}
+      />
+    );
   return (
     <main className="connection-page" data-testid="connection-gate" data-phase={phase}>
       <LocaleControls />
@@ -138,18 +148,47 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
             : t('SAME ORIGIN · SECURE HTTPONLY COOKIE')
         }
       >
+        {phase === 'node' && transport.localNode && (
+          <section>
+            <h3>{t('Local Windows node')}</h3>
+            <p>
+              {t(
+                'Use the instruments and archive on this PC. Monitoring continues when you close the window or lock Windows.',
+              )}
+            </p>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() =>
+                void execute(async () => {
+                  await transport.localNode!('start');
+                  await transport.connect(localUrl);
+                  setLocal(true);
+                  setConnectedOrigin(localUrl);
+                  setLegacyAccepted(false);
+                  await check(localUrl);
+                })
+              }
+            >
+              {t('Connect to the local node')}
+            </button>
+          </section>
+        )}
         {phase === 'node' && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
               void execute(async () => {
                 await transport.connect(node);
+                setLocal(false);
+                setLegacyAccepted(false);
                 setConnectedOrigin(new URL(node).origin);
                 save('node', node);
                 await check(node);
               });
             }}
           >
+            {transport.localNode && <h3>{t('Connect to another node')}</h3>}
             <label>
               {t('Core node URL')}
               <input
@@ -286,13 +325,61 @@ export function ConnectionGate({ transport }: { transport: Connection }) {
             </div>
           </>
         )}
+        {transport.localNode && (phase === 'node' || (local && phase === 'ready' && settings)) && (
+          <div className="actions">
+            <button
+              disabled={busy}
+              onClick={() =>
+                void execute(async () => {
+                  await transport.localNode!('register');
+                  setLogonNotice('The local node will start at Windows sign-in.');
+                })
+              }
+            >
+              {t('Enable local node at sign-in')}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() =>
+                void execute(async () => {
+                  await transport.localNode!('unregister');
+                  setLogonNotice('Automatic local node startup is disabled.');
+                })
+              }
+            >
+              {t('Disable sign-in startup')}
+            </button>
+            {local && (
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={() =>
+                  void execute(async () => {
+                    await transport.localNode!('shutdown');
+                    setLocal(false);
+                    setStatus(undefined);
+                    setPhase('node');
+                    setSettings(false);
+                    setLogonNotice('Local monitoring stopped and the archive is closed.');
+                  })
+                }
+              >
+                {t('Stop local node and monitoring')}
+              </button>
+            )}
+            {logonNotice && <p role="status">{t(logonNotice)}</p>}
+          </div>
+        )}
         {error && (
           <p role="alert" className="callout error-text">
             {t(error)}
           </p>
         )}
         {phase === 'error' && (
-          <button disabled={busy} onClick={() => void execute(() => check())}>
+          <button
+            disabled={busy}
+            onClick={() => void execute(() => check(connectedOrigin || node))}
+          >
             {t('Retry security check')}
           </button>
         )}

@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Local main window can use only the configured-node transport; no filesystem, shell, hardware or database IPC.",
+  "description": "The local window uses the selected node transport and the installed per-user supervisor.",
   "windows": ["main"],
   "local": true,
   "permissions": [
+    "allow-local-node",
     "allow-connect-node",
     "allow-pair-node",
     "allow-revoke-pairing",

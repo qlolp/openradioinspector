@@ -146,14 +146,14 @@ operator installation. It does not configure devices or enable monitoring.
 that must be rendered. A native client can instead embed the supervisor library.
 LaunchAgent priority hints do not establish hard RSS, I/O or storage budgets.
 
-`deploy/windows/register-user-task.ps1` is an explicit per-user interactive logon
-task template, not an SCM service. The current Windows supervisor only owns its
-direct Child handle. It lacks Job Object tree containment and verified private
-DACL persistence. Windows LAN credential/TLS-state creation and isolated research
-therefore fail closed in this build. Use the Pi for the local core, or an embedded
-Windows lifecycle integration with an externally verified containment/ACL layer.
-`Stop-ScheduledTask`, task timeouts and logout are not graceful cutover mechanisms;
-no Windows hard-limit/service acceptance is claimed.
+The Windows RC installer bundles a serial-enabled local core, an independent
+per-user supervisor and an offline WebView2 installer. Native control uses a
+SID-restricted named pipe. A kill-on-close Job contains the backend and its
+descendants from process creation. An explicit interactive Task Scheduler
+registration can start the node at sign-in. The RC archive and installed
+operator workflow are documented in [Windows standalone RC](windows-standalone-rc.md).
+Local Windows LAN identity provisioning and isolated scientific workers retain
+their separate platform gates.
 
 The Core `init-lan` CLI regression verifies this platform boundary with the real
 operator command. Unix must create and reload its private identity and matching
