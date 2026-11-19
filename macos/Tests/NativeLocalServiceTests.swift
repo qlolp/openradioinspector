@@ -1,9 +1,31 @@
 import Foundation
 import XCTest
+import ServiceManagement
 import Darwin
 @testable import DvoynoyObzorSession
 
 final class NativeLocalServiceTests: XCTestCase {
+    @MainActor func testExplicitStartRegistersMissingAgentAndHonoursMacOSApproval() throws {
+        for initial: SMAppService.Status in [.notFound, .notRegistered, .requiresApproval, .enabled] {
+            var state = initial
+            var attempts = 0
+            let result = try NativeLocalService.registerForStart(status: { state }) {
+                attempts += 1
+                state = .enabled
+            }
+            XCTAssertEqual(attempts, initial == .notFound || initial == .notRegistered ? 1 : 0)
+            XCTAssertEqual(result, initial == .requiresApproval ? .approval : .enabled)
+        }
+        var state = SMAppService.Status.notFound
+        let denied = NSError(domain: "RegistrationFixture", code: 1)
+        let result = try NativeLocalService.registerForStart(status: { state }) {
+            state = .requiresApproval
+            throw denied
+        }
+        XCTAssertEqual(result, .approval)
+        XCTAssertThrowsError(try NativeLocalService.registerForStart(status: { .notFound }) { throw denied })
+    }
+
     @MainActor func testSyntheticProfilesNeverSelectThePersonalRCService() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".bundle")
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("Contents"), withIntermediateDirectories: true)

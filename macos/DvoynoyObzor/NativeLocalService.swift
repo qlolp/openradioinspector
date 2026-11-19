@@ -29,12 +29,7 @@ final class NativeLocalService: ObservableObject {
     init(exchange: @escaping @Sendable (String, Duration) async throws -> Data = { try await NativeServiceSocket.request($0, timeout: $1) },
          registration: @escaping @MainActor () async throws -> Registration = {
              let service = SMAppService.agent(plistName: NativeLocalService.plistName)
-             if service.status == .notRegistered { try service.register() }
-             switch service.status {
-             case .enabled: return .enabled
-             case .requiresApproval: return .approval
-             default: return .absent
-             }
+             return try NativeLocalService.registerForStart(status: { service.status }, register: { try service.register() })
          }, unregister: @escaping @MainActor () async throws -> Void = {
              try await SMAppService.agent(plistName: NativeLocalService.plistName).unregister()
          }, expectedBackendID: @escaping @Sendable () async throws -> String? = {
@@ -42,6 +37,27 @@ final class NativeLocalService: ObservableObject {
              return try await Task.detached { try NativeRCBundle.validateCurrentInstallation() }.value
          }) {
         self.exchange = exchange; self.registration = registration; self.unregister = unregister; self.expectedBackendID = expectedBackendID
+    }
+
+    /// A bundled agent may report notFound before Background Task Management has a record for it.
+    /// Only the explicit Start action attempts registration.
+    static func registerForStart(status: () -> SMAppService.Status, register: () throws -> Void) throws -> Registration {
+        switch status() {
+        case .enabled: return .enabled
+        case .requiresApproval: return .approval
+        case .notRegistered, .notFound:
+            do { try register() }
+            catch {
+                if status() == .requiresApproval { return .approval }
+                throw error
+            }
+        @unknown default: return .absent
+        }
+        switch status() {
+        case .enabled: return .enabled
+        case .requiresApproval: return .approval
+        default: return .absent
+        }
     }
 
     private func begin(clearStatus: Bool = true) -> Int {
@@ -91,7 +107,7 @@ final class NativeLocalService: ObservableObject {
         } catch {
             guard current(token) else { return }
             let registration = SMAppService.agent(plistName: Self.plistName).status
-            if registration == .notRegistered {
+            if registration == .notRegistered || registration == .notFound {
                 phase = .stopped; status = nil
                 message = "Служба ещё не зарегистрирована. Нажмите «Запустить службу»; подключение приборов выполняется отдельно."
             } else if registration == .requiresApproval {
