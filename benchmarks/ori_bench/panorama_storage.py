@@ -3,9 +3,11 @@ import argparse
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from functools import partial
+import hashlib
 import json
 from pathlib import Path
 import random
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -82,16 +84,64 @@ def native_measure(program, path, *, compact, sweeps, points, batch):
     return json.loads(result)
 
 
+def verify_sources(path, points):
+    checksum = hashlib.sha256()
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:
+        sweeps, grids = db.execute("""
+            SELECT count(*), count(*) FILTER (WHERE json_array_length(frequencies_json) = ?
+                AND json_array_length(levels_json) = ?) FROM sweeps
+        """, (points, points)).fetchone()
+        events = db.execute("SELECT count(*) FROM events WHERE event_type = 'sweep.received'").fetchone()[0]
+        for row in db.execute("""
+            SELECT id, session_id, stream_id, started_at, ended_at, level_unit, settings_json,
+                   frequencies_json, levels_json FROM sweeps ORDER BY id
+        """):
+            for field in row:
+                data = field.encode("utf-8")
+                checksum.update(len(data).to_bytes(8, "big"))
+                checksum.update(data)
+    return {"archive_counts": {"sweeps": sweeps, "sweep_events": events, "complete_grids": grids},
+            "source_sha256": checksum.hexdigest()}
+
+
 def compare(sweeps=128, points=1024, batch=8, native=None):
     if not (sweeps > 0 and points > 0 and batch > 0):
         raise ValueError("Sweep count, points and batch size must be positive")
     with tempfile.TemporaryDirectory(prefix="ori-panorama-growth-") as directory:
         writer = partial(native_measure, native) if native else measure
-        full, compact = (writer(Path(directory) / f"{version}.sqlite", compact=(version == 7),
-                                 sweeps=sweeps, points=points, batch=batch) for version in (6, 7))
+        formats = []
+        for version in (6, 7):
+            path = Path(directory).resolve() / f"{version}.sqlite"
+            measurement = writer(path, compact=version == 7, sweeps=sweeps, points=points, batch=batch)
+            measurement.update(verify_sources(path, points))
+            formats.append(measurement)
+        full, compact = formats
+    growth = full["logical_growth_bytes"]
     return {"writer": "rust" if native else "python", "workload": {"sweeps": sweeps, "points_per_sweep": points, "batch": batch, "seed": 42},
             "full": full, "compact": compact,
-            "compact_to_full_growth": compact["logical_growth_bytes"] / full["logical_growth_bytes"]}
+            "compact_to_full_growth": compact["logical_growth_bytes"] / growth if growth > 0 else None}
+
+
+def rc_checks(result):
+    workload = result["workload"]
+    full, compact = result["full"], result["compact"]
+    counts = {"sweeps": 512, "sweep_events": 512, "complete_grids": 512}
+
+    def saves_thirty_percent(before, after):
+        return 0 < after * 10 <= before * 7
+
+    return {
+        "native_writer": result["writer"] == "rust",
+        "reference_workload": workload["points_per_sweep"] in (290, 4096) and
+            (workload["sweeps"], workload["batch"], workload["seed"]) == (512, 8, 42),
+        "archive_versions": (full["schema"], compact["schema"]) == (6, 7),
+        "complete_originals_and_events": full["archive_counts"] == compact["archive_counts"] == counts,
+        "identical_sources": full["source_sha256"] == compact["source_sha256"],
+        "truncated_wals": full["after_checkpoint"]["wal_bytes"] == compact["after_checkpoint"]["wal_bytes"] == 0,
+        "per_sweep_savings": saves_thirty_percent(full["logical_growth_bytes"], compact["logical_growth_bytes"]),
+        "checkpointed_savings": saves_thirty_percent(full["after_checkpoint"]["main_bytes"],
+                                                       compact["after_checkpoint"]["main_bytes"]),
+    }
 
 
 def main():
@@ -100,9 +150,15 @@ def main():
     parser.add_argument("--points", type=int, default=1024)
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--native", type=Path, help="Built ori-archive panorama_storage example")
+    parser.add_argument("--enforce-rc", action="store_true",
+                        help="Require native 512-sweep RC workload, intact sources and at least 30%% savings")
     args = parser.parse_args()
-    print(json.dumps(compare(args.sweeps, args.points, args.batch, args.native), indent=2))
+    result = compare(args.sweeps, args.points, args.batch, args.native)
+    if args.enforce_rc:
+        result["rc_checks"] = rc_checks(result)
+    print(json.dumps(result, indent=2))
+    return 0 if all(result.get("rc_checks", {}).values()) else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

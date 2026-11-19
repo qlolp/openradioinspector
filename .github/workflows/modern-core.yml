@@ -142,3 +142,58 @@ jobs:
           path: release-reports/modern/
           if-no-files-found: error
           retention-days: 14
+
+  panorama-storage:
+    name: Panorama storage on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: ${{ matrix.os == 'windows-latest' && '3.12.10' || '3.12.14' }}
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - name: Build the native archive writer and install locked fixture dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements/core.lock
+          cargo build --release --locked -p ori-archive --example panorama_storage
+      - name: Verify raw data, checkpointed footprint and 30 percent savings on each grid
+        run: |
+          mkdir -p release-reports/storage
+          program=target/release/examples/panorama_storage
+          if [[ "$RUNNER_OS" == Windows ]]; then program+=.exe; fi
+          status=0
+          for points in 290 4096; do
+            python -m benchmarks.ori_bench.panorama_storage --sweeps 512 --points "$points" \
+              --batch 8 --native "$program" --enforce-rc >"release-reports/storage/$points.json" \
+              2>"release-reports/storage/$points.log" || status=1
+          done
+          exit "$status"
+      - name: Record platform and exact source revision
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p release-reports/storage
+          printf 'source=%s\nplatform=%s\njob_status=%s\n' "$SOURCE_SHA" "$RUNNER_OS/$RUNNER_ARCH" "$RESULT" > release-reports/storage/ci-status.log
+      - name: Preserve both measurements and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: panorama-storage-${{ matrix.os }}-attempt-${{ github.run_attempt }}
+          path: release-reports/storage/
+          if-no-files-found: error
+          retention-days: 30
