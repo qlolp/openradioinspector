@@ -21,6 +21,8 @@ For a referenced row, `payload_json` is a two-element JSON array. The first elem
 
 Readers resolve references by sweep primary key within the event query's SQLite snapshot. They check the event type, sweep ID, session, stream, interval, unit, missing vector fields and vector checksum before inserting the arrays into the public payload. A dangling ID, mismatched source, damaged vector, malformed frame or unsupported schema produces an error. A missing reference on a framed row fails full-object decoding. Normal startup checks the schema, and replay validates each reference when read. Recovery verification and materialization validate the entire reference history.
 
+The project's storage forecast samples the last 128 sweeps in ingestion order for its session and analyzer stream. It measures the stored array lengths and takes the earliest UTC start and latest UTC end within that sample, including historical imports with offset timestamps. Positive logical archive growth over at least five seconds can raise the estimate. Without a measured rate or a validated startup estimate, the rate, daily projection and retention estimate remain unknown.
+
 ## Rollback, recovery and export
 
 Stop the node to establish a final cutover watermark. A live materialization captures a consistent read snapshot including committed WAL pages. Subsequent commits belong to the original archive. Choose a new path on a filesystem with enough free space for the expanded database and SQLite's temporary journal.

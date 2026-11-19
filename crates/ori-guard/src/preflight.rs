@@ -509,11 +509,9 @@ impl GuardService {
             }
             if let Some((first, old_size)) = samples.front() {
                 let span = now.saturating_sub(*first).as_secs_f64();
-                if span >= 5. {
-                    rate = Some(
-                        rate.unwrap_or(0.)
-                            .max(size.saturating_sub(*old_size) as f64 / span),
-                    );
+                if span >= 5. && size > *old_size {
+                    let growth_rate = (size - *old_size) as f64 / span;
+                    rate = Some(rate.unwrap_or(0.).max(growth_rate));
                 }
             }
         }

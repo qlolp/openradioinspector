@@ -61,6 +61,21 @@ async fn backup_budget_never_claims_readiness_without_a_measured_rate() {
         .await
         .unwrap();
     let id = p["id"].as_str().unwrap();
+    let first = h.service.storage_report(id, true).await.unwrap();
+    h.sources.advance(6);
+    let idle = h.service.storage_report(id, true).await.unwrap();
+    assert_eq!(
+        idle["capacity"]["database_bytes"],
+        first["capacity"]["database_bytes"]
+    );
+    assert_eq!(idle["sampled_sweeps"], 0);
+    for field in [
+        "bytes_per_second",
+        "projected_bytes_per_day",
+        "estimated_retention_seconds",
+    ] {
+        assert!(idle[field].is_null(), "{field} needs a positive rate");
+    }
     h.service
         .update_settings(id, json!({"archive":{"reserve_backup":true}}))
         .await

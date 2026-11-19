@@ -110,9 +110,10 @@ impl Write for LimitedCount {
     }
 }
 
-pub(crate) fn check_response_size(value: &impl Serialize, maximum: usize) -> Result<()> {
-    serde_json::to_writer(LimitedCount { remaining: maximum }, value)
-        .map_err(|_| ArchiveError::QueryBudget)
+pub(crate) fn check_response_size(value: &impl Serialize, maximum: usize) -> Result<usize> {
+    let mut counter = LimitedCount { remaining: maximum };
+    serde_json::to_writer(&mut counter, value).map_err(|_| ArchiveError::QueryBudget)?;
+    Ok(maximum - counter.remaining)
 }
 
 fn run_outbox(
