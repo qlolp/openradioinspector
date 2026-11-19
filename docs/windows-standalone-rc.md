@@ -57,7 +57,7 @@ npm --prefix clients/windows run build -- --ci -- --locked
 
 ## Concurrent full-PCM release fixture
 
-The Windows concurrent reference workflow uses the shared native replay core, a fresh production compact v7 archive and three Chromium operator clients. Pull requests exercise 60 seconds. A manual run with `full` selected schedules the original 1,800 seconds at 10 sweeps and 10 observations per second, 4,096 points per sweep and all 86,400,000 mono 48 kHz PCM frames. The release installer and physical-radio tests have separate receipts.
+The native concurrent reference workflow runs on Windows x64 and hosted Ubuntu ARM64. Each host uses the shared native replay core, a fresh production compact v7 archive and three Chromium operator clients. Pull requests exercise 60 seconds. Adding the exact `full-reference-load` label to the pull request, or dispatching the workflow with `full` selected, schedules the original 1,800 seconds at 10 sweeps and 10 observations per second, 4,096 points per sweep and all 86,400,000 mono 48 kHz PCM frames. The release installer and physical-radio tests have separate receipts.
 
 To run locally from the repository with the pinned Rust, Python and Node versions, install the Web lock and Chromium, build and embed the production frontend, and build the native fixture. Choose a fresh path outside every Git checkout.
 

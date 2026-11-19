@@ -1,9 +1,10 @@
-name: Windows concurrent reference workload
+name: Native concurrent reference workload
 on:
   push:
     branches: [main, 'codex/**']
     paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
   pull_request:
+    types: [opened, reopened, synchronize, labeled]
     paths: ['benchmarks/**', 'crates/ori-core/examples/benchmark_background.rs', '.github/workflows/windows-load.yml']
   workflow_dispatch:
     inputs:
@@ -17,11 +18,22 @@ permissions:
 
 jobs:
   reference:
-    runs-on: windows-latest
+    if: github.event.action != 'labeled' || github.event.label.name == 'full-reference-load'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows-x64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 100
     env:
       CARGO_BUILD_JOBS: 2
       LIBSQLITE3_SYS_USE_PKG_CONFIG: '0'
+      ORI_BUILD_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      FULL_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.full) || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'full-reference-load') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,33 +51,63 @@ jobs:
         with:
           toolchain: '1.99.1'
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Confirm exact checkout and native host architecture
+        shell: python
+        run: |
+          import json, os, platform, subprocess
+          from pathlib import Path
+          head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          machine = platform.machine().lower()
+          required = ('amd64', 'x86_64') if os.name == 'nt' else ('aarch64', 'arm64')
+          if head != os.environ['ORI_BUILD_SOURCE_SHA'] or machine not in required:
+              raise SystemExit('Requested release revision or native architecture mismatch')
+          full = os.environ['FULL_RUN'].lower() == 'true'
+          receipt = dict(source_revision=head, architecture=machine, os=platform.platform(),
+                         smoke_seconds=None if full else 60, full_requested=full,
+                         history_profile='paged-history', hardware_tested=False)
+          (Path(os.environ['RUNNER_TEMP']) / 'reference-build.json').write_text(json.dumps(receipt) + '\n', encoding='utf-8')
       - name: Exercise original Job membership and cursor-page proofs
         run: python -m unittest benchmarks.tests.test_concurrent benchmarks.tests.test_paged_history
       - run: npm ci --prefix clients/web
-      - run: npx playwright install chromium
+      - if: runner.os == 'Windows'
+        run: npx playwright install chromium
+        working-directory: clients/web
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libudev-dev
+          npx playwright install --with-deps chromium
         working-directory: clients/web
       - run: npm run build --prefix clients/web
       - run: python tools/build_modern_web.py
       - run: python tools/build_modern_web.py --check
       - run: cargo build --release --locked --features serial -p ori-core --example benchmark_background
       - name: Run live export, verified cursor history and online backup during original acquisition
-        shell: pwsh
-        env:
-          FULL_RUN: ${{ inputs.full }}
+        shell: python
         run: |
-          $exe = (Resolve-Path 'target/release/examples/benchmark_background.exe').Path
-          $env:ORI_PLAYWRIGHT_MODULE = (Resolve-Path 'clients/web/node_modules/playwright/index.mjs').Path
-          $arguments = @('--output-dir', "$env:RUNNER_TEMP/reference", '--candidate', $exe,
-            '--history-profile', 'paged-history', '--run-id', "winrc-$env:GITHUB_RUN_ID")
-          if ($env:FULL_RUN -ne 'true') { $arguments += @('--smoke-seconds', '60') }
-          python -m benchmarks.ori_bench.concurrent @arguments
-          exit $LASTEXITCODE
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          binary = Path('target/release/examples/benchmark_background' + ('.exe' if os.name == 'nt' else '')).resolve(strict=True)
+          environment = dict(os.environ, ORI_PLAYWRIGHT_MODULE=str(Path('clients/web/node_modules/playwright/index.mjs').resolve(strict=True)))
+          root = Path(os.environ['RUNNER_TEMP'])
+          receipt_path = root / 'reference-build.json'
+          build = json.loads(receipt_path.read_text(encoding='utf-8'))
+          with binary.open('rb') as stream:
+              build['candidate_sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
+          receipt_path.write_text(json.dumps(build) + '\n', encoding='utf-8')
+          arguments = [sys.executable, '-m', 'benchmarks.ori_bench.concurrent', '--output-dir', str(root / 'reference'),
+                       '--candidate', str(binary), '--history-profile', 'paged-history',
+                       '--run-id', 'reference-' + os.environ['GITHUB_RUN_ID']]
+          if not build['full_requested']:
+              arguments.extend(['--smoke-seconds', '60'])
+          sys.exit(subprocess.call(arguments, env=environment))
       - name: Preserve synthetic timing and concurrency reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: windows-reference-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ matrix.platform }}-reference-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/reference-build.json
             ${{ runner.temp }}/reference/report.json
             ${{ runner.temp }}/reference/producer/report.json
             ${{ runner.temp }}/reference/producer/observer.log
