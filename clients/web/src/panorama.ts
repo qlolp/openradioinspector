@@ -68,10 +68,9 @@ export function updatePanorama(
 
   const sameStream =
     previous?.sessionId === sweep.session_id && previous?.streamId === sweep.stream_id;
-  if (sameStream && previous && previous.revision > context.revision) return previous;
-  const samePlan =
-    sameStream && previous?.id === context.plan_id && previous.revision === context.revision;
-  const bands = samePlan ? previous.bands : undefined;
+  const samePlan = sameStream && previous?.id === context.plan_id;
+  if (samePlan && previous.revision > context.revision) return previous;
+  const bands = samePlan && previous.revision === context.revision ? previous.bands : undefined;
   const band = bands?.get(context.band_id);
   if ((!band && (bands?.size ?? 0) >= 16) || (band && band.count !== count)) return previous;
   const last = band?.windows.get(index);

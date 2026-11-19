@@ -377,7 +377,7 @@ it('retains the first and last of 449 physical windows beyond the waterfall ring
   store.scope('s', 'a', 'r');
   await store.start(0);
   let sequence = 0;
-  async function window(index: number, level: number, revision = 1) {
+  async function window(index: number, level: number, revision = 1, plan = 'plan') {
     const left = 100000 + index * 290 * 10000,
       points = Math.min(290, 129991 - index * 290);
     const body = JSON.parse(event(BigInt(++sequence)));
@@ -386,7 +386,7 @@ it('retains the first and last of 449 physical windows beyond the waterfall ring
     raw.frequencies_hz = Array.from({ length: points }, (_, i) => left + i * 10000);
     raw.levels = Array.from({ length: points }, (_, i) => (i === 1 ? level : -105));
     raw.settings = {
-      scan_plan_id: 'plan',
+      scan_plan_id: plan,
       scan_plan_revision: revision,
       scan_band_id: 'full',
       scan_window_index: index,
@@ -429,6 +429,14 @@ it('retains the first and last of 449 physical windows beyond the waterfall ring
     expect(store.getSnapshot().panorama?.bands.get('full')?.windows.size).toBe(1);
     expect(panoramaColumns(store.getSnapshot().panorama?.bands.get('full'), axis, 512).at(-1)).toBe(
       -Infinity,
+    );
+    await window(448, -42, 1);
+    expect(store.checkpoint()?.panorama?.bands.get('full')?.windows.has(448)).toBe(false);
+    await window(448, -38, 1, 'independent-plan');
+    await vi.waitFor(() => expect(store.getSnapshot().panorama?.id).toBe('independent-plan'));
+    expect(store.getSnapshot().panorama?.bands.get('full')?.windows.has(0)).toBe(false);
+    expect(panoramaColumns(store.getSnapshot().panorama?.bands.get('full'), axis, 512).at(-1)).toBe(
+      -38,
     );
     store.restore(checkpoint);
     await vi.waitFor(() =>
