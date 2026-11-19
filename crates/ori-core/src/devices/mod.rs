@@ -1751,7 +1751,14 @@ impl Worker {
             if let Some(released) = &self.released {
                 released.wait().await;
             }
-            result?;
+            if let Err(close_error) = result {
+                if let Err(archive_error) = self.state("error").await {
+                    return Err(DeviceError::Worker(format!(
+                        "{close_error} (could not archive the terminal device state: {archive_error})"
+                    )));
+                }
+                return Err(close_error);
+            }
         }
         intent?;
         let terminal = if self.status.lock().map_err(|_| DeviceError::Closed)?.state == "error" {
