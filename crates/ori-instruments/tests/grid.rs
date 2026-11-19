@@ -13,15 +13,15 @@ fn config(start_hz: u64, points: u32, rbw_hz: u32) -> ReceiveConfig {
 }
 fn device(
     firmware: &'static str,
-    bad_row: bool,
+    middle_token: Option<&'static str>,
     reject_ultra: bool,
     wide: bool,
 ) -> (TinySa<DuplexStream>, Arc<Mutex<Vec<String>>>) {
-    device_with_help(firmware, bad_row, reject_ultra, wide, "")
+    device_with_help(firmware, middle_token, reject_ultra, wide, "")
 }
 fn device_with_help(
     firmware: &'static str,
-    bad_row: bool,
+    middle_token: Option<&'static str>,
     reject_ultra: bool,
     wide: bool,
     help: &'static str,
@@ -63,10 +63,13 @@ fn device_with_help(
                     .unwrap();
                     (0..args[3].parse::<u64>().unwrap())
                         .map(|i| {
-                            format!(
-                                "{} -80.25\r\n",
-                                first + i * 10_000 + u64::from(i == 1 && bad_row)
-                            )
+                            let expected = (first + i * 10_000).to_string();
+                            let token = if i == 1 {
+                                middle_token.unwrap_or(&expected)
+                            } else {
+                                &expected
+                            };
+                            format!("{token} -80.25\r\n")
                         })
                         .collect::<String>()
                 }
@@ -95,12 +98,12 @@ async fn extended_range_requires_exact_revision_before_any_configuration() {
         "tinySA4_v1.4-235-gea71dfd\r\nHW Version:V0.4.5.2",
         "tinySA4_v1.4-234-gea71dfd\r\nHW Version:V0.4.5.1",
     ] {
-        let (mut sa, sent) = device(fw, false, false, true);
+        let (mut sa, sent) = device(fw, None, false, true);
         assert!(sa.prepare().await.is_err());
         assert!(sa.state().restart_required);
         assert_eq!(&*sent.lock().unwrap(), &["info", "version", "deviceid"]);
     }
-    let (mut sa, sent) = device(FIRMWARE, false, false, false);
+    let (mut sa, sent) = device(FIRMWARE, None, false, false);
     sa.prepare().await.unwrap();
     assert!(sa.poll_grid(config(900_000_000, 2, 30_000)).await.is_err());
     assert!(
@@ -114,7 +117,7 @@ async fn extended_range_requires_exact_revision_before_any_configuration() {
 
 #[tokio::test]
 async fn exact_unit_switches_only_on_path_or_bandwidth_change_and_archives_returned_grid() {
-    let (mut sa, sent) = device(EXACT, false, false, true);
+    let (mut sa, sent) = device(EXACT, None, false, true);
     sa.prepare().await.unwrap();
     for (first, rbw) in [
         (799_990_000, 30_000),
@@ -175,8 +178,8 @@ async fn exact_unit_switches_only_on_path_or_bandwidth_change_and_archives_retur
 
 #[tokio::test]
 async fn interior_grid_mismatch_or_unacknowledged_extended_input_blocks_further_scans() {
-    for (bad_row, reject) in [(true, false), (false, true)] {
-        let (mut sa, sent) = device(EXACT, bad_row, reject, true);
+    for (middle, reject) in [(Some("900010001"), false), (None, true)] {
+        let (mut sa, sent) = device(EXACT, middle, reject, true);
         sa.prepare().await.unwrap();
         assert!(sa.poll_grid(config(900_000_000, 3, 30_000)).await.is_err());
         assert!(sa.state().restart_required);
@@ -195,7 +198,7 @@ async fn grid_resume_requires_supported_rx_commands_and_reacknowledges_path_and_
         ("pause output mode lna attenuate calc ultra rbw", true),
         ("pause output mode lna calc ultra rbw", false),
     ] {
-        let (mut analyzer, sent) = device_with_help(EXACT, false, false, true, help);
+        let (mut analyzer, sent) = device_with_help(EXACT, None, false, true, help);
         analyzer.prepare().await.unwrap();
         analyzer
             .poll_grid(config(900_000_000, 2, 30_000))
@@ -220,6 +223,30 @@ async fn grid_resume_requires_supported_rx_commands_and_reacknowledges_path_and_
             }
         } else {
             assert!(!sent[before..].iter().any(|cmd| cmd.starts_with("scan ")));
+        }
+    }
+}
+
+#[tokio::test]
+async fn grid_wire_tokens_must_represent_exact_integer_hz_even_with_unit_suffixes() {
+    for (token, valid) in [
+        ("900010.0004k", false),
+        ("0.900010000000000001G", false),
+        ("900010000.01", false),
+        ("900.010000000M", true),
+        ("0.90001G", true),
+        ("900010k", true),
+    ] {
+        let (mut sa, _) = device(EXACT, Some(token), false, true);
+        sa.prepare().await.unwrap();
+        let result = sa.poll_grid(config(900_000_000, 3, 30_000)).await;
+        assert_eq!(result.is_ok(), valid, "{token}");
+        assert_eq!(sa.state().restart_required, !valid, "{token}");
+        if let Ok(sample) = result {
+            assert_eq!(
+                sample.frequencies_hz,
+                [900_000_000, 900_010_000, 900_020_000]
+            );
         }
     }
 }

@@ -321,7 +321,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         self.settings["stop_hz"] = json!(config.stop_hz);
         self.settings["points"] = json!(config.points);
         self.settings["rbw_hz"] = json!(config.rbw_hz);
-        let mut sample = self.poll_spectrum().await?;
+        let mut sample = self.poll_spectrum_for(grid).await?;
         if grid
             && sample
                 .frequencies_hz
@@ -344,6 +344,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
         Ok(sample)
     }
     pub async fn poll_spectrum(&mut self) -> Result<SpectrumSample> {
+        self.poll_spectrum_for(false).await
+    }
+    async fn poll_spectrum_for(&mut self, exact_grid: bool) -> Result<SpectrumSample> {
         self.connection.ensure()?;
         if !self.ready {
             self.prepare().await?;
@@ -384,7 +387,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> TinySa<T> {
             .connection
             .text(&command, self.connection.limits.scan_timeout, true)
             .await?;
-        let (frequencies_hz, levels) = match parse_scan(&body, points) {
+        let (frequencies_hz, levels) = match parse_scan(&body, points, exact_grid) {
             Ok(value) => value,
             Err(error) => return self.failed(error),
         };
@@ -1097,7 +1100,34 @@ fn parse_frequency(token: &str) -> Result<u64> {
     }
     Ok(value.round_ties_even() as u64)
 }
-fn parse_scan(text: &str, points: u32) -> Result<(Vec<u64>, Vec<f64>)> {
+// Firmware can print a unit suffix. Scale decimal digits directly so a
+// fractional Hz cannot round to the expected integer at a window boundary.
+fn exact_grid_frequency(token: &str) -> Option<u64> {
+    let (number, scale): (&str, usize) = match token.as_bytes().last() {
+        Some(b'k') => (&token[..token.len() - 1], 3),
+        Some(b'M') => (&token[..token.len() - 1], 6),
+        Some(b'G') => (&token[..token.len() - 1], 9),
+        _ => (token, 0),
+    };
+    let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
+    let significant = fraction.trim_end_matches('0');
+    if whole.is_empty() || significant.len() > scale {
+        return None;
+    }
+    let value = whole
+        .bytes()
+        .chain(significant.bytes())
+        .try_fold(0u64, |acc, byte| {
+            if !byte.is_ascii_digit() {
+                return None;
+            }
+            acc.checked_mul(10)?.checked_add(u64::from(byte - b'0'))
+        })?;
+    value
+        .checked_mul(10u64.pow((scale - significant.len()) as u32))
+        .filter(|hz| *hz > 0)
+}
+fn parse_scan(text: &str, points: u32, exact_grid: bool) -> Result<(Vec<u64>, Vec<f64>)> {
     let mut hz = Vec::new();
     let mut levels = Vec::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
@@ -1106,7 +1136,15 @@ fn parse_scan(text: &str, points: u32) -> Result<(Vec<u64>, Vec<f64>)> {
         if tokens.len() < 2 {
             return Err(InstrumentError::Protocol("incomplete scan row".into()));
         }
-        let frequency = parse_frequency(tokens[0])?;
+        let frequency = if exact_grid {
+            exact_grid_frequency(tokens[0]).ok_or_else(|| {
+                InstrumentError::Protocol(
+                    "scan frequency does not represent exact integer Hz".into(),
+                )
+            })?
+        } else {
+            parse_frequency(tokens[0])?
+        };
         let level = tokens[1]
             .strip_suffix("dBm")
             .unwrap_or(tokens[1])
