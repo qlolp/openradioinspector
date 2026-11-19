@@ -4,7 +4,7 @@ This package targets a Raspberry Pi 5 with 8 GB RAM, an SSD and 64-bit Raspberry
 
 ## Install and open the station
 
-Boot Raspberry Pi OS from the SSD or mount the SSD at `/var/lib/openradioinspector-pi-rc` before installing. Use a local filesystem that supports SQLite WAL and POSIX ownership. Confirm `dpkg --print-architecture` reports `arm64`. Copy the complete candidate directory to the Pi. Compare its digest or the release manifest with the copy obtained through your trusted release channel. From that directory run
+Boot Raspberry Pi OS from the SSD. If the OS lives on another disk, bind-mount a dedicated directory from the SSD at `/var/lib/openradioinspector-pi-rc` and persist that mount in `/etc/fstab` before installing. Systemd assigns this directory and its contents to the service account. Use a local filesystem that supports SQLite WAL and POSIX ownership. Confirm `dpkg --print-architecture` reports `arm64`. Copy the complete candidate directory to the Pi. Compare its digest or the release manifest with the copy obtained through your trusted release channel. From that directory run
 
 ```sh
 sha256sum --check SHA256SUMS
