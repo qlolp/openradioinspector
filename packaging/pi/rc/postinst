@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+unit=openradioinspector-pi-rc.service
+case "$1" in
+    configure|abort-upgrade|abort-remove|abort-deconfigure)
+        systemd-sysusers /usr/lib/sysusers.d/openradioinspector-pi-rc.conf
+        deb-systemd-helper unmask "$unit" >/dev/null
+        if deb-systemd-helper --quiet was-enabled "$unit"; then
+            deb-systemd-helper enable "$unit" >/dev/null
+        else
+            deb-systemd-helper update-state "$unit" >/dev/null
+        fi
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            deb-systemd-invoke start "$unit"
+        fi
+        ;;
+esac

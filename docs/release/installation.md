@@ -44,6 +44,13 @@ TLS reverse proxy перед ядром на Pi. Не ослабляйте пр�
 
 ## Raspberry Pi
 
+Для автономного Pi 5 с SSD доступна сборка Rust и WebUI в одном пакете
+`openradioinspector-pi-rc` для Raspberry Pi OS arm64. Установка из локального
+`.deb`, служба systemd, подключение браузера, сохранение данных и откат
+описаны в [руководстве Pi RC1](../pi-rc1.md).
+
+### Ранее поставлявшаяся служба Python
+
 Требуются Python >=3.10 с venv, systemd и группа dialout.
 Передать wheel и каталог `packaging/pi` на Pi:
 `sudo sh packaging/pi/install.sh /absolute/path/openradioinspector-<version>-py3-none-any.whl`.
