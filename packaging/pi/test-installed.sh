@@ -110,4 +110,4 @@ for filename, version in [('sessions.sqlite3', 7), ('compat-v6.sqlite', 6)]:
         assert db.execute('SELECT COUNT(*) FROM sweeps').fetchone() == (1,)
         assert db.execute('SELECT COUNT(*) FROM observations').fetchone() == (1,)
 PY
-echo 'Verified native ARM64 install, restart, upgrade, downgrade and removal offline; fixture archive retained.'
+echo 'Verified ARM64 install, restart, upgrade, downgrade and removal offline. Fixture archive retained.'
