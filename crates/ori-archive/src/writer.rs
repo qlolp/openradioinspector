@@ -64,17 +64,19 @@ fn store_event(
     } else {
         db.execute("INSERT INTO events(sequence,event_type,occurred_at,session_id,payload_json) VALUES(?,?,?,?,?)",params![sequence,draft.event_type,draft.occurred_at,draft.session_id,encode(&draft.payload)?])?;
     }
-    let value = json!({"sequence":sequence,"event_type":draft.event_type,"occurred_at":draft.occurred_at,"session_id":draft.session_id,"payload":draft.payload});
     output.first_sequence.get_or_insert(sequence as u64);
     output.last_sequence = Some(sequence as u64);
-    let bytes = serde_json::to_vec(&value)?.len();
-    if output.events_complete
-        && output.events.len() < 256
-        && bytes
-            <= output
-                .capture_budget
-                .saturating_sub(output.captured_event_bytes)
-    {
+    if !output.events_complete || output.events.len() == 256 {
+        output.events_complete = false;
+        return Ok(());
+    }
+    let mut value = json!({"sequence":sequence,"event_type":draft.event_type,
+        "occurred_at":draft.occurred_at,"session_id":draft.session_id});
+    // The SQL write has consumed the serialized form. Move the original vectors
+    // into the receipt and count its UTF-8 bytes without allocating another copy.
+    value["payload"] = draft.payload;
+    let remaining = output.capture_budget - output.captured_event_bytes;
+    if let Ok(bytes) = crate::actor::check_response_size(&value, remaining) {
         output.captured_event_bytes += bytes;
         output.events.push(value);
     } else {
