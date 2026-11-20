@@ -7,6 +7,8 @@
 
 Справочник в установленном приложении открывается по пути `/Applications/OpenRadioInspector RC.app/Contents/Resources/operator-guide/index.html`. [Офлайн-руководство с иллюстрациями](operator-guide/index.html)
 
+Чтобы скачать справочник отдельно, откройте успешный запуск нужной версии и выберите артефакт `OpenRadioInspector-operator-guide-ru`. Распакуйте ZIP и откройте `index.html`. [Загрузки руководства в GitHub Actions](https://github.com/qlolp/openradioinspector/actions/workflows/modern-clients.yml)
+
 ## Начало работы
 
 1. Откройте «Настройки → Приборы и подключение», проверьте службу и подключение.

@@ -4,6 +4,8 @@
 
 [Руководство с иллюстрациями](operator-guide/index.html) открывается без подключения к сети. В пакете Pi оно лежит в `/usr/share/doc/openradioinspector-pi-rc/operator-guide/index.html`, в Windows — в `runtime\operator-guide\index.html` внутри установленного приложения.
 
+Для отдельной загрузки откройте успешный запуск нужной версии и выберите артефакт `OpenRadioInspector-operator-guide-ru`. Распакуйте ZIP и откройте `index.html` из него. [Загрузки руководства в GitHub Actions](https://github.com/qlolp/openradioinspector/actions/workflows/modern-clients.yml)
+
 ## Подготовка
 
 1. В Windows выберите локальный узел либо адрес Pi. Для удалённого соединения используется доверенный HTTPS и существующее сопряжение. Браузер Pi работает с ядром, которое отдало страницу. В окне отображается источник соединения.
