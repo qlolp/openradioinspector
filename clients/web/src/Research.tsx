@@ -541,10 +541,7 @@ export function Research({
         {desk.capabilities?.features.ardv1_sampled_scope === true && (
           <ReceiverSegment desk={desk} />
         )}
-        <Panel
-          title={t('Source search')}
-          eyebrow={titleCase(desk.search?.coverage || t('stopped'))}
-        >
+        <Panel title={t('Source search')} eyebrow={titleCase(desk.search?.coverage)}>
           <p>
             {t('Maximum from core')}{' '}
             <strong className="mono">
@@ -553,9 +550,7 @@ export function Research({
             </strong>
           </p>
           <p className="muted">
-            {desk.search?.series.length || 0}
-            {t('/256 recent source sweeps · broad coverage')}{' '}
-            {desk.search?.coverage || t('stopped')}
+            {t('{count}/256 recent source sweeps', { count: desk.search?.series.length ?? 0 })}
           </p>
           {desk.search?.error && <p className="error-text">{desk.search.error}</p>}
           <ol className="marks">

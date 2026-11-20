@@ -684,6 +684,13 @@ test.describe('offline operator guide', () => {
     await page
       .locator('.research-grid')
       .evaluate((section) => section.scrollIntoView({ block: 'start' }));
+    const searchPanel = page.locator('section.panel').filter({
+      has: page.getByRole('heading', { name: 'Поиск источника', exact: true }),
+    });
+    await expect(searchPanel.locator('.eyebrow')).toHaveText('Остановлено');
+    await expect(searchPanel.locator('.muted')).toHaveText(
+      /^\d+\/256 последних исходных спектров$/,
+    );
     await page.screenshot({ path: info.outputPath('web-linux-research.png') });
   });
 });
