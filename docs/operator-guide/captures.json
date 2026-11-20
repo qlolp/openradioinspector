@@ -221,6 +221,64 @@
           "scenario": "First persistent exceedance selected; Open original enabled, peak -51.0 dBm, 18.0 dB above the reference, one simulated AR-DV1 observation of 23 S-meter counts"
         }
       ]
+    },
+    {
+      "client": "Installed OpenRadioInspector Tauri/WebView2 operator application",
+      "host": "GitHub-hosted Windows x64, build 26100",
+      "source_revision": "c39da0dd15b8b3de9b3a23bfcc46fa3052d33f76",
+      "release_version": "0.4.0-rc.1",
+      "delivery": "Per-user NSIS engineering installer on a disposable Windows profile, operator workspace connected to an isolated loopback replay core",
+      "installer_sha256": "abf2d47ad18559d3b8050417ac99b089d542d99ac11377f571e9378bc92712f9",
+      "installed_exe_sha256": "cf307135667b79cef291d8628f20efd8a4b9155f4f5be242c52e53848fd977f8",
+      "installed_core_sha256": "470d38eea0d7ae68d6e741e9abc5a3fa263aa7d6cbf12d1a969b9fbeea6a9504",
+      "authenticode": {
+        "installer": {
+          "status": "NotSigned",
+          "signer_thumbprint": null,
+          "timestamp_signer_thumbprint": null,
+          "type": "None",
+          "valid": false
+        },
+        "desktop": {
+          "status": "NotSigned",
+          "signer_thumbprint": null,
+          "timestamp_signer_thumbprint": null,
+          "type": "None",
+          "valid": false
+        }
+      },
+      "github_run_id": 44653506105,
+      "github_artifact_id": 14592813111,
+      "proof_archive_sha256": "a99d1ebc0be2347f0b89cac578b270ea2069efca78d742ae5d9542a42d325448",
+      "source": {
+        "source": "deploy/windows/operator-window-fixture.json",
+        "sha256": "dda353e8ff4effc63971e09a2b43c500b72bf91ee337398feb687f86f458be26",
+        "mode": "replay",
+        "adapters": [
+          "tinysa-sim",
+          "ardv1-sim"
+        ],
+        "verified_sweeps": 16,
+        "verified_observations": 4,
+        "serial_adapters_enabled": false,
+        "generator_output": "off"
+      },
+      "capture": "PrintWindow(PW_RENDERFULLCONTENT); installed application main HWND only",
+      "captures": [
+        {
+          "file": "images/windows-installed-monitoring.png",
+          "sha256": "954e5fb6efbf75231ccb510a8dbf3aa5f8ab6c02bc85e2e18b3d3f9fb49acd06",
+          "pixels": [
+            1366,
+            768
+          ],
+          "dpi": 96,
+          "theme": "system (light)",
+          "scenario": "Monitoring; training project on loopback, guard stopped, synthetic tinySA peak 102.5 MHz / -45.0 dBm and AR-DV1 at 22 S-meter counts",
+          "waterfall_committed_rows_before_capture": 8,
+          "waterfall_rows_visible_in_png": 9
+        }
+      ]
     }
   ]
 }
