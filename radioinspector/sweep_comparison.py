@@ -13,6 +13,7 @@ from typing import Any
 from .contracts import Sweep, to_primitive
 
 MAX_COMPARISON_POINTS = 16_384
+SWEEP_METADATA_KEYS = frozenset(("sequence", "measurement_qualification"))
 
 
 class ComparisonIncompatibleError(ValueError):
@@ -45,7 +46,7 @@ def _settings_key(settings: dict[str, Any]) -> Any:
     # response. Older sweeps may lack either field; unknown acquisition
     # extensions still take part in the comparison.
     recorded = settings.copy()
-    for key in ("sequence", "measurement_qualification"):
+    for key in SWEEP_METADATA_KEYS:
         if key in recorded:
             _setting_value(recorded.pop(key), allow_null=True)
     if not recorded:
