@@ -86,9 +86,20 @@ pub(crate) async fn get(
             core.domain()?.session.measurement_catalog().await?
         }
         ["api", "v1", "sessions", session, "candidates"] => {
+            let limit = match optional(query, "limit") {
+                None | Some("") => None,
+                Some(_) => Some(count(query, "limit", 1, 5000)?),
+            };
+            let offset = match optional(query, "offset") {
+                None | Some("") => 0,
+                Some(_) => number(query, "offset", 0)?,
+            };
+            if offset > i64::MAX as u64 {
+                return Err(ApiError::invalid("offset вне допустимого диапазона"));
+            }
             core.domain()?
                 .session
-                .list_candidates(session, optional(query, "state"))
+                .list_candidates_page(session, optional(query, "state"), limit, offset)
                 .await?
         }
         ["api", "v1", "sessions", session, "candidates", "by-id", id]

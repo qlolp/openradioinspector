@@ -441,7 +441,7 @@ pub const OPERATIONS: &[Operation] = &[
         operation_id: "get_api_v1_sessions_id_candidates",
         method: "GET",
         path: "/api/v1/sessions/{id}/candidates",
-        query: &["state"],
+        query: &["state", "limit", "offset"],
         max_request_bytes: None,
     },
     Operation {

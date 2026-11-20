@@ -1578,7 +1578,9 @@ export const operations = {
     "method": "GET",
     "path": "/api/v1/sessions/{id}/candidates",
     "query": [
-      "state"
+      "state",
+      "limit",
+      "offset"
     ]
   },
   "get_api_v1_sessions_id_candidates_by_id_candidate_id": {

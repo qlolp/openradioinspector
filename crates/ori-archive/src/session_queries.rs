@@ -134,6 +134,22 @@ impl Archive {
         session: &str,
         state: Option<&str>,
     ) -> Result<Vec<serde_json::Value>> {
+        self.session_candidates_page(session, state, None, 0).await
+    }
+
+    pub async fn session_candidates_page(
+        &self,
+        session: &str,
+        state: Option<&str>,
+        limit: Option<usize>,
+        offset: u64,
+    ) -> Result<Vec<serde_json::Value>> {
+        let limit = match limit {
+            Some(0) => return Err(error::invalid("positive candidate limit")),
+            Some(value) => i64::try_from(value).map_err(|_| error::invalid("candidate limit"))?,
+            None => -1,
+        };
+        let offset = i64::try_from(offset).map_err(|_| error::invalid("candidate offset"))?;
         let session = session.to_owned();
         let state = state.map(str::to_owned);
         let maximum = self.inner.config.max_response_bytes;
@@ -141,12 +157,12 @@ impl Archive {
             .read(move |db| {
                 let sql = format!(
                     "{} WHERE c.session_id=? AND (? IS NULL OR c.state=?)
-                ORDER BY context_utc(c.started_at),context_utf8(c.id)",
+                ORDER BY context_utc(c.started_at),context_utf8(c.id) LIMIT ? OFFSET ?",
                     rows::CANDIDATE_SELECT
                 );
                 let mut statement = db.prepare(&sql)?;
                 crate::queries::collect(
-                    statement.query(params![session, state, state])?,
+                    statement.query(params![session, state, state, limit, offset])?,
                     rows::candidate,
                     maximum,
                 )

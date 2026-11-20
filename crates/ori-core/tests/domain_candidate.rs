@@ -83,6 +83,62 @@ async fn project(server: &Server) -> String {
 }
 
 #[tokio::test]
+async fn candidate_pages_keep_state_filter_order_and_legacy_list() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = Server::start(directory.path()).await;
+    setup(&server).await;
+    let path = "/api/v1/sessions/domain/candidates";
+    for id in ["c", "a", "b"] {
+        let payload = json!({
+            "id": id, "source_stream_id": "spectrum", "level_unit": "dBm",
+            "center_frequency_hz": 100_010_000,
+            "interval": {"started_at": "2026-11-11T00:00:00Z", "ended_at": "2026-11-11T00:00:00Z"}
+        });
+        assert_eq!(server.request("POST", path, Some(&payload)).await.0, 201);
+    }
+    assert_eq!(
+        server
+            .request("POST", &format!("{path}/a/dismiss"), Some(&json!({})))
+            .await
+            .0,
+        200
+    );
+    for (query, ids) in [
+        ("", vec!["a", "b", "c"]),
+        ("?limit=1", vec!["a"]),
+        ("?state=new&offset=1&limit=1", vec!["c"]),
+        ("?offset=2", vec!["c"]),
+        ("?limit=5000&offset=9223372036854775807", vec![]),
+    ] {
+        let (status, page) = server.request("GET", &format!("{path}{query}"), None).await;
+        assert_eq!(status, 200, "{page}");
+        let actual: Vec<_> = page["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(actual, ids, "{query}");
+    }
+    for query in [
+        "?limit=0",
+        "?limit=5001",
+        "?offset=-1",
+        "?offset=9223372036854775808",
+    ] {
+        assert_eq!(
+            server
+                .request("GET", &format!("{path}{query}"), None)
+                .await
+                .0,
+            400,
+            "{query}"
+        );
+    }
+    server.stop().await;
+}
+
+#[tokio::test]
 async fn session_domain_http_uses_owned_tune_and_actual_post_tune_observations_before_completion() {
     let directory = tempfile::tempdir().unwrap();
     let server = Server::start(directory.path()).await;
