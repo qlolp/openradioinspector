@@ -172,6 +172,55 @@
           "monitoring_unavailable_reason": "connect_private_replay_fixture_address_not_set"
         }
       ]
+    },
+    {
+      "client": "Installed native OpenRadioInspector RC SwiftUI application",
+      "host": "MacBook Air, Apple Silicon, macOS 27.3",
+      "architecture": "arm64",
+      "toolchain": "Xcode 27.2 (27B52), Swift 6.4.2",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "release_version": "0.4.0-macos.rc.1",
+      "delivery": "Isolated installation from a read-only mounted engineering DMG, with verified ad-hoc code signature and bundle inventory",
+      "dmg_sha256": "b7f849f0217544489c2926844e325224ec5888294787033cf62a8898cafd4879",
+      "app_executable_sha256": "844d1dcdf6689d37ca058e9482487558b55469fec282829104416376cf42c988",
+      "signing": "ad-hoc",
+      "developer_id": false,
+      "physical_instruments": false,
+      "source": "Isolated HTTP/SQLite training fixture tests.ui_smoke_server, archived synthetic measurements",
+      "training_archive_sha256_before_and_after": "609aaf4c566e18fc28bf25475505ccc44fc0b6973f0d27420ddd0d6b350e4bb8",
+      "capture": "ScreenCaptureKit, current process app window only; original Retina PNG",
+      "captures": [
+        {
+          "file": "images/macos-monitoring.png",
+          "sha256": "c7d818197cd94947b3c60a2498472d86450557488b1d8054935949d9b0fab024",
+          "pixels": [
+            2400,
+            1480
+          ],
+          "window_points": [
+            1200,
+            740
+          ],
+          "device_scale_factor": 2,
+          "theme": "dark",
+          "scenario": "Stopped monitoring; 16 synthetic archived sweeps, 201 points per sweep, 10 kHz grid and 100.100 MHz P1 at -51.0 dBm, two events, no selection"
+        },
+        {
+          "file": "images/macos-event.png",
+          "sha256": "e2e5db95feaa5130591e7cd31cebe1efa6926dc100863c1886b6d41f44f9cd62",
+          "pixels": [
+            2400,
+            1480
+          ],
+          "window_points": [
+            1200,
+            740
+          ],
+          "device_scale_factor": 2,
+          "theme": "dark",
+          "scenario": "First persistent exceedance selected; Open original enabled, peak -51.0 dBm, 18.0 dB above the reference, one simulated AR-DV1 observation of 23 S-meter counts"
+        }
+      ]
     }
   ]
 }
