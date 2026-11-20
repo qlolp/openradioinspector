@@ -80,6 +80,40 @@
         }
       ],
       "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc"
+    },
+    {
+      "client": "WebUI served by the installed Raspberry Pi ARM64 Debian package",
+      "host": "GitHub-hosted ARM64 Linux VM, Ubuntu 24.04.5 LTS",
+      "architecture": "arm64",
+      "kernel": "7.0.0-1017-azure",
+      "physical_pi": false,
+      "hardware_tested": false,
+      "browser": "Chromium 158.0.8127.18",
+      "delivery": "http://127.0.0.1:8770/modern/",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "package": "openradioinspector-pi-rc_0.4.0-1_arm64.deb",
+      "package_sha256": "bbb51d9ecfe70a112e10a67f11e1de6ee0cf1f85b2ba02623b30871b87868fb8",
+      "embedded_index_sha256": "322d6b6df8f6e07bc0e65ba6013651714f1210ddd13f744e479d77954793b53a",
+      "github_run_id": 44649058876,
+      "github_proof_artifact_id": 14590445877,
+      "github_package_artifact_id": 14589064639,
+      "source": "Installed serial-enabled Rust core and systemd supervisor; isolated offline test namespace, a disposable training project, 96 synthetic saved sweeps and a fixture receiver observation",
+      "capture": "clients/web/tests/capture-pi-installed.mjs; Playwright viewport screenshot after the spectrum displayed the original sweep ID",
+      "captures": [
+        {
+          "file": "images/pi-package-arm64-vm.png",
+          "sha256": "a6469766bc1722592383082dca90d9ffec9ebfec0bcbe287be80bcc4ff594b2b",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "system (light)",
+          "scenario": "Monitoring workspace during preparation; stopped guard and receiver, current peak 103.6 MHz, two waterfall periods",
+          "displayed_original_sweep_id": "pi-guide-synthetic-095",
+          "waterfall_rows": 96
+        }
+      ]
     }
   ]
 }
