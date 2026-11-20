@@ -371,12 +371,17 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
     let probe = fs::File::open(&path).unwrap();
     assert!(with_spawn_exclusion(|| probe.try_lock()).is_err());
-    let closing = workspace.clone();
-    let close = tokio::spawn(async move { closing.close().await });
-    tokio::task::yield_now().await;
-    assert!(!close.is_finished());
+    // Drive close through its synchronous cancellation step before allowing
+    // the blocked write to resume. A scheduler yield does not order two tasks.
+    let close = workspace.close();
+    tokio::pin!(close);
+    tokio::select! {
+        biased;
+        result = &mut close => panic!("closed while the SQL callback still owns its budget: {result:?}"),
+        () = std::future::ready(()) => {}
+    }
     release.send(()).unwrap();
-    close.await.unwrap().unwrap();
+    close.await.unwrap();
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 0);
     assert!(!controls.released_with_stage.load(Ordering::SeqCst));
     assert_eq!(workspace.version(), 1);

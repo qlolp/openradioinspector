@@ -178,6 +178,7 @@ class ArchivedBandQualificationTests(unittest.TestCase):
         comparison = self.service.history_comparison(identifier, 'sweep-40')
         self.assertFalse(comparison['compatible'])
         self.assertEqual(comparison['items'], [])
+        self.assertIsNone(comparison['baseline_id'])
         self.assertEqual(comparison['reason'], 'reference_required_above_800_mhz')
         raw = self.service.history_original(identifier, 'sweep-40')
         self.assertEqual(raw['levels'][2], -80.)
@@ -194,6 +195,9 @@ class ArchivedBandQualificationTests(unittest.TestCase):
         self.assertFalse(self.service.baseline_collection(project)['ready'])
         with self.assertRaises(ValueError):
             self.confirm(project)
+        comparison = self.service.history_comparison(identifier, rows[0].id)
+        self.assertFalse(comparison['compatible'])
+        self.assertIsNone(comparison['baseline_id'])
         baseline = self.service.store.put('baseline', record(identifier, confirmed=True, **build_baseline(rows)))
         project.update(baseline_id=baseline['id'], state='ready')
         self.service.store.put('project', project)

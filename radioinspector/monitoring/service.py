@@ -129,8 +129,9 @@ class MonitoringService(BaselineOperations, ResearchOperations, GuardOperations,
         if project.get('baseline_id') and not for_preparation:
             try:
                 baseline=self.detection_baseline(self.store.get('baseline',project['baseline_id']))
-                check('baseline_qualification', self.eligible_reference(project, baseline),
-                      'Пригодность исходной сетки эталона для автоматического сравнения')
+                exclusion = self.reference_exclusion(project, baseline)
+                check('baseline_qualification', exclusion is None,
+                      exclusion or 'Исходная сетка эталона пригодна для автоматического сравнения')
                 check('baseline_cadence',bool(baseline.get('sweep_period_seconds')),
                     'Период эталона известен; при недоступных источниках соберите новый эталон')
             except (ValueError,TypeError,KeyError) as exc:

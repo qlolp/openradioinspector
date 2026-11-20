@@ -67,26 +67,30 @@ class BaselineOperations:
             index = next((i+1 for i,x in enumerate(items) if x.id == cursor), 0)
             return [(i+1, copy.deepcopy(s)) for i,s in enumerate(items) if index <= i < index+limit]
 
-    def eligible_reference(self, project, baseline):
+    def reference_exclusion(self, project, baseline):
         frequencies = baseline.get('frequencies_hz', ())
         if not frequencies:
-            return False
+            return 'В эталоне отсутствует исходная сетка'
         adapter = analyzer_adapter(project)
-        if max(frequencies) > MAX_FREQUENCY_HZ and adapter == 'tinysa-serial':
-            return False
-        if max(frequencies) <= MAX_FREQUENCY_HZ and adapter == 'tinysa-sim':
-            return True
+        upper = max(frequencies) > MAX_FREQUENCY_HZ
+        if upper and adapter == 'tinysa-serial':
+            return REFERENCE_REQUIRED
+        if not upper and adapter == 'tinysa-sim':
+            return None
         references = baseline.get('source_refs', ())
         if not references:
-            return False
+            return 'В эталоне нет ссылок на исходные свипы'
         ref = references[0]
         try:
             original = self.history_original(project['id'], ref['sweep_id'])
         except KeyError:
-            return False
-        return (original['session_id'] == ref.get('session_id') and original['stream_id'] == ref.get('stream_id')
-                and original['frequencies_hz'] == frequencies
-                and eligible_source(project, original['frequencies_hz'], original['settings']))
+            return 'Исходный свип эталона отсутствует'
+        if (original['session_id'] != ref.get('session_id') or original['stream_id'] != ref.get('stream_id')
+                or original['frequencies_hz'] != frequencies):
+            return 'Исходный свип не соответствует эталону'
+        if not eligible_source(project, original['frequencies_hz'], original['settings']):
+            return REFERENCE_REQUIRED if upper else 'Неизвестный профиль анализатора'
+        return None
 
     def detection_baseline(self, baseline):
         """Derive legacy cadence from source metadata, leaving the version frozen."""
@@ -123,8 +127,9 @@ class BaselineOperations:
             project = self.project(identifier)
             if not project.get('baseline_id'): raise ValueError('Нужен подтверждённый эталон')
             baseline = self.detection_baseline(self.store.get('baseline', project['baseline_id']))
-            if not self.eligible_reference(project, baseline):
-                raise ValueError(REFERENCE_REQUIRED)
+            exclusion = self.reference_exclusion(project, baseline)
+            if exclusion:
+                raise ValueError(exclusion)
             detector = Detector(baseline, project['parameters'], project.get('detector_state'))
             allowed = self.store.list('allowed', identifier, limit=1000)
             events = set()

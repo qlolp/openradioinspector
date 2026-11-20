@@ -331,14 +331,15 @@ class ResearchOperations:
 
     def history_comparison(self, identifier, sweep_id):
         from ..contracts import Sweep
-        project=self.project(identifier);baseline=self.store.get('baseline',project['baseline_id'])
-        sweep=Sweep.from_dict(self.history_original(identifier,sweep_id))
-        eligible = eligible_source(project, sweep.frequencies_hz, sweep.settings) and self.eligible_reference(project, baseline)
-        compatible = eligible and fingerprint(sweep) == baseline['fingerprint']
-        reason = None
-        if not eligible:
-            reason = REFERENCE_REQUIRED
-        elif not compatible:
+        project = self.project(identifier)
+        sweep = Sweep.from_dict(self.history_original(identifier, sweep_id))
+        if not eligible_source(project, sweep.frequencies_hz, sweep.settings):
+            return dict(baseline_id=None, sweep_id=sweep_id, detector_version=None, compatible=False,
+                        reason=REFERENCE_REQUIRED, items=[], display_only=True)
+        baseline = self.store.get('baseline', project['baseline_id'])
+        reason = self.reference_exclusion(project, baseline)
+        compatible = reason is None and fingerprint(sweep) == baseline['fingerprint']
+        if not compatible and reason is None:
             reason = 'Сетка/настройки не совпадают с эталоном'
         items=[]
         if compatible:

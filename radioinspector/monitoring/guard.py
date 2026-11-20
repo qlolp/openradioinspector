@@ -246,11 +246,16 @@ class GuardOperations:
                 source = None
             grid = source['frequencies_hz'] if source else []
             center = event['center_frequency_hz']
-            if (not grid or source['session_id'] != ref.get('session_id') or source['stream_id'] != ref.get('stream_id')
-                    or not eligible_source(project, grid, source['settings'])
-                    or not min(grid) <= event.get('start_frequency_hz', center) <= center
-                           <= event.get('end_frequency_hz', center) <= max(grid)):
-                event['analysis'] = dict(state='unsupported_frequency', reason=REFERENCE_REQUIRED)
+            reason = None
+            if not grid or source['session_id'] != ref.get('session_id') or source['stream_id'] != ref.get('stream_id'):
+                reason = 'Исходный свип события отсутствует'
+            elif not eligible_source(project, grid, source['settings']):
+                reason = REFERENCE_REQUIRED
+            elif not (min(grid) <= event.get('start_frequency_hz', center) <= center
+                      <= event.get('end_frequency_hz', center) <= max(grid)):
+                reason = 'Частоты события вне исходной сетки'
+            if reason:
+                event['analysis'] = dict(state='unsupported_frequency', reason=reason)
                 self.store.put('event', event)
                 return
             try: self.receiver_target(event)
