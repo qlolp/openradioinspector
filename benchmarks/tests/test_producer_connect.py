@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, ExitStack
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import socket
 import tempfile
@@ -10,12 +11,13 @@ import time
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.request import HTTPHandler, Request
 
 from benchmarks.ori_bench.client import Client, TransportFailure
 from benchmarks.ori_bench.config import Config
-from benchmarks.ori_bench.producer_http import ProducerHTTPHandler, RequestSocket
+from benchmarks.ori_bench.paged_history import PagedHistoryWork
+from benchmarks.ori_bench.producer_http import LoopbackHTTPHandler, RequestSocket
 from benchmarks.ori_bench.runner import run
 from benchmarks.ori_bench.source import identifier
 from benchmarks.tests.test_benchmarks import http_fixture
@@ -233,7 +235,8 @@ class ProducerConnectTests(unittest.TestCase):
         self.assertEqual([attempt['outcome'] for attempt in client.connect_attempts], ['connected'])
 
     def test_remote_name_proxy_and_get_keep_the_standard_handler(self):
-        handler = ProducerHTTPHandler([])
+        record = Mock()
+        handler = LoopbackHTTPHandler('POST', record)
         proxied = Request('http://127.0.0.1/api/v1/test', method='POST')
         proxied.set_proxy('127.0.0.1:9999', 'http')
         for request in (proxied, Request('http://localhost/api/v1/test', method='POST'),
@@ -242,7 +245,163 @@ class ProducerConnectTests(unittest.TestCase):
             with self.subTest(url=request.full_url), patch.object(HTTPHandler, 'http_open') as standard:
                 handler.http_open(request)
                 standard.assert_called_once_with(request)
-        self.assertEqual(handler.attempts, [])
+        record.assert_not_called()
+
+
+class PagedBackgroundConnectTests(unittest.TestCase):
+    def test_exhausted_page_connect_preserves_deadline_and_reports_failed_stage(self):
+        requests = []
+        class Peer(BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests.append(self.path)
+
+            def log_message(self, *args):
+                pass
+
+        connect = socket.socket.connect
+        sockets = []
+        now = 100.
+        def timeout(sock, endpoint):
+            nonlocal now
+            if sockets:
+                self.assertEqual(sockets[-1].fileno(), -1)
+            sockets.append(sock)
+            connect(sock, endpoint)
+            now += sock.gettimeout()
+            raise TimeoutError('withheld handshake completion')
+
+        with serving(Peer) as origin:
+            work = PagedHistoryWork(Config(origin, Path('.'), request_timeout=2), SimpleNamespace(owner=None), 0)
+            route = '/api/v1/sessions/synthetic/sweep-summaries?after=private-cursor'
+            with patch.object(socket.socket, 'connect', timeout), \
+                    patch('benchmarks.ori_bench.producer_http.time', SimpleNamespace(monotonic=lambda: now)), \
+                    patch.object(work, '_operations', lambda: work.client.json(route)):
+                work._run()
+        self.assertEqual(requests, [])
+        self.assertTrue(all(sock.fileno() == -1 for sock in sockets))
+        self.assertEqual(work.report['status'], 'failed')
+        self.assertTrue(work.done.is_set())
+        error, = work.report['errors']
+        self.assertEqual((error['phase'], error['route'], error['request_write_completed']),
+                         ('tcp_connect', 'sweep-summaries', False))
+        tcp = work.report['loopback_tcp']
+        self.assertEqual((tcp['requests'], tcp['attempts'], tcp['requests_without_connection']), (1, 4, 1))
+        sample, = tcp['samples']
+        self.assertEqual(sample['route'], 'sweep-summaries')
+        self.assertEqual([a['timeout_ms'] for a in sample['attempts']], [250., 500., 1000., 250.])
+        self.assertNotIn('private-cursor', str(work.report))
+
+    def test_qos_timeout_replaces_unwritten_socket_while_export_uses_its_own_trace(self):
+        received = []
+        class Peer(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.path)
+                body = (b'{"data":{"candidate":{"background_qos":{"registered_work":2}}}}'
+                        if self.path.endswith('/capabilities') else b'export')
+                self.send_response(200)
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        main = threading.current_thread()
+        dial_started, export_finished = threading.Event(), threading.Event()
+        connect = socket.socket.connect
+        qos_sockets = []
+        export_route = '/api/v1/sessions/synthetic/archive/export.ndjson'
+
+        def delayed_qos(sock, endpoint):
+            connect(sock, endpoint)
+            if threading.current_thread() is main:
+                if qos_sockets:
+                    self.assertEqual(qos_sockets[-1].fileno(), -1)
+                qos_sockets.append(sock)
+                if len(qos_sockets) == 1:
+                    dial_started.set()
+                    self.assertTrue(export_finished.wait(3))
+                    self.assertRaises(TimeoutError, sock.recv, 1)
+                    raise TimeoutError('withheld handshake completion')
+
+        def read_export(work):
+            self.assertTrue(dial_started.wait(3))
+            try:
+                with work.client.open(export_route, timeout=work.config.bulk_timeout) as response:
+                    return response.read()
+            finally:
+                export_finished.set()
+
+        with serving(Peer) as origin, ThreadPoolExecutor(max_workers=1) as worker:
+            work = PagedHistoryWork(Config(origin, Path('.'), request_timeout=1.5), None, 0)
+            with patch.object(socket.socket, 'connect', delayed_qos):
+                export = worker.submit(read_export, work)
+                self.assertEqual(work.qos(), {'registered_work': 2})
+                self.assertEqual(export.result(3), b'export')
+        self.assertCountEqual(received, ['/api/v1/capabilities', export_route])
+        self.assertTrue(all(sock.fileno() == -1 for sock in qos_sockets))
+        tcp = work.report['loopback_tcp']
+        self.assertEqual((tcp['requests'], tcp['attempts'], tcp['connect_timeouts']), (2, 3, 1))
+        sample, = tcp['samples']
+        self.assertEqual(sample['route'], 'capabilities')
+        self.assertEqual([a['outcome'] for a in sample['attempts']], ['timeout', 'connected'])
+
+    def test_truncated_cursor_page_fails_without_a_second_http_get(self):
+        received = []
+        class Peer(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.path)
+                self.send_response(200)
+                self.send_header('Content-Length', '128')
+                self.end_headers()
+                self.wfile.write(b'{"data":')
+
+            def log_message(self, *args):
+                pass
+
+        with serving(Peer) as origin:
+            work = PagedHistoryWork(Config(origin, Path('.')), None, 0)
+            route = '/api/v1/sessions/synthetic/sweep-summaries?after=private-cursor'
+            with self.assertRaises(TransportFailure) as caught:
+                work.client.json(route)
+        self.assertEqual(received, [route])
+        self.assertEqual(caught.exception.details['phase'], 'response_body')
+        self.assertTrue(caught.exception.details['request_write_completed'])
+        self.assertEqual(caught.exception.details['route'], 'sweep-summaries')
+        tcp = work.report['loopback_tcp']
+        self.assertEqual((tcp['requests'], tcp['attempts'], tcp['connect_timeouts']), (1, 1, 0))
+        self.assertNotIn('private-cursor', str(tcp))
+
+    def test_joined_export_keeps_failed_body_stage_and_original_get(self):
+        received = []
+        class Peer(BaseHTTPRequestHandler):
+            def do_GET(self):
+                received.append(self.path)
+                self.send_response(200)
+                self.send_header('X-Archive-Sweeps', '1')
+                self.send_header('X-Archive-Observations', '1')
+                self.send_header('X-Archive-Boundary', '2')
+                self.send_header('Transfer-Encoding', 'chunked')
+                self.end_headers()
+                self.wfile.write(b'20\r\n{')  # EOF before the declared chunk ends.
+
+            def log_message(self, *args):
+                pass
+
+        with serving(Peer) as origin:
+            work = PagedHistoryWork(Config(origin, Path('.')), None, 0)
+            def start_export():
+                work.export_thread = threading.Thread(target=work._export)
+                work.export_thread.start()
+            with patch.object(work, '_operations', start_export):
+                work.start()
+                work.join()
+        self.assertEqual(received, [work.client.session_path(work.config) + '/archive/export.ndjson'])
+        raw = work.report['live_export']
+        self.assertEqual((raw['phase'], raw['error']['route']), ('failed', 'export.ndjson'))
+        self.assertEqual((raw['error']['phase'], raw['error']['response_status']), ('response_body', 200))
+        self.assertTrue(raw['error']['request_write_completed'])
+        self.assertEqual(work.report['loopback_tcp']['attempts'], 1)
 
 
 if __name__ == '__main__':

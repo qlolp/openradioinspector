@@ -4,11 +4,11 @@ import json
 import os
 from http.client import HTTPException, IncompleteRead
 from urllib.error import HTTPError,URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from urllib.request import HTTPRedirectHandler,Request,build_opener
 
 from .config import BenchmarkError
-from .producer_http import ProducerHTTPHandler
+from .producer_http import LoopbackHTTPHandler
 from .source import encode
 
 JSON_LIMIT=16*1024**2
@@ -24,6 +24,12 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def segment(value):return quote(value,safe='')
+
+
+def paged_route(path):
+    # Public route names only. Session IDs, origins and cursor queries stay private.
+    name = urlsplit(path).path.rsplit('/', 1)[-1]
+    return name if name in ('summary', 'health', 'capabilities', 'sweep-summaries', 'export.ndjson') else 'other'
 
 
 class HTTPFailure(BenchmarkError):
@@ -95,17 +101,31 @@ class TransportFailure(BenchmarkError):
 
 
 class Client:
-    def __init__(self,config,*,producer=False):
+    def __init__(self,config,*,producer=False,record_paged_get=None):
         self.origin=config.base_url.rstrip('/')
         self.timeout=config.request_timeout
         self.connect_attempts = []
+        self.producer = producer
+        self.record_paged_get = record_paged_get
         handlers = [NoRedirect()]
         if producer:
-            handlers.append(ProducerHTTPHandler(self.connect_attempts))
+            handlers.append(LoopbackHTTPHandler('POST', self._record_producer_connect))
+        elif record_paged_get is not None:
+            handlers.append(LoopbackHTTPHandler('GET', record_paged_get))
         self.opener = build_opener(*handlers)
 
+    def _record_producer_connect(self, request, attempts):
+        self.connect_attempts.extend(attempts)
+
+    def transport_error(self, path, phase, error, status=None):
+        failure = TransportFailure(phase, error, status)
+        if self.record_paged_get is not None:
+            failure.details['route'] = paged_route(path)
+        return failure
+
     def open(self,path,*,method='GET',payload=None,timeout=None):
-        self.connect_attempts.clear()
+        if self.producer:
+            self.connect_attempts.clear()
         if not path.startswith('/api/v1/') or path.startswith('//'):
             raise BenchmarkError('invalid_route','Only typed API v1 paths are allowed')
         raw=None if payload is None else encode(payload)
@@ -122,7 +142,7 @@ class Client:
             finally:error.close()
             raise HTTPFailure(status,code) from None
         except (OSError, HTTPException) as error:
-            raise TransportFailure('request_or_headers', error) from None
+            raise self.transport_error(path, 'request_or_headers', error) from None
 
     def json(self,path,*,method='GET',payload=None,status=200):
         with self.open(path,method=method,payload=payload) as response:
@@ -130,13 +150,13 @@ class Client:
             try:
                 raw = response.read(JSON_LIMIT + 1)
             except (OSError, HTTPException) as error:
-                raise TransportFailure('response_body', error, response.status) from None
+                raise self.transport_error(path, 'response_body', error, response.status) from None
             if len(raw)>JSON_LIMIT:raise BenchmarkError('invalid_response','JSON response exceeds 16 MiB')
             length = response.headers.get('Content-Length')
             if isinstance(length, str) and len(length) <= 20 and length.isascii() and length.isdecimal():
                 missing = int(length) - len(raw)
                 if missing > 0:
-                    raise TransportFailure('response_body', IncompleteRead(b'', missing), response.status)
+                    raise self.transport_error(path, 'response_body', IncompleteRead(b'', missing), response.status)
             try:
                 value=json.loads(raw)
                 return value['data']

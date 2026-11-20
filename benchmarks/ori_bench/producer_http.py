@@ -1,4 +1,4 @@
-"""One HTTP write per offered input, even when a local TCP handshake stalls."""
+"""Bound a direct loopback TCP handshake before the original HTTP write."""
 from __future__ import annotations
 
 from functools import partial
@@ -18,7 +18,7 @@ _CONNECT_LIMITS_SECONDS = (.25, .5, 1., None)
 def remaining(deadline):
     seconds = deadline - time.monotonic()
     if seconds <= 0:
-        raise TimeoutError('Producer request deadline elapsed')
+        raise TimeoutError('HTTP request deadline elapsed')
     return seconds
 
 
@@ -62,13 +62,14 @@ def connect_loopback(endpoint, timeout, source_address, *, family, deadline, att
                                  elapsed_ms=(time.monotonic() - started) * 1000))
 
 
-class ProducerHTTPHandler(HTTPHandler):
-    def __init__(self, attempts):
+class LoopbackHTTPHandler(HTTPHandler):
+    def __init__(self, method, record):
         super().__init__()
-        self.attempts = attempts
+        self.method = method
+        self.record = record
 
     def http_open(self, request):
-        if request.get_method() != 'POST' or request.has_proxy():
+        if request.get_method() != self.method or request.has_proxy():
             return super().http_open(request)
         try:
             address = ipaddress.ip_address(urlsplit(request.full_url).hostname)
@@ -78,13 +79,18 @@ class ProducerHTTPHandler(HTTPHandler):
             return super().http_open(request)
         family = socket.AF_INET if address.version == 4 else socket.AF_INET6
         deadline = time.monotonic() + request.timeout
+        # Concurrent export and cursor/QoS requests must keep disjoint traces.
+        attempts = []
 
         def connection(authority, *, timeout):
             http = HTTPConnection(authority, timeout=timeout)
             # Keep the standard HTTP/1 request, response and close behavior.
             # Only its TCP socket factory can replace an unconnected socket.
             http._create_connection = partial(connect_loopback, family=family,
-                                              deadline=deadline, attempts=self.attempts)
+                                              deadline=deadline, attempts=attempts)
             return http
 
-        return self.do_open(connection, request)
+        try:
+            return self.do_open(connection, request)
+        finally:
+            self.record(request, attempts)

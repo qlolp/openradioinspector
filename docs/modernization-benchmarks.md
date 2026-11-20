@@ -121,6 +121,13 @@ elapsed time, outcome and independent source verification. Two 60-second Windows
 runs at `99984e5` each recovered three such timeouts and verified all 600 original
 4,096-point sweeps, 600 observations and six WAVs. [Push run](https://github.com/qlolp/openradioinspector/actions/runs/44647450200) · [PR run](https://github.com/qlolp/openradioinspector/actions/runs/44647504208)
 
+The Windows push at `e8fd8b9` verified those same offers and all 1,800 Canvas draws.
+Its separate paged-history controller failed during a TCP connection after 89 verified
+pages. The controller now applies the same pre-write dial budget to its direct loopback
+GETs. `background.loopback_tcp` counts original requests, socket attempts, timeouts
+and requests that failed to connect. Affected samples include the public
+route name and each dial’s timing. [Failed Windows push](https://github.com/qlolp/openradioinspector/actions/runs/44649053750/job/135999034448)
+
 The separate accelerated source-time scenario is:
 
 ```sh

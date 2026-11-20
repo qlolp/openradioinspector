@@ -6,6 +6,7 @@ import calendar
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
+from http.client import HTTPException
 import os
 from pathlib import Path
 import sys
@@ -13,7 +14,7 @@ import threading
 import time
 import uuid
 
-from .client import Client, HTTPFailure, segment
+from .client import Client, HTTPFailure, TransportFailure, segment
 from .concurrent_proof import ExportProof, MAX_FRAME_BYTES, overlap, reference_config
 from .config import BenchmarkError
 from .endurance import candidate_identity
@@ -81,9 +82,9 @@ class BackgroundCandidate(OwnedCandidate):
 
 
 class BackgroundWork:
-    def __init__(self, config, node, after_seconds):
+    def __init__(self, config, node, after_seconds, *, record_paged_get=None):
         self.config, self.node, self.after = config, node, after_seconds
-        self.client = Client(config)
+        self.client = Client(config, record_paged_get=record_paged_get)
         self.cancelled, self.done, self.first_record = (threading.Event() for _ in range(3))
         self.lock = threading.Lock()
         self.raw = dict(phase='not_started', verified_records=0)
@@ -121,7 +122,10 @@ class BackgroundWork:
                 while not self.cancelled.is_set():
                     if time.monotonic() >= deadline:
                         raise BenchmarkError('background_incomplete', 'Live export deadline exceeded')
-                    raw = response.readline(MAX_FRAME_BYTES + 1)
+                    try:
+                        raw = response.readline(MAX_FRAME_BYTES + 1)
+                    except (OSError, HTTPException) as error:
+                        raise self.client.transport_error(path, 'response_body', error, response.status) from None
                     if not raw:
                         break
                     proof.observe(raw)
@@ -135,9 +139,10 @@ class BackgroundWork:
             with self.lock:
                 self.raw.update(result, phase='completed', finished_monotonic_ns=time.monotonic_ns())
         except Exception as error:
+            details = error.details if isinstance(error, TransportFailure) else {}
             with self.lock:
                 self.raw.update(phase='failed', finished_monotonic_ns=time.monotonic_ns(),
-                                error=dict(code=getattr(error, 'code', 'export_failed'), message=str(error)))
+                                error=dict(code=getattr(error, 'code', 'export_failed'), message=str(error), **details))
         finally:
             self.first_record.set()
 
@@ -146,7 +151,8 @@ class BackgroundWork:
             self._operations()
         except Exception as error:
             self.report['status'] = 'failed'
-            self.report['errors'].append(dict(code=getattr(error, 'code', 'background_failed'), message=str(error)))
+            details = error.details if isinstance(error, TransportFailure) else {}
+            self.report['errors'].append(dict(code=getattr(error, 'code', 'background_failed'), message=str(error), **details))
             self.cancel()
         finally:
             self.done.set()
@@ -261,6 +267,8 @@ class BackgroundWork:
                 thread.join(self.config.bulk_timeout + self.config.request_timeout + 2)
                 if thread.is_alive():
                     raise BenchmarkError('background_cleanup_failed', 'Original background thread has not JOINED')
+        if self.export_thread is not None:
+            self.report['live_export'] = dict(self.raw)
         self.report['threads_joined'] = True
 
     def wait(self):
