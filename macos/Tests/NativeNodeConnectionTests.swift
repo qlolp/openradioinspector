@@ -273,6 +273,23 @@ final class NativeNodeConnectionTests: XCTestCase {
         XCTAssertTrue(remote.current.isEmpty)
     }
 
+    @MainActor func testWorkspaceLoadingNeverEnumeratesAudioUntilExplicitInputAction() async throws {
+        let lock = NSLock(); var paths: [String] = []
+        let urlSession = session { stub in
+            lock.withLock { paths.append(stub.request.url!.path) }
+            try stub.reply([])
+        }
+        let client = try PlatformClient(baseURL: server, session: urlSession)
+        let workspace = MonitoringWorkspaceModel()
+        workspace.configure(server, client: client)
+        await workspace.load()
+        let initial = lock.withLock { paths }
+        XCTAssertFalse(initial.isEmpty)
+        XCTAssertFalse(initial.contains { $0.hasSuffix("/audio-inputs") })
+        await workspace.loadAudioInputs()
+        XCTAssertEqual(lock.withLock { paths.filter { $0.hasSuffix("/audio-inputs") }.count }, 1)
+    }
+
     @MainActor func testMonitoringReusesAuthenticatedClientAndReplacesItAtSameEndpoint() async throws {
         let lock = NSLock(); var headers: [String] = []
         let handle: (Stub) throws -> Void = { stub in

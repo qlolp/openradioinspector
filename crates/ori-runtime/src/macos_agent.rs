@@ -90,6 +90,17 @@ pub fn acceptance_configuration(_bundle: &Path, _home: &Path) -> Result<ServiceC
         "Mac acceptance requires Unix private paths".into(),
     ))
 }
+/// Select only the explicitly admitted installed package. RC1 never acquires
+/// native audio by inheriting an environment variable or a previous UI choice.
+pub fn configuration_for_bundle(bundle: &Path, data: &Path, maximum: u64) -> Result<ServiceConfig> {
+    let mut config = configuration(bundle, data, maximum)?;
+    let (identity, audio) = admitted_bundle(bundle)?;
+    config.backend.name = identity;
+    if audio {
+        config.backend.args.push("--allow-audio".into());
+    }
+    Ok(config)
+}
 
 #[cfg(target_os = "macos")]
 pub async fn run() -> Result<()> {
@@ -141,12 +152,13 @@ async fn run_mode(acceptance: bool) -> Result<()> {
             .create(&data)?;
         crate::lease::state_directory(&data)?;
     }
-    let mut config = if acceptance {
-        acceptance_configuration(bundle, Path::new(home))?
+    let config = if acceptance {
+        let mut config = acceptance_configuration(bundle, Path::new(home))?;
+        config.backend.name = bundled_backend_id(bundle)?;
+        config
     } else {
-        configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?
+        configuration_for_bundle(bundle, &data, 64 * 1024 * 1024 * 1024)?
     };
-    config.backend.name = bundled_backend_id(bundle)?;
     crate::service::run_personal_rc(config).await
 }
 
@@ -163,6 +175,10 @@ pub async fn run_acceptance() -> Result<()> {
 /// Identity of an immutable RC package, shared with the native client. This
 /// checks only installed files; it never opens hardware or a working archive.
 pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
+    admitted_bundle(bundle).map(|(identity, _)| identity)
+}
+
+fn admitted_bundle(bundle: &Path) -> Result<(String, bool)> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     let root = std::fs::canonicalize(bundle)?;
@@ -173,12 +189,16 @@ pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
     }
     let bytes = std::fs::read(path)?;
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let (prefix, audio, profile) = match value["release_version"].as_str() {
+        Some("0.4.0-macos.rc.1" | "0.4.0") => ("macos-rc1", false, "rc1"),
+        Some("0.4.0-macos.rc.2") => ("macos-rc2-audio", true, "rc2-audio"),
+        _ => return Err(Error::Unsafe("unknown personal RC package profile".into())),
+    };
     let source = value["source_revision"].as_str().unwrap_or("");
     if value["schema_version"] != 1
-        || !matches!(
-            value["release_version"].as_str(),
-            Some("0.4.0-macos.rc.1" | "0.4.0")
-        )
+        || value
+            .get("package_profile")
+            .is_some_and(|value| value != profile)
         || value["bundle_identifier"] != "org.openradioinspector.macos.rc"
         || value["architecture"] != "arm64"
         || source.len() != 40
@@ -197,7 +217,7 @@ pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
             || item["target_os"] != "macos"
             || item["path"] != relative
             || (name == "ori-core"
-                && item["features"] != serde_json::json!({"serial":true,"audio":false}))
+                && item["features"] != serde_json::json!({"serial":true,"audio":audio}))
         {
             return Err(Error::Unsafe("mixed RC helper configuration".into()));
         }
@@ -221,13 +241,15 @@ pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
             return Err(Error::Unsafe("RC helper integrity failed".into()));
         }
     }
-    Ok(format!("macos-rc1-{:x}", Sha256::digest(bytes)))
+    Ok((format!("{prefix}-{:x}", Sha256::digest(bytes)), audio))
 }
 
 pub fn verify_backend_package(backend: &BackendSpec) -> Result<()> {
     // Other embedding configurations retain their existing policy. The physical
     // macos-agent always derives this identity from its signed bundle.
-    if backend.name.starts_with("macos-rc1-") && backend.name != "macos-rc1-live" {
+    if (backend.name.starts_with("macos-rc1-") && backend.name != "macos-rc1-live")
+        || backend.name.starts_with("macos-rc2-audio-")
+    {
         let bundle = backend
             .program
             .parent()

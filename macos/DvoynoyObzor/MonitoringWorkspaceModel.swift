@@ -314,10 +314,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func load() async {
-        let currentScope = scope
         await reloadProjects()
-        guard PlatformExactID.same(scope, currentScope), !Task.isCancelled else { return }
-        await loadAudioInputs()
     }
 
     func reloadProjects() async {
