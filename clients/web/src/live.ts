@@ -44,6 +44,8 @@ export class LiveStore {
   private cleanup?: () => void;
   private generation = 0;
   private pending?: { resolve: (sequence: EventSequence) => void; reject: (reason: Error) => void };
+  private waitingForScope = false;
+  private heldSource?: () => void;
   private disposed = false;
   private provisional = false;
   private seeded = false;
@@ -77,16 +79,22 @@ export class LiveStore {
     ) => {
       if (message.data.generation !== this.generation || !this.pending) return;
       const pending = this.pending;
-      this.pending = undefined;
-      try {
-        if (message.data.error || !message.data.frame)
-          throw Error('Invalid event — resynchronizing');
-        this.apply(message.data.frame);
-        pending.resolve(message.data.frame.sequence);
-      } catch (error) {
-        pending.reject(error as Error);
-        this.gap((error as Error).message);
-      }
+      const apply = () => {
+        this.pending = undefined;
+        try {
+          if (message.data.error || !message.data.frame)
+            throw Error('Invalid event — resynchronizing');
+          this.apply(message.data.frame);
+          pending.resolve(message.data.frame.sequence);
+        } catch (error) {
+          pending.reject(error as Error);
+          this.gap((error as Error).message);
+        }
+      };
+      const frame = message.data.frame;
+      if (this.waitingForScope && frame && (frame.sweep || frame.observation || frame.unsupported))
+        this.heldSource = apply;
+      else apply();
     };
     worker.onerror = () => {
       if (worker === this.worker && !this.disposed) {
@@ -141,6 +149,12 @@ export class LiveStore {
     this.status = 'Reconnecting · replaying committed events';
     this.publish();
   }
+  // While the selected project's status and search are loading, the existing
+  // single-item transport ACK keeps its first source available for the correct scope.
+  selectProject(waitForScope: boolean) {
+    this.waitingForScope = waitForScope;
+    this.scope('', '', '');
+  }
   scope(session: string, stream: string, receiver: string, receiverSession = session) {
     if (session !== this.session || stream !== this.stream) {
       this.panorama = undefined;
@@ -161,6 +175,12 @@ export class LiveStore {
     this.receiverSession = receiverSession;
     this.receiver = receiver;
     this.buffer.scope(session, stream);
+    if (session && stream) this.waitingForScope = false;
+    if (!this.waitingForScope && this.heldSource) {
+      const apply = this.heldSource;
+      this.heldSource = undefined;
+      apply();
+    }
     this.publish();
   }
   seed(sweeps: Sweep[], observations: Observation[]) {
@@ -314,6 +334,7 @@ export class LiveStore {
     this.cleanup?.();
     this.cleanup = undefined;
     this.generation++;
+    this.heldSource = undefined;
     const pending = this.pending;
     this.pending = undefined;
     pending?.reject(new DOMException('Cancelled', 'AbortError'));

@@ -1,5 +1,13 @@
 import { encodePathSegment } from './wire';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { Api, ResourceScope } from './api';
 import { LiveStore, type LiveCheckpoint } from './live';
 import { HealthReceipts, type HealthCheckpoint } from './health';
@@ -160,12 +168,11 @@ export function useDesk(transport: Connection) {
     resyncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const seed = useCallback(
     async (p: Project, searchScope?: SearchStatus, signal?: AbortSignal) => {
+      if (selection.current !== p.id || !searchScope) return;
       const sid =
-        searchScope?.active && searchScope.session_id
-          ? searchScope.session_id
-          : p.active_session_id;
+        searchScope.active && searchScope.session_id ? searchScope.session_id : p.active_session_id;
       const stream =
-        searchScope?.active && searchScope.stream_id ? searchScope.stream_id : p.analyzer_stream_id;
+        searchScope.active && searchScope.stream_id ? searchScope.stream_id : p.analyzer_stream_id;
       liveStore.scope(sid, stream, p.receiver_stream_id, p.active_session_id);
       if (!liveStore.needsSeed()) return;
       const [sweeps, observations] = await Promise.all([
@@ -348,6 +355,12 @@ export function useDesk(transport: Connection) {
       });
   }, [connected, boot]);
 
+  useLayoutEffect(() => {
+    if (scopeProject.current === projectId) return;
+    scopeProject.current = projectId;
+    liveStore.selectProject(Boolean(projectId));
+  }, [projectId, liveStore]);
+
   useEffect(() => {
     currentScope.current = scope.current.next();
     setGuard(undefined);
@@ -356,25 +369,25 @@ export function useDesk(transport: Connection) {
     setEvents([]);
     setAllowed([]);
     setSearch(undefined);
-    if (scopeProject.current !== projectId) liveStore.scope('', '', '');
-    scopeProject.current = projectId;
     save('project', projectId);
     if (connected) void refresh();
   }, [projectId, connectionVersion, connected, refresh, liveStore]);
 
   useEffect(() => {
-    if (!project) return;
+    if (!project || !search || project.id !== projectId) return;
     const controller = new AbortController();
     void seed(project, search, controller.signal).catch((error) => {
       if (!controller.signal.aborted) setAction({ state: 'Error', text: message(error) });
     });
     return () => controller.abort();
   }, [
+    projectId,
     project?.id,
     project?.active_session_id,
     project?.analyzer_stream_id,
     search?.active,
     search?.session_id,
+    search?.stream_id,
     connectionVersion,
     seed,
   ]);
@@ -409,7 +422,7 @@ export function useDesk(transport: Connection) {
       if (eventsReading || running.current) return;
       eventsReading = true;
       try {
-        await refresh(searchRef.current?.active ? ['events', 'search'] : ['events']);
+        await refresh(searchRef.current?.active === false ? ['events'] : ['events', 'search']);
       } finally {
         eventsReading = false;
       }
