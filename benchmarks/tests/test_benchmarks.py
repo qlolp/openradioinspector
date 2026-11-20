@@ -577,13 +577,17 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(result['metric'],'offered-to-render conservative upper bound')
         self.assertFalse(result['committed_to_render_measured'])
         self.assertEqual([client['missing'] for client in result['client_coverage']], [0, 0, 0])
-        partial = [header, rows[1], rows[3], dict(rows[-1], records=2)]
+        partial = [header, rows[1], rows[3], dict(rows[-1], records=2, final_presentation_epoch=[
+            dict(client=str(index), applied=1, evicted_before_presentation=0,
+                 coalesced_before_draw=int(index == 1)) for index in range(3)])]
         events.write_text(''.join(json.dumps(row)+'\n' for row in partial))
         ledger.db.execute('DELETE FROM rendered');ledger.db.commit()
         incomplete = correlate(events,config,ledger,Histogram())
         self.assertEqual(incomplete['status'], 'failed')
         self.assertEqual(incomplete['expected_renders'], 3)
         self.assertEqual([client['observed'] for client in incomplete['client_coverage']], [1, 0, 1])
+        self.assertEqual(incomplete['client_coverage'][1]['final_presentation_epoch'],
+            dict(applied=1, evicted_before_presentation=0, coalesced_before_draw=1))
         self.assertEqual(incomplete['client_coverage'][1]['missing_samples'],
             [dict(id=key, index=0, source_status='accepted', source_verified=True)])
         rows[-1]['dropped']=1
@@ -626,7 +630,10 @@ class BenchmarkTests(unittest.TestCase):
             rows=[json.loads(line) for line in output.read_text().splitlines()]
             self.assertEqual(rows[0]['clients'],3)
             renders=[row for row in rows if row['kind']=='render']
-            self.assertGreaterEqual(len(renders),9)
+            self.assertEqual(len(renders),9)
+            for index in range(3):
+                self.assertEqual([row['id'] for row in renders if row['client']==str(index)],
+                    [f'fixture-bench-sweep-{source:09}' for source in range(3)])
             self.assertEqual({r['client'] for r in renders},{'0','1','2'})
             self.assertEqual(rows[-1]['dropped'],0)
         finally:server.shutdown();server.server_close();thread.join()

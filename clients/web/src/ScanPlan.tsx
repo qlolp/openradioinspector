@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Panel } from './components';
 import { t } from './i18n';
 import { gridPointCount, coverageBands } from './scan-plan';
-import { CoverageRow } from './StationPanels';
+import { CoverageRow, Qualification } from './StationPanels';
 import type { Desk } from './useDesk';
 import type { ScanBand } from '../../../contracts/generated/typescript/runtime';
 
@@ -257,10 +257,21 @@ export function ScanPlan({ desk }: { desk: Desk }) {
             {band.sweeps} / {band.minimum_sweeps} {t('sweeps')} · {band.elapsed_seconds.toFixed(1)}{' '}
             / {band.minimum_seconds} {t('s')}
           </p>
+          <p>
+            <Qualification label="Band qualification" value={band.measurement_qualification} />
+          </p>
           {band.window_count != null && (
             <p>
-              {t('Windows ready')} {band.ready_windows ?? '—'} / {band.window_count} ·{' '}
-              {t('Confirmed windows')} {band.confirmed_windows ?? '—'}
+              {t('Windows ready')} {band.ready_windows ?? '—'} /{' '}
+              {band.eligible_windows ?? band.window_count} · {t('Confirmed windows')}{' '}
+              {band.confirmed_windows ?? '—'}
+              {band.excluded_windows != null && band.excluded_windows > 0 && (
+                <>
+                  {' '}
+                  · {t('Windows excluded from automatic baselines')} {band.excluded_windows} /{' '}
+                  {band.window_count}
+                </>
+              )}
             </p>
           )}
           <label className="check">

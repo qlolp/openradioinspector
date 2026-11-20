@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "client": "Production WebUI built from the 0.4.0 integration working tree",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79",
+      "delivery": "Vite preview of clients/web/dist on loopback",
+      "source": "clients/web/tests/core_fixture.py; disposable synthetic SQLite archive, no physical instruments",
+      "capture": "clients/web/e2e/station.spec.ts, Playwright page screenshot; original PNG without edits",
+      "bundle_files_sha256": {
+        "assets/core-C8HHdHhl.js": "a510613c3b56f5feaaa42b25db7d2ed8e335afd2625d6b7257507fd168e95c1f",
+        "assets/frame.worker-PYJNmVHN.js": "810bd510836fd8ca6ec4ea7aeb83f188057aa99505c6b65eebcdced3e8aef9a9",
+        "assets/index-DCQfTxyf.css": "9ce63e01fb5d2fcc8aa95a799e698df7d9b6efedacbb2a128fd72debbb62d49d",
+        "assets/index-DJbn_RMc.js": "4634dc38e23e1264e04c2626b74b887ecd3dca2bd4e0aae9aac3990933e076c5"
+      },
+      "captures": [
+        {
+          "file": "images/web-linux-monitoring.png",
+          "sha256": "1b2377ab1f236df89e6c5dbc2760f46323f2008abeaa4abb78982acd59915881",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "system",
+          "scenario": "192 archived synthetic sweeps, two frequency periods; stopped guard"
+        },
+        {
+          "file": "images/web-linux-event.png",
+          "sha256": "ed5614b14344bb5855d66f86bf8ca4c8f0de1da065a34b44ac22577d1447d95e",
+          "pixels": [
+            1920,
+            1080
+          ],
+          "device_scale_factor": 1.25,
+          "theme": "light",
+          "scenario": "archived event and linked simulated AR-DV1 observation"
+        },
+        {
+          "file": "images/web-linux-research.png",
+          "sha256": "7a983258f12918abbaf08aedbaaf37bab68f55dc721e6f230891f0c882c570b3",
+          "pixels": [
+            1920,
+            1080
+          ],
+          "device_scale_factor": 1.25,
+          "theme": "light",
+          "scenario": "selected original in archive research"
+        },
+        {
+          "file": "images/web-linux-guard.png",
+          "sha256": "775b6a12dcc6535c57f554f8af8950c4ac7a55fbf0dc67871bcf4d6cd1f05e2b",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "dark",
+          "scenario": "armed synthetic guard with both simulator workers running"
+        }
+      ]
+    }
+  ]
+}

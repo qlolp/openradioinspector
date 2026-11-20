@@ -33,6 +33,10 @@ export function sameSpectrumContext(first?: DisplaySweep, second?: DisplaySweep)
       (second.original_point_count ?? second.frequencies_hz.length)
   );
 }
+// Allow a brief replay or main-thread stall at the 10 Hz reference rate. Only
+// retain pointers; sustained overflow stays in the peak/newest projection until
+// the pipeline drains, so a long replay cannot leave a stale FIFO on screen.
+const MAX_PENDING_SOURCES = 16;
 const GRID = new Float32Array(
   Array.from({ length: 5 }, (_, i) => {
     const p = i / 2 - 1;
@@ -72,6 +76,7 @@ export class SpectrumRenderer {
   private acknowledgements = new Set<number>();
   private latest?: SpectrumSnapshot;
   private pending: SpectrumSnapshot[] = [];
+  private projectingOverflow = false;
   private awaitingSource = false;
   private ownerGeneration = 0;
   private releaseScheduled = false;
@@ -159,11 +164,13 @@ export class SpectrumRenderer {
     else if (this.awaitingSource) {
       const index = this.pending.findIndex((item) => item.sweep?.id === sweep?.id);
       if (index !== -1) this.pending[index] = snapshot;
-      else if (this.pending.length < 2) this.pending.push(snapshot);
+      else if (!this.projectingOverflow && this.pending.length < MAX_PENDING_SOURCES)
+        this.pending.push(snapshot);
       else {
         // An undrawn FIFO prefix can keep the live graph seconds behind its
         // applied source. Keep the first strongest complete source and newest
         // source instead. Never replace the reserved owner or its paint barrier.
+        this.projectingOverflow = true;
         const offered = [...this.pending, snapshot];
         let peak = offered[0];
         for (const item of offered.slice(1))
@@ -237,6 +244,7 @@ export class SpectrumRenderer {
     this.awaitingSource = false;
     this.releaseScheduled = false;
     this.pending = [];
+    this.projectingOverflow = false;
     this.coalescedSources = 0;
     for (const id of this.acknowledgements) cancelAnimationFrame(id);
     this.acknowledgements.clear();
@@ -366,6 +374,7 @@ export class SpectrumRenderer {
             this.awaitingSource = false;
             this.releaseScheduled = false;
             const next = this.pending.shift();
+            if (!this.pending.length) this.projectingOverflow = false;
             if (next) this.accept(next, true);
           });
         }

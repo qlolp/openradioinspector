@@ -6,12 +6,11 @@ after that mutation's observer delivery and draws in a later animation frame.
 The marker still identifies submitted pixels; it is never produced for an
 undrawn source or moved ahead of the existing paint barrier.
 
-The renderer reserves its first source even before the initial draw. At most
-two complete pending snapshots retain arrival order while they fit. On overflow,
+The renderer reserves its first source even before the initial draw. Up to 16 complete pending snapshots retain arrival order across a short source replay or a temporarily stalled paint. On overflow,
 the display projection retains the first source with the greatest peak among
 undrawn sources and the newest source. If these are the same source there is
 one pending snapshot. Ties retain the first maximum. Small A/B/C bursts retain
-all three sources even when their peaks rise. On overflow a greater new maximum
+all three sources even when their peaks rise. The same applies to short batches of up to 16 pending sweeps. Sustained overflow stays in this projection until the backlog drains. On overflow a greater new maximum
 can replace an undrawn lesser maximum; the
 reserved owner is never replaced. These snapshots retain immutable display
 arrays by reference, without copying or combining measurement vectors or IDs.
@@ -56,7 +55,7 @@ Disposed plots cancel their source barriers and discard their local cursor.
 This handoff adds no unbounded queue. If a publication misses more new rows than
 the 256-row buffer retains, `LiveSourceCursor.presentationStatus` reports the
 exact `retainedRowEvictions` count for that epoch. The renderer's separate
-pending maximum/newest projection remains bounded to two snapshots.
+pending FIFO holds up to 16 snapshots. If that budget is exceeded the maximum/newest projection bounds the remaining overload backlog to two.
 Neither count manufactures a paint marker or makes incomplete source rendering
 pass an acceptance check. ACKs still follow parsing/application without waiting
 for RAF publication, drawing or paint.
@@ -90,7 +89,7 @@ summary showed the last source while the canvas still displayed source 54 at
 the unchanged 5-second assertion. The retained marker/RAF trace shows the old
 FIFO prefix progressing. A 64-source undrawn prefix needed three successive
 RAF callbacks per source and could remain stale for seconds on that scheduler.
-The new projection bounds this backlog without moving the two-RAF paint marker
+The overflow projection bounds this backlog without moving the two-RAF paint marker
 earlier. Controlled regressions retain the owner, first global maximum and final
 source within the existing callback protocol. The unchanged real-browser gate,
 full end-to-end latency tests and native CI still decide acceptance.
@@ -108,3 +107,7 @@ baseline, restore, same-ID reset, duplicates, wrong scope, exact counts beyond
 JavaScript safe integers, retained-row eviction, initial admission and obsolete
 marker cancellation. Original source IDs, UTC precision, units and every level
 and frequency remain unchanged, including negative zero and decomposed IDs.
+
+An eight-source replay regression reproduces a second loss after Worker/application acknowledgement. In real Chromium, all eight sequential ACKs completed in one controlled parser publication. The two-slot projection marked A, B and H, leaving five undrawn sources. With the bounded transient FIFO, all eight draw markers were observed in order on distinct browser frames with actual Canvas pixels and the two original paint callbacks. Large overflows still exercise the maximum/newest policy and remain visible as coalesced work. The passive observer records final-epoch applied, evicted-before-presentation and coalesced-before-draw counters in each client's coverage report. These counters help diagnose missing IDs. Actual post-draw markers determine completeness and latency.
+
+The historical hosted ARM64 1,800-second run on revision `7b56972` received 53,977 of 54,000 render markers. No observer drops were reported, and p95 from offer to observed draw was 95.91 ms. That report predates per-source stage diagnostics. The new replay regression establishes a reachable loss path, while acceptance of the revised build still requires all 54,000 markers on each reference platform.

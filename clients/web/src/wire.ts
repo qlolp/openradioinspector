@@ -15,6 +15,7 @@ import {
   type Sweep as ContractSweep,
 } from '../../../contracts/generated/typescript/index.ts';
 import type { Observation, Sweep } from './types';
+import { decodePairedRecheckResult } from '../../../contracts/generated/typescript/runtime';
 export { stringifyJSON, encodePathSegment, normalizeUTC };
 const MAX_JSON = 8_388_608;
 function object(value: JSONValue): JSONObject {
@@ -83,7 +84,27 @@ export function responseValue(path: string, raw: string | Uint8Array): unknown {
     )
   )
     data = eventValue(data);
-  else if (/^\/api\/v1\/sessions\/[^/]+\/sweep-summaries$/.test(route)) {
+  else if (/^\/api\/v1\/monitoring-projects\/[^/]+\/events\/[^/]+\/paired-rechecks$/.test(route)) {
+    const report = decodePairedRecheckResult(data);
+    const parts = route.split('/');
+    if (
+      report.project_id !== decodeURIComponent(parts[4]) ||
+      report.event_id !== decodeURIComponent(parts[6])
+    )
+      throw Error('Source evidence mismatch');
+    if (
+      report.state === 'evaluated' &&
+      (report.frequency_hz == null ||
+        !report.instrument ||
+        report.methodology !== 'paired-local-recheck-v1' ||
+        typeof report.simulated !== 'boolean' ||
+        report.repeat_total !== report.visits.length ||
+        report.signal_repeats == null ||
+        report.discrepancy_repeats == null)
+    )
+      throw Error('Incomplete paired evidence');
+    data = report as unknown as JSONValue;
+  } else if (/^\/api\/v1\/sessions\/[^/]+\/sweep-summaries$/.test(route)) {
     const page = object(data);
     data = { ...page, items: array(page.items).map((value) => numbers(value, ['peak_level'])) };
   }

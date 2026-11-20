@@ -233,6 +233,9 @@ export function Spectrum({ sweep, comparison, liveSources, belowPlot }: Spectrum
     <div
       className="spectrum-chart"
       data-testid="spectrum-chart"
+      data-applied-sources={liveSources?.presentation.total.toString()}
+      data-evicted-sources={sourceCursor.current?.presentationStatus.retainedRowEvictions.toString()}
+      data-coalesced-sources={drawn?.coalescedSources}
       data-view-low={range.low}
       data-view-high={range.high}
     >

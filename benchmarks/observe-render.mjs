@@ -50,6 +50,7 @@ write({ kind: 'observer_metadata', version: 1, clients, clock: 'unix-wall-ns',
   host_sha256: crypto.createHash('sha256').update(os.hostname()).digest('hex'),
   draw_contract: 'data-sweep-id-after-draw' });
 let status = 0;
+const finalPresentation = [];
 let stage = 'browser launch';
 function progress(value) { stage = value; process.stderr.write('Observer stage: ' + stage + '\n'); }
 try {
@@ -172,13 +173,28 @@ try {
     poll = options['stop-file'] ? setInterval(() => { if (fs.existsSync(options['stop-file'])) stop(); }, 50) : undefined;
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
   });
-  for (const page of pages) await page.evaluate(async () => { await window.__oriBenchObserverFinish?.(); });
+  for (const [client, page] of pages.entries()) {
+    const counters = await page.evaluate(async () => {
+      await window.__oriBenchObserverFinish?.();
+      // Diagnostic state of the current project/epoch. These counters cannot
+      // supply render evidence; only the after-draw binding writes render rows.
+      const chart = document.querySelector('.live-grid [data-testid="spectrum-chart"]');
+      const values = ['appliedSources', 'evictedSources', 'coalescedSources'].map(key => {
+        const raw = chart?.dataset[key];
+        const count = Number(raw);
+        return /^\d+$/.test(raw ?? '') && Number.isSafeInteger(count) ? count : null;
+      });
+      return { applied: values[0], evicted_before_presentation: values[1], coalesced_before_draw: values[2] };
+    });
+    finalPresentation.push({ client: String(client), ...counters });
+  }
 } catch {
   status = 1; dropped++;
   process.stderr.write('Observer failed at ' + stage + '; no UI latency acceptance claim was made\n');
 } finally {
   if (browser) await browser.close();
-  write({ kind: 'observer_summary', records, dropped, failed: status !== 0 }, true);
+  write({ kind: 'observer_summary', records, dropped, failed: status !== 0,
+    final_presentation_epoch: finalPresentation }, true);
   fs.fsyncSync(descriptor); fs.closeSync(descriptor);
 }
 process.exitCode = status;

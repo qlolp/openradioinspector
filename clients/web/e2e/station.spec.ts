@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { openDesk } from './helpers';
+import { disarmOwnedSyntheticGuard } from './guard-cleanup';
 import { CORE, ownProject } from './binary-fixture';
 
 async function visibleWaterfall(page: Page) {
@@ -147,6 +148,33 @@ test('an advertised 10 kHz grid submits inclusive points and the selected RBW', 
     Object.assign(body.data.features, { monitoring_scan_plans: true, scan_plan_grid_10khz: true });
     await route.fulfill({ response, json: body });
   });
+  await page.route('**/monitoring-projects/*/preflight', async (route) => {
+    const response = await route.fetch(),
+      body = await response.json();
+    body.data.baseline_collection.bands = [
+      {
+        band_id: 'crossing',
+        name: 'Crossing',
+        sweeps: 25,
+        elapsed_seconds: 120,
+        minimum_sweeps: 20,
+        minimum_seconds: 60,
+        ready: true,
+        baseline_id: null,
+        window_count: 7,
+        eligible_windows: 3,
+        excluded_windows: 4,
+        ready_windows: 3,
+        confirmed_windows: 0,
+        measurement_qualification: {
+          status: 'partial',
+          reason: 'reference_required_above_800_mhz',
+          verified_through_hz: 800000000,
+        },
+      },
+    ];
+    await route.fulfill({ response, json: body });
+  });
   await page.route('**/monitoring-projects/*/scan-plan', (route) =>
     route.fulfill({
       json: { contract: 'openradioinspector-platform', contract_version: 1, data: {} },
@@ -154,6 +182,11 @@ test('an advertised 10 kHz grid submits inclusive points and the selected RBW', 
   );
   await openDesk(page);
   await page.getByTestId('project-select').selectOption({ label: 'North laboratory' });
+  await expect(page.locator('.band-baseline')).toContainText('Windows ready 3 / 3');
+  await expect(page.locator('.band-baseline')).toContainText(
+    'Windows excluded from automatic baselines 4 / 7',
+  );
+  await expect(page.locator('.band-baseline')).toContainText('800,000,000 Hz');
   await page.getByLabel('Frequency grid').selectOption('10000');
   await page.getByLabel('Band start (Hz)').fill('100000');
   await page.getByLabel('Band end (Hz)').fill('1300000000');
@@ -170,6 +203,8 @@ test('an advertised 10 kHz grid submits inclusive points and the selected RBW', 
     step_hz: 10000,
     rbw_hz: 30000,
   });
+  await expect(page.getByTestId('action-state')).toContainText('Confirmed');
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 for (const [name, width, height, scale] of [
@@ -608,4 +643,166 @@ test('1366×768 displays peaks from two distinct committed waterfall periods', a
     expect(rect.x + rect.width).toBeLessThanOrEqual(390);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test.describe('offline operator guide', () => {
+  test.use({ viewport: { width: 1536, height: 864 }, deviceScaleFactor: 1.25 });
+  test('captures an archived event and research on the production Russian desk', async ({
+    page,
+  }, info) => {
+    await openDesk(page);
+    await page.getByTestId('project-select').selectOption({ label: 'North laboratory' });
+    await page.getByTestId('locale-select').selectOption('ru');
+    await page
+      .locator('select')
+      .filter({ has: page.locator('option[value="light"]') })
+      .selectOption('light');
+    const details = page
+      .getByTestId('event-row')
+      .first()
+      .getByRole('button', { name: 'Подробности' });
+    await details.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Подробности события' });
+    await expect(dialog.locator('.event-receiver code').first()).toBeVisible();
+    await page.screenshot({ path: info.outputPath('web-linux-event.png') });
+    await dialog.getByRole('button', { name: 'Исходный спектр' }).click();
+    const original = page.getByRole('dialog', { name: 'Исходный спектр' });
+    await expect(original.locator('canvas.spectrum')).toHaveAttribute('data-sweep-id', /.+/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(details).toBeFocused();
+    await page.keyboard.press('Alt+r');
+    await page.getByRole('button', { name: 'Загрузить историю' }).click();
+    const row = page.getByTestId('history-row').first();
+    await row.locator('.history-select').click();
+    await expect(page.locator('.research-grid canvas.spectrum')).toHaveAttribute(
+      'data-sweep-id',
+      /.+/,
+    );
+    await page.locator('.research-grid').scrollIntoViewIfNeeded();
+    await page
+      .locator('.research-grid')
+      .evaluate((section) => section.scrollIntoView({ block: 'start' }));
+    await page.screenshot({ path: info.outputPath('web-linux-research.png') });
+  });
+});
+
+test('captures the running synthetic guard and both receivers in the dark Russian workspace', async ({
+  page,
+  request,
+}, info) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await openDesk(page);
+  await page.getByTestId('project-select').selectOption({ label: 'North laboratory' });
+  try {
+    await page.getByLabel('Theme').selectOption('dark');
+    await page.getByRole('button', { name: 'Arm guard', exact: true }).click();
+    await expect(page.getByTestId('guard-state')).toHaveText('Armed');
+    await expect
+      .poll(async () =>
+        Number(
+          (await page.locator('.waterfall').getAttribute('aria-label'))?.match(
+            /Waterfall, (\d+)/,
+          )?.[1],
+        ),
+      )
+      .toBeGreaterThan(8);
+    await page.getByTestId('locale-select').selectOption('ru');
+    await expect(page.locator('.receiver-frequency')).toContainText('Гц');
+    await expect(page.locator('canvas.spectrum').first()).toHaveAttribute('data-sweep-id', /.+/);
+    await page.screenshot({ path: info.outputPath('web-linux-guard.png') });
+  } finally {
+    await disarmOwnedSyntheticGuard(request);
+  }
+});
+
+test('reads attached paired evidence and submits only archived source IDs from Research', async ({
+  page,
+  request,
+}) => {
+  const list = (await (await request.get(CORE + '/monitoring-projects')).json()).data.items;
+  const project = list.find((item: { name: string }) => item.name === 'North laboratory');
+  const events = (
+    await (
+      await request.get(CORE + '/monitoring-projects/' + project.id + '/events?limit=100')
+    ).json()
+  ).data.items;
+  const event = events[0];
+  await page.addInitScript((id) => localStorage.setItem('ori-modern-project', id), project.id);
+  await page.route('**/api/v1/capabilities', async (route) => {
+    const response = await route.fetch(),
+      body = await response.json();
+    body.data.features.paired_event_rechecks = true;
+    await route.fulfill({ response, json: body });
+  });
+  const pair = (id: number) => ({ sweep_id: 'demo-' + id, observation_ids: ['rx-' + id] });
+  const refs = {
+    initial: pair(0),
+    neighbors: Array.from({ length: 10 }, (_, i) => pair(i + 1)),
+    controls: { lower: pair(11), upper: pair(12) },
+    repeats: [pair(13), pair(14)],
+  };
+  const evaluated = {
+    state: 'evaluated',
+    methodology: 'paired-local-recheck-v1',
+    frequency_hz: 100000000,
+    instrument: 'tinySA',
+    repeat_total: 2,
+    signal_repeats: 2,
+    discrepancy_repeats: 1,
+    simulated: true,
+    visits: refs.repeats.map((ref, i) => ({
+      ...ref,
+      tiny_delta_db: 10.25,
+      ar_drop_counts: 4 - i,
+      signal_repeated: true,
+      discrepancy_repeated: i === 0,
+    })),
+  };
+  const submissions: unknown[] = [];
+  await page.route(
+    '**/monitoring-projects/' + project.id + '/events/' + event.id + '/paired-rechecks',
+    async (route) => {
+      if (route.request().method() === 'POST') submissions.push(route.request().postDataJSON());
+      await route.fulfill({
+        json: {
+          contract: 'openradioinspector-platform',
+          contract_version: 1,
+          data: {
+            project_id: project.id,
+            event_id: event.id,
+            ...(submissions.length ? evaluated : { state: 'missing_evidence', visits: [] }),
+          },
+        },
+      });
+    },
+  );
+  await openDesk(page);
+  await page.locator('[data-event-id="' + event.id + '"] button').click();
+  await expect(page.getByRole('dialog')).toContainText('No paired visits have been recorded');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Alt+r');
+  const panel = page
+    .locator('.research-grid section')
+    .filter({ has: page.getByLabel('Event to recheck') })
+    .first();
+  await expect(panel.getByLabel('Event to recheck')).toHaveValue(event.id);
+  const upload = panel.locator('input[type=file]');
+  const file = (body: unknown) => ({
+    name: 'training.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(body)),
+  });
+  await upload.setInputFiles(file({ ...refs, tiny_delta_db: 90 }));
+  await panel.getByRole('button', { name: 'Evaluate paired recheck' }).click();
+  await expect(panel.getByRole('alert')).toContainText('Expected initial');
+  expect(submissions).toEqual([]);
+  await upload.setInputFiles(file(refs));
+  await panel.getByRole('button', { name: 'Evaluate paired recheck' }).click();
+  await expect(panel.locator('dl')).toContainText('Signal repeated2 / 2');
+  await expect(panel.locator('dl')).toContainText('Discrepancy repeated1 / 2');
+  await expect(panel.locator('ol li').last()).toContainText('Discrepancy repeated · No');
+  await expect(panel.locator('ol li').first()).toContainText('10.25 dB');
+  expect(submissions).toEqual([refs]);
 });

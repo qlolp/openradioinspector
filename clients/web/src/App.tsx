@@ -6,6 +6,7 @@ import { originalJSON, encodePathSegment } from './wire';
 import { Modal, Panel, hz, titleCase, utc } from './components';
 import { Prepare } from './Prepare';
 import { Research } from './Research';
+import { PairedRechecks } from './PairedRechecks';
 import { ScanPlan } from './ScanPlan';
 import { coverageBands, scanChoices, scanKey } from './scan-plan';
 import { prepareSweep } from './pipeline';
@@ -14,6 +15,7 @@ import {
   CoverageRow,
   EventQueue,
   EventReceiver,
+  Qualification,
   Recovery,
   StationStatus,
 } from './StationPanels';
@@ -791,6 +793,9 @@ export function App({
         <Recovery desk={desk} />
         <section hidden={workspace !== 'research'} aria-label={t('Research workspace')}>
           <Research
+            active={workspace === 'research'}
+            pairedEvent={selectedEvent || ''}
+            setPairedEvent={setSelectedEvent}
             desk={desk}
             openOriginal={(id) => {
               void openOriginal(id);
@@ -876,7 +881,11 @@ export function App({
                       busy={desk.busy}
                     />
                     {waterfall}
-                    {coverageBand && <CoverageRow band={coverageBand} />}
+                    {coverageBand ? (
+                      <CoverageRow band={coverageBand} />
+                    ) : (
+                      <Qualification label="Band qualification" />
+                    )}
                     <h3>{t('Latest hardware window')}</h3>
                     {latest && (
                       <p className="muted">
@@ -904,6 +913,13 @@ export function App({
               </span>
             </div>
             {unavailable && waterfall}
+            {!bandRange &&
+              planBand &&
+              (coverageBand ? (
+                <CoverageRow band={coverageBand} />
+              ) : (
+                <Qualification label="Band qualification" />
+              ))}
             <div className="source-footer" role="group" aria-label={t('Latest saved measurement')}>
               <span data-testid="source-id">
                 {unavailable?.id || latest?.id || t('Waiting for a committed sweep')}
@@ -1065,6 +1081,13 @@ export function App({
             </button>
           </div>
           <EventReceiver event={event} api={desk.api} />
+          {desk.capabilities?.features.paired_event_rechecks === true && (
+            <PairedRechecks
+              key={JSON.stringify([desk.connectionVersion, desk.projectId, event.id])}
+              desk={desk}
+              eventId={event.id}
+            />
+          )}
           <audio
             ref={audio}
             controls
@@ -1136,6 +1159,12 @@ export function App({
             {original.id}
             <br />
             {utc(original.interval.started_at)} → {utc(original.interval.ended_at)}
+          </p>
+          <p>
+            <Qualification
+              label="Source qualification"
+              value={original.settings?.measurement_qualification}
+            />
           </p>
           {originalPlot ? (
             <div className="evidence-spectrum">

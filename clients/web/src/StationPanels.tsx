@@ -284,6 +284,38 @@ export function StationStatus({ desk, analyzer }: { desk: Desk; analyzer?: Worke
   );
 }
 
+const qualificationLabels = {
+  supported: 'Supported by the receiver profile',
+  unverified: 'Unverified frequency range',
+  partial: 'Partially verified frequency range',
+  synthetic: 'Training data',
+};
+export function Qualification({ label, value }: { label: string; value?: unknown }) {
+  const receipt =
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+  const status = receipt?.status;
+  const known = typeof status === 'string' && Object.hasOwn(qualificationLabels, status);
+  const limit = receipt?.verified_through_hz;
+  return (
+    <span className="measurement-qualification">
+      {t(label)} ·{' '}
+      <strong>
+        {t(
+          known
+            ? qualificationLabels[status as keyof typeof qualificationLabels]
+            : 'Not reported by the core',
+        )}
+      </strong>
+      {known && typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0 && (
+        <> · {t('Profile verified through {frequency}', { frequency: hz(limit) })}</>
+      )}
+      {known && receipt?.reason === 'reference_required_above_800_mhz' && (
+        <> · {t('Above 800 MHz a reference measurement is required.')}</>
+      )}
+    </span>
+  );
+}
+
 export function CoverageRow({ band }: { band: BandCoverage }) {
   return (
     <div className="coverage-row">
@@ -302,10 +334,16 @@ export function CoverageRow({ band }: { band: BandCoverage }) {
           {t('Completed passes')} {band.completed_passes ?? '—'}
         </span>
       )}
+      <Qualification label="Band qualification" value={band.measurement_qualification} />
       {band.last_window && (
         <small className="break">
           {hz(band.last_window.start_hz)} – {hz(band.last_window.stop_hz)} ·{' '}
           {utc(band.last_window.ended_at)} · {band.last_window.measurement_id}
+          <br />
+          <Qualification
+            label="Latest window qualification"
+            value={band.last_window.measurement_qualification}
+          />
         </small>
       )}
       {band.deadline_missed && <strong className="warning-text">{t('Revisit overdue')}</strong>}

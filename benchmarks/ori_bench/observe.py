@@ -84,6 +84,19 @@ def correlate(path,config,ledger,histogram):
             samples = [dict(id=row['id'], index=row['idx'], source_status=row['status'],
                             source_verified=bool(row['verified'])) for row in rows]
         coverage.append(dict(client=str(client), observed=count, missing=missing, missing_samples=samples))
+    diagnostics = (summary or {}).get('final_presentation_epoch', [])
+    if not isinstance(diagnostics, list) or len(diagnostics) > metadata['clients']:
+        raise BenchmarkError('observer_invalid', 'Invalid final presentation counters')
+    for index, counters in enumerate(diagnostics):
+        if not isinstance(counters, dict) or counters.get('client') != str(index):
+            raise BenchmarkError('observer_invalid', 'Invalid presentation client')
+        counts = {}
+        for key in ('applied', 'evicted_before_presentation', 'coalesced_before_draw'):
+            value = counters.get(key)
+            if value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1):
+                raise BenchmarkError('observer_invalid', 'Invalid presentation count')
+            counts[key] = value
+        coverage[index]['final_presentation_epoch'] = counts
     metric=histogram.report()
     passed=bool(expected and summary is not None and not summary['dropped'] and not summary.get('failed')
                 and summary.get('records')==observed+duplicates and observed==expected

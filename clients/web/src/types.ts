@@ -92,7 +92,10 @@ export interface WorkerStatus {
   last_measurement_at?: string;
   current: Record<string, unknown>;
 }
+export type MeasurementQualification =
+  import('../../../contracts/generated/typescript/runtime').MeasurementQualification;
 export interface BandCoverage {
+  measurement_qualification?: MeasurementQualification;
   id: string;
   name: string;
   state: string;
@@ -104,6 +107,7 @@ export interface BandCoverage {
   window_count?: number;
   completed_passes?: number;
   last_window?: {
+    measurement_qualification?: MeasurementQualification;
     index: number;
     start_hz: number;
     stop_hz: number;
@@ -151,7 +155,10 @@ export interface Preflight {
   baseline_collection: {
     bands?: {
       band_id: string;
+      measurement_qualification?: MeasurementQualification;
       window_count?: number;
+      eligible_windows?: number;
+      excluded_windows?: number;
       ready_windows?: number;
       confirmed_windows?: number;
       name: string;
