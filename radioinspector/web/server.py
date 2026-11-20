@@ -78,7 +78,8 @@ from ..sweep_references import ReferenceLimitReachedError, ReferenceNameConflict
 from ..task_scheduler import TaskNotFoundError, TaskScheduler
 from ..tasks import TaskBook
 from ..request_limits import (
-    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, REQUEST_BODY_TIMEOUT_SECONDS,
+    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES,
+    REQUEST_BODY_TIMEOUT_SECONDS, validate_candidate_window,
 )
 from ..jsonio import dumps as json_dumps
 from ..keywords import CATALOG
@@ -348,6 +349,25 @@ def finite_number(value):
     if not math.isfinite(number):
         raise ValueError("Число должно быть конечным")
     return number
+
+
+def _page_integer(value: str) -> int:
+    digits = value.removeprefix("+")
+    if not digits.isascii() or not digits.isdecimal():
+        raise ValueError("Параметр страницы должен быть целым неотрицательным числом")
+    return int(digits)
+
+
+def page_limit(value: str | None) -> int | None:
+    limit = _page_integer(value) if value else None
+    validate_candidate_window(limit, 0)
+    return limit
+
+
+def page_offset(value: str | None) -> int:
+    offset = _page_integer(value) if value else 0
+    validate_candidate_window(None, offset)
+    return offset
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -960,7 +980,13 @@ class Handler(BaseHTTPRequestHandler):
             ):
                 state = query.get("state", [None])[0]
                 if parts[4] == "candidates":
-                    result = self.sessions.list_candidates(parts[3], state=state)
+                    if any(len(query.get(key, [])) > 1 for key in ("limit", "offset")):
+                        raise ValueError("Параметр страницы повторяется")
+                    limit = page_limit(query.get("limit", [None])[0])
+                    offset = page_offset(query.get("offset", [None])[0])
+                    result = self.sessions.list_candidates(
+                        parts[3], state=state, limit=limit, offset=offset,
+                    )
                 else:
                     result = self.sessions.list_investigations(parts[3], state=state)
                 self._send_json(api_payload(result))

@@ -206,6 +206,7 @@ fn incomplete_or_future_precision_and_monitoring_schemas_fail_before_any_databas
         "CREATE TABLE ori_archive_schema(singleton INTEGER PRIMARY KEY,version INTEGER);INSERT INTO ori_archive_schema VALUES(1,0);CREATE TABLE ori_observation_level_bits(observation_id TEXT PRIMARY KEY,level_bits_le BLOB)",
         "CREATE TABLE ori_archive_schema(singleton INTEGER PRIMARY KEY,version INTEGER);INSERT INTO ori_archive_schema VALUES(1,2);CREATE TABLE ori_observation_level_bits(observation_id TEXT PRIMARY KEY,level_bits_le BLOB)",
         "UPDATE monitoring_schema SET version=5",
+        "CREATE TABLE ori_archive_query_schema(singleton INTEGER PRIMARY KEY,version INTEGER);INSERT INTO ori_archive_query_schema VALUES(1,2)",
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("future.sqlite");

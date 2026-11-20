@@ -5,7 +5,9 @@ extern crate self as ori_guard;
 
 pub mod control;
 pub use control::*;
+mod audio_evidence;
 mod baseline;
+pub use audio_evidence::AudioClip;
 mod grants;
 pub use grants::InstrumentControlGrant;
 mod history;

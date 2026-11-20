@@ -9,7 +9,10 @@ from __future__ import annotations
 import re
 
 from ..contracts import CONTRACT_NAME, CONTRACT_VERSION
-from ..request_limits import MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, REQUEST_BODY_TIMEOUT_SECONDS
+from ..request_limits import (
+    MAX_CONTROL_REQUEST_BYTES, MAX_MEASUREMENT_REQUEST_BYTES, MAX_PAGE_LIMIT, MAX_PAGE_OFFSET,
+    REQUEST_BODY_TIMEOUT_SECONDS,
+)
 from ..sweep_quality import MAX_QUALITY_REQUEST_BYTES
 from ..sweep_context import MAX_CONTEXT_REQUEST_BYTES
 from ..sweep_average import MAX_AVERAGE_REQUEST_BYTES
@@ -305,9 +308,15 @@ def document():
         add(base+'/'+kind+'/batch', 'post', body=ref('JSONObject'), status=201)
     for kind, model, item in (('candidates', 'Candidate', 'candidate_id'),
                               ('investigations', 'Investigation', 'investigation_id')):
-        add(base+'/'+kind, response=array(ref(model)), queries=('state',))
+        queries = ('state', 'limit', 'offset') if kind == 'candidates' else ('state',)
+        add(base+'/'+kind, response=array(ref(model)), queries=queries)
         add(base+'/'+kind+'/{'+item+'}', response=ref(model))
         add(base+'/'+kind+'/by-id/{'+item+'}', response=ref(model))
+    for parameter in paths['/api/v1'+base+'/candidates']['get']['parameters']:
+        if parameter['name'] == 'limit':
+            parameter['schema'].update(minimum=1, maximum=MAX_PAGE_LIMIT)
+        elif parameter['name'] == 'offset':
+            parameter['schema']['maximum'] = MAX_PAGE_OFFSET
     add(base+'/candidates', 'post', ref('Candidate'), body=ref('JSONObject'), status=201)
     add(base+'/candidates/{candidate_id}/investigations', 'post', ref('Investigation'), body=ref('JSONObject'), status=201)
     add(base+'/candidates/{candidate_id}/dismiss', 'post')

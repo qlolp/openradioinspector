@@ -5,7 +5,19 @@ test('returning from connection settings replays missed sources from the applied
   page,
   request,
 }) => {
-  await page.addInitScript(() => localStorage.setItem('ori-modern-locale', 'en'));
+  await page.addInitScript(() => {
+    localStorage.setItem('ori-modern-locale', 'en');
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(...args: ConstructorParameters<typeof Worker>) {
+        super(...args);
+        this.addEventListener('message', ({ data }) => {
+          if (data?.frame?.sweep?.id === 'checkpoint-before')
+            document.documentElement.dataset.checkpointParsed = 'true';
+        });
+      }
+    };
+  });
   const base = 'http://127.0.0.1:18771/api/v1';
   const template = (await (await request.get(base + '/sessions')).json()).data[0];
   const created = await request.post(base + '/sessions', {
@@ -31,7 +43,29 @@ test('returning from connection settings replays missed sources from the applied
       cursors.push(new URL(request.url()).searchParams.get('after')!);
   });
   await openDesk(page);
-  await page.getByTestId('project-select').selectOption(project.id);
+  const select = page.getByTestId('project-select');
+  await expect(select.locator('option', { hasText: 'Owned connection checkpoint' })).toHaveCount(1);
+  const other = await select
+    .locator('option')
+    .evaluateAll(
+      (options, target) =>
+        options
+          .map((option) => (option as HTMLOptionElement).value)
+          .find((id) => id && id !== target),
+      project.id,
+    );
+  expect(other).toBeTruthy();
+  await select.selectOption(other!);
+  const statusPath = '**/api/v1/monitoring-projects/' + project.id + '/status';
+  let resumeStatus!: () => void;
+  const statusHeld = new Promise<void>((resolve) => {
+    resumeStatus = resolve;
+  });
+  await page.route(statusPath, async (route) => {
+    await statusHeld;
+    await route.continue().catch(() => {});
+  });
+  await select.selectOption(project.id);
   const put = async (id: string) => {
     const response = await request.post(base + '/sessions/' + session.id + '/sweeps', {
       data: {
@@ -49,11 +83,19 @@ test('returning from connection settings replays missed sources from the applied
     });
     expect(response.ok()).toBe(true);
   };
-  await put('checkpoint-before');
+  try {
+    await put('checkpoint-before');
+    // The SSE source reached the real parser while status and stream IDs are still unknown.
+    await expect(page.locator('html')).toHaveAttribute('data-checkpoint-parsed', 'true');
+  } finally {
+    resumeStatus();
+    await page.unroute(statusPath);
+  }
   await expect(page.locator('canvas.spectrum').first()).toHaveAttribute(
     'data-sweep-id',
     'checkpoint-before',
   );
+  await expect(page.locator('.project-meta')).toContainText(session.id);
   const applied = (await (await request.get(base + '/health')).json()).data.last_event_id;
   await page.getByRole('button', { name: 'Connection settings', exact: true }).click();
   await expect(
@@ -126,9 +168,26 @@ test('hydrates a changed source scope before replay when its ordinary status ref
     });
     expect(response.ok()).toBe(true);
   };
-  await openDesk(page);
-  await page.getByTestId('project-select').selectOption(project.id);
-  await post(original, 'scope-before');
+  // A remembered project ID is available before the first page of summaries.
+  await page.addInitScript((id) => localStorage.setItem('ori-modern-project', id), project.id);
+  let releaseList!: () => void;
+  const listHeld = new Promise<void>((resolve) => {
+    releaseList = resolve;
+  });
+  const listPath = '**/api/v1/monitoring-projects?*';
+  await page.route(listPath, async (route) => {
+    await listHeld;
+    await route.continue().catch(() => {});
+  });
+  const listRequested = page.waitForRequest(listPath);
+  try {
+    await openDesk(page);
+    await listRequested;
+    await post(original, 'scope-before');
+  } finally {
+    releaseList();
+    await page.unroute(listPath);
+  }
   await expect(page.locator('canvas.spectrum').first()).toHaveAttribute(
     'data-sweep-id',
     'scope-before',

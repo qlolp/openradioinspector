@@ -23,6 +23,12 @@ final class NativeRCBundleTests: XCTestCase {
         var value: [String: Any] = ["schema_version": 1, "release_version": "0.4.0-macos.rc.1",
             "bundle_identifier": "org.openradioinspector.macos.rc", "source_revision": String(repeating: "a", count: 40),
             "architecture": "arm64", "components": components]
+        var info: [String: Any] = ["CFBundleIdentifier": "org.openradioinspector.macos.rc",
+            "CFBundleExecutable": "OpenRadioInspectorRC", "ORIPersonalRC": true,
+            "ORIReleaseVersion": "0.4.0-macos.rc.1"]
+        let plist = root.appendingPathComponent("Contents/Info.plist")
+        func saveInfo() throws { try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: plist) }
+        try saveInfo()
         let metadata = root.appendingPathComponent("Contents/Resources/rc-build-info.json")
         func save() throws { try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: metadata) }
         try save()
@@ -32,8 +38,36 @@ final class NativeRCBundleTests: XCTestCase {
         try save()
         XCTAssertThrowsError(try NativeRCBundle.backendID(at: root))
         value["release_version"] = "0.4.0"
-        try save()
+        info["ORIReleaseVersion"] = "0.4.0"
+        try saveInfo(); try save()
         XCTAssertNotEqual(try NativeRCBundle.backendID(at: root), id)
+        var audio = components["ori-core"] as! [String: Any]
+        audio["features"] = ["serial": true, "audio": true]
+        components["ori-core"] = audio; value["components"] = components
+        value["release_version"] = "0.4.0-macos.rc.2"; try save()
+        info["ORIReleaseVersion"] = "0.4.0-macos.rc.2"
+        info["ORINativeAudioCapture"] = true; info["NSMicrophoneUsageDescription"] = "Selected analogue input"
+        try saveInfo()
+        XCTAssertTrue(try NativeRCBundle.backendID(at: root).hasPrefix("macos-rc2-audio-"))
+        for broken in [["ORINativeAudioCapture": false], ["NSMicrophoneUsageDescription": ""],
+            ["ORIReleaseVersion": "0.4.0-macos.rc.1"], ["ORIPersonalRC": false]] as [[String: Any]] {
+            let saved = info
+            for (key, entry) in broken { info[key] = entry }
+            try saveInfo(); XCTAssertThrowsError(try NativeRCBundle.backendID(at: root))
+            info = saved; try saveInfo()
+        }
+        for profile in [NSNull(), "unknown", "rc1"] as [Any] {
+            value["package_profile"] = profile; try save()
+            XCTAssertThrowsError(try NativeRCBundle.backendID(at: root))
+        }
+        value.removeValue(forKey: "package_profile"); try save()
+        value["release_version"] = "0.4.0-macos.rc.1"; try save()
+        XCTAssertThrowsError(try NativeRCBundle.backendID(at: root))
+        audio["features"] = ["serial": true, "audio": false]
+        components["ori-core"] = audio; value["components"] = components; try save()
+        info["ORIReleaseVersion"] = "0.4.0-macos.rc.1"
+        info.removeValue(forKey: "ORINativeAudioCapture"); info.removeValue(forKey: "NSMicrophoneUsageDescription")
+        try saveInfo()
         var mixed = components["ori-core"] as! [String: Any]
         mixed["source_revision"] = String(repeating: "b", count: 40)
         components["ori-core"] = mixed; value["components"] = components; try save()

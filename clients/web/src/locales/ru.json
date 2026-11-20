@@ -626,5 +626,18 @@
   "Yes": "Да",
   "No": "Нет",
   "Windows excluded from automatic baselines": "Окна, исключённые из автоматического эталона",
-  "Incomplete paired evidence": "Ядро вернуло неполный результат парной проверки"
+  "Incomplete paired evidence": "Ядро вернуло неполный результат парной проверки",
+  "Audio fragments and marks": "Отметки и фрагменты фонограммы",
+  "Exports preserve original samples and include source identity. The original recording stays unchanged.": "Фрагмент содержит исходные отсчёты и сведения об источнике. Оригинальная запись остаётся в архиве.",
+  "First sample": "Начальный отсчёт",
+  "End sample (excluded)": "Конечный отсчёт (не включён)",
+  "Mark label": "Подпись отметки",
+  "Save audio mark": "Сохранить аудиоотметку",
+  "Export WAV fragment": "Экспортировать фрагмент WAV",
+  "First marks page": "Первая страница отметок",
+  "Next marks page": "Следующая страница отметок",
+  "Loading or saving audio evidence": "Загрузка или сохранение аудиоданных",
+  "Audio mark saved": "Аудиоотметка сохранена",
+  "Audio fragment exported": "Фрагмент WAV экспортирован",
+  "Invalid audio source": "Некорректное описание исходной фонограммы"
 }

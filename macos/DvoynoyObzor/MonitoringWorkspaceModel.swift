@@ -5,9 +5,55 @@ import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 import SpektrKomandy
+import Darwin
+
+protocol MonitoringAudioExportWriting: Sendable {
+    func stage(_ bytes: Data, for destination: URL) async throws -> MonitoringAudioExportStage
+}
+
+final class MonitoringAudioExportStage: Sendable {
+    let temporaryDirectory: URL
+    private let file: URL
+    fileprivate init(directory: URL, file: URL) { temporaryDirectory = directory; self.file = file }
+    func discard() { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    deinit { discard() }
+    // The private staging directory is on the destination volume. Publication
+    // is a single rename after the MainActor revalidates the original request.
+    func publish(to destination: URL) throws {
+        guard Darwin.rename(file.path, destination.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+}
+
+struct NativeAudioExportWriter: MonitoringAudioExportWriting {
+    func stage(_ bytes: Data, for destination: URL) async throws -> MonitoringAudioExportStage {
+        try await Task.detached(priority: .utility) {
+            let directory = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination.deletingLastPathComponent(), create: true)
+            do {
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+                let file = directory.appendingPathComponent("audio.wav")
+                try bytes.write(to: file, options: .atomic)
+                return MonitoringAudioExportStage(directory: directory, file: file)
+            } catch {
+                try? FileManager.default.removeItem(at: directory)
+                throw error
+            }
+        }.value
+    }
+}
+
+struct MonitoringAudioRange {
+    let projectID: String, eventID: String, artifactID: String, sourceSHA256: String
+    let start: Int64, end: Int64
+}
 
 @MainActor
 final class MonitoringWorkspaceModel: ObservableObject {
+    private let audioExportWriter: any MonitoringAudioExportWriting
+    init(audioExportWriter: any MonitoringAudioExportWriting = NativeAudioExportWriter()) {
+        self.audioExportWriter = audioExportWriter
+    }
     @Published var projects: [MonitoringValue] = []
     @Published private(set) var projectPages = MonitoringProjectPageState()
     @Published var selected = "" {
@@ -40,6 +86,9 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published private(set) var bandPlan = MonitoringValue.null
     @Published private(set) var bandPlanLoading = false
     @Published private(set) var bandPlanError = ""
+    @Published var audioEvidenceInfo: MonitoringValue = .null
+    @Published var audioMarks: [MonitoringValue] = []
+    @Published var audioMarksNext = ""
     @Published var details = "Выберите подготовленный сеанс."
     @Published var notice = ""
     @Published var error = ""
@@ -174,6 +223,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         canEditPreparation && (preparationSimulation || (savedPreparationReady && !preparationDirty))
     }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
+    var audioEvidenceAvailable: Bool { capabilities["features"]["audio_evidence_export"].bool == true }
     var scanPlansAvailable: Bool { capabilities["features"]["monitoring_scan_plans"].bool == true }
     var pairedRechecksAvailable: Bool { capabilities["features"]["paired_event_rechecks"].bool == true }
     var signalCatalogAvailable: Bool { capabilities["features"]["monitoring_signal_catalog"].bool == true }
@@ -278,6 +328,14 @@ final class MonitoringWorkspaceModel: ObservableObject {
         autostart = false; archiveReserve = "268435456"; archiveRetention = "3600"
         webhookEnabled = false; webhookURL = ""; webhookSecret = ""; localSoundEnabled = false
         stopAudio()
+        resetAudioEvidence()
+    }
+
+    private func resetAudioEvidence() {
+        audioEvidenceInfo = .null; audioMarks = []; audioMarksNext = ""
+        for key in ["audio-evidence", "audio-mark", "audio-export"] {
+            researchRequests[key] = nil; researchPending.remove(key)
+        }
     }
 
     func stopAudio() {
@@ -314,10 +372,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     func load() async {
-        let currentScope = scope
         await reloadProjects()
-        guard PlatformExactID.same(scope, currentScope), !Task.isCancelled else { return }
-        await loadAudioInputs()
     }
 
     func reloadProjects() async {
@@ -468,7 +523,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         await run(request: { client, id in try await client.monitoringProject(id, resource: "events") }) { result in
             events = result["items"].items
             if !events.contains(where: { PlatformExactID.same($0["id"].text, selectedEvent) }) {
-                selectedEvent = ""; event = .null; stopAudio()
+                selectedEvent = ""; event = .null; stopAudio(); resetAudioEvidence()
             }
             notice = "Событий в текущей странице: \(events.count)."
         }
@@ -476,7 +531,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func showEvent(_ id: String) async {
         guard !pending else { return }
-        stopAudio(); selectedEvent = id; event = .null; sources = []; sourcesNext = ""
+        stopAudio(); resetAudioEvidence(); selectedEvent = id; event = .null; sources = []; sourcesNext = ""
         researchRequests["sources"] = nil; researchPending.remove("sources")
         await run(eventID: id, request: { client, project in
             try await client.monitoringEvent(projectID: project, eventID: id)
@@ -701,6 +756,60 @@ final class MonitoringWorkspaceModel: ObservableObject {
                playbackRevision == playbackScope, !Task.isCancelled {
                 self.error = error.localizedDescription
             }
+        }
+    }
+
+    func loadAudioEvidence(after: String? = nil) async {
+        guard audioEvidenceAvailable, !selectedEvent.isEmpty, event["analysis"]["audio"] != .null else { return }
+        let eventID = selectedEvent
+        await researchRequest("audio-evidence", eventID: eventID, request: { client, project in
+            let info = try await client.monitoringEventAudioInfo(projectID: project, eventID: eventID)
+            let marks = try await client.monitoringAudioMarks(projectID: project, eventID: eventID, after: after)
+            return .object(["info": info, "marks": marks])
+        }) { result in
+            audioEvidenceInfo = result["info"]; audioMarks = result["marks"]["items"].items
+            audioMarksNext = result["marks"]["next_cursor"].text
+        }
+    }
+
+    func audioRange(start: Int64, end: Int64) -> MonitoringAudioRange? {
+        guard audioEvidenceAvailable, let count = Int64(audioEvidenceInfo["frame_count"].scalar),
+              start >= 0, start < end, end <= count, !selected.isEmpty, !selectedEvent.isEmpty else { return nil }
+        return MonitoringAudioRange(projectID: selected, eventID: selectedEvent, artifactID: audioEvidenceInfo["artifact_id"].text,
+                                    sourceSHA256: audioEvidenceInfo["sha256"].text, start: start, end: end)
+    }
+    private func currentAudioRange(_ selection: MonitoringAudioRange) -> Bool {
+        audioEvidenceAvailable && PlatformExactID.same(selected, selection.projectID) && PlatformExactID.same(selectedEvent, selection.eventID)
+            && PlatformExactID.same(audioEvidenceInfo["artifact_id"].text, selection.artifactID) && audioEvidenceInfo["sha256"].text == selection.sourceSHA256
+    }
+    func saveAudioMark(_ selection: MonitoringAudioRange, label: String) async {
+        guard currentAudioRange(selection) else { return }
+        let eventID = selection.eventID, hash = selection.sourceSHA256
+        let saved = await researchRequest("audio-mark", eventID: eventID, request: { client, project in
+            try await client.monitoringAddAudioMark(projectID: project, eventID: eventID, startFrame: selection.start, endFrame: selection.end, label: label, sourceArtifactID: selection.artifactID, sourceSHA256: hash)
+        }) { _ in audioNotice = "Аудиоотметка сохранена; исходная запись не изменена." }
+        if saved { await loadAudioEvidence() }
+    }
+
+    func exportAudioClip(_ selection: MonitoringAudioRange, to destination: URL) async {
+        guard let client, currentAudioRange(selection), !researchPending.contains("audio-export") else { return }
+        let generation = revision, projectID = selected, eventID = selectedEvent, token = UUID()
+        let hash = selection.sourceSHA256
+        researchRequests["audio-export"] = token; researchPending.insert("audio-export"); researchError = ""
+        defer { if researchRequests["audio-export"] == token { researchRequests["audio-export"] = nil; researchPending.remove("audio-export") } }
+        do {
+            let bytes = try await client.monitoringEventAudioClip(projectID: projectID, eventID: eventID, startFrame: selection.start, endFrame: selection.end, sourceArtifactID: selection.artifactID, sourceSHA256: hash)
+            guard revision == generation, PlatformExactID.same(selected, projectID), PlatformExactID.same(selectedEvent, eventID),
+                  researchRequests["audio-export"] == token, currentAudioRange(selection), !Task.isCancelled else { return }
+            let staged = try await audioExportWriter.stage(bytes, for: destination)
+            defer { staged.discard() }
+            guard revision == generation, PlatformExactID.same(selected, projectID), PlatformExactID.same(selectedEvent, eventID),
+                  self.client === client, researchRequests["audio-export"] == token, currentAudioRange(selection), !Task.isCancelled else { return }
+            try staged.publish(to: destination)
+            audioNotice = "Фрагмент WAV экспортирован с исходными отсчётами и контекстом записи."
+        } catch {
+            if revision == generation, PlatformExactID.same(selected, projectID), PlatformExactID.same(selectedEvent, eventID),
+               researchRequests["audio-export"] == token, !Task.isCancelled { researchError = error.localizedDescription }
         }
     }
     @discardableResult

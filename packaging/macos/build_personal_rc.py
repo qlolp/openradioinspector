@@ -90,11 +90,17 @@ def notices(destination, metadata, sysroot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir', type=Path, default=ROOT / 'build/macos/personal-rc')
+    parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--profile', choices=package.PROFILES, default='rc1',
+                        help='RC1 stays serial-only; rc2-audio is a separate unaccepted audio candidate')
     parser.add_argument('--developer-id', action='store_true',
                         help='Use a provisioned Developer ID identity and notarize the app and DMG')
     args = parser.parse_args()
+    selected = package.release_profile(args.profile)
+    features = 'ori-core/serial' + (',ori-core/audio' if selected['audio'] else '')
     if args.developer_id:
+        if selected['audio']:
+            parser.error('--developer-id requires the serial-only distribution profile')
         identity = os.environ['ORI_MAC_CERT_SHA1']
         team = os.environ['ORI_MAC_TEAM_ID']
         profile = os.getenv('ORI_HOSTED_NOTARY_PROFILE') or os.environ['ORI_NOTARY_PROFILE']
@@ -102,7 +108,8 @@ def main():
     if run('git', 'status', '--porcelain', '--untracked-files=no', capture=True).strip():
         raise SystemExit('Commit tracked source changes before packaging.')
     source = run('git', 'rev-parse', 'HEAD', capture=True).strip()
-    output = args.output_dir.resolve()
+    output = (args.output_dir or ROOT / 'build/macos' /
+              ('personal-rc' if args.profile == 'rc1' else 'personal-audio-rc')).resolve()
     output.mkdir(parents=True, exist_ok=False)
     packages_dir = output / 'packages'; packages_dir.mkdir()
     stage = output / 'dmg-root'; stage.mkdir()
@@ -114,9 +121,9 @@ def main():
     swift = run('xcrun', 'swift', '--version', capture=True).strip()
     xcode = run('xcodebuild', '-version', capture=True).strip()
     metadata = json.loads(run('cargo', 'metadata', '--locked', '--format-version', '1', '--filter-platform',
-                             'aarch64-apple-darwin', '--features', 'ori-core/serial', env=env, capture=True))
+                             'aarch64-apple-darwin', '--features', features, env=env, capture=True))
     run('cargo', 'build', '--locked', '--release', '--target', 'aarch64-apple-darwin',
-        '-p', 'ori-core', '-p', 'ori-runtime', '--no-default-features', '--features', 'ori-core/serial', env=env)
+        '-p', 'ori-core', '-p', 'ori-runtime', '--no-default-features', '--features', features, env=env)
     derived = output / 'DerivedData'
     run('xcodebuild', '-project', 'macos/DvoynoyObzor.xcodeproj', '-scheme', 'DvoynoyObzor',
         '-configuration', 'Release', '-jobs', '2', '-derivedDataPath', derived, 'ARCHS=arm64',
@@ -152,7 +159,7 @@ def main():
     manual = stage_manual(ROOT, app / 'Contents/Resources/operator-guide')
     build = package.prepare(app, source, components['ori-core'], components['ori-supervisor'],
                             dict(rust=rust, swift=swift, xcode=xcode), manual_sha256=manual,
-                            version='0.4.0' if args.developer_id else package.RELEASE_VERSION)
+                            profile=args.profile, version='0.4.0' if args.developer_id else selected['version'])
     if args.developer_id:
         developer_id.sign(app, identity, runtime=True)
         developer_id.verify_code(app, team, runtime=True)
@@ -170,9 +177,10 @@ def main():
         shutil.copyfile(ROOT / 'packaging/macos/DISTRIBUTION.ru.txt', stage / 'READ-ME.txt')
     else:
         package.evidence(app, manifest)
-        shutil.copyfile(ROOT / 'packaging/macos/PERSONAL-RC.txt', stage / 'READ-ME.txt')
+        readme = 'PERSONAL-RC.txt' if args.profile == 'rc1' else 'AUDIO-CANDIDATE.txt'
+        shutil.copyfile(ROOT / 'packaging/macos' / readme, stage / 'READ-ME.txt')
     (stage / 'Applications').symlink_to('/Applications', target_is_directory=True)
-    stem = 'OpenRadioInspector-' + package.RELEASE_VERSION + ('-macos-arm64' if args.developer_id else '-macos-arm64-adhoc')
+    stem = 'OpenRadioInspector-' + selected['version'] + ('-macos-arm64' if args.developer_id else '-macos-arm64-adhoc')
     create_disk_image(stage, packages_dir / (stem + '.dmg'))
     if args.developer_id:
         dmg = packages_dir / (stem + '.dmg')
@@ -191,7 +199,7 @@ def main():
     shutil.copyfile(stage / 'READ-ME.txt', packages_dir / 'READ-ME.txt')
     checksums = [package.digest(p) + '  ' + p.name for p in sorted(packages_dir.iterdir()) if p.is_file()]
     (packages_dir / 'SHA256SUMS').write_text('\n'.join(checksums) + '\n')
-    print(json.dumps(dict(source=source, version=package.RELEASE_VERSION, artifacts=str(packages_dir),
+    print(json.dumps(dict(source=source, version=selected['version'], profile=args.profile, artifacts=str(packages_dir),
                           hardware_validation='not_run', performance_acceptance='not_run')))
 
 

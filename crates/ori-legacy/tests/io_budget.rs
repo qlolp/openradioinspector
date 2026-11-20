@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::Write,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -27,9 +27,90 @@ static SPAWN_SLOT: Mutex<()> = Mutex::new(());
 fn with_spawn_exclusion<T>(operation: impl FnOnce() -> T) -> T {
     // A concurrent fork briefly inherits even O_CLOEXEC source handles. Keep
     // spawn/exec and the final kernel probe separate; children still run in
-    // parallel after spawn returns, and the close assertions remain strict.
+    // parallel once the new image acknowledges readiness.
     let _slot = SPAWN_SLOT.lock().unwrap();
     operation()
+}
+
+// On Unix the exec-status socket used by Command::spawn may reach EOF before
+// the last inherited file description has released its flock. A byte written
+// from the new program orders the probe after all close-on-exec cleanup.
+fn spawn_ready(spawn: impl FnOnce() -> io::Result<Child>) -> io::Result<Child> {
+    with_spawn_exclusion(|| await_ready(spawn()?, Duration::from_secs(3)))
+}
+
+fn await_ready(mut child: Child, timeout: Duration) -> io::Result<Child> {
+    let mut stdout = child.stdout.take().expect("piped fixture output");
+    let (send, recv) = mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut byte = [0];
+            let ready = stdout.read_exact(&mut byte).and_then(|()| {
+                if byte == *b"R" {
+                    Ok(())
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "bad fixture readiness byte",
+                    ))
+                }
+            });
+            let _ = send.send((ready, stdout));
+        });
+        let ready = recv
+            .recv_timeout(timeout)
+            .map_err(|error| match error {
+                mpsc::RecvTimeoutError::Timeout => {
+                    io::Error::new(io::ErrorKind::TimedOut, "fixture readiness")
+                }
+                mpsc::RecvTimeoutError::Disconnected => {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "fixture readiness")
+                }
+            })
+            .and_then(|(ready, stdout)| {
+                child.stdout = Some(stdout);
+                ready
+            });
+        if let Err(error) = ready {
+            let _ = child.kill();
+            child.wait()?;
+            return Err(error);
+        }
+        Ok(child)
+    })
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn missing_or_invalid_exec_readiness_reaps_the_owned_child() {
+    for (input, expected) in [
+        (None, io::ErrorKind::TimedOut),
+        (Some(b"X"), io::ErrorKind::InvalidData),
+    ] {
+        let (pid, error) = with_spawn_exclusion(|| {
+            let mut child = Command::new("/bin/cat")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let pid = child.id() as libc::pid_t;
+            if let Some(input) = input {
+                child.stdin.as_mut().unwrap().write_all(input).unwrap();
+            }
+            (
+                pid,
+                await_ready(child, Duration::from_millis(250)).unwrap_err(),
+            )
+        });
+        assert_eq!(error.kind(), expected);
+        // Only query the fixture's own PID. ECHILD proves it was already reaped.
+        let waited = unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+        assert_eq!(waited, -1);
+        assert_eq!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
 }
 
 fn python() -> std::ffi::OsString {
@@ -44,13 +125,14 @@ fn root() -> PathBuf {
 fn source(directory: &Path) -> PathBuf {
     let mut command = Command::new(python());
     command
+        .args(["-c", "import os,runpy,sys;os.write(1,b'R');sys.argv=sys.argv[1:];runpy.run_path(sys.argv[0],run_name='__main__')"])
         .arg(root().join("crates/ori-legacy/tests/generate_fixtures.py"))
         .arg(directory)
         .arg("--sidecar")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = with_spawn_exclusion(|| command.spawn())
+    let output = spawn_ready(|| command.spawn())
         .unwrap()
         .wait_with_output()
         .unwrap();
@@ -161,12 +243,12 @@ impl LegacySciencePermit for Permit {
             self.controls.calls.fetch_add(1, Ordering::SeqCst);
             let threshold = request["action"] == "threshold";
             let result = tokio::task::spawn_blocking(move || {
-                let bootstrap = format!("import runpy,sys;sys.path.insert(0,{:?});runpy.run_module('radioinspector.legacy_rpc',run_name='__main__')", root());
+                let bootstrap = format!("import os,runpy,sys;os.write(1,b'R');sys.path.insert(0,{:?});runpy.run_module('radioinspector.legacy_rpc',run_name='__main__')", root());
                 let mut command = Command::new(python());
                 command.args(["-I", "-c", &bootstrap])
                     .envs([("OMP_NUM_THREADS", "1"), ("OPENBLAS_NUM_THREADS", "1"), ("MKL_NUM_THREADS", "1"), ("NUMEXPR_NUM_THREADS", "1"), ("VECLIB_MAXIMUM_THREADS", "1"), ("ARROW_NUM_THREADS", "1")])
                     .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-                let mut child = with_spawn_exclusion(|| command.spawn())?;
+                let mut child = spawn_ready(|| command.spawn())?;
                 child.stdin.take().unwrap().write_all(&to_json_vec(&request)?)?;
                 let output = child.wait_with_output()?;
                 assert!(!output.stdout.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -380,6 +462,8 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
         result = &mut close => panic!("closed while the SQL callback still owns its budget: {result:?}"),
         () = std::future::ready(()) => {}
     }
+    assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
+    assert!(with_spawn_exclusion(|| probe.try_lock()).is_err());
     release.send(()).unwrap();
     close.await.unwrap();
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 0);
@@ -393,12 +477,9 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn inherited_close_on_exec_lock_is_excluded_until_exec_without_waiting_for_child_exit() {
-    use std::{
-        io::Read,
-        os::{
-            fd::AsRawFd,
-            unix::{net::UnixStream, process::CommandExt},
-        },
+    use std::os::{
+        fd::{AsRawFd, OwnedFd},
+        unix::{net::UnixStream, process::CommandExt},
     };
 
     let directory = tempfile::tempdir().unwrap();
@@ -417,12 +498,12 @@ fn inherited_close_on_exec_lock_is_excluded_until_exec_without_waiting_for_child
     let parent_release = release.as_raw_fd();
     let child_ready = ready_child.as_raw_fd();
     let child_release = release_child.as_raw_fd();
+    let (spawned, spawn_returned) = mpsc::channel();
     let spawning = std::thread::spawn(move || {
-        let _slot = SPAWN_SLOT.lock().unwrap();
         let mut command = Command::new("/bin/cat");
         command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdin(Stdio::from(OwnedFd::from(release_child.try_clone()?)))
+            .stdout(Stdio::piped())
             .stderr(Stdio::null());
         // Force the fork path and hold only the pre-exec phase. Every inherited
         // source descriptor still exists here, including O_CLOEXEC descriptors.
@@ -442,7 +523,11 @@ fn inherited_close_on_exec_lock_is_excluded_until_exec_without_waiting_for_child
                 Ok(())
             });
         }
-        let child = command.spawn();
+        let child = spawn_ready(|| {
+            let child = command.spawn()?;
+            let _ = spawned.send(());
+            Ok(child)
+        });
         drop((ready_child, release_child));
         child
     });
@@ -469,29 +554,32 @@ fn inherited_close_on_exec_lock_is_excluded_until_exec_without_waiting_for_child
     let startup = starting.recv_timeout(Duration::from_secs(3));
     let early = result.recv_timeout(Duration::from_millis(100));
     let released = release.write_all(&[1]);
-    drop(release);
+    let returned = spawn_returned.recv_timeout(Duration::from_secs(3));
+    // cat cannot acknowledge from its new image until we supply this byte.
+    let before_ack = result.recv_timeout(Duration::from_millis(100));
+    let acknowledged = release.write_all(b"R");
     let child = spawning.join().unwrap();
-    let final_probe = match early {
-        Ok(value) => (true, Ok(value)),
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            (false, result.recv_timeout(Duration::from_secs(3)))
-        }
-        Err(error) => (false, Err(error)),
-    };
+    let final_probe = result.recv_timeout(Duration::from_secs(3));
     checking.join().unwrap();
     let mut child = child.unwrap();
     let child_was_running = child.try_wait().unwrap().is_none();
-    drop(child.stdin.take());
+    drop(release);
     let status = child.wait().unwrap();
 
     startup.unwrap();
     released.unwrap();
+    returned.unwrap();
+    acknowledged.unwrap();
+    assert!(
+        matches!(before_ack, Err(mpsc::RecvTimeoutError::Timeout)),
+        "lock probe ran before the execed child acknowledged readiness"
+    );
     assert!(matches!(inherited, Err(std::fs::TryLockError::WouldBlock)));
     assert!(
-        !final_probe.0,
+        matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
         "lock probe ran while another fork retained the source"
     );
-    final_probe.1.unwrap().unwrap();
+    final_probe.unwrap().unwrap();
     assert!(
         child_was_running,
         "only spawn/exec, not the child's full lifetime, is excluded"

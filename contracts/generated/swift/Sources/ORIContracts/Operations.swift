@@ -62,7 +62,7 @@ public let operations: [String: OperationDescriptor] = [
     "get_api_v1_sessions_id_automatic_handoff": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/automatic-handoff", query: [], maxRequestBytes: nil),
     "post_api_v1_sessions_id_automatic_handoff": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/automatic-handoff", query: [], maxRequestBytes: 65536),
     "post_api_v1_sessions_id_candidate_frequency_rounding": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/candidate-frequency-rounding", query: [], maxRequestBytes: 524288),
-    "get_api_v1_sessions_id_candidates": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/candidates", query: ["state"], maxRequestBytes: nil),
+    "get_api_v1_sessions_id_candidates": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/candidates", query: ["state", "limit", "offset"], maxRequestBytes: nil),
     "post_api_v1_sessions_id_candidates": OperationDescriptor(method: "POST", path: "/api/v1/sessions/{id}/candidates", query: [], maxRequestBytes: 65536),
     "get_api_v1_sessions_id_candidates_by_id_candidate_id": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/candidates/by-id/{candidate_id}", query: [], maxRequestBytes: nil),
     "get_api_v1_sessions_id_candidates_candidate_id": OperationDescriptor(method: "GET", path: "/api/v1/sessions/{id}/candidates/{candidate_id}", query: [], maxRequestBytes: nil),
