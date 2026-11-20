@@ -1867,6 +1867,15 @@ impl Worker {
                     if let (Some(plan), Some(band)) = (&self.scan_plan, band) {
                         plan.stamp(band, window_index, &mut source)?;
                     }
+                    if self.stream.role == DeviceRole::SpectrumAnalyzer {
+                        let adapter = self
+                            .stream
+                            .settings
+                            .as_ref()
+                            .and_then(|s| s.get("adapter"))
+                            .and_then(Value::as_str);
+                        scan::qualify_source(adapter, &mut source)?;
+                    }
                     Ok(source)
                 });
             let observed_at = std::time::Instant::now();

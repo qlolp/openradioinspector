@@ -1059,6 +1059,7 @@ async fn actual_analyzer_duplex_source_commits_original_level_bits_and_explicit_
                 }
                 assert_eq!(sweep["settings"]["device_identity"]["firmware"],ori_instruments::FIRMWARE);
                 assert!(sweep["settings"]["device_identity"].get("deviceid").is_none(),"canonical receive provenance matches existing Python, identity validation remains separate");
+                assert_eq!(sweep["settings"]["measurement_qualification"]["status"], "supported");
                 assert_eq!(sweep["settings"]["hardware_validation"], "not_run");
                 assert!(sweep["settings"].get("device_mode").is_none());
                 assert_eq!(

@@ -85,17 +85,6 @@ impl Plan {
         let settings = source["settings"]
             .as_object_mut()
             .ok_or_else(|| DeviceError::Worker("Missing raw scan settings".into()))?;
-        let window = band.window(index).ok_or_else(|| {
-            DeviceError::Worker("Scan window is outside the selected band".into())
-        })?;
-        settings.insert(
-            "measurement_qualification".into(),
-            ori_guard::measurement_qualification(
-                Some(self.adapter),
-                window.start_hz,
-                window.stop_hz,
-            ),
-        );
         if let Some(step) = band.step_hz {
             if let Some(baud) = self.serial_baud {
                 settings.insert("scan_serial_baud".into(), json!(baud));
@@ -110,6 +99,30 @@ impl Plan {
         Ok(())
     }
 }
+/// Attach the inferred qualification after the adapter has produced its
+/// canonical raw sweep. The same rule applies without a multi-band plan.
+pub(super) fn qualify_source(adapter: Option<&str>, source: &mut Value) -> DeviceResult<()> {
+    let bins = source["frequencies_hz"]
+        .as_array()
+        .ok_or_else(|| DeviceError::Worker("Missing source grid".into()))?;
+    let start = bins
+        .first()
+        .and_then(Value::as_u64)
+        .ok_or_else(|| DeviceError::Worker("Missing first frequency".into()))?;
+    let stop = bins
+        .last()
+        .and_then(Value::as_u64)
+        .ok_or_else(|| DeviceError::Worker("Missing last frequency".into()))?;
+    let settings = source["settings"]
+        .as_object_mut()
+        .ok_or_else(|| DeviceError::Worker("Missing raw scan settings".into()))?;
+    settings.insert(
+        "measurement_qualification".into(),
+        ori_guard::measurement_qualification(adapter, start, stop),
+    );
+    Ok(())
+}
+
 #[derive(Default)]
 struct Observed {
     at: Option<Instant>,
