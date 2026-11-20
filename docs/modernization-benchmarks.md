@@ -113,6 +113,14 @@ false for a source absent from a completed verification, or null when the
 retained source is unknown. `source_verifier` identifies the session NDJSON
 export for measurements or the artifact verification for audio.
 
+Each scheduled producer POST over direct numeric-loopback HTTP shares one deadline across
+TCP connection, request and response. The producer can replace up to three sockets whose
+handshake timed out before the first HTTP write. `producer_loopback_tcp` records request,
+attempt and timeout totals, plus up to 32 affected offer IDs with each dial’s budget,
+elapsed time, outcome and independent source verification. Two 60-second Windows x64
+runs at `99984e5` each recovered three such timeouts and verified all 600 original
+4,096-point sweeps, 600 observations and six WAVs. [Push run](https://github.com/qlolp/openradioinspector/actions/runs/44647450200) · [PR run](https://github.com/qlolp/openradioinspector/actions/runs/44647504208)
+
 The separate accelerated source-time scenario is:
 
 ```sh
