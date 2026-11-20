@@ -174,9 +174,8 @@ All seven hashes must match one snapshot together; mixing individually approved
 files, an unknown edit or a missing file fails before any node starts. The report
 records the matched revision and these actual source hashes. This pins the route
 inventory and reviewed transport code, rather than every file in the repository.
-The bounded history permits eight additional complete reviewed maps, so additive
-contracts can retain the historical evidence rather than replacing it. A ninth
-additional map is refused; every map still covers exactly the same seven paths.
+The bounded history retains nine additional complete seven-file maps. The candidate
+list pagination map pins the Python HTTP and OpenAPI sources at `097fc436c63e8c5e18831a6fb393021c2a6c9641`.
 The live-capability schema adds no HTTP operation. Its complete source map is
 pinned at `bb64f27716b510c1b5580fa299c17017bf3314d1`; the earlier maps remain intact.
 Historical source snapshots remain recorded, but a producer without the new RMS

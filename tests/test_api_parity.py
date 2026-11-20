@@ -21,11 +21,11 @@ class ExactWireTests(unittest.TestCase):
             (root / 'route.py').write_bytes(b'current reviewed route')
             digest = hashlib.sha256(b'current reviewed route').hexdigest()
             history = [{'revision': format(i, '040x'), 'source_sha256': {
-                'route.py': digest if i == 8 else format(i, '064x')}} for i in range(1, 9)]
+                'route.py': digest if i == 9 else format(i, '064x')}} for i in range(1, 10)]
             inventory = {'python_source_revision': 'a'*40, 'source_sha256': {'route.py': '0'*64},
                          'approved_source_snapshots': history}
             self.assertEqual(approved_source_snapshot(root, inventory),
-                             (format(8, '040x'), {'route.py': digest}))
+                             (format(9, '040x'), {'route.py': digest}))
             inventory['approved_source_snapshots'] = history + [history[-1]]
             with self.assertRaises(ProtocolError):
                 approved_source_snapshot(root, inventory)
