@@ -2,7 +2,7 @@
 """Check a relocated signed RC without registering its service or using USB."""
 import argparse
 from datetime import datetime, timezone
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import json
 import os
 import re
@@ -128,7 +128,8 @@ def main():
         restored = args.report_dir / 'restored'; restored.mkdir()
         # Cold SQLite backup is deliberate: production online manifest backup
         # is separately verified by the shared Rust release suite.
-        with sqlite3.connect(data/'sessions.sqlite3') as source, sqlite3.connect(restored/'sessions.sqlite3') as target:
+        with (closing(sqlite3.connect(data/'sessions.sqlite3')) as source,
+              closing(sqlite3.connect(restored/'sessions.sqlite3')) as target):
             source.backup(target)
         with core(executable, restored, env) as url:
             for resource, key in [('sweeps', 'sweep'), ('observations', 'observation')]:

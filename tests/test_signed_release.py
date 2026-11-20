@@ -1,5 +1,6 @@
 """Public promotion tests. All signed bytes, keys, artifacts and runs here are fixtures."""
 import base64
+from contextlib import closing
 import copy
 import json
 import os
@@ -98,7 +99,7 @@ class ReceiptTests(unittest.TestCase):
         from tools.release.bench_receipt import display_ledger
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'offered.sqlite'
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.executescript("PRAGMA application_id=1330792770; PRAGMA user_version=1;"
                                  "CREATE TABLE offers(id TEXT PRIMARY KEY, kind TEXT, status TEXT, verified INTEGER);"
                                  "CREATE TABLE rendered(id TEXT, client TEXT, PRIMARY KEY (id,client));")
@@ -109,7 +110,7 @@ class ReceiptTests(unittest.TestCase):
             self.assertEqual([18000] * 3, [client['presented_sweeps'] for client in full['displays']])
             self.assertTrue(all(client['presented_sweep_ids_sha256'] == full['offered_sweep_ids_sha256']
                                 for client in full['displays']))
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("DELETE FROM rendered WHERE client='2' AND id='1234'")
             with self.assertRaises(ValueError):
                 display_ledger(path)
