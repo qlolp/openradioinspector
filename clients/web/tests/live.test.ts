@@ -90,6 +90,34 @@ function event(sequence: bigint, id = sequence.toString()) {
 }
 afterEach(() => vi.unstubAllGlobals());
 
+it('applies a source received during project selection only after the authoritative scope arrives', async () => {
+  const { store, deliver, parser } = fixture();
+  store.scope('previous-session', 'previous-stream', 'receiver');
+  await store.start(10);
+  store.selectProject(true);
+  const first = deliver(event(11n, 'checkpoint-before'));
+  parser().complete();
+  expect(store.lastApplied()).toBe(10);
+  expect(store.checkpoint()?.rows).toEqual([]);
+  store.scope('s', 'a', 'r');
+  await first;
+  expect(store.checkpoint()?.rows.map((row) => row.id)).toEqual(['checkpoint-before']);
+  store.selectProject(true);
+  const broad = deliver(event(12n, 'unrelated-broad-source'));
+  parser().complete();
+  store.scope('narrow-session', 'narrow-stream', 'r', 's');
+  await broad;
+  expect(store.checkpoint()?.rows).toEqual([]);
+  expect(store.lastApplied()).toBe(12);
+  store.selectProject(true);
+  const cancelled = deliver(event(13n));
+  parser().complete();
+  const aborted = expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+  store.dispose();
+  await aborted;
+  expect(store.lastApplied()).toBe(12);
+});
+
 it('applies a slow replay of more than 1000 events with one worker item and exact applied cursor', async () => {
   const { store, deliver, parser } = fixture();
   store.scope('s', 'a', 'r');
