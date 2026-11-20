@@ -150,6 +150,7 @@ jobs:
           if ($packages.Count -ne 1) { throw 'Expected one x64 NSIS installer' }
           $report = Join-Path $env:RUNNER_TEMP 'ori-windows-diagnostics/installation.json'
           $check = @{Installer=$packages[0].FullName; ExpectedRevision=(git rev-parse HEAD); ReportPath=$report}
+          $check.WindowEvidenceDirectory = Join-Path $env:RUNNER_TEMP 'ori-windows-operator-window'
           if ($env:ORI_PRIOR_RUN -or $env:ORI_PRIOR_SHA256 -or $env:ORI_PRIOR_REVISION) {
             if ($env:ORI_PRIOR_RUN -notmatch '^[0-9]+$') { throw 'Prior workflow run ID missing' }
             $previous = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'ori-prior-installer') -Recurse -File -Filter *.exe)
@@ -159,7 +160,13 @@ jobs:
             $check.PriorRevision = $env:ORI_PRIOR_REVISION
           }
           ./deploy/windows/smoke-installed.ps1 @check
+      - name: Verify the training fixture on the native replay core
+        if: "!cancelled() && steps.checksum.outcome == 'success'"
+        env:
+          ORI_REPLAY_TEST_CORE: ${{ github.workspace }}/clients/windows/runtime/ori-core.exe
+        run: python deploy/windows/capture_installed_window.py check-replay
       - name: Record Windows build and install outcomes
+        id: diagnostics
         if: always()
         shell: pwsh
         env:
@@ -183,6 +190,30 @@ jobs:
             [IO.File]::WriteAllText($smokeFile, ($fallback | ConvertTo-Json))
           }
           $smoke = Get-Content -Raw $smokeFile | ConvertFrom-Json
+          $captureDir = Join-Path $env:RUNNER_TEMP 'ori-windows-operator-window'
+          $null = [IO.Directory]::CreateDirectory($captureDir)
+          $captureReceipt = Join-Path $captureDir 'windows-installed-tauri.json'
+          if (-not (Test-Path -LiteralPath $captureReceipt)) {
+            $capture = @{schema_version=1; status='unavailable'; requested_scenario='monitoring'; reason='install_phase_' + $smoke.phase;
+                         expected_revision=$env:ORI_EXPECTED_REVISION; windows_build=[Environment]::OSVersion.Version.Build;
+                         authenticode=@{installer=@{status='not_checked'}; desktop=@{status='not_checked'}}}
+            [IO.File]::WriteAllText($captureReceipt, ($capture | ConvertTo-Json -Depth 4))
+          }
+          $capture = Get-Content -LiteralPath $captureReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($capture.status -eq 'captured') {
+            $image = Join-Path $captureDir 'windows-installed-tauri.png'
+            $mismatch = if ($capture.source_revision -cne $env:ORI_EXPECTED_REVISION) { 'window_source_revision_mismatch' }
+              elseif ($inventory.Count -ne 1 -or $capture.installer_sha256 -cne $inventory[0].sha256) { 'window_installer_digest_mismatch' }
+              elseif (-not (Test-Path -LiteralPath $image -PathType Leaf)) { 'window_png_missing' }
+              elseif ((Get-FileHash -LiteralPath $image).Hash -ine $capture.image.sha256) { 'window_png_digest_mismatch' }
+            if ($mismatch) {
+              $capture.status = 'unavailable'
+              $capture | Add-Member -Force NoteProperty reason $mismatch
+              $capture.image = $null
+              [IO.File]::WriteAllText($captureReceipt, ($capture | ConvertTo-Json -Depth 6))
+            } else { "window_image=$image" >> $env:GITHUB_OUTPUT }
+          }
+          "Installed window: $($capture.status), $($capture.scenario) $($capture.reason) $($capture.image.monitoring_unavailable_reason). Installer Authenticode: $($capture.authenticode.installer.status). Desktop Authenticode: $($capture.authenticode.desktop.status)." >> $env:GITHUB_STEP_SUMMARY
           $packageGate = if ($smoke.result -eq 'passed' -and $smoke.package_rollback -eq 'passed') { 'passed' }
             elseif ($smoke.result -eq 'failed') { 'failed' } else { 'pending' }
           $result = [ordered]@{
@@ -198,4 +229,12 @@ jobs:
         with:
           name: windows-x64-rc-diagnostics
           path: ${{ runner.temp }}/ori-windows-diagnostics/*.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-installed-operator-window
+          path: |
+            ${{ runner.temp }}/ori-windows-operator-window/windows-installed-tauri.json
+            ${{ steps.diagnostics.outputs.window_image }}
           if-no-files-found: error

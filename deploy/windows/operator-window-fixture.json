@@ -1,0 +1,16 @@
+{
+  "project": {"name": "Учебный эфир", "site": "Симулятор приёмного стенда", "session_id": "windows-training"},
+  "session": {
+    "id": "windows-training",
+    "name": "Учебный эфир",
+    "streams": [
+      {"id": "spectrum", "device": "Учебный tinySA", "role": "spectrum_analyzer", "level_unit": "dBm",
+       "settings": {"adapter": "tinysa-sim", "start_hz": 100000000, "stop_hz": 106000000, "points": 601,
+                    "period_s": 0.1, "seed": 17, "noise_dbm": -100.0, "noise_sigma_db": 1.8,
+                    "emitters": [{"frequency_hz": 102500000, "bandwidth_hz": 320000, "level_dbm": -45},
+                                 {"frequency_hz": 104300000, "bandwidth_hz": 160000, "level_dbm": -57}]}},
+      {"id": "receiver", "device": "Учебный AR-DV1", "role": "receiver", "level_unit": "s_meter_count",
+       "settings": {"adapter": "ardv1-sim", "frequency_hz": 102500000, "mode": "FM", "period_s": 0.25, "seed": 23}}
+    ]
+  }
+}

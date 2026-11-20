@@ -61,6 +61,12 @@ npm --prefix clients/windows run build -- --ci -- --locked
 
 При ручном запуске Windows workflow поля `prior_run_id`, `prior_installer_sha256` и `prior_revision` указывают на архив сборки предыдущего совместимого пакета. Без него отчёт сохраняет `pending_missing_prior_package`. Артефакт `windows-x64-offline-rc-candidate` публикуется с SHA-256 сразу после сборки. Отдельный `windows-x64-rc-diagnostics` содержит результат проверки пакета и этап ошибки даже при отсутствии установщика.
 
+### Снимок учебного окна Windows
+
+В чистой интерактивной тестовой учётной записи добавьте к команде репетиции `-WindowEvidenceDirectory` с путём к новому каталогу. Для этой опции на испытательной машине нужен Python 3. В задание CI для установленного пакета она уже включена. Окно Tauri запускается с временным профилем WebView2. Второй экземпляр установленного ядра открывает отдельный архив в режиме replay на локальной петле. Спектр и наблюдения поступают от встроенных симуляторов tinySA и AR-DV1 с настройками из `deploy/windows/operator-window-fixture.json`. После захвата репетиция закрывает оба процесса и удаляет архив и профиль.
+
+Артефакт `windows-installed-operator-window` содержит `windows-installed-tauri.json`. При успешном захвате рядом находится `windows-installed-tauri.png`. Для сценария `monitoring` репетиция проверяет принадлежность HWND установленному EXE, обе диаграммы и сохранённые строки водопада. Если доступен только экран подключения, результат содержит `fresh_install_connection` и причину недоступности мониторинга. Если интерактивный рабочий стол или отрисованное окно недоступны, причина записывается в JSON. Там же указаны ревизия, версия, сборка Windows, хеши, размеры, DPI и отдельный результат Authenticode для установщика и EXE. Статус `NotSigned` обозначает инженерный артефакт без подписи.
+
 ## Concurrent full-PCM release fixture
 
 The native concurrent reference workflow runs on Windows x64 and hosted Ubuntu ARM64. Each host uses the shared native replay core, a fresh production compact v7 archive and three Chromium operator clients. Pull requests exercise 60 seconds. Adding the exact `full-reference-load` label to the pull request, or dispatching the workflow with `full` selected, schedules the original 1,800 seconds at 10 sweeps and 10 observations per second, 4,096 points per sweep and all 86,400,000 mono 48 kHz PCM frames. The release installer and physical-radio tests have separate receipts.

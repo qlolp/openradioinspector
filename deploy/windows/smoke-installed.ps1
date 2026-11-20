@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$Installer, [string]$ExpectedRevision, [string]$ReportPath,
     [string]$PriorInstaller, [string]$PriorInstallerSha256, [string]$PriorRevision,
-    [switch]$RequireOffline
+    [switch]$RequireOffline, [string]$WindowEvidenceDirectory
 )
 $ErrorActionPreference = 'Stop'
 $report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); helper_errors=@(); cleanup_errors=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'
@@ -96,6 +96,37 @@ foreach ($name in @('ori-supervisor','ori-core')) {
 }
 $report.revision = $manifest.source_revision
 if (-not (Test-Path (Join-Path $runtime 'notices/licenses.json'))) { throw 'Installed notices missing' }
+
+if ($WindowEvidenceDirectory) {
+    Enter-SmokePhase 'capture_training_window'
+    if (Test-Path -LiteralPath $WindowEvidenceDirectory) { throw 'Use a new directory for the window evidence' }
+    $null = New-Item -ItemType Directory -Path $WindowEvidenceDirectory
+    function Get-PackageSignature([string]$Path) {
+        try {
+            $signature = Get-AuthenticodeSignature -LiteralPath $Path
+            return @{status=$signature.Status.ToString(); type=[string]$signature.SignatureType; valid=($signature.Status -eq 'Valid' -and $null -ne $signature.SignerCertificate);
+                     signer_thumbprint=$signature.SignerCertificate.Thumbprint; timestamp_signer_thumbprint=$signature.TimeStamperCertificate.Thumbprint}
+        } catch { return @{status='check_failed'; valid=$false; error=$_.Exception.GetType().Name} }
+    }
+    $windowReceipt = Join-Path $WindowEvidenceDirectory 'windows-installed-tauri.json'
+    $windowEvidence = @{
+        schema_version=1; status='unavailable'; reason='capture_not_started'; requested_scenario='monitoring'
+        windows_build=[Environment]::OSVersion.Version.Build; source_revision=$manifest.source_revision; expected_revision=$ExpectedRevision
+        version=$desktopInfo.version; target_arch=$desktopInfo.target_arch; installer_sha256=$report.installer_sha256
+        installed_exe_sha256=(Get-FileHash -LiteralPath $desktopExe).Hash.ToLowerInvariant()
+        installed_core_sha256=$manifest.components.'ori-core'.sha256
+        authenticode=@{installer=(Get-PackageSignature $Installer); desktop=(Get-PackageSignature $desktopExe)}
+    }
+    $python = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $python) { $windowEvidence.reason = 'test_host_python_unavailable' }
+    [IO.File]::WriteAllText($windowReceipt, ($windowEvidence | ConvertTo-Json -Depth 5))
+    if ($python) {
+        & $python.Source (Join-Path $PSScriptRoot 'capture_installed_window.py') capture --core $core --desktop $desktopExe --output $WindowEvidenceDirectory
+        if ($LASTEXITCODE -ne 0) { throw 'The window evidence helper or its isolated cleanup failed' }
+    }
+    $windowEvidence = Get-Content -LiteralPath $windowReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+    $report.window_evidence = @{status=$windowEvidence.status; scenario=$windowEvidence.scenario; reason=$windowEvidence.reason}
+}
 
 function Invoke-Node([string]$Action) {
     # A previous release can leave a capture pipe open in its long-lived node.
