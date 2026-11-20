@@ -85,7 +85,7 @@ struct ContentView: View {
                                         bandPlanWorkspace: workspace, compact: true)
                             .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
                         NativeGuardSignalsPane(workspace: workspace,
-                            openGuard: { navigation.destination.settings = .guardSettings }, compact: true,
+                            openGuard: { navigation.destination.settings = .guardSettings }, compact: true, research: mode == .research,
                             openReceiver: { navigation.destination.settings = .receiver }, remote: model)
                             .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
                             .accessibilityElement(children: .contain)
@@ -178,6 +178,13 @@ struct ContentView: View {
                 model.selectSession(evidence.profile.warmupSessionID ?? evidence.profile.sessionID)
             }
             let root=URL(fileURLWithPath:evidence.profile.outputDirectory)
+            if evidence.profile.phase == "ui-test",
+               let request = try? String(contentsOf: root.appendingPathComponent("training-window.request"), encoding: .utf8),
+               request == evidence.profile.runID {
+                await NativeTrainingWindowCapture.run(profile: evidence.profile, model: model, workspace: workspace)
+                NSApp.terminate(nil)
+                return
+            }
             var switched=false
             var serviceStopHandled=false
             while !Task.isCancelled {

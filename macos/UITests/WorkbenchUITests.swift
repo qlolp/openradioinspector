@@ -24,7 +24,8 @@ final class WorkbenchUITests: XCTestCase {
             from: Data(contentsOf: URL(fileURLWithPath: path)))
         let method = String(test.prefix(while: { $0 != "(" }))
         let profile = try XCTUnwrap(profiles[method], "An owned profile is required for this exact test")
-        let app = XCUIApplication()
+        let target = ProcessInfo.processInfo.environment["ORI_UI_TEST_APP"]
+        let app = target.map { XCUIApplication(url: URL(fileURLWithPath: $0)) } ?? XCUIApplication()
         var ready = false
         defer { if !ready { app.terminate() } }
         app.launchArguments = ["--acceptance-profile", profile]
@@ -43,10 +44,10 @@ final class WorkbenchUITests: XCTestCase {
             throw CocoaError(.coderValueNotFound)
         }
         let session = app.popUpButtons["workbench.session"]
-        let selected = NSPredicate(format: "value CONTAINS %@", "UI fixture one")
+        let selected = NSPredicate(format: "value CONTAINS %@", "Учебный сеанс 1")
         expectation(for: selected, evaluatedWith: session)
         waitForExpectations(timeout: 15)
-        XCTAssertTrue((session.value as? String)?.contains("UI fixture one") == true,
+        XCTAssertTrue((session.value as? String)?.contains("Учебный сеанс 1") == true,
             "Navigation must preserve a selected fixture session, not 'Не выбран'")
         ready = true
         return app
@@ -134,6 +135,39 @@ final class WorkbenchUITests: XCTestCase {
         app.buttons["source-sheet.close"].click()
         XCTAssertEqual(app.popUpButtons["workbench.session"].value as? String, before)
         XCTAssertTrue(text(element("continuity.core", in: app)).contains("Ядро на связи"))
+    }
+
+    @MainActor func testTrainingWindowCaptures() throws {
+        let app = try launch(test: #function)
+        defer { app.terminate() }
+        let window = app.windows.firstMatch
+        let event = element("observation.event.ui-event-one", in: app)
+        let scope = element("engineering.scope", in: app), quality = element("spectrum.qualification", in: app)
+        guard event.waitForExistence(timeout: 15), text(scope).contains("синтетические данные"),
+              (app.popUpButtons["workbench.session"].value as? String)?.contains("Учебный сеанс 1") == true else {
+            throw CocoaError(.coderValueNotFound)
+        }
+        let synthetic = NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Учебные данные", "Учебные данные")
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: synthetic, object: quality)], timeout: 15) == .completed else {
+            throw CocoaError(.coderValueNotFound)
+        }
+        try attachTrainingWindow(window, named: "macos-monitoring")
+
+        event.click()
+        let source = app.buttons["observation.open-source"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: source)
+        waitForExpectations(timeout: 15)
+        try attachTrainingWindow(window, named: "macos-event")
+    }
+
+    @MainActor private func attachTrainingWindow(_ window: XCUIElement, named name: String) throws {
+        guard window.exists, window.frame.width >= 920, window.frame.height >= 580 else {
+            throw CocoaError(.coderValueNotFound)
+        }
+        let attachment = XCTAttachment(data: window.screenshot().pngRepresentation, uniformTypeIdentifier: "public.png")
+        attachment.name = name + ".png"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     @MainActor func testPreparationRejectsDuplicatePortsAndAmbiguousFrequency() throws {

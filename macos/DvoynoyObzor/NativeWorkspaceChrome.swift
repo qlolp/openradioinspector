@@ -129,6 +129,7 @@ struct NativeContinuityBar: View {
     @Bindable var model: RemoteDualModel
     @ObservedObject var workspace: MonitoringWorkspaceModel
     @State private var details = false
+    @State private var showBands = false
     private func coverage(verified: Bool) -> String {
         let value = workspace.project["coverage"].text.isEmpty ? workspace.coverage : workspace.project["coverage"].text
         return NativeContinuityLabels.coverage(value, coreReachable: model.coreReachable,
@@ -140,6 +141,17 @@ struct NativeContinuityBar: View {
         if capacity.measurementWritesBlocked { return "Запись в архив заблокирована" }
         let state = ["unlimited": "без лимита", "ok": "норма", "warning": "мало места", "full": "заполнен", "unavailable": "недоступен"][capacity.state.rawValue] ?? capacity.state.rawValue
         return "Архив · " + state
+    }
+    private var recordingLabel: String {
+        guard model.coreReachable, let capacity = model.displayArchiveCapacity else { return "Запись не подтверждена" }
+        if capacity.measurementWritesBlocked { return "Запись заблокирована" }
+        let workers = [model.analyzer?.id, model.receiver?.id].compactMap { model.worker(for: $0) }
+        guard !workers.isEmpty else { return "Запись не подтверждена" }
+        let active = workers.filter(\.alive)
+        guard !active.isEmpty else { return "Запись остановлена" }
+        if active.contains(where: { $0.state == "running" && ($0.measurements ?? 0) > 0 }) { return "Запись идёт" }
+        if active.allSatisfy({ $0.state == "running" && $0.measurements == 0 }) { return "Ожидается первая запись" }
+        return "Запись не подтверждена"
     }
     private func activity(_ stream: String?) -> String {
         guard let stream else { return "не выбран" }
@@ -166,6 +178,8 @@ struct NativeContinuityBar: View {
                             .accessibilityIdentifier("continuity.core")
                     }
                         .foregroundStyle(model.coreReachable ? Color.green : Color.orange)
+                    Text(recordingLabel)
+                        .accessibilityIdentifier("continuity.recording")
                     Text(archiveLabel)
                         .accessibilityIdentifier("continuity.archive")
                     Text(guardLabel(verified: verified))
@@ -187,6 +201,15 @@ struct NativeContinuityBar: View {
                         .accessibilityIdentifier("continuity.receiver")
                     Text(coverage(verified: verified)).help(coverage(verified: verified))
                         .accessibilityIdentifier("continuity.coverage")
+                    Button("По полосам") { showBands.toggle() }
+                        .controlSize(.mini).accessibilityIdentifier("continuity.bands")
+                        .popover(isPresented: $showBands) {
+                            ScrollView {
+                                NativeBandCoveragePane(status: workspace.status, sessionID: model.selectedSessionID,
+                                                       verified: model.coreReachable && verified)
+                                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            }.frame(width: 410, height: 280)
+                        }
                     Spacer(minLength: 0)
                     if let time = model.acquisitionSweepTime {
                         let age = context.date.timeIntervalSince(time)

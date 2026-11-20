@@ -34,8 +34,15 @@ struct NativeConsoleEventCard: View {
                     Text("Над фоном: " + NativeGuardSignal.level(signal.value["peak_excess_db"], unit: "dB"))
                     Text(signal.receiver)
                     if let reason = signal.receiverReason { Text(reason).foregroundStyle(.secondary) }
-                    let receiver = signal.value["analysis"]["verification_evidence"]["receiver"]
-                    if receiver != .null { Text(receiver["level"].scalar + " " + receiver["level_unit"].text) }
+                    let analysis = signal.value["analysis"]
+                    let matched = analysis["verification_evidence"]["receiver"]
+                    let reading = matched != .null ? matched : analysis["receiver_status"].items.last ?? .null
+                    if reading != .null {
+                        let unit = reading["level_unit"].text == "s_meter_count" ? "отсч. S-метра" : reading["level_unit"].text
+                        Text((matched != .null ? "Связанное измерение AR-DV1 · " : "Последнее измерение AR-DV1 · ") +
+                             reading["level"].scalar + " " + unit)
+                            .accessibilityIdentifier("observation.receiver-level")
+                    }
                     Button("В очередь AR-DV1") { enqueueOriginal() }
                         .disabled(investigationScope == nil || loadingSource || remote?.consoleInvestigation.pending == true ||
                                   remote?.consoleInvestigation.canEnqueue != true)

@@ -42,7 +42,7 @@ enum NativeRCBundle {
               let size = attributes.fileSize, size > 0, size <= 65_536 else { throw invalid() }
         let bytes = try Data(contentsOf: path)
         let metadata = try JSONDecoder().decode(Metadata.self, from: bytes)
-        guard metadata.schemaVersion == 1, metadata.releaseVersion == release,
+        guard metadata.schemaVersion == 1, [release, "0.4.0"].contains(metadata.releaseVersion),
               metadata.bundleIdentifier == "org.openradioinspector.macos.rc", metadata.architecture == "arm64",
               metadata.sourceRevision.count == 40,
               metadata.sourceRevision.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw invalid() }

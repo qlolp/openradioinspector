@@ -4,7 +4,7 @@ import stat
 import os
 import tempfile
 from pathlib import Path
-from macos.ci.ui_smoke import configure_test_run, passed_cases, prepare_profiles
+from macos.ci.ui_smoke import collect_training_images, configure_test_run, passed_cases, prepare_profiles
 
 
 CASES = (
@@ -15,6 +15,7 @@ CASES = (
     'testWorkspaceSwitchKeepsCoreAndSelectedSession',
     'testEventOpensExactOriginalAlongsideReception',
     'testHistoricalEventOpensReadOnlyOriginalWithoutSwitchingAcquisition',
+    'testTrainingWindowCaptures',
 )
 
 
@@ -38,7 +39,14 @@ class NativeUIFixtureTests(unittest.TestCase):
                     originals = service.list_sweeps(source['session_id'], stream_id=source['stream_id'])
                     original = next(row for row in originals if row.id == source['sweep_id'])
                     self.assertEqual(original.level_unit, 'dBm')
-                    self.assertEqual(list(original.levels), [-100, -51, -0.0])
+                    self.assertEqual(len(original.levels), 201)
+                    self.assertEqual(original.frequencies_hz[110], 100_100_000)
+                    self.assertEqual(original.levels[110], -51)
+                    self.assertEqual(original.settings['measurement_qualification']['status'], 'synthetic')
+                    for reading in event['analysis'].get('receiver_status', []):
+                        self.assertEqual(reading['session_id'], source['session_id'])
+                        self.assertTrue(reading['metadata']['simulated'])
+                        self.assertEqual((reading['level'], reading['level_unit']), (23, 's_meter_count'))
                 self.assertFalse(project['autostart'])
                 self.assertEqual(project['state'], 'draft')
 
@@ -83,6 +91,33 @@ class NativeUIRunnerTests(unittest.TestCase):
         self.assertEqual(result['UI']['TestHostPath'], '/build/Products/Debug/Runner.app')
         self.assertEqual(result['UI']['UITargetAppPath'], '/build/Products/Debug/DvoynoyObzor.app')
         self.assertEqual(result['UI']['TestBundlePath'], '__TESTHOST__/PlugIns/DvoynoyObzorUITests.xctest')
+
+    def test_installed_target_and_window_exports_are_scoped_to_the_training_case(self):
+        source = {'UI': {'TestBundlePath': '__TESTHOST__/PlugIns/DvoynoyObzorUITests.xctest',
+                         'UITargetAppPath': '__TESTROOT__/Debug/DvoynoyObzor.app'}}
+        configured = configure_test_run(source, '/private/profiles', target_app='/Applications/Owned.app')
+        self.assertEqual(configured['UI']['UITargetAppPath'], '/Applications/Owned.app')
+        self.assertEqual(configured['UI']['EnvironmentVariables']['ORI_UI_TEST_APP'], '/Applications/Owned.app')
+        import struct
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)
+            attachments = path / 'attachments'
+            attachments.mkdir()
+            records = []
+            for name in ('macos-monitoring', 'macos-event'):
+                filename = name + '.png'
+                (attachments / filename).write_bytes(b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', 1200, 792))
+                records.append(dict(exportedFileName=filename, suggestedHumanReadableName=filename,
+                                    isAssociatedWithFailure=False))
+            document = [dict(testIdentifier='WorkbenchUITests/testTrainingWindowCaptures()', attachments=records)]
+            (attachments / 'manifest.json').write_text(json.dumps(document))
+            report = collect_training_images(attachments, path)
+            self.assertEqual(set(report), {'macos-monitoring.png', 'macos-event.png'})
+            self.assertEqual(report['macos-event.png']['width'], 1200)
+            records[0]['isAssociatedWithFailure'] = True
+            (attachments / 'manifest.json').write_text(json.dumps(document))
+            with self.assertRaises(ValueError):
+                collect_training_images(attachments, path)
 
     def test_profile_is_injected_only_into_the_single_ui_test_target(self):
         ui = {'TestBundlePath': '__TESTROOT__/DvoynoyObzorUITests.xctest',

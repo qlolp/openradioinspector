@@ -154,6 +154,10 @@ struct NativeSpectrumInspector: View {
                 Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? Color.green : Color.orange)
                     .accessibilityIdentifier("spectrum.context")
             }.controlSize(.small).font(.caption)
+            if let sweep = selected ?? displayed.last {
+                Text("Качество свипа · " + NativeBandCoverage.quality(of: sweep))
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("spectrum.qualification")
+            }
             if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
             NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
             GeometryReader { geometry in

@@ -29,6 +29,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var baselineConfirmed = false
     @Published private var capabilities: MonitoringValue = .null
     @Published private(set) var signalQueue = NativeGuardSignalQueue()
+    @Published private(set) var pairedRechecks: PlatformPairedRechecks?
     @Published private(set) var signalEvent: MonitoringValue = .null
     @Published private(set) var signalOriginal: PlatformSweep?
     @Published private(set) var signalPending: Set<NativeGuardSignalRequest> = []
@@ -134,10 +135,16 @@ final class MonitoringWorkspaceModel: ObservableObject {
         (preparationSimulation || (savedPreparationReady && !preparationDirty))
     }
     private var baselinesReady: Bool {
-        guard !project["baseline_id"].text.isEmpty else { return false }
         let plan = project["scan_plan"]
-        guard plan != .null else { return true }
+        guard plan != .null else { return !project["baseline_id"].text.isEmpty }
         let bands = plan["config"]["bands"].items
+        let progress = preflight["baseline_collection"]["bands"].items
+        if progress.contains(where: { $0["eligible_windows"].integer != nil }) {
+            guard preflightIsCurrent(), PlatformExactID.same(preflight["project_id"].text, selected),
+                  progress.map({ PlatformExactID($0["band_id"].text) }) == bands.map(\.exactID) else { return false }
+            return preflight["baseline_ready"].bool == true
+        }
+        guard !project["baseline_id"].text.isEmpty else { return false }
         let baselines = project["band_baselines"]
         return !bands.isEmpty && bands.allSatisfy { band in
             let id = band["id"].text
@@ -168,6 +175,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
     var scanPlansAvailable: Bool { capabilities["features"]["monitoring_scan_plans"].bool == true }
+    var pairedRechecksAvailable: Bool { capabilities["features"]["paired_event_rechecks"].bool == true }
     var signalCatalogAvailable: Bool { capabilities["features"]["monitoring_signal_catalog"].bool == true }
     var signalContext: Int { revision }
     var knownSignalsHasNext: Bool { knownSignalsBefore.indices.contains(knownSignalsPage + 1) }
@@ -249,7 +257,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
         status = .null; projectStatusVerifiedAt = nil
         preflight = .null; events = []; selectedEvent = ""; event = .null
         preflightEvidence.invalidate(); consoleVerdict = NativeConsoleVerdictDraft()
-        signalQueue = NativeGuardSignalQueue(); signalEvent = .null; signalOriginal = nil
+        signalQueue = NativeGuardSignalQueue(); signalEvent = .null; signalOriginal = nil; pairedRechecks = nil
         signalRequests = [:]; signalErrors = [:]; signalPending = []
         signalDetailPollValue = .null; signalDetailRefreshedAt = nil
         knownSignals = []; knownSignalsPage = 0; knownSignalsBefore = [nil]; knownSignalNotice = ""
@@ -540,7 +548,8 @@ final class MonitoringWorkspaceModel: ObservableObject {
     }
 
     private func resetSignalSelection() {
-        cancelSignalRequests([.detail, .original, .confirm, .review])
+        cancelSignalRequests([.detail, .original, .confirm, .review, .rechecks])
+        pairedRechecks = nil
         signalEvent = .null
         consoleVerdict = NativeConsoleVerdictDraft(); knownSignalNotice = ""
         signalOriginal = nil
@@ -561,6 +570,13 @@ final class MonitoringWorkspaceModel: ObservableObject {
             signalDetailPollValue = observed
             signalDetailRefreshedAt = .now
         }
+    }
+
+    func loadPairedRechecks(eventID: PlatformExactID, recipe: MonitoringValue? = nil) async {
+        guard pairedRechecksAvailable, signalQueue.selectedID == eventID else { return }
+        await signalRequest(.rechecks, eventID: eventID, request: { client, project in
+            try await client.monitoringPairedRechecks(projectID: project, eventID: eventID.rawValue, recipe: recipe)
+        }) { pairedRechecks = $0 }
     }
 
     func openSignalOriginal(eventID: PlatformExactID, source: NativeGuardSignalSource) async {

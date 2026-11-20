@@ -312,7 +312,7 @@ func averageKnown(_ settings: [String: PlatformComparisonSetting]) -> [String: P
         default: return true
         }
     }
-    let known = settings.filter { $0.key != "sequence" }
+    let known = settings.filter { $0.key != "sequence" && $0.key != "measurement_qualification" }
     return !known.isEmpty && known.values.allSatisfy(recorded) ? known : nil
 }
 // Exact Gregorian UTC intervals without formatter work on the UI executor.

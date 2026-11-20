@@ -91,6 +91,19 @@ final class SweepComparisonTests: XCTestCase {
         XCTAssertEqual(try decode(body).frequenciesHz, [0, 0, 0])
     }
 
+    func testQualificationCanBeMissingOrContainANullReference() throws {
+        var packet = fixture()
+        var target = try XCTUnwrap(packet["target"] as? [String: Any])
+        var settings = try XCTUnwrap(target["settings"] as? [String: Any])
+        settings["measurement_qualification"] = ["status": "synthetic", "reason": NSNull(), "verified_through_hz": NSNull()] as [String: Any]
+        target["settings"] = settings
+        packet["target"] = target
+        let result = try decode(packet)
+        XCTAssertEqual(result.target.settings["measurement_qualification"],
+            .object(["status": .string("synthetic"), "reason": .null, "verified_through_hz": .null]))
+        XCTAssertEqual(averageKnown(result.target.settings), averageKnown(result.reference.settings))
+    }
+
     func testMalformedComparisonValuesAreRejectedWithoutCoercion() throws {
         let mutations: [(inout [String: Any]) -> Void] = [
             { $0["session_id"] = " " }, { $0["stream_id"] = "" },

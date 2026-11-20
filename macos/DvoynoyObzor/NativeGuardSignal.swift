@@ -232,7 +232,7 @@ struct NativeGuardSignalQueue {
 }
 
 enum NativeGuardSignalRequest: Hashable {
-    case inbox, inboxPage, detail, original, catalog, confirm, review
+    case inbox, inboxPage, detail, original, catalog, confirm, review, rechecks
 }
 
 extension MonitoringKnownSignalKind {

@@ -1,10 +1,12 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import SpektrKomandy
 
 struct NativeGuardSignalsPane: View {
     @ObservedObject var workspace: MonitoringWorkspaceModel
     let openGuard: () -> Void
     var compact = false
+    var research = false
     var openReceiver: (() -> Void)?
     var remote: RemoteDualModel?
     @State private var confirming = false
@@ -218,6 +220,9 @@ struct NativeGuardSignalsPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = workspace.signalQueue.selected {
+                    if research {
+                        NativePairedRechecksPane(workspace: workspace, eventID: summary.id).id(summary.id)
+                    }
                     if compact {
                         NativeConsoleEventCard(workspace: workspace, summary: summary, detail: detail,
                                                openReceiver: openReceiver ?? openGuard, remote: remote)
@@ -377,6 +382,7 @@ struct NativeGuardOriginalPane: View {
             Text("Сеанс \(sweep.sessionId) · поток \(sweep.streamId)").textSelection(.enabled)
             Text("\(sweep.interval.startedAt) — \(sweep.interval.endedAt) · \(sweep.levels.count) точек")
                 .font(.caption.monospacedDigit()).textSelection(.enabled)
+            Text("Качество свипа · " + NativeBandCoverage.quality(of: sweep)).font(.caption)
             MonitoringCurveChart(curves: [.init(title: sweep.levelUnit, color: .blue,
                 points: zip(sweep.frequenciesHz, sweep.levels).map { PlotPoint(x: Double($0), y: $1) })])
         }.padding().frame(minWidth: 640)
@@ -462,5 +468,97 @@ private struct NativeKnownSignalEditor: View {
                     .disabled(saving || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }.padding().frame(width: 420)
+    }
+}
+
+private struct NativePairedRechecksPane: View {
+    @ObservedObject var workspace: MonitoringWorkspaceModel
+    let eventID: PlatformExactID
+    @State private var importing = false
+    @State private var importContext: Int?
+    @State private var importError = ""
+
+    var body: some View {
+        GroupBox("Повторная проверка") {
+            VStack(alignment: .leading, spacing: 6) {
+                if !workspace.pairedRechecksAvailable {
+                    Text("Ядро не сообщает о поддержке парных проверок.")
+                } else {
+                    if workspace.signalPending.contains(.rechecks) {
+                        ProgressView("Проверяем исходники…").controlSize(.small)
+                    } else if let result = workspace.pairedRechecks {
+                        if result.state == "missing_evidence" {
+                            Text("Парные наблюдения ещё не сохранены.")
+                        } else {
+                            Text((result.instrument ?? "") + " · " +
+                                 NativeGuardSignal.frequency(result.frequencyHz.map(MonitoringValue.integer) ?? .null) + " МГц")
+                            if result.simulated == true { Text("Учебные измерения").foregroundStyle(.secondary) }
+                            Text("Повтор сигнала · \(result.signalRepeats ?? 0) из \(result.repeatTotal ?? 0)")
+                                .accessibilityIdentifier("research.signal-repeats")
+                            Text("Повтор расхождения · \(result.discrepancyRepeats ?? 0) из \(result.repeatTotal ?? 0)")
+                                .accessibilityIdentifier("research.discrepancy-repeats")
+                            if let background = result.localBackground {
+                                Text("Местный фон tinySA · " + NativeGuardSignal.level(.number(background.tinyDbm), unit: "dBm"))
+                                Text("Местный фон AR-DV1 · " + background.arSMeterCount.formatted() + " отсч. S-метра")
+                            }
+                            ForEach(Array(result.visits.enumerated()), id: \.offset) { offset, visit in
+                                DisclosureGroup("Наблюдение \(offset + 1)") {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Сигнал повторился · " + verdict(visit.signalRepeated))
+                                        Text("Расхождение повторилось · " + verdict(visit.discrepancyRepeated))
+                                        if let delta = visit.tinyDeltaDb {
+                                            Text("tinySA · изменение к фону " + NativeGuardSignal.level(.number(delta), unit: "dB"))
+                                        }
+                                        if let counts = visit.arDropCounts {
+                                            Text("AR-DV1 · фон минус измерение \(counts.formatted()) отсч. S-метра")
+                                        }
+                                        Text("Свип tinySA · " + visit.sweepId)
+                                        Text("Наблюдения AR-DV1 · " + visit.observationIds.joined(separator: ", "))
+                                    }.textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                    HStack {
+                        Button("Обновить") { workspace.perform { await workspace.loadPairedRechecks(eventID: eventID) } }
+                        Button("Исходники из JSON…") { importContext = workspace.signalContext; importing = true }
+                    }.disabled(workspace.signalPending.contains(.rechecks))
+                    ErrorLine(text: workspace.signalErrors[.rechecks] ?? "")
+                    ErrorLine(text: importError)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).font(.callout).monospacedDigit()
+        }
+        .accessibilityIdentifier("research.rechecks")
+        .task(id: workspace.pairedRechecksAvailable) {
+            if workspace.pairedRechecksAvailable { await workspace.loadPairedRechecks(eventID: eventID) }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { selection in
+            do {
+                guard let context = importContext, context == workspace.signalContext,
+                      workspace.signalQueue.selectedID == eventID else { return }
+                let url = try selection.get()
+                let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                let file = try FileHandle(forReadingFrom: url)
+                defer { try? file.close() }
+                let data = try file.read(upToCount: 65_537) ?? Data()
+                guard data.count <= 65_536 else { throw PlatformError.invalidCommand("Файл списка исходников превышает 64 КиБ") }
+                let recipe = try JSONDecoder().decode(MonitoringValue.self, from: data)
+                guard case .object(let fields) = recipe,
+                      Set(fields.keys) == ["initial", "neighbors", "controls", "repeats"] else {
+                    throw PlatformError.invalidCommand("Нужен список initial, neighbors, controls и repeats с идентификаторами исходников")
+                }
+                importError = ""
+                workspace.perform {
+                    guard context == workspace.signalContext else { return }
+                    await workspace.loadPairedRechecks(eventID: eventID, recipe: recipe)
+                }
+            } catch CocoaError.userCancelled { }
+              catch { importError = error.localizedDescription }
+        }
+    }
+
+    private func verdict(_ value: Bool?) -> String {
+        value.map { $0 ? "да" : "нет" } ?? "нет результата"
     }
 }
