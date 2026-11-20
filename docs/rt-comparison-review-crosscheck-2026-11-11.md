@@ -12,7 +12,7 @@
 
 | Документ | Что содержит |
 |---|---|
-| [`rt-comparison.md`](rt-comparison.md) | сопоставление по 33 функциональным блокам, оценка «паритет/первый срез/частично/нет» и приоритеты (ревизия `604b206`) |
+| [`rt-comparison.md`](rt-comparison.md) | исходная матрица из 44 строк, оценка «паритет/первый срез/частично/нет» и приоритеты (ревизия `604b206`) |
 | [`research-rt-capabilities-2026-11-11.md`](research-rt-capabilities-2026-11-11.md) | датированная запись исследования: источники, метод, факты по обеим сторонам, выводы, воспроизведение |
 | [`reviews/2026-11-09/README.md`](reviews/2026-11-09/README.md) | независимое ревью кода (45 находок, severity и `file:line`), выполненное на ревизии `054eb59`, с детальными треками [`core.md`](reviews/2026-11-09/core.md), [`web-security.md`](reviews/2026-11-09/web-security.md), [`dsp-devices.md`](reviews/2026-11-09/dsp-devices.md), [`quality.md`](reviews/2026-11-09/quality.md) |
 
@@ -49,7 +49,7 @@
 
 ## 5. Ссылки
 
-* [`rt-comparison.md`](rt-comparison.md) — актуальное сравнение по 33 блокам.
+* [`rt-comparison.md`](rt-comparison.md) — актуальное сравнение и условия проверки.
 * [`research-rt-capabilities-2026-11-11.md`](research-rt-capabilities-2026-11-11.md) — запись исследования.
 * [`reviews/2026-11-09/README.md`](reviews/2026-11-09/README.md) — сводное независимое ревью и план исправлений.
 
