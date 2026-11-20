@@ -36,6 +36,48 @@ fn batch(incorrect: bool) -> Vec<Mutation> {
 }
 
 #[tokio::test]
+async fn physical_grid_confirms_only_the_complete_reference_eligible_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = Archive::open(ArchiveConfig::new(dir.path().join("mixed.sqlite"))).unwrap();
+    let mut all = batch(false);
+    let mut project = all.pop().unwrap();
+    let Mutation::Monitoring { value, .. } = &mut project else {
+        panic!()
+    };
+    let eligible = 275;
+    value["profile"] = json!({"analyzer":{"settings":{"adapter":"tinysa-serial"}}});
+    value["scan_plan"]["config"] = json!({"name":"Full grid","bands":[{"id":"rx","name":"Survey",
+        "start_hz":100_000,"stop_hz":1_300_000_000,"points":129_991,"step_hz":10000,
+        "rbw_hz":30000,"max_revisit_seconds":120.0}]});
+    value["band_baselines"]
+        .as_object_mut()
+        .unwrap()
+        .retain(|key, _| key.split_once(':').unwrap().1.parse::<usize>().unwrap() < eligible);
+    all.truncate(eligible);
+    let mut incomplete = all.clone();
+    incomplete.pop();
+    incomplete.push(project.clone());
+    assert!(archive.apply(incomplete).await.is_err());
+    all.push(project);
+    archive.apply(all).await.unwrap();
+    assert!(
+        archive
+            .monitoring("baseline", "baseline-274")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        archive
+            .monitoring("baseline", "baseline-275")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    archive.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn complete_449_window_confirmation_is_one_bounded_atomic_publication() {
     let dir = tempfile::tempdir().unwrap();
     let archive = Archive::open(ArchiveConfig::new(dir.path().join("grid.sqlite"))).unwrap();

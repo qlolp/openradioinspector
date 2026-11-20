@@ -28,6 +28,15 @@ class DetectorTests(unittest.TestCase):
         self.baseline = build_baseline([sweep(i) for i in range(20)])
         self.parameters = dict(margin_db=6., impulse_db=12., hysteresis_db=3., confirmations=3, window_sweeps=5)
 
+    def test_qualification_preserves_historical_measurement_fingerprint(self):
+        from radioinspector.monitoring.detector import fingerprint
+        original = sweep(0)
+        expected = fingerprint(original)
+        original.settings['measurement_qualification'] = {'status': 'supported', 'reason': None}
+        self.assertEqual(fingerprint(original), expected)
+        original.settings['rbw_hz'] = 30000
+        self.assertNotEqual(fingerprint(original), expected)
+
     def test_new_carrier_confirms_three_of_five_and_never_learns_it(self):
         detector = Detector(self.baseline, self.parameters)
         levels = [-100.]*9; levels[4] = -92

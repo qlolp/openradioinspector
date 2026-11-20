@@ -28,6 +28,9 @@ import libraries, MSVC target ABI, CRT policy, Cargo arguments/profiles, locked
 dependencies and the pinned Rust toolchain stay under the existing build rules.
 The option adds no LTO or optimization flags. Missing or wrong tools fail; the
 runner does not install tools or switch back to a Microsoft compiler/linker.
+The hosted Windows workflow prepares Kitware's SHA-256-pinned x64 CMake
+4.4.5 ZIP before invoking the gate so runner image upgrades do not change
+the CMake binary selected for the build.
 Conflicting inherited raw-target, host or AWS-LC compiler/CMake selectors fail
 before compilation, as do a different explicit `RUSTC` or Cargo build target.
 Windows key comparisons ignore case; the copied child map contains one value

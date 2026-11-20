@@ -1,4 +1,8 @@
-use crate::{GuardError, GuardService, Result, util::*};
+use crate::{
+    GuardError, GuardService, Result, measurement_qualification,
+    qualification::{REFERENCE_REQUIRED, source_adapter, source_qualification},
+    util::*,
+};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use ori_archive::{MeasurementCursor, SweepQuery};
 use ori_contracts::Sweep;
@@ -81,7 +85,7 @@ fn selected(frequencies: &[u64], levels: &[f64], minimum: u64, maximum: u64) -> 
 }
 impl GuardService {
     pub async fn history(&self, id: &str, query: HistoryQuery) -> Result<Value> {
-        self.project(id).await?;
+        let project = self.project(id).await?;
         if !(1..=64).contains(&query.limit)
             || query.min_hz > query.max_hz
             || query.max_hz > 20_000_000_000
@@ -196,6 +200,18 @@ impl GuardService {
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
             );
+            let adapter = source_adapter(&project, &sweep);
+            if (adapter == Some("tinysa-serial")
+                || sweep
+                    .settings
+                    .as_ref()
+                    .is_some_and(|s| s.contains_key("measurement_qualification")))
+                && let (Some(&lo), Some(&hi)) =
+                    (sweep.frequencies_hz.first(), sweep.frequencies_hz.last())
+            {
+                raw["settings"]["measurement_qualification"] =
+                    measurement_qualification(adapter, lo, hi);
+            }
             raw["settings_available_in_original"] = json!(true);
             items.push(raw);
         }
@@ -272,6 +288,13 @@ impl GuardService {
     pub async fn history_comparison(&self, id: &str, sweep_id: &str) -> Result<Value> {
         let project = self.project(id).await?;
         let raw = self.history_original(id, sweep_id).await?;
+        let sweep: Sweep = decode(&raw)?;
+        if !source_qualification(&project, &sweep)?.eligible() {
+            return Ok(
+                json!({"baseline_id":null,"sweep_id":sweep_id,"detector_version":null,
+                "compatible":false,"reason":REFERENCE_REQUIRED,"items":[],"display_only":true}),
+            );
+        }
         let baseline = if let (Some(plan), Some(band)) = (
             raw["settings"]["scan_plan_id"].as_str(),
             raw["settings"]["scan_band_id"].as_str(),
@@ -293,7 +316,6 @@ impl GuardService {
             self.get_record("baseline", s(&project, "baseline_id")?, Some(id))
                 .await?
         };
-        let sweep: Sweep = decode(&raw)?;
         let compatible = ori_monitoring::fingerprint(&sweep)? == s(&baseline, "fingerprint")?;
         let mut items = vec![];
         if compatible {

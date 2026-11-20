@@ -13,6 +13,8 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from tools.release.operator_manual import stage_manual
 WINDOWS = ROOT / 'clients/windows'
 TARGET = 'x86_64-pc-windows-msvc'
 VERSION = '0.4.0-rc.1'
@@ -20,8 +22,11 @@ SQLITE_VERSION = '3.54.1'
 
 
 def digest(path):
+    digest = hashlib.sha256()
     with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def helper_record(path, name, revision, info):
@@ -82,6 +87,7 @@ def main():
         raise SystemExit('Build the native NSIS installer on Windows x64.')
     revision = run('git', 'rev-parse', 'HEAD', capture_output=True, text=True).stdout.strip()
     verify_build_inputs(ROOT)
+    public = os.environ.get('ORI_WINDOWS_DISTRIBUTION') == 'authenticode'
     env = {**os.environ, 'ORI_BUILD_SOURCE_SHA': revision, 'LIBSQLITE3_SYS_USE_PKG_CONFIG': '0'}
     npm = shutil.which('npm.cmd')
     if not npm:
@@ -103,13 +109,17 @@ def main():
         for name in ('ori-core', 'ori-supervisor'):
             executable = runtime / (name + '.exe')
             shutil.copy2(binaries / executable.name, executable)
+            if public:
+                run('pwsh', '-NoProfile', '-NonInteractive', '-File',
+                    ROOT / 'packaging/windows/authenticode.ps1', executable)
             info = json.loads(run(executable, '--build-info', capture_output=True).stdout)
             records[name] = helper_record(executable, name, revision, info)
         web = stage_web(ROOT / 'radioinspector/web/modern', temp / 'frontend')
         shutil.copyfile(ROOT / 'deploy/windows/register-user-task.ps1', runtime / 'register-user-task.ps1')
         run(sys.executable, 'tools/release/native_notices.py', '--target', TARGET,
             '--output', runtime / 'notices', '--tauri')
-        manifest = {'schema_version': 1, 'release_version': VERSION, 'target': TARGET,
+        manual = stage_manual(ROOT, runtime / 'operator-guide')
+        manifest = {'schema_version': 1, 'manual_sha256': manual, 'release_version': '0.4.0' if public else VERSION, 'target': TARGET,
                     'source_revision': revision, 'components': records, 'web': web}
         (runtime / 'rc-build-info.json').write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')

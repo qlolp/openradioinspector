@@ -1,11 +1,162 @@
 import Foundation
 import Dispatch
-import Combine
+import Observation
 import XCTest
+import SwiftUI
+import AppKit
 import SpektrKomandy
 @testable import DvoynoyObzorSession
 
 final class NativeStreamingModelTests: XCTestCase {
+    @MainActor final class ObservationCount { var value = 0 }
+
+    @MainActor func testWorkbenchSplitPanesUseFixedSizingToo() async throws {
+        let host = NSHostingView(rootView: HSplitView {
+            Color.blue.frame(minWidth: 640)
+            Color.red.frame(minWidth: 280, maxWidth: 300)
+        }.background(WindowCloseObserver { }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1020, height: 700),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        func hosts(in view: NSView) -> [any WorkbenchSizingSnapshot] {
+            let current = (view as? any WorkbenchSizingSnapshot).map { [$0] } ?? []
+            return current + view.subviews.flatMap { hosts(in: $0) }
+        }
+        let snapshots = hosts(in: host)
+        XCTAssertGreaterThan(snapshots.count, 1, "Exercise AppKit's split-pane hosting views")
+        for snapshot in snapshots {
+            XCTAssertFalse(snapshot.usesAutomaticWorkbenchSizing,
+                "Split-pane hosts must not remeasure the workbench on every incoming frame: \(snapshot)")
+        }
+        func splitView(in view: NSView) -> NSSplitView? {
+            (view as? NSSplitView) ?? view.subviews.lazy.compactMap { splitView(in: $0) }.first
+        }
+        let split = try XCTUnwrap(splitView(in: host))
+        XCTAssertEqual(split.arrangedSubviews.count, 2)
+        split.setPosition(100, ofDividerAt: 0)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[0].bounds.width, 640)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].bounds.width, 280)
+        XCTAssertLessThanOrEqual(split.arrangedSubviews[1].bounds.width, 300)
+        split.setPosition(10_000, ofDividerAt: 0)
+        host.layoutSubtreeIfNeeded()
+        try await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[0].bounds.width, 640)
+        XCTAssertGreaterThanOrEqual(split.arrangedSubviews[1].bounds.width, 280)
+        XCTAssertLessThanOrEqual(split.arrangedSubviews[1].bounds.width, 300)
+    }
+
+    @MainActor func testWorkbenchWindowUsesFixedMinimumInsteadOfRepeatedIntrinsicSizing() async throws {
+        let host = NSHostingView(rootView: Color.blue.background(WindowCloseObserver { }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil; window.close() }
+        for _ in 0..<100 where !host.sizingOptions.isEmpty || window.contentMinSize != CGSize(width: 1000, height: 700) {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(host.sizingOptions.isEmpty, "Incoming frames must not remeasure the whole window's intrinsic size")
+        XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
+        // This resize also fits the CI console above the 1000×700 minimum.
+        window.setContentSize(CGSize(width: 1020, height: 700))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(window.contentView?.bounds.size, CGSize(width: 1020, height: 700))
+        XCTAssertEqual(window.contentMinSize, CGSize(width: 1000, height: 700))
+    }
+
+    @MainActor func testWorkbenchWindowSizingAndCloseStayLocalToTheirWindow() {
+        let closed = ObservationCount()
+        let otherHost = NSHostingView(rootView: Color.red)
+        let other = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        other.contentView = otherHost
+        other.contentMinSize = CGSize(width: 200, height: 100)
+        let otherSizing = otherHost.sizingOptions
+        let host = NSHostingView(rootView: Color.blue.background(WindowCloseObserver { closed.value += 1 }))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { other.contentView = nil; window.contentView = nil; other.close(); window.close() }
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(other.contentMinSize, CGSize(width: 200, height: 100))
+        XCTAssertEqual(otherHost.sizingOptions, otherSizing)
+        other.close()
+        XCTAssertEqual(closed.value, 0)
+        window.close()
+        XCTAssertEqual(closed.value, 1)
+    }
+
+    @MainActor func testViewportInvalidatesOnlyItsContentWhilePanning() {
+        let viewport = NativeSpectrumViewport()
+        let controls = ObservationCount(), plot = ObservationCount()
+        let reader = withObservationTracking {
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: 100...200) { range in
+                Text(verbatim: String(describing: range))
+            }
+        } onChange: {
+            MainActor.assumeIsolated { controls.value += 1 }
+        }
+        withObservationTracking {
+            _ = reader.body
+        } onChange: {
+            MainActor.assumeIsolated { plot.value += 1 }
+        }
+        viewport.zoom = 120...170
+        XCTAssertEqual(controls.value, 0, "Panning must not invalidate the panel that constructs the viewport")
+        XCTAssertEqual(plot.value, 1, "The viewport content must observe navigation changes")
+    }
+
+    @MainActor func testViewportTracksCurrentZoomAndResetWithNewSourceBounds() {
+        let viewport = NativeSpectrumViewport()
+        let first = NativeSpectrumViewportReader(viewport: viewport, fullRange: 100...200) { range in
+            Text(verbatim: String(describing: range))
+        }
+        XCTAssertEqual(first.body, Text(verbatim: "100.0...200.0"))
+        viewport.zoom = 120...170
+        XCTAssertEqual(first.body, Text(verbatim: "120.0...170.0"))
+        let next = NativeSpectrumViewportReader(viewport: viewport, fullRange: 200...400) { range in
+            Text(verbatim: String(describing: range))
+        }
+        XCTAssertEqual(next.body, Text(verbatim: "120.0...170.0"))
+        viewport.zoom = nil
+        XCTAssertEqual(next.body, Text(verbatim: "200.0...400.0"))
+    }
+
+    @MainActor func testStreamFieldsDoNotInvalidateDeviceConfigurationReaders() {
+        let model = RemoteDualModel()
+        let controls = ObservationCount(), plot = ObservationCount()
+        withObservationTracking {
+            _ = model.mode; _ = model.receiverPort; _ = model.tinySAPort
+        } onChange: {
+            MainActor.assumeIsolated { controls.value += 1 }
+        }
+        withObservationTracking {
+            _ = model.displayCurrent
+        } onChange: {
+            MainActor.assumeIsolated { plot.value += 1 }
+        }
+        model.eventStatus = "committed event"
+        model.current = [PlotPoint(x: 100, y: -50)]
+        XCTAssertEqual(plot.value, 1, "A display reader must receive the new measurement")
+        XCTAssertEqual(controls.value, 0, "Measurements do not change device configuration")
+        model.mode = "AM"
+        XCTAssertEqual(controls.value, 1, "An actual control change must update its readers")
+    }
+
     final class Timeline: @unchecked Sendable {
         private let lock = NSLock()
         private var records: [String] = []
@@ -80,11 +231,11 @@ final class NativeStreamingModelTests: XCTestCase {
             guard stateLock.withLock({ !finished }) else { return }
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!, cacheStoragePolicy: .notAllowed)
         }
-        func sweep(sequence: Int, id: String, levels: [Double]) {
+        func sweep(sequence: Int, id: String, levels: [Double], endedAt: String = "2026-11-11T00:00:01Z") {
             // Deliberately allow late old-subscription bytes, as in the original
             // controls; only the client may decide whether they are still current.
             var sample = Responses.sweep(id: id, levels: levels)
-            sample["interval"] = ["started_at": String(format: "2026-11-11T00:00:00.%06dZ", sequence), "ended_at": "2026-11-11T00:00:01Z"]
+            sample["interval"] = ["started_at": String(format: "2026-11-11T00:00:00.%06dZ", sequence), "ended_at": endedAt]
             let payload: [String: Any] = ["sequence": sequence, "event_type": "sweep.received", "occurred_at": "2026-11-11T00:00:02Z", "session_id": "s", "payload": ["sweep": sample]]
             let envelope: [String: Any] = ["contract": "openradioinspector-platform", "contract_version": 1, "data": payload]
             let body = String(decoding: try! JSONSerialization.data(withJSONObject: envelope), as: UTF8.self)
@@ -142,13 +293,13 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         /// Like Core, commit before publishing. Direct Stub.sweep calls are
         /// replay/old-subscription delivery and cannot mutate this archive HWM.
-        func commitSweep(sequence: Int, id: String, levels: [Double]) {
+        func commitSweep(sequence: Int, id: String, levels: [Double], endedAt: String = "2026-11-11T00:00:01Z") {
             let connection = lock.withLock {
                 committedWatermark = max(committedWatermark, Int64(sequence))
                 timeline?.mark("commit sequence=\(sequence) HWM=\(committedWatermark)")
                 return stream
             }
-            connection?.sweep(sequence: sequence, id: id, levels: levels)
+            connection?.sweep(sequence: sequence, id: id, levels: levels, endedAt: endedAt)
         }
         func failHealth(_ status: Int) { lock.withLock { healthStatus = status } }
         func releaseMetadata() {
@@ -212,12 +363,41 @@ final class NativeStreamingModelTests: XCTestCase {
         }
         XCTFail("Synthetic streaming state was not published")
     }
-    @MainActor private func connected(_ responses: Responses, onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }) async throws -> RemoteDualModel {
+    /// Hold one owned off-main preparation, without depending on render duration.
+    final class SpectrumFrameGate: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var entered = false, released = false
+        private var calls: [String] = []
+        var isHeld: Bool { condition.lock(); defer { condition.unlock() }; return entered && !released }
+        var sources: [String] { condition.lock(); defer { condition.unlock() }; return calls }
+        func release() { condition.lock(); released = true; condition.broadcast(); condition.unlock() }
+        func frame(_ sweeps: [PlatformSweep], _ threshold: Double) throws -> NativeSpectrumFrame {
+            condition.lock()
+            let id = sweeps.last?.id ?? ""
+            calls.append(id)
+            if id == "pending-frame" {
+                entered = true
+                let deadline = Date().addingTimeInterval(10)
+                while !released {
+                    if !condition.wait(until: deadline) {
+                        condition.unlock()
+                        throw CocoaError(.userCancelled)
+                    }
+                }
+            }
+            condition.unlock()
+            return try NativeSpectrumFrame(sweeps: sweeps, threshold: threshold)
+        }
+    }
+
+    @MainActor private func connected(_ responses: Responses,
+        makeSpectrumFrame: @escaping @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame = { try NativeSpectrumFrame(sweeps: $0, threshold: $1) },
+        onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }) async throws -> RemoteDualModel {
         responses.install()
         let model = RemoteDualModel(makeClient: { url in
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
-        }, onArchiveContextReset: onArchiveContextReset)
+        }, makeSpectrumFrame: makeSpectrumFrame, onArchiveContextReset: onArchiveContextReset)
         model.serverURL = responses.endpoint
         model.connect()
         try await wait { responses.eventConnection != nil && !model.current.isEmpty }
@@ -295,18 +475,21 @@ final class NativeStreamingModelTests: XCTestCase {
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [Stub.self]
             return try PlatformClient(baseURL: url, session: URLSession(configuration: configuration))
         })
-        var observed = false
-        let subscription = model.$comparisonSweeps.sink { sweeps in
-            guard !sweeps.isEmpty else { return }
-            observed = true
-            XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
-            XCTAssertEqual(model.waterfall.rows.count, 1)
+        let observations = ObservationCount()
+        withObservationTracking {
+            _ = model.comparisonSweeps
+        } onChange: {
+            MainActor.assumeIsolated {
+                observations.value += 1
+                XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
+                XCTAssertEqual(model.waterfall.rows.count, 1)
+            }
         }
-        defer { subscription.cancel(); model.disconnect(); responses.retire() }
+        defer { model.disconnect(); responses.retire() }
         model.serverURL = responses.endpoint
         model.connect(startPolling: false)
         try await wait { model.sweepAverage.target != nil }
-        XCTAssertTrue(observed)
+        XCTAssertEqual(observations.value, 1)
         let revision = model.waterfallRevision
         await model.refresh()
         XCTAssertEqual(model.waterfallRevision, revision, "An identical refresh must not add a waterfall frame")
@@ -315,10 +498,11 @@ final class NativeStreamingModelTests: XCTestCase {
         let responses = Responses(), model = try await connected(responses)
         defer { model.disconnect(); responses.retire() }
         model.toggleSpectrumPause()
-        responses.commitSweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40])
+        responses.commitSweep(sequence: 1, id: "while-paused", levels: [-60, -50, -40], endedAt: "2026-11-11T00:00:02Z")
         try await wait { model.eventStatus.contains("принято событие 1") }
         XCTAssertEqual(model.current.map(\.y), [-100, -90, -80])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "initial")
+        XCTAssertEqual(model.acquisitionSweepTime, NativeSpectrumTimeline.date("2026-11-11T00:00:02Z"))
         XCTAssertEqual(responses.mutations, 0)
         model.toggleSpectrumPause()
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])
@@ -346,12 +530,7 @@ final class NativeStreamingModelTests: XCTestCase {
             let revision = stream.flatMap { value in Mirror(reflecting: value).children.first { $0.label == "revision" }?.value as? Int }
             timeline.mark("\(phase) gen=\(model.generation) render=\(render ?? -1) streamRev=\(revision ?? -1) active=\(stream?.isActive ?? false) source=\(stream?.appliedSourceCursor ?? 0) cache=\(stream?.measurements?.cursor ?? -1)")
         }
-        let observations = [
-            model.$current.sink { _ in mark("publish current") },
-            model.$comparisonSweeps.sink { _ in mark("publish comparison sources") },
-            model.$eventStatus.sink { value in mark("status \(value.prefix(100))") }
-        ]
-        defer { observations.forEach { $0.cancel() }; responses.releaseMetadata(); model.disconnect(); responses.retire() }
+        defer { responses.releaseMetadata(); model.disconnect(); responses.retire() }
         mark("control start")
         responses.holdNextMetadata()
         let refresh = Task { await model.refresh() }
@@ -367,6 +546,26 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(model.current.map(\.y), [-60, -50, -40])
         XCTAssertEqual(model.spectrumPresentation.sweeps.last?.id, "during-metadata")
         XCTAssertEqual(responses.resumeCursors, [0])
+        XCTAssertEqual(responses.mutations, 0)
+    }
+    @MainActor func testMetadataRefreshDoesNotCancelAnInFlightCommittedFrame() async throws {
+        let responses = Responses(), gate = SpectrumFrameGate()
+        let model = try await connected(responses, makeSpectrumFrame: { try gate.frame($0, $1) })
+        defer { gate.release(); model.disconnect(); responses.retire() }
+        let stream = try XCTUnwrap(Mirror(reflecting: model).children.first { $0.label == "measurementStream" }?.value as? RemoteMeasurementStream)
+        let initialPreparations = gate.sources
+        responses.commitSweep(sequence: 1, id: "pending-frame", levels: [-63, -52, -41])
+        try await wait { gate.isHeld }
+        XCTAssertEqual(stream.appliedSourceCursor, 0, "An unfinished display/source preparation must not advance the cursor")
+        await model.refresh()
+        XCTAssertEqual(gate.sources, initialPreparations + ["pending-frame"], "Metadata must not reprepare an older cached frame over a pending commit")
+        gate.release()
+        try await wait { stream.appliedSourceCursor == 1 || model.eventStatus.contains("восстановление") }
+        XCTAssertEqual(stream.appliedSourceCursor, 1)
+        XCTAssertEqual(model.current.map(\.y), [-63, -52, -41])
+        XCTAssertEqual(stream.measurements?.sweeps.last?.id, "pending-frame")
+        XCTAssertTrue(model.coreReachable)
+        XCTAssertEqual(responses.resumeCursors, [0], "A metadata poll must not reconnect a healthy measurement stream")
         XCTAssertEqual(responses.mutations, 0)
     }
     @MainActor func testSequenceGapChecksCurrentHealthButReplaysLastAppliedCursor() async throws {
@@ -504,4 +703,12 @@ final class NativeStreamingModelTests: XCTestCase {
         XCTAssertEqual(model.current.map(\.y), [-65.25, -55.125, -45.5])
         XCTAssertEqual(responses.mutations, 0)
     }
+}
+
+@MainActor private protocol WorkbenchSizingSnapshot: AnyObject {
+    var usesAutomaticWorkbenchSizing: Bool { get }
+}
+
+extension NSHostingView: WorkbenchSizingSnapshot {
+    fileprivate var usesAutomaticWorkbenchSizing: Bool { !sizingOptions.isEmpty }
 }

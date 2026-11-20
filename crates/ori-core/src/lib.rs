@@ -1,4 +1,5 @@
 //! Shared Rust candidate. Default shadow mode opens neither canonical writer nor hardware.
+pub mod acceptance;
 mod acquisition_pressure;
 pub mod admin;
 mod admission;
@@ -137,6 +138,7 @@ pub struct CoreConfig {
     pub legacy: LegacyConfig,
     pub history: HistoryOptions,
     pub acquisition_pressure: AcquisitionPressureOptions,
+    pub acceptance: Option<Arc<acceptance::Acceptance>>,
 }
 impl CoreConfig {
     pub fn new(data: impl Into<PathBuf>) -> Self {
@@ -158,6 +160,7 @@ impl CoreConfig {
             legacy: LegacyConfig::default(),
             history: HistoryOptions::default(),
             acquisition_pressure: AcquisitionPressureOptions::default(),
+            acceptance: None,
         }
     }
     pub fn replay(data: impl Into<PathBuf>) -> Self {
@@ -234,6 +237,25 @@ impl Core {
 
     pub async fn open(config: CoreConfig) -> Result<Arc<Self>> {
         config.devices.validate()?;
+        if config.acceptance.is_some()
+            && (!config.mode.writes_archive()
+                || config.lan_security.is_some()
+                || config.audio.native_enabled
+                || config.analysis_worker.is_some())
+        {
+            return Err(CoreError::Invalid(
+                "acceptance requires explicit local no-audio/no-research mode",
+            ));
+        }
+        if config
+            .acceptance
+            .as_ref()
+            .is_some_and(|trace| trace.hardware() != (config.mode == CoreMode::Live))
+        {
+            return Err(CoreError::Invalid(
+                "acceptance phase must match replay/live runtime",
+            ));
+        }
         config.acquisition_pressure.validate()?;
         let webhook_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -294,6 +316,10 @@ impl Core {
             };
             let mut archive_config = ArchiveConfig::new(&config.database);
             archive_config.max_database_bytes = config.max_archive_bytes;
+            archive_config.commit_observer = config
+                .acceptance
+                .clone()
+                .map(|sink| sink as Arc<dyn ori_archive::CommitObserver>);
             let checkpoint_budget = checkpoint_budget::Budget::new(background.clone());
             let archive = match tokio::task::spawn_blocking(move || {
                 Archive::open_with_checkpoint_budget(archive_config, checkpoint_budget)

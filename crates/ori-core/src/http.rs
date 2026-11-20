@@ -37,6 +37,13 @@ pub(crate) fn json_response(status: StatusCode, value: &impl Serialize) -> Respo
 pub(crate) fn envelope(status: StatusCode, data: Value) -> Response {
     json_response(status, &Envelope::new(data))
 }
+pub(crate) fn instrument_artifact_json(item: &ori_archive::Artifact) -> ApiResult<Value> {
+    if item.mime_type != "application/json" {
+        return Err(ApiError::invalid("Instrument artifact is not JSON"));
+    }
+    parse_json_value(&item.payload, ori_control::MAX_BLOB_BYTES)
+        .map_err(|_| ApiError::invalid("Invalid JSON instrument artifact"))
+}
 fn scoped_parts(path: &str) -> ApiResult<(Vec<String>, Option<String>)> {
     let mut parts = path_parts(path)?;
     if parts.len() >= 3 && parts[..3] == ["api", "v1", "instances"] {
@@ -666,7 +673,7 @@ async fn get(
             "instrument",
             "artifacts",
             artifact,
-            "content",
+            format @ ("content" | "json"),
         ] => {
             stream_context(&core, id, stream).await?;
             let item = core
@@ -674,6 +681,9 @@ async fn get(
                 .get_artifact(id, stream, artifact)
                 .await?
                 .ok_or_else(|| ApiError::missing("instrument_not_found"))?;
+            if *format == "json" {
+                return Ok(envelope(StatusCode::OK, instrument_artifact_json(&item)?));
+            }
             let disposition = if item.mime_type == "image/png" {
                 "inline"
             } else {
@@ -703,10 +713,10 @@ async fn get(
                     .await?;
                 return Ok(json_response(StatusCode::OK, &Envelope::new(rows)));
             } else {
-                json!(
+                Value::Array(
                     core.archive()?
                         .list_observations(id, stream, maximum)
-                        .await?
+                        .await?,
                 )
             }
         }
@@ -933,7 +943,10 @@ fn capabilities(core: &Core) -> Value {
         "independent_device_streams",
         "monitoring_projects",
         "monitoring_scan_plans",
+        "monitoring_signal_catalog",
         "scan_plan_coverage",
+        "scan_band_measurement_qualification",
+        "paired_event_rechecks",
         "scan_plan_grid_10khz",
         "panorama_storage_forecast",
         "monitoring_guard",

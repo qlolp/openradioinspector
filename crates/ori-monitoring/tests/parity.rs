@@ -32,6 +32,24 @@ fn fingerprint_bytes_match_python_sort_spaces_ascii_escape_and_number_repr() {
     }
 }
 #[test]
+fn informational_qualification_does_not_invalidate_an_archived_baseline() {
+    let mut sweep: Sweep = decode(&fixture()["baseline_cases"][0]["sweeps"][0]);
+    let expected = fingerprint(&sweep).unwrap();
+    let settings = sweep.settings.as_mut().unwrap();
+    settings.insert(
+        "measurement_qualification".into(),
+        serde_json::json!({"status":"supported","reason":null}),
+    );
+    assert_eq!(fingerprint(&sweep).unwrap(), expected);
+    sweep
+        .settings
+        .as_mut()
+        .unwrap()
+        .insert("rbw_hz".into(), serde_json::json!(123));
+    assert_ne!(fingerprint(&sweep).unwrap(), expected);
+}
+
+#[test]
 fn baseline_quantiles_median_mad_source_order_and_cadence_match_python() {
     for case in fixture()["baseline_cases"].as_array().unwrap() {
         let sweeps: Vec<Sweep> = case["sweeps"]

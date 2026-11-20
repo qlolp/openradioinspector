@@ -25,7 +25,10 @@ def fingerprint(sweep):
         raise ValueError('Для обнаружения нужна строго возрастающая сетка')
     if sweep.settings.get('overload') is True or sweep.settings.get('incomplete') is True:
         raise ValueError('Неполное/перегруженное измерение не используется для обнаружения')
-    document = dict(grid=sweep.frequencies_hz, settings=stable(sweep.settings))
+    acquisition = {k: v for k, v in sweep.settings.items() if k != 'measurement_qualification'}
+    if not acquisition:
+        raise ValueError('Для сравнения требуются настройки измерения')
+    document = dict(grid=sweep.frequencies_hz, settings=stable(acquisition))
     return hashlib.sha256(json.dumps(document, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 

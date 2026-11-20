@@ -11,6 +11,12 @@ import Glibc
 @testable import SpektrKomandy
 
 final class BinaryMeasurementTransportTests: XCTestCase {
+    private final class TimingBox: @unchecked Sendable {
+        private let lock=NSLock()
+        private var rows:[PlatformMeasurementTiming]=[]
+        func append(_ row:PlatformMeasurementTiming) {lock.withLock{rows.append(row)}}
+        func snapshot()->[PlatformMeasurementTiming] {lock.withLock{rows}}
+    }
     private enum FixtureError: Error { case failed(String) }
     private final class Fixture {
         let process=Process(),input=Pipe(),output=Pipe()
@@ -88,12 +94,19 @@ final class BinaryMeasurementTransportTests: XCTestCase {
     }
 
     func testRealURLSessionWebSocketWaitsForAppliedConsumerBeforeAckAndNextFrame()async throws {
-        let fixture=try Fixture(mode:"mixed"),api=try PlatformClient(baseURL:fixture.url),recorder=Recorder(hold:true)
+        let fixture=try Fixture(mode:"mixed"),api=try PlatformClient(baseURL:fixture.url),recorder=Recorder(hold:true),timings=TimingBox()
         let transport=try await api.measurementTransport();XCTAssertEqual(transport,.binaryV1)
-        let task=Task{try await api.consumeMeasurements(after:0,using:transport){event in try await recorder.consume(event)}}
+        let task=Task{try await api.consumeMeasurements(after:0,using:transport,observe:{timings.append($0)}){event in try await recorder.consume(event)}}
         defer{task.cancel()}
         try await wait{await recorder.entered}
         var stats=try fixture.command("stats");XCTAssertEqual(stats["sent"]as?Int,1);XCTAssertEqual(stats["acks"]as?[Int],[])
+        let firstTimings=timings.snapshot()
+        XCTAssertEqual(firstTimings.map(\.stage),[.received,.decoded,.queued])
+        XCTAssertTrue(firstTimings.allSatisfy{$0.sequence==1 && $0.transport == .binaryV1 && $0.payloadBytes>0})
+        XCTAssertEqual(firstTimings.first?.sourceID?.utf8.map{$0},Array("é".utf8))
+        XCTAssertEqual(firstTimings.last?.queuedEvents,0)
+        XCTAssertLessThanOrEqual(firstTimings[0].atNanoseconds,firstTimings[1].atNanoseconds)
+        XCTAssertGreaterThan(firstTimings[0].atNanoseconds,0)
         await recorder.release();try await completed(task)
         stats=try fixture.command("stats");XCTAssertEqual(stats["acks"]as?[Int],[1,2,3,4,5]);XCTAssertEqual(stats["bad_acks"]as?Int,0)
         let sequences=await recorder.sequences;XCTAssertEqual(sequences,[1,2,3,4,5])

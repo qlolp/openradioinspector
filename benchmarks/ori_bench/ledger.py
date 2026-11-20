@@ -11,6 +11,8 @@ from .source import identifier
 class Ledger:
     def __init__(self,path,*,existing=False):
         self.transport_failure_samples = []
+        self.producer_connect_counts = dict(requests=0, attempts=0, connect_timeouts=0)
+        self.producer_connect_samples = []
         if existing:
             check=sqlite3.connect(path.resolve().as_uri()+'?mode=ro&immutable=1',uri=True)
             try:
@@ -51,9 +53,21 @@ class Ledger:
                 self.transport_failure_samples.append(dict(id=identifier, **error.details,
                     started_monotonic_ns=started_ns, failed_monotonic_ns=failed_ns,
                     elapsed_ms=(failed_ns - started_ns) / 1_000_000))
-    def transport_report(self, *, ndjson_complete, audio_complete):
+    def producer_connect(self, identifier, attempts):
+        if not attempts:
+            return
+        with self.lock:
+            self.producer_connect_counts['requests'] += 1
+            self.producer_connect_counts['attempts'] += len(attempts)
+            timeouts = sum(attempt['outcome'] == 'timeout' for attempt in attempts)
+            self.producer_connect_counts['connect_timeouts'] += timeouts
+            if timeouts and len(self.producer_connect_samples) < 32:
+                self.producer_connect_samples.append(dict(id=identifier, attempts=list(attempts)))
+    def transport_report(self, *, ndjson_complete, audio_complete, samples=None):
         result = []
-        for sample in self.transport_failure_samples:
+        if samples is None:
+            samples = self.transport_failure_samples
+        for sample in samples:
             row = self.get(sample['id'])
             audio = row['kind'] == 'audio'
             compared = audio_complete if audio else ndjson_complete

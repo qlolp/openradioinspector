@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 import ORIContracts
 import ORIMeasurementStream
 #if canImport(FoundationNetworking)
@@ -45,10 +46,11 @@ extension PlatformClient {
     /// @concurrent keeps protobuf/JSON decoding off a calling MainActor. There
     /// is no binary AsyncStream queue: receive, consume, ACK, then receive again.
     @concurrent public func consumeMeasurements(after cursor: UInt64, using transport: PlatformMeasurementTransport,
+        observe: (@Sendable (PlatformMeasurementTiming) -> Void)? = nil,
         receive: @escaping @Sendable (PlatformMeasurementEvent) async throws -> Void) async throws {
         if transport == .serverSentEvents {
             guard let cursor = Int64(exactly: cursor) else { throw PlatformMeasurementDisplayIssue.unsupportedCursor }
-            for try await event in try committedEvents(after: cursor) {
+            for try await event in try committedEvents(after: cursor, observe: observe) {
                 try Task.checkCancellation(); try await receive(PlatformMeasurementEvent.serverSent(event)); try Task.checkCancellation()
             }
             return
@@ -69,10 +71,21 @@ extension PlatformClient {
                 while true {
                     try Task.checkCancellation()
                     let message = try await socket.receive()
+                    let received = observe == nil ? 0 : DispatchTime.now().uptimeNanoseconds
                     guard case let .data(bytes) = message else { throw PlatformBinaryStreamError.unexpectedText }
                     let event = try PlatformMeasurementEvent.decodeBinary(bytes)
                     guard applied < UInt64.max else { throw PlatformBinaryStreamError.exhaustedCursor }
                     guard event.sequence == applied + 1 else { throw PlatformBinaryStreamError.sequenceGap(expected: applied + 1, received: event.sequence) }
+                    if let observe {
+                        let decoded = DispatchTime.now().uptimeNanoseconds
+                        for (stage, stamp) in [(PlatformMeasurementTiming.Stage.received, received), (.decoded, decoded), (.queued, decoded)] {
+                            observe(PlatformMeasurementTiming(stage: stage,
+                                sourceID: event.committedEvent?.payload.sweep?.id ?? event.committedEvent?.payload.observation?.id,
+                                eventType: event.committedEvent?.eventType ?? "source-only", sequence: event.sequence,
+                                transport: .binaryV1, atNanoseconds: stamp,
+                                queuedEvents: stage == .queued ? 0 : nil, payloadBytes: bytes.count))
+                        }
+                    }
                     try await receive(event)
                     try Task.checkCancellation()
                     // String(UInt64) is canonical positive ASCII decimal, <=20

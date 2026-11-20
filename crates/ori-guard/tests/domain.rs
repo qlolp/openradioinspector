@@ -43,6 +43,12 @@ async fn python_exact_project_baseline_events_sources_hysteresis_and_gap() {
             .unwrap(),
         f["first_event"]
     );
+    let recognized = h
+        .service
+        .event_with_recognition(id, event_id)
+        .await
+        .unwrap();
+    assert_eq!(recognized["peak_source"]["sweep_id"], sweeps[22]["id"]);
     assert_eq!(
         h.service
             .review_event(

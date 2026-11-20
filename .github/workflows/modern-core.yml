@@ -119,6 +119,17 @@ jobs:
           if (!statSync(executable).isFile()) throw Error('Prepared Playwright Chromium is unavailable');
           appendFileSync(process.env.GITHUB_ENV, 'CHROMIUM_PATH=' + executable + '\n');
           JS
+      - name: Prepare the verified Windows x64 CMake
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $package = 'cmake-4.4.5-windows-x86_64'
+          $archive = Join-Path $env:RUNNER_TEMP "$package.zip"
+          Invoke-WebRequest "https://github.com/Kitware/CMake/releases/download/v4.4.5/$package.zip" -OutFile $archive
+          $expected = '326c826486d46a23cf9d5a1c9ee3a567d427bdd02c4a34071937a2a675cff004'
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash -ne $expected) { throw 'CMake package hash mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+          (Join-Path $env:RUNNER_TEMP "$package/bin") >> $env:GITHUB_PATH
       - name: Run owned modernization release checks
         env:
           CORE_PYTHON: ${{ steps.core-python.outputs.python-path }}
@@ -127,6 +138,9 @@ jobs:
           if [[ "$RUNNER_OS" == "macOS" ]]; then args+=(--swift); fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then args+=(--windows-llvm); fi
           "$CORE_PYTHON" -m tests.run_release_checks --modern --research-python "$ORI_RESEARCH_PYTHON" "${args[@]}" --command-timeout 1200 --report-dir release-reports/modern
+      - name: Expose owned failure details through check annotations
+        if: failure()
+        run: python tools/release/annotate_checks.py release-reports/modern
       - name: Record setup failures as diagnostics too
         if: always()
         env:

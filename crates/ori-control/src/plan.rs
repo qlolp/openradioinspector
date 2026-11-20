@@ -49,6 +49,17 @@ pub fn plan_operation(operation: &Operation, state: &TinySaState) -> Result<Exec
             revision_effect = RevisionEffect::AdvanceAfterAcknowledgement;
             control(TinySaControl::Set(setting.clone()))
         }
+        Operation::ReceiveConfigure(adjustment) => {
+            if state.control_mode != ControlMode::Monitoring
+                || state.device_mode != DeviceMode::Input
+            {
+                return Err(ControlError::Conflict(
+                    "receive configuration requires monitoring input",
+                ));
+            }
+            revision_effect = RevisionEffect::AdvanceAfterAcknowledgement;
+            control(TinySaControl::ConfigureReceive(adjustment.clone()))
+        }
         Operation::Touch { x, y } => {
             revision_effect = RevisionEffect::AdvanceAfterAcknowledgement;
             control(TinySaControl::Touch { x: *x, y: *y })

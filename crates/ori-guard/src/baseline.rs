@@ -1,8 +1,15 @@
-use crate::{GuardError, GuardService, Result, util::*};
+use crate::{
+    GuardError, GuardService, Result,
+    qualification::{eligible_windows, source_qualification, unverified_reference},
+    util::*,
+};
 use ori_contracts::Sweep;
 use ori_monitoring::{AllowedSignal, Baseline, Detector, Parameters, build_baseline};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::atomic::Ordering,
+};
 
 impl GuardService {
     pub async fn create_baseline(&self, id: &str, payload: Value) -> Result<Value> {
@@ -37,21 +44,30 @@ impl GuardService {
             }
             None
         };
-        let count = band.map_or(1, |b| b.window_count());
+        let windows = band.map_or_else(|| vec![0], |b| eligible_windows(&project, b).collect());
+        if windows.is_empty() {
+            return Err(unverified_reference());
+        }
         if let Some(band) = band.filter(|b| b.step_hz.is_some()) {
             let counts = self.window_counts(&project, band).await?;
-            if counts.len() != count as usize
-                || counts
-                    .iter()
-                    .enumerate()
-                    .any(|(i, &(w, n, t))| w as usize != i || n < 20 || t < 60.)
+            if counts
+                .iter()
+                .any(|(index, _, _)| *index >= band.window_count())
+                || windows.iter().any(|index| {
+                    counts
+                        .binary_search_by_key(index, |row| row.0)
+                        .ok()
+                        .is_none_or(|i| counts[i].1 < 20 || counts[i].2 < 60.)
+                })
             {
-                return Err(invalid("Для каждого окна нужны 20 проходов за 60 секунд"));
+                return Err(invalid(
+                    "Для каждого пригодного окна нужны 20 проходов за 60 секунд",
+                ));
             }
         }
-        let mut records = Vec::with_capacity(count as usize);
+        let mut records = Vec::with_capacity(windows.len());
         let mut boundary = (0, String::new());
-        for index in 0..count {
+        for &index in &windows {
             let selection = match band {
                 Some(b) if b.step_hz.is_some() => {
                     self.archive
@@ -104,13 +120,14 @@ impl GuardService {
         }
         let first = records[0].clone();
         if let Some(band) = band {
-            for (index, record) in records.iter().enumerate() {
-                current["band_baselines"][band.context_key(index as u32)] = record["id"].clone();
+            for (&index, record) in windows.iter().zip(&records) {
+                current["band_baselines"][band.context_key(index)] = record["id"].clone();
             }
             current["band_baselines"][&band.id] = first["id"].clone();
-            if plan.as_ref().is_some_and(|p| p.bands[0].id == band.id) {
-                current["baseline_id"] = first["id"].clone();
-            }
+            crate::scan_plan::select_eligible_baselines(
+                &mut current,
+                plan.as_ref().expect("configured band"),
+            );
             current["state"] = json!(if crate::scan_plan::all_baselines_ready(&current)? {
                 "ready"
             } else {
@@ -160,6 +177,11 @@ impl GuardService {
                     .await?
                     .ok_or(GuardError::NotFound)?,
             )?);
+        }
+        for sweep in &sweeps {
+            if !source_qualification(project, sweep)?.eligible() {
+                return Err(unverified_reference());
+            }
         }
         if let (Some(plan), Some(b)) = (plan, band) {
             for sweep in &sweeps {
@@ -300,6 +322,26 @@ impl GuardService {
         baseline["sweep_period_seconds"] = json!(median(periods));
         Ok(baseline)
     }
+    // Called while holding the commit coordinator, including when a retained
+    // original only advances the cursor and never touches a detector.
+    async fn current_detector_project(&self, id: &str, project: &Value) -> Result<Value> {
+        let current = self.project(id).await?;
+        if [
+            "detector_cursor",
+            "detector_state",
+            "band_detectors",
+            "detector_rowid",
+            "baseline_id",
+        ]
+        .iter()
+        .any(|key| current.get(*key) != project.get(*key))
+        {
+            return Err(GuardError::Conflict(
+                "Курсор детектора изменился во время анализа".into(),
+            ));
+        }
+        Ok(current)
+    }
     pub async fn analyze(&self, id: &str) -> Result<Value> {
         let _life = self.lock_project(id).await?;
         self.analyze_locked(id).await
@@ -344,6 +386,7 @@ impl GuardService {
             .await?;
         let mut events = BTreeSet::new();
         let mut processed = 0;
+        let mut excluded = 0;
         let mut quality_issues = 0;
         for capture in pending {
             let sweep: Sweep = decode(
@@ -357,6 +400,18 @@ impl GuardService {
                 .as_ref()
                 .map(|p| crate::scan_plan::source_scope(&project, p, &sweep))
                 .transpose()?;
+            if !source_qualification(&project, &sweep)?.eligible() {
+                let _tx = self.coordinator.lock().await;
+                self.ensure_open()?;
+                project = self.current_detector_project(id, &project).await?;
+                project["detector_cursor"] = json!(sweep.id);
+                project["detector_rowid"] = json!(capture.rowid);
+                self.archive
+                    .put_monitoring("project", project.clone())
+                    .await?;
+                excluded += 1;
+                continue;
+            }
             let key = source_scope.map_or_else(String::new, |(b, w)| b.context_key(w));
             let grid = source_scope.is_some_and(|(b, _)| b.step_hz.is_some());
             let baseline_id = if source_scope.is_some() {
@@ -405,6 +460,11 @@ impl GuardService {
             }
             let detector = detectors.get_mut(&key).expect("loaded detector");
             let step = detector.step(&sweep, &allowed)?;
+            // Receiver results and operator dispositions share these event rows.
+            // Read the latest rows under the same coordinator that commits them.
+            let _tx = self.coordinator.lock().await;
+            self.ensure_open()?;
+            project = self.current_detector_project(id, &project).await?;
             let mut opens = self
                 .archive
                 .open_events(id, &sweep.session_id, &baseline_id)
@@ -439,6 +499,7 @@ impl GuardService {
                 }
             }
             let mut touched = BTreeSet::new();
+            let active_dispatch = self.active_event_dispatch(id)?;
             for region in &step.regions {
                 let rv = value(region)?;
                 let broad = |v: &Value| {
@@ -495,7 +556,9 @@ impl GuardService {
                     fields["detector_parameters"] = project["parameters"].clone();
                     self.record(Some(id), fields)?
                 };
-                if region.peak_excess_db > event["peak_excess_db"].as_f64().unwrap_or(-1.) {
+                let higher_peak =
+                    region.peak_excess_db > event["peak_excess_db"].as_f64().unwrap_or(-1.);
+                if higher_peak {
                     event
                         .as_object_mut()
                         .ok_or_else(|| invalid("event"))?
@@ -504,6 +567,21 @@ impl GuardService {
                 event["last_seen"] = json!(sweep.interval.ended_at.as_str());
                 event["quiet_sweeps"] = json!(0);
                 let event_id = s(&event, "id")?.to_owned();
+                if found.is_none() || higher_peak {
+                    // Keep peak provenance when the event's recent source list rolls over.
+                    mutations.push(Self::mutation("event-peak", json!({
+                        "id": event_id, "project_id": id, "created_at": event["created_at"],
+                        "session_id": sweep.session_id, "stream_id": sweep.stream_id, "sweep_id": sweep.id,
+                        "center_frequency_hz": event["center_frequency_hz"], "peak_level": event["peak_level"]
+                    })));
+                }
+                if higher_peak
+                    && let Some(dispatch) = active_dispatch.as_ref()
+                    && dispatch.event_id == event_id
+                    && event["center_frequency_hz"] != dispatch.center_hz
+                {
+                    dispatch.retargeted.store(true, Ordering::Release);
+                }
                 let mut count = integer(&event, "source_count")?;
                 let mut refs = event["source_refs"]
                     .as_array()
@@ -588,24 +666,6 @@ impl GuardService {
                 }
                 mutations.push(Self::mutation("event", event));
             }
-            let expected_cursor = project.get("detector_cursor").cloned();
-            let expected_state = project.get("detector_state").cloned();
-            let expected_band_states = project.get("band_detectors").cloned();
-            let expected_rowid = project.get("detector_rowid").cloned();
-            let _tx = self.coordinator.lock().await;
-            self.ensure_open()?;
-            let current = self.project(id).await?;
-            if current.get("detector_cursor") != expected_cursor.as_ref()
-                || current.get("detector_state") != expected_state.as_ref()
-                || current.get("band_detectors") != expected_band_states.as_ref()
-                || current.get("detector_rowid") != expected_rowid.as_ref()
-                || current["baseline_id"] != project["baseline_id"]
-            {
-                return Err(GuardError::Conflict(
-                    "Курсор детектора изменился во время анализа".into(),
-                ));
-            }
-            project = current;
             project["detector_cursor"] = json!(sweep.id);
             project["detector_rowid"] = json!(capture.rowid);
             if grid {
@@ -613,6 +673,12 @@ impl GuardService {
                     "updated_at":sweep.interval.ended_at.as_str(),"checkpoint":detector.checkpoint()?});
                 mutations.push(Self::mutation("scan-window-detector", record));
                 project["band_detectors"][&key] = json!(baseline_id);
+                // Keep one current anchor per logical band for the idle receiver.
+                // Its detector history is still isolated in the window checkpoint.
+                let (band, index) = source_scope.expect("grid source scope");
+                project["band_detectors"][&band.id] = json!({"scan_window_index":index,"recent_sources":[{
+                    "session_id":sweep.session_id,"stream_id":sweep.stream_id,"sweep_id":sweep.id
+                }]});
             } else if source_scope.is_some() {
                 project["band_detectors"][&key] = detector.checkpoint()?;
             } else {
@@ -622,9 +688,11 @@ impl GuardService {
             self.archive.apply(mutations).await?;
             processed += 1;
         }
-        Ok(
-            json!({"project_id":id,"event_ids":events.iter().take(100).collect::<Vec<_>>(),"events_updated":events.len(),"processed_sweeps":processed,"quality_issues":quality_issues,"cursor":project.get("detector_cursor")}),
-        )
+        let mut result = json!({"project_id":id,"event_ids":events.iter().take(100).collect::<Vec<_>>(),"events_updated":events.len(),"processed_sweeps":processed,"quality_issues":quality_issues,"cursor":project.get("detector_cursor")});
+        if excluded > 0 {
+            result["excluded_sweeps"] = json!(excluded);
+        }
+        Ok(result)
     }
     pub async fn review_event(&self, id: &str, event_id: &str, payload: Value) -> Result<Value> {
         let _life = self.lock_project(id).await?;
@@ -645,6 +713,12 @@ impl GuardService {
             &py_str(payload.get("comment").unwrap_or(&json!(""))),
             1000
         ));
+        if payload["disposition"] != "unreviewed"
+            && let Some(dispatch) = self.active_event_dispatch(id)?
+            && dispatch.event_id == event_id
+        {
+            dispatch.reviewed.store(true, Ordering::Release);
+        }
         self.archive.put_monitoring("event", event.clone()).await?;
         Ok(event)
     }

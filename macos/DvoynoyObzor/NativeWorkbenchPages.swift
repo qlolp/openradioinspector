@@ -2,7 +2,66 @@ import SwiftUI
 import SpektrKomandy
 
 struct NativeSignalsPage: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
+    @ObservedObject var workspace: MonitoringWorkspaceModel
+    let openSpectrum: () -> Void
+    let openGuard: () -> Void
+
+    private enum Section { case events, candidates, catalog }
+    private struct TaskScope: Equatable {
+        let context: Int
+        let recognition: Bool
+    }
+
+    @State private var section = Section.events
+
+    private var taskScope: TaskScope {
+        TaskScope(context: workspace.signalContext, recognition: workspace.signalCatalogAvailable)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                if section != .candidates {
+                    Picker("Проект охраны", selection: $workspace.selected.exactID) {
+                        Text("Не выбран").tag(PlatformExactID(""))
+                        ForEach(workspace.projects, id: \.exactID) { project in
+                            Text(project["name"].text + " · " + project["site"].text).tag(project.exactID)
+                        }
+                    }
+                    .frame(maxWidth: 360)
+                    .disabled(!model.connected || workspace.pending)
+                }
+                Spacer()
+                Picker("Представление сигналов", selection: $section) {
+                    Text("События охраны").tag(Section.events)
+                    Text("Кандидаты сеанса").tag(Section.candidates)
+                    if workspace.signalCatalogAvailable { Text("Известные сигналы").tag(Section.catalog) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 490)
+            }.padding(.horizontal, 10)
+                .padding(.top, 8)
+
+            switch section {
+            case .events:
+                NativeGuardSignalsPane(workspace: workspace, openGuard: openGuard)
+            case .candidates:
+                NativeSignalCandidatesPane(model: model, openSpectrum: openSpectrum)
+            case .catalog:
+                NativeKnownSignalsPane(workspace: workspace)
+            }
+        }
+        .onChange(of: workspace.signalCatalogAvailable) { _, available in
+            if !available && section == .catalog { section = .events }
+        }
+
+    }
+}
+
+private struct NativeSignalCandidatesPane: View {
+    @Bindable var model: RemoteDualModel
     let openSpectrum: () -> Void
     @State private var message = ""
     @State private var sourceTask: Task<Void, Never>?
@@ -11,7 +70,7 @@ struct NativeSignalsPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Обнаруженные сигналы").font(.headline)
+                Text("Кандидаты текущего сеанса").font(.headline)
                 Spacer()
                 Button("Добавить текущий пик") { model.createCandidateFromLatestPeak() }
                     .disabled(!model.connected || model.spectrumPresentation.sweeps.isEmpty || model.busy)
@@ -73,7 +132,7 @@ struct NativeArchivePage: View {
         var id: PlatformExactID { sweep.exactID }
     }
 
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     let openSpectrum: () -> Void
     @State private var browser = NativeArchiveBrowser()
     @State private var start = Date().addingTimeInterval(-3600)
@@ -95,6 +154,7 @@ struct NativeArchivePage: View {
                 TextField("От, МГц", text: $minimum).frame(width: 90)
                 TextField("До, МГц", text: $maximum).frame(width: 90)
                 Button("Найти") { search() }.disabled(browser.busy || !model.connected || opening)
+                    .accessibilityIdentifier("archive.search")
             }
             HStack {
                 Text(browser.message).font(.caption)
@@ -102,9 +162,10 @@ struct NativeArchivePage: View {
                 Button("Следующая страница") { search(next: true) }
                     .disabled(browser.busy || browser.nextCursor == nil || opening)
                 Button("Открыть спектр") { openSource() }.disabled(selection == nil || opening || browser.busy)
+                    .accessibilityIdentifier("archive.open-source")
             }
             Table(browser.rows.map(TableSource.init(sweep:)), selection: $selection) {
-                TableColumn("Начало UTC") { Text($0.sweep.interval.startedAt) }
+                TableColumn("Начало UTC") { Text($0.sweep.interval.startedAt).accessibilityIdentifier("archive.source."+$0.sweep.id) }
                 TableColumn("Диапазон, МГц") {
                     Text("\(NativeAnalyzerDraft.mhz($0.sweep.minFrequencyHz))–\(NativeAnalyzerDraft.mhz($0.sweep.maxFrequencyHz))")
                 }

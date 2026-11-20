@@ -9,11 +9,17 @@ mod baseline;
 mod grants;
 pub use grants::InstrumentControlGrant;
 mod history;
+mod signals;
+pub use signals::band_plan;
 mod manual;
 mod operations;
 mod preflight;
+mod qualification;
+pub use qualification::measurement_qualification;
+mod paired_rechecks;
 mod receiver;
-pub use receiver::receiver_tune_context;
+mod receiver_checks;
+pub use receiver_checks::receiver_tune_context;
 mod runtime;
 mod scan_plan;
 #[cfg(test)]

@@ -1,4 +1,10 @@
-use crate::{GuardError, GuardService, Result, StorageProbe, util::*};
+use crate::{
+    GuardError, GuardService, Result, StorageProbe, measurement_qualification,
+    qualification::{
+        analyzer_adapter, eligible_windows, source_qualification, unverified_reference,
+    },
+    util::*,
+};
 use serde_json::{Value, json};
 
 pub(crate) const MONITOR_MODES: &[&str] = &[
@@ -115,14 +121,17 @@ impl GuardService {
         if let Some(plan) = crate::scan_plan::configured_plan(project)? {
             let mut bands = vec![];
             for band in plan.bands {
-                if band.step_hz.is_some() {
-                    let count = band.window_count();
+                let count = band.window_count();
+                let eligible = eligible_windows(project, &band).count() as u32;
+                let (sweeps, elapsed, ready, confirmed) = if band.step_hz.is_some() {
                     let windows = self.window_counts(project, &band).await?;
                     let mut sweeps = u64::MAX;
                     let mut elapsed = f64::MAX;
                     let mut ready = 0;
                     let mut confirmed = 0;
-                    for index in 0..count {
+                    // Eligible windows form a contiguous prefix of the ascending
+                    // grid. A wholly excluded band still shows its raw counts.
+                    for index in 0..if eligible == 0 { count } else { eligible } {
                         let (_, n, t) = windows
                             .binary_search_by_key(&index, |w| w.0)
                             .ok()
@@ -130,33 +139,51 @@ impl GuardService {
                             .unwrap_or((index, 0, 0.));
                         sweeps = sweeps.min(n);
                         elapsed = elapsed.min(t);
-                        ready += u32::from(n >= 20 && t >= 60.);
-                        confirmed += u32::from(
-                            project["band_baselines"][band.context_key(index)].is_string(),
-                        );
+                        if index < eligible {
+                            ready += u32::from(n >= 20 && t >= 60.);
+                            confirmed += u32::from(
+                                project["band_baselines"][band.context_key(index)].is_string(),
+                            );
+                        }
                     }
-                    bands.push(json!({"band_id":band.id,"name":band.name,"sweeps":sweeps,"elapsed_seconds":elapsed,
-                        "minimum_sweeps":20,"minimum_seconds":60,"window_count":count,"ready_windows":ready,
-                        "confirmed_windows":confirmed,"ready":ready==count,"baseline_id":project["band_baselines"][&band.id]}));
-                    continue;
-                }
-                let selected = self
-                    .archive
-                    .baseline_selection_for_scan_band(
-                        s(project, "active_session_id")?,
-                        s(project, "analyzer_stream_id")?,
-                        s(&project["scan_plan"], "id")?,
-                        &band.id,
+                    (sweeps, elapsed, ready, confirmed)
+                } else {
+                    let selected = self
+                        .archive
+                        .baseline_selection_for_scan_band(
+                            s(project, "active_session_id")?,
+                            s(project, "analyzer_stream_id")?,
+                            s(&project["scan_plan"], "id")?,
+                            &band.id,
+                        )
+                        .await?;
+                    (
+                        selected.count,
+                        selected.elapsed_seconds,
+                        u32::from(
+                            eligible > 0 && selected.count >= 20 && selected.elapsed_seconds >= 60.,
+                        ),
+                        u32::from(eligible > 0 && project["band_baselines"][&band.id].is_string()),
                     )
-                    .await?;
-                bands.push(json!({"band_id":band.id,"name":band.name,"sweeps":selected.count,
-                    "elapsed_seconds":selected.elapsed_seconds,"minimum_sweeps":20,"minimum_seconds":60,
-                    "ready":selected.count>=20&&selected.elapsed_seconds>=60.,
-                    "baseline_id":project["band_baselines"][&band.id]}));
+                };
+                let qualification = measurement_qualification(
+                    analyzer_adapter(project),
+                    band.start_hz,
+                    band.stop_hz,
+                );
+                bands.push(json!({"band_id":band.id,"name":band.name,"sweeps":sweeps,
+                    "elapsed_seconds":elapsed,"minimum_sweeps":20,"minimum_seconds":60,
+                    "measurement_qualification":qualification,"window_count":count,"eligible_windows":eligible,
+                    "excluded_windows":count-eligible,"ready_windows":ready,"confirmed_windows":confirmed,
+                    "ready":eligible>0 && ready==eligible,"baseline_id":(eligible>0).then_some(&project["band_baselines"][&band.id])}));
             }
+            let eligible = bands
+                .iter()
+                .filter(|b| b["eligible_windows"].as_u64().is_some_and(|n| n > 0));
+            let ready = eligible.clone().next().is_some()
+                && eligible.into_iter().all(|b| b["ready"] == true);
             return Ok(
-                json!({"bands":bands,"ready":bands.iter().all(|b|b["ready"]==true),
-                "minimum_sweeps":20,"minimum_seconds":60}),
+                json!({"bands":bands,"ready":ready,"minimum_sweeps":20,"minimum_seconds":60}),
             );
         }
         let selected = self
@@ -202,11 +229,23 @@ impl GuardService {
         {
             return Err(GuardError::NotFound);
         }
+        let sweep = decode(&original)?;
+        if !source_qualification(project, &sweep)?.eligible() {
+            return Err(unverified_reference());
+        }
         let settings = &original["settings"];
         let Some(instrument) = settings.get("instrument") else {
             return Ok(None);
         };
         let mut requested = receive_settings(&project["profile"]["analyzer"]["settings"])?;
+        if let Some(plan) = crate::scan_plan::configured_plan(project)? {
+            let (band, index) = crate::scan_plan::source_scope(project, &plan, &sweep)?;
+            let window = band.window(index).expect("validated reference window");
+            requested["start_hz"] = json!(window.start_hz);
+            requested["stop_hz"] = json!(window.stop_hz);
+            requested["points"] = json!(window.points);
+            requested["rbw_hz"] = json!(window.rbw_hz);
+        }
         requested["attenuation_db"] = json!("auto");
         requested["lna"] = json!(false);
         requested["ultra"] = json!(
@@ -228,7 +267,11 @@ impl GuardService {
         Ok(Some("inspect".into()))
     }
     pub async fn preflight(&self, id: &str, for_preparation: bool) -> Result<Value> {
-        let p = self.project(id).await?;
+        let mut p = self.project(id).await?;
+        let plan = crate::scan_plan::configured_plan(&p)?;
+        if let Some(plan) = &plan {
+            p["baseline_id"] = crate::scan_plan::primary_baseline(&p, plan);
+        }
         let session = self
             .archive
             .get_session(s(&p, "active_session_id")?)
@@ -256,14 +299,29 @@ impl GuardService {
             !self.closed.load(std::sync::atomic::Ordering::Acquire),
             "Служба принимает новые действия".into(),
         );
-        if let Some(plan) = crate::scan_plan::configured_plan(&p)? {
+        if let Some(plan) = &plan {
             let maximum = if aa == "tinysa-serial" {
                 800_000_000
             } else {
                 20_000_000_000
             };
-            check("scan_plan_receive_profile",plan.validate_receive_plan(maximum).is_ok(),
-                "Все поддиапазоны должны соответствовать RX-профилю; эталон каждого подтверждается отдельно".into());
+            check(
+                "scan_plan_receive_profile",
+                plan.validate_receive_plan(maximum).is_ok(),
+                "Все поддиапазоны должны соответствовать RX-профилю".into(),
+            );
+            if !for_preparation
+                && !plan
+                    .bands
+                    .iter()
+                    .any(|b| eligible_windows(&p, b).next().is_some())
+            {
+                check(
+                    "measurement_qualification",
+                    false,
+                    "Ни одно окно плана не пригодно для автоматической охраны".into(),
+                );
+            }
         }
         check(
             "adapters",
@@ -442,7 +500,7 @@ impl GuardService {
         );
         let workers = self.control.list_workers(&typed.id).await?;
         Ok(
-            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)?}),
+            json!({"project_id":id,"ready":checks.iter().all(|c|c["ok"]==true),"checks":checks,"storage":storage,"baseline_collection":self.baseline_collection(&p).await?,"capacity":capacity,"performance":performance,"workers":value(&workers)?,"hardware_validation":"not_run","baseline_ready":crate::scan_plan::all_baselines_ready(&p)? && !checks.iter().any(|c| c["name"]=="baseline_acquisition_context" && c["ok"]==false)}),
         )
     }
     pub async fn storage_report(&self, id: &str, probe: bool) -> Result<Value> {

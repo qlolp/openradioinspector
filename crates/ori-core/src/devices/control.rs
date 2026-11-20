@@ -392,7 +392,16 @@ impl DeviceManager {
             control_revision: status["revision"].as_u64().unwrap_or(0),
             status,
             owner,
-            supported_operations: OperationKind::ALL.iter().copied().collect(),
+            supported_operations: OperationKind::ALL
+                .iter()
+                .copied()
+                .filter(|kind| {
+                    *kind != OperationKind::ReceiveConfigure
+                        || worker
+                            .as_ref()
+                            .is_none_or(|worker| worker.scan_plan.is_none())
+                })
+                .collect(),
             guard_claimed: false,
             coverage_bridge_available: false,
             science_available: science,
@@ -671,6 +680,13 @@ impl Worker {
                     "verified_tinysa_connection_required",
                 ));
             };
+            if self.scan_plan.is_some()
+                && matches!(request.operation, Operation::ReceiveConfigure(_))
+            {
+                return Err(ControlError::Conflict(
+                    "active scan plan owns receive settings",
+                ));
+            }
             let bound = BoundExecution::bind(
                 request.owner.clone(),
                 request.expected_revision,

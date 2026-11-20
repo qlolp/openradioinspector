@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import SpektrKomandy
 
 struct NativeAnalyzerControls: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @State private var draft = NativeAnalyzerDraft()
     @State private var lastEdited = NativeAnalyzerDraft.Field.start
     @State private var message = ""
@@ -34,7 +34,7 @@ struct NativeAnalyzerControls: View {
             if !loaded, let sweep = model.spectrumPresentation.sweeps.last {
                 if let start = sweep.frequenciesHz.first, let stop = sweep.frequenciesHz.last {
                     draft.start = NativeAnalyzerDraft.mhz(start); draft.stop = NativeAnalyzerDraft.mhz(stop)
-                    try? draft.synchronize(.start); loaded = true
+                    try? draft.synchronize(.start, ultra: stop > 800_000_000); loaded = true
                 }
                 draft.loadBandwidth(sweep.settings?["rbw_hz"])
             }
@@ -133,7 +133,8 @@ struct NativeAnalyzerControls: View {
                 try Task.checkCancellation()
                 if let low = status["settings"]["start_hz"].integer, let high = status["settings"]["stop_hz"].integer {
                     draft.start = NativeAnalyzerDraft.mhz(low); draft.stop = NativeAnalyzerDraft.mhz(high)
-                    try draft.synchronize(.start); lastEdited = .start; loaded = true
+                    try draft.synchronize(.start, ultra: status["settings"]["ultra"].bool == true)
+                    lastEdited = .start; loaded = true
                 }
                 let rbw = status["settings"]["rbw_hz"].scalar
                 if bandwidths.contains(rbw) { draft.rbw = rbw }
@@ -143,8 +144,7 @@ struct NativeAnalyzerControls: View {
     }
     private func apply() {
         guard let client = model.client, let stream = model.analyzer, !applying else { return }
-        do { try draft.synchronize(lastEdited) } catch { message = error.localizedDescription; return }
-        let requested = draft, session = model.selectedSessionID
+        let original = draft, edited = lastEdited, session = model.selectedSessionID
         applying = true; message = "Ожидание подтверждения ядра…"
         operation = Task { @MainActor in
             defer { applying = false }
@@ -153,11 +153,16 @@ struct NativeAnalyzerControls: View {
                 guard status["mode"].text == "monitoring", status["settings"]["stop_hz"].integer != nil else {
                     throw NativeAnalyzerDraft.DraftError.invalid("Нужен подключённый tinySA в режиме monitoring без лабораторной аренды.")
                 }
-                let start = try NativeAnalyzerDraft.hz(requested.start), stop = try NativeAnalyzerDraft.hz(requested.stop)
+                let ultra = status["settings"]["ultra"].bool == true
+                var requested = original
+                try requested.synchronize(edited, ultra: ultra)
+                let start = try NativeAnalyzerDraft.hz(requested.start, ultra: ultra)
+                let stop = try NativeAnalyzerDraft.hz(requested.stop, ultra: ultra)
                 let values: [String: MonitoringValue] = ["start_hz": .integer(start), "stop_hz": .integer(stop),
                     "rbw_hz": requested.rbw == "auto" ? .string("auto") : .integer(Int64(requested.rbw) ?? 10_000)]
                 try Task.checkCancellation()
                 guard client === model.client, session == model.selectedSessionID, stream.id == model.analyzer?.id else { return }
+                draft = requested
                 _ = try await client.tinySAOperation(sessionID: session, streamID: stream.id, operation: "receive.configure", parameters: values, revision: status["revision"].integer)
                 try Task.checkCancellation()
                 message = "Диапазон и RBW подтверждены ядром. Проверьте новый свип; аппаратный readback не заявлен."

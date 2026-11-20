@@ -2,10 +2,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Installer, [string]$ExpectedRevision, [string]$ReportPath,
-    [string]$PriorInstaller, [string]$PriorInstallerSha256, [string]$PriorRevision
+    [string]$PriorInstaller, [string]$PriorInstallerSha256, [string]$PriorRevision,
+    [switch]$RequireOffline
 )
 $ErrorActionPreference = 'Stop'
-$report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); helper_errors=@(); cleanup_errors=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'}
+$report = [ordered]@{schema_version=1; result='running'; phase='fresh_account'; reached=@(); helper_errors=@(); cleanup_errors=@(); installer_exit_code=$null; package_rollback='pending_missing_prior_package'
+    installer_sha256=$null; revision=$null; prior_installer_sha256=$null; prior_revision=$null; network_check='not_requested'}
 function Save-SmokeReport {
     if ($ReportPath) {
         $target = [IO.Path]::GetFullPath($ReportPath)
@@ -17,6 +19,13 @@ function Enter-SmokePhase([string]$Name) {
     # Diagnostics use fixed operation/reason names, numeric codes and exception types.
     $report.phase = $Name
     $report.reached += $Name
+    if ($RequireOffline) {
+        $report.network_check = 'checking_disconnected_host'
+        if ([Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()) {
+            $report.network_check = 'network_available'
+            throw 'Offline acceptance requires a disconnected Windows host'
+        }
+    }
     Save-SmokeReport
 }
 function Invoke-TestInstaller([string]$Package, [string[]]$Arguments) {
@@ -50,11 +59,14 @@ $data = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector-Windows-RC1'
 $app = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector RC'
 if ((Test-Path -LiteralPath $data) -or (Test-Path -LiteralPath $app)) { throw 'This acceptance test needs a fresh Windows test account.' }
 Enter-SmokePhase 'install_nsis'
+$report.installer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $Installer).Hash.ToLowerInvariant()
 if ($PriorInstaller -or $PriorInstallerSha256 -or $PriorRevision) {
+    if ($PriorInstaller) {
+        $report.prior_installer_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PriorInstaller).Hash.ToLowerInvariant()
+    }
     if (-not $PriorInstaller -or $PriorRevision -notmatch '^[a-fA-F0-9]{40}$' -or
         $PriorInstallerSha256 -notmatch '^[a-fA-F0-9]{64}$' -or
-        (Get-FileHash -LiteralPath $PriorInstaller).Hash -ne $PriorInstallerSha256 -or
-        (Get-FileHash -LiteralPath $Installer).Hash -eq $PriorInstallerSha256) {
+        $report.prior_installer_sha256 -ne $PriorInstallerSha256 -or $report.installer_sha256 -eq $PriorInstallerSha256) {
         throw 'The prior installer needs a distinct package with a pinned SHA-256 and source revision'
     }
     $report.package_rollback = 'not_run'
@@ -82,18 +94,48 @@ foreach ($name in @('ori-supervisor','ori-core')) {
         throw "Installed helper mismatch: $name"
     }
 }
+$report.revision = $manifest.source_revision
 if (-not (Test-Path (Join-Path $runtime 'notices/licenses.json'))) { throw 'Installed notices missing' }
 
 function Invoke-Node([string]$Action) {
-    $PSNativeCommandUseErrorActionPreference = $false
-    $lines = @(& $supervisor windows-node $Action 2>&1)
-    $code = $LASTEXITCODE
+    # A previous release can leave a capture pipe open in its long-lived node.
+    # Read the CLI's one-line reply and wait on this command's process handle.
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $supervisor
+    $info.Arguments = "windows-node $Action"
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $info.StandardErrorEncoding = [Text.Encoding]::UTF8
+    $process = [Diagnostics.Process]::Start($info)
+    $outReader = $process.StandardOutput
+    $errReader = $process.StandardError
+    try {
+        $stdout = $outReader.ReadLineAsync()
+        $stderr = $errReader.ReadLineAsync()
+        # Covers the 70s launch loop, a 5s pipe connect and a 150s exchange.
+        if (-not $process.WaitForExit(230000)) {
+            $process.Kill()
+            $null = $process.WaitForExit(5000)
+            throw "Windows node $Action command exceeded its deadline"
+        }
+        $code = $process.ExitCode
+        $reply = if ($code -eq 0) { $stdout } else { $stderr }
+        if (-not $reply.Wait(2000)) { throw "Windows node $Action supplied no complete response line" }
+        $line = $reply.GetAwaiter().GetResult()
+    } finally {
+        $outReader.Dispose()
+        $errReader.Dispose()
+        $process.Dispose()
+    }
     if ($code -ne 0) {
         $reason = 'helper_exit'
         $native = $null
         $schedulerStage = $null
         $schedulerHResult = $null
-        $diagnostic = $lines -join ' '
+        $diagnostic = [string]$line
         if ($diagnostic -match '\(os error ([0-9]{1,6})\)') {
             $reason = 'windows_io'
             $native = [int]$Matches[1]
@@ -110,13 +152,13 @@ function Invoke-Node([string]$Action) {
         }
         throw "Windows node $Action failed ($reason)"
     }
-    $output = ($lines -join [Environment]::NewLine) | ConvertFrom-Json
+    $output = $line | ConvertFrom-Json
     if (-not $output.ok) { throw "Windows node $Action returned a refused response" }
     $output
 }
 
 function Assert-RawSweep([string]$Route) {
-    $saved = (Invoke-RestMethod "$Route/sweeps/windows-rc-sweep").data
+    $saved = (Invoke-RestMethod -TimeoutSec 30 "$Route/sweeps/windows-rc-sweep").data
     if ($saved.id -ne 'windows-rc-sweep' -or ($saved.frequencies_hz -join ',') -ne '100000001,100000011' -or
         $saved.level_unit -ne 'dBm' -or $saved.levels[0] -ne -95.375 -or $saved.levels[1] -ne -87.25) {
         throw 'Recovered measurement differs from the original sweep'
@@ -124,7 +166,7 @@ function Assert-RawSweep([string]$Route) {
 }
 
 function Assert-TaskBook {
-    $tasks = (Invoke-RestMethod "$url/api/v1/task-scheduler/tasks").data
+    $tasks = (Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/task-scheduler/tasks").data
     $saved = @($tasks.items | Where-Object { $_.name -eq 'windows-rc-operator-plan' })
     if ($saved.Count -ne 1 -or $saved[0].duration_s -ne 15) { throw 'Operator task did not survive' }
 }
@@ -206,25 +248,25 @@ try {
         }
     } finally { $webClient.Dispose() }
     Enter-SmokePhase 'check_live_capabilities'
-    $caps = (Invoke-RestMethod "$url/api/v1/capabilities").data
+    $caps = (Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/capabilities").data
     if ($caps.candidate.mode -ne 'live' -or -not $caps.persistent_archive -or -not $caps.features.explicit_serial_adapters -or $caps.features.analog_audio_inputs) {
         throw 'Incorrect installed live capabilities'
     }
     Enter-SmokePhase 'commit_measurement'
     $sample = @{id='windows-rc-smoke';name='Installed Windows node';streams=@(@{id='spectrum';device='synthetic';role='spectrum_analyzer';level_unit='dBm'})}
-    $null = Invoke-RestMethod "$url/api/v1/sessions" -Method Post -ContentType 'application/json' -Body ($sample | ConvertTo-Json -Depth 5)
+    $null = Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/sessions" -Method Post -ContentType 'application/json' -Body ($sample | ConvertTo-Json -Depth 5)
     $route = "$url/api/v1/sessions/windows-rc-smoke"
-    $null = Invoke-RestMethod "$route/start" -Method Post -ContentType 'application/json' -Body '{}'
+    $null = Invoke-RestMethod -TimeoutSec 30 "$route/start" -Method Post -ContentType 'application/json' -Body '{}'
     $sampleSweep = @{id='windows-rc-sweep';session_id=$sample.id;stream_id='spectrum';
         interval=@{started_at='2026-11-01T12:00:00Z';ended_at='2026-11-01T12:00:01Z'};
         frequencies_hz=@(100000001,100000011);levels=@(-95.375,-87.25);level_unit='dBm';
         settings=@{adapter='synthetic-contract';generator_output=$false}}
-    $null = Invoke-RestMethod "$route/sweeps" -Method Post -ContentType 'application/json' -Body ($sampleSweep | ConvertTo-Json -Depth 5)
+    $null = Invoke-RestMethod -TimeoutSec 30 "$route/sweeps" -Method Post -ContentType 'application/json' -Body ($sampleSweep | ConvertTo-Json -Depth 5)
     $taskInput = Join-Path $data 'smoke-input.task'
     [IO.File]::WriteAllText($taskInput, 'unused receive-only test input')
     $plan = @{name='windows-rc-operator-plan'; start_at=[DateTime]::UtcNow.AddDays(7).ToString('yyyy-MM-ddTHH:mm:ss.ffffffZ');
         duration_s=15; task_file=$taskInput}
-    $null = Invoke-RestMethod "$url/api/v1/task-scheduler/tasks" -Method Post -ContentType 'application/json' -Body ($plan | ConvertTo-Json)
+    $null = Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/task-scheduler/tasks" -Method Post -ContentType 'application/json' -Body ($plan | ConvertTo-Json)
     Assert-TaskBook
     Invoke-Node 'shutdown' | Out-Null
     Invoke-Node 'check-stopped' | Out-Null
@@ -240,7 +282,8 @@ try {
     Assert-Revision $manifest.source_revision
     Enter-SmokePhase 'recover_after_explicit_shutdown'
     $null = Invoke-Node 'start'
-    $restored = (Invoke-RestMethod "$url/api/v1/sessions/windows-rc-smoke").data
+    Enter-SmokePhase 'verify_recovered_measurements'
+    $restored = (Invoke-RestMethod -TimeoutSec 30 "$url/api/v1/sessions/windows-rc-smoke").data
     if ($restored.id -ne 'windows-rc-smoke') { throw 'Committed session not recovered after restart' }
     Assert-RawSweep $route
     Assert-TaskBook
@@ -265,6 +308,7 @@ try {
         $report.package_rollback = 'failed'
         Invoke-TestInstaller $PriorInstaller @('/S')
         Assert-Revision $PriorRevision
+        $report.prior_revision = $PriorRevision.ToLowerInvariant()
         $null = Invoke-Node 'start'
         Assert-RawSweep $route
         Assert-TaskBook
@@ -307,6 +351,13 @@ try {
         }
     }
     if (-not $primaryError -and $report.cleanup_errors.Count -gt 0) { throw 'Installed smoke teardown failed' }
+}
+if ($RequireOffline) {
+    if ([Net.NetworkInformation.NetworkInterface]::GetIsNetworkAvailable()) {
+        $report.network_check = 'network_available'
+        throw 'Windows network became available during offline acceptance'
+    }
+    $report.network_check = 'disconnected_at_all_phase_checks'
 }
 $report.result = 'passed'
 } catch {

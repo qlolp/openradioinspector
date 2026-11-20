@@ -55,7 +55,7 @@ pub fn canonical_fingerprint_json(sweep: &Sweep) -> Result<String> {
     let settings = sweep
         .settings
         .as_ref()
-        .filter(|m| !m.is_empty())
+        .filter(|m| m.keys().any(|key| key != "measurement_qualification"))
         .ok_or(MonitoringError::InvalidSweep("known settings required"))?;
     if sweep.level_unit != "dBm"
         || ["overload", "incomplete"]
@@ -69,6 +69,7 @@ pub fn canonical_fingerprint_json(sweep: &Sweep) -> Result<String> {
     let settings = Value::Object(
         settings
             .iter()
+            .filter(|(key, _)| key.as_str() != "measurement_qualification")
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
     );

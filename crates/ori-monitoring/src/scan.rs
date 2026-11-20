@@ -4,6 +4,7 @@ use crate::{MonitoringError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+pub const TINYSA_REFERENCE_LIMIT_HZ: u64 = 800_000_000;
 pub const GRID_STEP_HZ: u64 = 10_000;
 pub const GRID_MAX_HZ: u64 = 1_300_000_000;
 pub const WINDOW_POINTS: u32 = 290;

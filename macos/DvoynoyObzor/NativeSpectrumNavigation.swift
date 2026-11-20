@@ -26,23 +26,25 @@ struct NativeAnalyzerDraft {
         if case .string("auto") = setting { rbw = "auto" }
         if case .number(let value) = setting, let hertz = Int(exactly: value) { rbw = String(hertz) }
     }
-    static func hz(_ text: String) throws -> Int64 {
+    static func hz(_ text: String, ultra: Bool = false) throws -> Int64 {
+        let maximum = ultra ? 6000 : 800
         guard let value = Double(text.replacingOccurrences(of: ",", with: ".")), value.isFinite,
-              value >= 0, value <= 800, abs(value * 1_000_000 - (value * 1_000_000).rounded()) < 0.001 else {
-            throw DraftError.invalid("Частота: 0…800 МГц, точность до 1 Гц.")
+              value >= 0, value <= Double(maximum), abs(value * 1_000_000 - (value * 1_000_000).rounded()) < 0.001 else {
+            throw DraftError.invalid("Частота 0…\(maximum) МГц с точностью до 1 Гц.")
         }
         return Int64((value * 1_000_000).rounded())
     }
-    mutating func synchronize(_ field: Field) throws {
+    mutating func synchronize(_ field: Field, ultra: Bool = false) throws {
         let low: Int64, high: Int64
+        let maximum = ultra ? 6000 : 800
         switch field {
-        case .start, .stop: low = try Self.hz(start); high = try Self.hz(stop)
+        case .start, .stop: low = try Self.hz(start, ultra: ultra); high = try Self.hz(stop, ultra: ultra)
         case .center, .span:
-            let middle = try Self.hz(center), width = try Self.hz(span)
+            let middle = try Self.hz(center, ultra: ultra), width = try Self.hz(span, ultra: ultra)
             low = middle - width / 2; high = low + width
         }
-        guard low >= 100_000, high <= 800_000_000, high > low else {
-            throw DraftError.invalid("Нужны Start < Stop в пределах 0.1…800 МГц. Zero span здесь не используется.")
+        guard low >= 100_000, high <= Int64(maximum) * 1_000_000, high > low else {
+            throw DraftError.invalid("Задайте Start < Stop в пределах 0,1…\(maximum) МГц.")
         }
         start = Self.mhz(low); stop = Self.mhz(high)
         center = String(format: "%.6f", Double(low + high) / 2_000_000)

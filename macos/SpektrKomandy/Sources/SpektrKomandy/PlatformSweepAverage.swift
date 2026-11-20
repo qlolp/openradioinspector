@@ -315,28 +315,10 @@ func averageKnown(_ settings: [String: PlatformComparisonSetting]) -> [String: P
     let known = settings.filter { $0.key != "sequence" }
     return !known.isEmpty && known.values.allSatisfy(recorded) ? known : nil
 }
-// Foundation's ISO8601DateFormatter truncates fractional seconds. Parse them separately.
+// Exact Gregorian UTC intervals without formatter work on the UI executor.
 func averageInterval(_ interval: PlatformInterval) -> (Int64, Int64)? {
-    func instant(_ text: String) -> Int64? {
-        let body: String
-        if text.hasSuffix("Z") { body = String(text.dropLast()) }
-        else if text.hasSuffix("+00:00") { body = String(text.dropLast(6)) }
-        else { return nil }
-        let pieces = body.split(separator: ".", omittingEmptySubsequences: false)
-        guard (1...2).contains(pieces.count), pieces[0].utf8.count == 19 else { return nil }
-        let secondsText = String(pieces[0]) + "Z"
-        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime]
-        guard let seconds = formatter.date(from: secondsText), formatter.string(from: seconds) == secondsText else { return nil }
-        var fraction: Int64 = 0
-        if pieces.count == 2 {
-            let digits = String(pieces[1])
-            guard (1...6).contains(digits.utf8.count), digits.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let microseconds = Int64(digits + String(repeating: "0", count: 6 - digits.utf8.count)) else { return nil }
-            fraction = microseconds
-        }
-        return Int64(seconds.timeIntervalSince1970) * 1_000_000 + fraction
-    }
-    guard let start = instant(interval.startedAt), let end = instant(interval.endedAt), start <= end else { return nil }
+    guard let start = PlatformUTCInstant.microseconds(interval.startedAt),
+          let end = PlatformUTCInstant.microseconds(interval.endedAt), start <= end else { return nil }
     return (start, end)
 }
 

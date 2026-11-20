@@ -31,7 +31,7 @@ pub use model::*;
 pub use outbox::{
     ClaimedNotification, NotificationClaim, NotificationCompletion, NotificationRow, WebhookConfig,
 };
-pub use queries::{BaselineSelection, CapturePosition, RecordPage};
+pub use queries::{BaselineSelection, CapturePosition, KnownSignalTarget, RecordPage};
 pub use schema::{MAIN_VERSION, MONITORING_VERSION, PRECISION_DDL, PRECISION_VERSION};
 use serde_json::{Value, json};
 pub use session_lifecycle::SessionLifecycleReceipt;

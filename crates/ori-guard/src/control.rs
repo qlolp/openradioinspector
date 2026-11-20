@@ -1,8 +1,17 @@
 //! Core-owned effects. The guard domain never opens a port, audio device,
 //! filesystem probe or HTTP connection. Every effect is delegated here.
+use ori_archive::SessionLifecycleReceipt;
 use ori_contracts::{JSONObject, Session, UtcTimestamp};
 use serde::{Deserialize, Serialize};
-use std::{future::Future, pin::Pin};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ControlError {
@@ -33,6 +42,8 @@ pub struct ControlPermit {
     pub(crate) token: String,
     pub(crate) epoch: u64,
     pub(crate) expected_worker_instance: Option<String>,
+    pub(crate) event_dispatch: Option<Arc<EventDispatch>>,
+    pub(crate) idle_dispatch: Option<IdleDispatch>,
 }
 impl ControlPermit {
     pub fn project_id(&self) -> &str {
@@ -43,6 +54,35 @@ impl ControlPermit {
     }
     pub fn expected_worker_instance(&self) -> Option<&str> {
         self.expected_worker_instance.as_deref()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct IdleDispatch {
+    pub analyzer_stream_id: String,
+    pub analyzer_epoch: u64,
+    pub lifecycle: SessionLifecycleReceipt,
+}
+
+pub(crate) struct EventDispatch {
+    pub event_id: String,
+    pub center_hz: u64,
+    pub deadline: Duration,
+    pub reviewed: AtomicBool,
+    pub retargeted: AtomicBool,
+}
+
+impl EventDispatch {
+    pub fn rejection(&self, now: Duration) -> Option<&'static str> {
+        if self.reviewed.load(Ordering::Acquire) {
+            Some("event_reviewed")
+        } else if self.retargeted.load(Ordering::Acquire) {
+            Some("event_retargeted")
+        } else if now > self.deadline {
+            Some("event_expired")
+        } else {
+            None
+        }
     }
 }
 

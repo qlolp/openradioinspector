@@ -109,7 +109,8 @@ def main():
             if not library.startswith(('/usr/lib/', '/System/Library/', '@rpath/', '@executable_path/', '@loader_path/')):
                 raise ValueError('external development dependency: ' + library)
     agents = app / 'Contents/Library/LaunchAgents'; agents.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ROOT / 'packaging/macos' / (package.AGENT_LABEL + '.plist'), agents / (package.AGENT_LABEL + '.plist'))
+    for label in [package.AGENT_LABEL,package.AGENT_LABEL.replace('.core','.acceptance.core')]:
+        shutil.copyfile(ROOT / 'packaging/macos' / (label + '.plist'), agents / (label + '.plist'))
     notices(app / 'Contents/Resources/Notices', metadata, Path(run('rustc', '--print', 'sysroot', env=env, capture=True).strip()))
     package.prepare(app, source, components['ori-core'], components['ori-supervisor'],
                     dict(rust=rust, swift=swift, xcode=xcode))

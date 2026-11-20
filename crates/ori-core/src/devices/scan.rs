@@ -9,6 +9,7 @@ pub(super) struct Plan {
     id: String,
     revision: u64,
     pub config: ScanPlan,
+    adapter: &'static str,
     serial_baud: Option<u32>,
 }
 impl Plan {
@@ -22,12 +23,12 @@ impl Plan {
                 "Scan plans require an analyzer stream".into(),
             ));
         }
-        let maximum = match settings
+        let (adapter, maximum) = match settings
             .and_then(|s| s.get("adapter"))
             .and_then(Value::as_str)
         {
-            Some("tinysa-sim") => 20_000_000_000,
-            Some("tinysa-serial") => 800_000_000,
+            Some("tinysa-sim") => ("tinysa-sim", 20_000_000_000),
+            Some("tinysa-serial") => ("tinysa-serial", 800_000_000),
             _ => {
                 return Err(DeviceError::Invalid(
                     "Unsupported scan plan receive profile".into(),
@@ -64,6 +65,7 @@ impl Plan {
                 None
             };
         Ok(Some(Self {
+            adapter,
             serial_baud,
             id,
             revision,
@@ -83,6 +85,17 @@ impl Plan {
         let settings = source["settings"]
             .as_object_mut()
             .ok_or_else(|| DeviceError::Worker("Missing raw scan settings".into()))?;
+        let window = band.window(index).ok_or_else(|| {
+            DeviceError::Worker("Scan window is outside the selected band".into())
+        })?;
+        settings.insert(
+            "measurement_qualification".into(),
+            ori_guard::measurement_qualification(
+                Some(self.adapter),
+                window.start_hz,
+                window.stop_hz,
+            ),
+        );
         if let Some(step) = band.step_hz {
             if let Some(baud) = self.serial_baud {
                 settings.insert("scan_serial_baud".into(), json!(baud));
@@ -141,7 +154,7 @@ impl Coverage {
             .saturating_add(u64::from(index + 1 == count));
         coverage.last_window = json!({"index":index,"start_hz":window.start_hz,"stop_hz":window.stop_hz,
             "points":window.points,"measurement_id":source["id"],"started_at":source["interval"]["started_at"],
-            "ended_at":source["interval"]["ended_at"]});
+            "ended_at":source["interval"]["ended_at"], "measurement_qualification":source["settings"]["measurement_qualification"]});
     }
     pub fn report(&self, plan: &Plan, paused: bool) -> Value {
         let now = Instant::now();
@@ -158,6 +171,7 @@ impl Coverage {
                 "max_revisit_seconds":band.max_revisit_seconds,"age_seconds":age,"step_hz":band.step_hz,
                 "window_count":count,"observed_windows":observed,"completed_passes":coverage.map_or(0,|c| c.passes),
                 "last_window":last,
+                "measurement_qualification":ori_guard::measurement_qualification(Some(plan.adapter),band.start_hz,band.stop_hz),
                 "state":if paused{"paused"}else if observed==0{"not_observed"}else if observed<count as usize{"partial"}else if stale{"stale"}else{"fresh"},
                 "last_measurement_id":last["measurement_id"],"last_measurement_at":last["ended_at"],
                 "deadline_missed":stale||revisit.is_some_and(|s|s>band.max_revisit_seconds),
@@ -176,6 +190,7 @@ mod tests {
     fn a_committed_frame_does_not_hide_a_late_revisit() {
         let plan = Plan {
             id: "plan".into(),
+            adapter: "tinysa-serial",
             serial_baud: None,
             revision: 1,
             config: ScanPlan {

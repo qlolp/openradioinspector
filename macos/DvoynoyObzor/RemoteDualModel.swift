@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import Observation
 import AppKit
 import AVFoundation
 import SwiftUI
@@ -24,13 +24,14 @@ struct PinnedSweepReference {
 }
 
 @MainActor
-final class RemoteDualModel: ObservableObject {
-    @Published var showFrequencyHistory = false
-    @Published var historyFrequency: Int64?
-    @Published var reviewedSweepRequest = UUID()
-    @Published var reviewedSweep: PlatformSweep?
-    @Published var showTinySAControl = false
-    @Published var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
+@Observable
+final class RemoteDualModel {
+    var showFrequencyHistory = false
+    var historyFrequency: Int64?
+    var reviewedSweepRequest = UUID()
+    var reviewedSweep: PlatformSweep?
+    var showTinySAControl = false
+    var serverURL = ProcessInfo.processInfo.environment["ORI_LOCAL_CORE_URL"] ?? "http://127.0.0.1:8770" {
         didSet {
             guard !PlatformExactID.same(serverURL, oldValue) else { return }
             selectedScanBand = ""
@@ -38,8 +39,8 @@ final class RemoteDualModel: ObservableObject {
             resetComparisonScope(); frequencyRounding.reset(); configureAuxiliaryStreams(client: nil, session: nil)
         }
     }
-    @Published var sessions: [PlatformSession] = []
-    @Published var selectedSessionID = "" {
+    var sessions: [PlatformSession] = []
+    var selectedSessionID = "" {
         didSet {
             guard !PlatformExactID.same(selectedSessionID, oldValue) else { return }
             selectedScanBand = ""
@@ -47,7 +48,7 @@ final class RemoteDualModel: ObservableObject {
             configureAuxiliaryStreams(client: nil, session: nil)
         }
     }
-    @Published var session: PlatformSession? {
+    var session: PlatformSession? {
         didSet {
             if !PlatformThreeSweepThresholds.sameID(session?.streams.first(where: { $0.isDbmAnalyzer })?.id,
                 oldValue?.streams.first(where: { $0.isDbmAnalyzer })?.id) {
@@ -56,114 +57,116 @@ final class RemoteDualModel: ObservableObject {
             }
         }
     }
-    @Published var auxiliaryStreamID = "" {
+    var auxiliaryStreamID = "" {
         didSet { if !PlatformThreeSweepThresholds.sameID(auxiliaryStreamID, oldValue) { applyAuxiliaryStream() } }
     }
     private var auxiliaryClient: PlatformClient?
     private var auxiliarySession: PlatformSession?
-    @Published var workers: [PlatformWorker] = []
+    var workers: [PlatformWorker] = []
     // Connection intent is distinct from a successfully refreshed core.
-    @Published var connected = false
-    @Published private(set) var coreReachable = false
-    @Published private(set) var lastCoreContactAt: Date?
-    @Published private(set) var measurementsStale = true
-    @Published private(set) var lastMeasurementAt: Date?
+    var connected = false
+    private(set) var coreReachable = false
+    private(set) var lastCoreContactAt: Date?
+    private(set) var measurementsStale = true
+    private(set) var lastMeasurementAt: Date?
     // Display-only fallback: never used as archive evidence or an action source.
-    @Published private(set) var staleSpectrum: NativeSpectrumFrame?
-    @Published private(set) var staleSpectrumScale: PlatformSpectrumScale?
+    private(set) var staleSpectrum: NativeSpectrumFrame?
+    private(set) var staleSpectrumScale: PlatformSpectrumScale?
     private var lastRenderedFrame: NativeSpectrumFrame?
     private var lastRenderedSweeps: [PlatformSweep] = []
     // Allow a full-band hardware sweep (about 36 seconds) plus polling/retry margin.
     static let measurementFreshnessInterval: TimeInterval = 90
-    @Published var authorizationRequired = false
-    @Published var busy = false
-    @Published var status = "Сервер не подключён"
-    @Published var errorText: String?
-    @Published var mode = "FM"
-    @Published var threshold = "-80"
-    @Published var spectrumPresentation = PlatformSpectrumPresentation()
-    @Published var selectedScanBand = ""
-    @Published var spectrumClippedCount = 0
-    @Published var spectrumLower = ""
-    @Published var spectrumUpper = ""
-    @Published var current: [PlotPoint] = []
-    @Published var minimum: [PlotPoint] = []
-    @Published var maximum: [PlotPoint] = []
-    @Published var rows: [Exceedance] = []
-    @Published var waterfall = WaterfallHistory()
-    @Published var waterfallRevision = 0
-    @Published var latestObservation: PlatformObservation?
-    @Published var eventGapNotice: String?
-    @Published var eventStatus = "Ожидание подключения"
-    @Published var measurementSource: PlatformMeasurementSource?
-    @Published var measurementDisplayIssue: PlatformMeasurementDisplayIssue?
-    @Published var live = "Данные ядра ещё не получены"
-    @Published var candidates: [PlatformCandidate] = []
-    @Published var investigations: [PlatformInvestigation] = []
-    @Published var nextInvestigation: PlatformInvestigation?
-    @Published var selectedCandidateID = ""
-    @Published var selectedInvestigationID = ""
-    @Published var investigationPriority = "0"
-    @Published var failureReason = ""
-    @Published var automaticHandoffStatus: PlatformAutomaticStatus?
-    @Published var automaticDetectionStatus: PlatformAutomaticStatus?
-    @Published var automaticCompletionStatus: PlatformAutomaticStatus?
-    @Published var taskSchedulerStatus: PlatformTaskSchedulerStatus?
-    @Published var taskSchedulerError: String?
-    @Published var taskSchedulerTasks: [PlatformControlTask] = []
-    @Published var taskSchedulerTasksError: String?
-    @Published var newTaskName = ""
-    @Published var newTaskFile = ""
-    @Published var newTaskStartAt = ""
-    @Published var newTaskDuration = "60"
-    @Published var newTaskEquipment = ""
-    @Published var newTaskStatus = "Новая ControlTask ещё не создана"
-    @Published var showTaskCreate = false
-    @Published var taskCreatePending = false
-    @Published var taskCancelStatus = "Queued ControlTask не отменена"
-    @Published var taskCancelPending = false
+    var authorizationRequired = false
+    var busy = false
+    var status = "Сервер не подключён"
+    let spectrumViewMemory = NativeSpectrumViewMemory()
+    let consoleInvestigation = NativeConsoleInvestigation()
+    var errorText: String?
+    var mode = "FM"
+    var threshold = "-80"
+    var spectrumPresentation = PlatformSpectrumPresentation()
+    var selectedScanBand = ""
+    var spectrumClippedCount = 0
+    var spectrumLower = ""
+    var spectrumUpper = ""
+    var current: [PlotPoint] = []
+    var minimum: [PlotPoint] = []
+    var maximum: [PlotPoint] = []
+    var rows: [Exceedance] = []
+    var waterfall = WaterfallHistory()
+    var waterfallRevision = 0
+    var latestObservation: PlatformObservation?
+    var eventGapNotice: String?
+    var eventStatus = "Ожидание подключения"
+    var measurementSource: PlatformMeasurementSource?
+    var measurementDisplayIssue: PlatformMeasurementDisplayIssue?
+    var live = "Данные ядра ещё не получены"
+    var candidates: [PlatformCandidate] = []
+    var investigations: [PlatformInvestigation] = []
+    var nextInvestigation: PlatformInvestigation?
+    var selectedCandidateID = ""
+    var selectedInvestigationID = ""
+    var investigationPriority = "0"
+    var failureReason = ""
+    var automaticHandoffStatus: PlatformAutomaticStatus?
+    var automaticDetectionStatus: PlatformAutomaticStatus?
+    var automaticCompletionStatus: PlatformAutomaticStatus?
+    var taskSchedulerStatus: PlatformTaskSchedulerStatus?
+    var taskSchedulerError: String?
+    var taskSchedulerTasks: [PlatformControlTask] = []
+    var taskSchedulerTasksError: String?
+    var newTaskName = ""
+    var newTaskFile = ""
+    var newTaskStartAt = ""
+    var newTaskDuration = "60"
+    var newTaskEquipment = ""
+    var newTaskStatus = "Новая ControlTask ещё не создана"
+    var showTaskCreate = false
+    var taskCreatePending = false
+    var taskCancelStatus = "Queued ControlTask не отменена"
+    var taskCancelPending = false
     // The app-internal action extensions share these setters across source files.
-    @Published var comparisonSweeps: [PlatformSweep] = []
-    @Published var comparisonSelectionID = ""
-    @Published var comparisonReference: PinnedSweepReference?
-    @Published var sweepComparison: PlatformSweepComparison?
-    @Published var sweepComparisonError: String?
-    @Published var sweepComparisonPending = false
-    @Published var referenceName = ""
-    @Published var savedReferenceSelectionID = ""
-    @Published var referenceCatalog: PlatformSweepReferenceCatalog?
-    @Published var savedSweepReferences: [PlatformSweepReference] = []
-    @Published var referenceCatalogError: String?
-    @Published var referenceSaveStatus: String?
-    @Published var referenceWriteNotice: String?
-    @Published var referenceCatalogPending = false
-    @Published var referenceSavePending = false
-    @Published var archiveCapacity: PlatformArchiveCapacity?
-    @Published var archiveCapacityError: String?
-    @Published var archiveAnalytics: PlatformAnalyticsSummary?
-    @Published var archiveAnalyticsError: String?
-    @Published var archiveAnalyticsPending = false
-    @Published var archiveExportStatus = "NDJSON snapshot ещё не выгружен"
-    @Published var archiveExportPending = false
-    @Published var workflowErrors: [String] = []
-    @Published var detectionInterval = "1"
-    @Published var detectionStreamID = ""
-    @Published var detectionThreshold = "-70"
-    @Published var detectionDedupBandwidth = "100000"
-    @Published var detectionCooldown = "60"
-    @Published var detectionMaximumCandidates = "10"
-    @Published var handoffInterval = "1"
-    @Published var handoffMinimumPriority = "0"
-    @Published var handoffReceiverStreamID = ""
-    @Published var handoffMaximumFailures = "3"
-    @Published var handoffRetryDelay = "30"
-    @Published var completionInterval = "1"
-    @Published var completionMinimumListening = "0"
-    @Published var completionMinimumObservations = "1"
-    @Published var completionReceiverStreamID = ""
-    @Published var tinySAPort = "/dev/ttyACM0"
-    @Published var receiverPort = ""
-    @Published var showSerialForm = false
+    var comparisonSweeps: [PlatformSweep] = []
+    var comparisonSelectionID = ""
+    var comparisonReference: PinnedSweepReference?
+    var sweepComparison: PlatformSweepComparison?
+    var sweepComparisonError: String?
+    var sweepComparisonPending = false
+    var referenceName = ""
+    var savedReferenceSelectionID = ""
+    var referenceCatalog: PlatformSweepReferenceCatalog?
+    var savedSweepReferences: [PlatformSweepReference] = []
+    var referenceCatalogError: String?
+    var referenceSaveStatus: String?
+    var referenceWriteNotice: String?
+    var referenceCatalogPending = false
+    var referenceSavePending = false
+    var archiveCapacity: PlatformArchiveCapacity?
+    var archiveCapacityError: String?
+    var archiveAnalytics: PlatformAnalyticsSummary?
+    var archiveAnalyticsError: String?
+    var archiveAnalyticsPending = false
+    var archiveExportStatus = "NDJSON snapshot ещё не выгружен"
+    var archiveExportPending = false
+    var workflowErrors: [String] = []
+    var detectionInterval = "1"
+    var detectionStreamID = ""
+    var detectionThreshold = "-70"
+    var detectionDedupBandwidth = "100000"
+    var detectionCooldown = "60"
+    var detectionMaximumCandidates = "10"
+    var handoffInterval = "1"
+    var handoffMinimumPriority = "0"
+    var handoffReceiverStreamID = ""
+    var handoffMaximumFailures = "3"
+    var handoffRetryDelay = "30"
+    var completionInterval = "1"
+    var completionMinimumListening = "0"
+    var completionMinimumObservations = "1"
+    var completionReceiverStreamID = ""
+    var tinySAPort = "/dev/ttyACM0"
+    var receiverPort = ""
+    var showSerialForm = false
 
     let sweepAverage = SweepAverageModel()
     let threeSweepThresholds = ThreeSweepThresholdsModel()
@@ -206,12 +209,13 @@ final class RemoteDualModel: ObservableObject {
     var client: PlatformClient?
     private var pollTask: Task<Void, Never>?
     private let measurementStream = RemoteMeasurementStream()
+    private let makeSpectrumFrame: @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame
     private var streamingEnabled = false
     private var negotiatedMeasurementTransport: PlatformMeasurementTransport?
     private var measurementSnapshot: PlatformSnapshot?
     private var archiveHighWatermark: Int64?
     private var archiveCacheVerified = false
-    private var spectrumRenderRevision = 0
+    @ObservationIgnored private var spectrumRenderRevision = 0
     var generation = 0
     private var sessionRefreshRevision = 0
     var detectionFormInitialized = false
@@ -236,10 +240,14 @@ final class RemoteDualModel: ObservableObject {
         comparisonTimeoutNanoseconds: UInt64 = 6_000_000_000,
         thresholdTimeoutNanoseconds: UInt64 = 6_000_000_000,
         requireRuntimeOwner: Bool = false,
+        makeSpectrumFrame: @escaping @Sendable ([PlatformSweep], Double) throws -> NativeSpectrumFrame = {
+            try NativeSpectrumFrame(sweeps: $0, threshold: $1)
+        },
         onArchiveContextReset: @escaping @MainActor (Int64?) -> Void = { _ in }
     ) {
         self.requireRuntimeOwner = requireRuntimeOwner
         self.makeClient = makeClient
+        self.makeSpectrumFrame = makeSpectrumFrame
         self.onArchiveContextReset = onArchiveContextReset
         self.sweepThreshold = SweepThresholdModel(timeoutNanoseconds: thresholdTimeoutNanoseconds)
         self.comparisonTimeoutNanoseconds = comparisonTimeoutNanoseconds
@@ -257,6 +265,9 @@ final class RemoteDualModel: ObservableObject {
             ? lastRenderedSweeps : spectrumPresentation.sweeps
     }
     var displayArchiveCapacity: PlatformArchiveCapacity? { coreReachable ? archiveCapacity : nil }
+    var acquisitionSweepTime: Date? {
+        analyzer == nil ? nil : lastMeasurementAt
+    }
 
     var analyzer: PlatformStream? { session?.streams.first(where: { $0.isDbmAnalyzer }) }
     var receiver: PlatformStream? { session?.streams.first(where: { $0.isReceiver }) }
@@ -507,6 +518,7 @@ final class RemoteDualModel: ObservableObject {
         configureAuxiliaryStreams(client: nil, session: nil)
         if let watermark {
             archiveHighWatermark = watermark
+            consoleInvestigation.invalidateArchiveEvidence()
             // A possible write in the old archive cannot confirm evidence in its replacement.
             uncertainReferenceScopes.removeAll(); referenceNoticeScope = nil; referenceWriteNotice = nil
         }
@@ -547,7 +559,8 @@ final class RemoteDualModel: ObservableObject {
         let schedulerRevision = taskSchedulerCommandRevision
         do {
             if streamingEnabled, negotiatedMeasurementTransport == nil {
-                let transport = try await client.measurementTransport()
+                let offered = try await client.measurementTransport()
+                let transport = try NativeAcceptanceTransport.resolve(NativeAcceptanceTrace.shared?.profile.transport,offered:offered)
                 guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client else { return }
                 negotiatedMeasurementTransport = transport
             }
@@ -597,8 +610,14 @@ final class RemoteDualModel: ObservableObject {
                     watermark = latestCache?.cursor
                 }
             }
-            // Events may have arrived while metadata was in flight.
-            if let cached = latestCache {
+            // The stream may already be preparing a newer commit than its last
+            // acknowledged cache. A metadata poll must not render the older cache
+            // over that work or invalidate its render revision.
+            let streamOwnsMeasurements = latestCache != nil && measurementStream.isActive && measurementSnapshot != nil
+            if streamOwnsMeasurements, let pending = measurementSnapshot {
+                snapshot.sweeps = pending.sweeps
+                snapshot.observations = pending.observations
+            } else if let cached = latestCache {
                 snapshot.sweeps = cached.sweeps
                 snapshot.observations = cached.observation.map { [$0] } ?? []
             }
@@ -609,7 +628,9 @@ final class RemoteDualModel: ObservableObject {
             }
             workers = snapshot.workers
             measurementSnapshot = snapshot
-            guard await applyMeasurements(snapshot) else { return }
+            if !streamOwnsMeasurements {
+                guard await applyMeasurements(snapshot) else { return }
+            }
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client,
                   PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             recordCoreContact()
@@ -628,11 +649,18 @@ final class RemoteDualModel: ObservableObject {
                         if change == .measurement {
                             latest.sweeps = sweeps; latest.observations = observation.map { [$0] } ?? []
                             self.measurementSnapshot = latest
-                            guard await self.applyMeasurements(latest) else { throw CancellationError() }
+                            if event.committedEvent?.payload.sweep != nil {
+                                guard await self.applyMeasurements(latest) else { throw CancellationError() }
+                            } else if !PlatformExactID.same(self.latestObservation?.id, observation?.id) {
+                                self.latestObservation = observation
+                            }
                         }
                         guard !Task.isCancelled, streamGeneration == self.generation, self.client === client else { throw CancellationError() }
                         self.recordCoreContact()
-                        if change == .measurement { self.observeMeasurementTime(latest) }
+                        if change == .measurement,
+                           self.analyzer == nil || event.committedEvent?.payload.sweep != nil {
+                            self.observeMeasurementTime(latest)
+                        }
                         self.measurementSource = event.source; self.measurementDisplayIssue = event.displayIssue
                         self.eventStatus = "\(transport.label) · принято событие \(event.sequence)" + (event.displayIssue == nil ? "" : " · исходник")
                         if change == .measurement { self.live = "Закоммичено ядром · \(sweeps.last?.interval.endedAt ?? observation?.interval.endedAt ?? "—")" }
@@ -664,6 +692,18 @@ final class RemoteDualModel: ObservableObject {
         } catch {
             guard refreshRevision == sessionRefreshRevision, requestGeneration == generation, self.client === client, PlatformThreeSweepThresholds.sameID(id, selectedSessionID) else { return }
             if expireAuthorization(error, client: client) { return }
+            if case PlatformError.http(status: 404, code: "session_not_found", message: _) = error,
+               let loaded = try? await client.listSessions() {
+                guard refreshRevision == sessionRefreshRevision, requestGeneration == generation,
+                      self.client === client, PlatformExactID.same(id, selectedSessionID) else { return }
+                if !loaded.contains(where: { PlatformExactID.same($0.id, id) }) {
+                    recordCoreContact()
+                    sessions = loaded
+                    errorText = nil
+                    selectSession(loaded.first?.id ?? "")
+                    return
+                }
+            }
             let retainedFrame = lastRenderedFrame ?? staleSpectrum
             let retainedSweeps = lastRenderedSweeps
             let retainedScale = spectrumPresentation.scale ?? staleSpectrumScale
@@ -716,13 +756,6 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func observeMeasurementTime(_ snapshot: PlatformSnapshot) {
-        let formatter = ISO8601DateFormatter()
-        func date(_ value: String) -> Date? {
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: value) { return date }
-            formatter.formatOptions = [.withInternetDateTime]
-            return formatter.date(from: value)
-        }
         // The spectrum's freshness belongs to its analyzer, never to a faster
         // receiver sharing the session. Receiver-only sessions use their own stream.
         let times: [String]
@@ -735,7 +768,7 @@ final class RemoteDualModel: ObservableObject {
                 PlatformExactID.same($0.sessionId, selectedSessionID) && PlatformExactID.same($0.streamId, receiver?.id ?? "")
             }.map { $0.interval.endedAt }
         }
-        guard let newest = times.compactMap(date).max() else { measurementsStale = true; return }
+        guard let newest = times.compactMap(NativeSpectrumTimeline.date).max() else { measurementsStale = true; return }
         guard lastMeasurementAt.map({ newest > $0 }) ?? true else { return }
         lastMeasurementAt = newest
         let age = Date().timeIntervalSince(newest)
@@ -858,6 +891,8 @@ final class RemoteDualModel: ObservableObject {
     }
 
     private func clearMeasurements(preservingReplay: Bool = false) {
+        spectrumViewMemory.snapshot = nil
+        consoleInvestigation.configure(nil)
         resetMeasurementHealth()
         if !preservingReplay { measurementStream.stop() }
         archiveCacheVerified = false
@@ -1001,14 +1036,23 @@ final class RemoteDualModel: ObservableObject {
         let visible = scanBandSweeps(in: incoming)
         spectrumRenderRevision += 1
         let revision = spectrumRenderRevision, previous = spectrumPresentation, threshold = thresholdDbm ?? -80
-        let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int) in
+        let makeFrame = makeSpectrumFrame
+        let trace=NativeAcceptanceTrace.shared,sourceID=visible.last?.id,measure=trace != nil
+        if let sourceID {trace?.sourceStage("preparation.queued",id:sourceID)}
+        let work = Task.detached(priority: .userInitiated) { () throws -> (PlatformSpectrumPresentation, NativeSpectrumFrame?, Int, UInt64, UInt64) in
+            let started=measure ? NativeAcceptanceClock.now():0
             var next = previous
             if let scope { next.update(scope: scope, sweeps: visible) } else { next.reset() }
-            let frame = next.paused ? nil : try NativeSpectrumFrame(sweeps: next.sweeps, threshold: threshold)
-            return (next, frame, next.clippedCount)
+            let frame = next.paused ? nil : try makeFrame(next.sweeps, threshold)
+            return (next, frame, next.clippedCount, started, measure ? NativeAcceptanceClock.now():0)
         }
         let result = try? await withTaskCancellationHandler(operation: { try await work.value }, onCancel: { work.cancel() })
-        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped) = result else { return false }
+        guard !Task.isCancelled, revision == spectrumRenderRevision, let (next, frame, clipped, started, finished) = result else { return false }
+        if let sourceID {
+            trace?.sourceStage("preparation.begin",id:sourceID,at:started)
+            trace?.sourceStage("prepared",id:sourceID,at:finished)
+            trace?.sourceStage("model.resumed",id:sourceID)
+        }
         spectrumPresentation = next; spectrumClippedCount = clipped
         if let frame { publish(frame) }
         return true

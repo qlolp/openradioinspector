@@ -5,6 +5,7 @@ import Testing
 @Suite(.serialized) struct WorkbenchArchiveTests {
     final class Stub: URLProtocol {
         nonisolated(unsafe) static var handler: ((URLRequest) throws -> [String: Any])?
+        struct UnknownRoute: Error {}
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
@@ -14,6 +15,11 @@ import Testing
                 guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil) else { return }
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
                 client?.urlProtocol(self, didLoad: data); client?.urlProtocolDidFinishLoading(self)
+            } catch is UnknownRoute {
+                guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil) else { return }
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: Data(#"{"contract":"openradioinspector-platform","contract_version":1,"error":{"code":"not_found","message":"Route unavailable"}}"#.utf8))
+                client?.urlProtocolDidFinishLoading(self)
             } catch { client?.urlProtocol(self, didFailWithError: error) }
         }
         override func stopLoading() {}
@@ -56,6 +62,23 @@ import Testing
     @Test func originalRetainsRawLevelsUTCSettingsAndRejectsWrongStream() async throws {
         let (client, session) = try api(); defer { session.invalidateAndCancel(); Stub.handler = nil }
         Stub.handler = { request in
+            #expect(request.httpMethod == "GET")
+            #expect(request.url?.path == "/api/v1/sessions/session/sweeps/sweep")
+            return ["id": "sweep", "session_id": "session", "stream_id": "tiny",
+                    "interval": row["interval"] ?? [:], "frequencies_hz": [88000000, 108000000],
+                    "levels": [-90.25, -100.125], "level_unit": "dBm", "settings": ["rbw_hz": 10000, "sequence": 42]]
+        }
+        let source = try await client.archiveOriginalSweep(sessionID: "session", streamID: "tiny", sweepID: "sweep")
+        #expect(source.levels == [-90.25, -100.125])
+        #expect(source.frequenciesHz == [88_000_000, 108_000_000])
+        #expect(source.settings?["sequence"] == .number(42))
+        #expect(source.interval.endedAt == "2026-11-14T12:00:05Z")
+        await #expect(throws: (any Error).self) { try await client.archiveOriginalSweep(sessionID: "session", streamID: "other", sweepID: "sweep") }
+    }
+    @Test func legacyRouteFallsBackToOriginalContext() async throws {
+        let (client, session) = try api(); defer { session.invalidateAndCancel(); Stub.handler = nil }
+        Stub.handler = { request in
+            if request.httpMethod == "GET" { throw Stub.UnknownRoute() }
             #expect(request.httpMethod == "POST")
             let bytes = try #require(request.httpBody)
             let object = try JSONSerialization.jsonObject(with: bytes)

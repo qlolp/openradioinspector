@@ -28,6 +28,8 @@ final class NativeArchiveContextTests: XCTestCase {
         private var held: [(Stub, Any)] = []
         private var requests: [String] = []
         private var writes = 0
+        private var statusUnavailable = false
+        func failStatus(_ value: Bool) { lock.withLock { statusUnavailable = value } }
         var pendingCount: Int { lock.withLock { held.count } }
         var mutations: Int { lock.withLock { writes } }
         func restore(_ value: Int64) { lock.withLock { watermark = value } }
@@ -47,6 +49,9 @@ final class NativeArchiveContextTests: XCTestCase {
         }
         func handle(_ stub: Stub) {
             let path = stub.request.url!.path
+            if path.hasSuffix("/status"), lock.withLock({ statusUnavailable }) {
+                stub.client?.urlProtocol(stub, didFailWithError: URLError(.cannotConnectToHost)); return
+            }
             let value: Any = lock.withLock {
                 requests.append(path)
                 if stub.request.httpMethod != "GET" { writes += 1 }
@@ -86,6 +91,23 @@ final class NativeArchiveContextTests: XCTestCase {
         model.configure("https://example.test", client: client); model.selected = "p"
         await model.refreshStatus()
         return model
+    }
+    @MainActor func testProjectStatusFailureDoesNotInheritAHealthyCoreOrRetainedArmedState() async throws {
+        let responses = Responses(), model = try await workspace(responses)
+        XCTAssertTrue(model.projectStatusIsCurrent())
+        let stamp = try XCTUnwrap(model.projectStatusVerifiedAt)
+        XCTAssertTrue(model.projectStatusIsCurrent(at: stamp.advanced(by: .seconds(15))))
+        XCTAssertFalse(model.projectStatusIsCurrent(at: stamp.advanced(by: .seconds(15) + .nanoseconds(1))))
+        XCTAssertFalse(model.projectStatusIsCurrent(at: stamp.advanced(by: .nanoseconds(-1))))
+        XCTAssertTrue(model.isArmed)
+        responses.failStatus(true)
+        await model.refreshStatus()
+        XCTAssertFalse(model.error.isEmpty)
+        XCTAssertTrue(model.isArmed, "Retain the last-known result for inspection, without claiming it is current")
+        XCTAssertFalse(model.projectStatusIsCurrent(), "A healthy health endpoint does not verify project status")
+        responses.failStatus(false)
+        await model.refreshStatus()
+        XCTAssertTrue(model.projectStatusIsCurrent())
     }
     @MainActor private func seed(_ model: MonitoringWorkspaceModel) async {
         await model.loadHistory(start: "", end: "", minHz: "", maxHz: "", eventID: nil)

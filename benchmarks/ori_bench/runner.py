@@ -127,14 +127,16 @@ def send(client,config,ledger,kind,index,histograms):
     except BenchmarkError as error:
         ledger.status(key,'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
     except (ValueError,TypeError,KeyError,OverflowError):ledger.status(key,'invalid_ack')
-    finally:histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+    finally:
+        histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+        ledger.producer_connect(key, client.connect_attempts)
 
 
 def run_load(config,ledger,histograms):
     pending=queue.Queue(maxsize=config.queue_capacity)
     finished=threading.Event();cancelled=threading.Event()
     def worker():
-        client=Client(config)
+        client=Client(config, producer=True)
         while True:
             try:kind,index=pending.get(timeout=.05)
             except queue.Empty:
@@ -221,7 +223,7 @@ def run_history(config,client,capabilities,ledger,histograms):
             'maximum_batch_request_bytes':byte_limit,'offered_to_ack_samples_are_batches':True}
 
 
-def run(config):
+def run(config, *, before_production=None):
     output=output_directory(config.output_dir)
     ledger=Ledger(output/'offers.sqlite')
     histogram={name:Histogram() for name in LATENCIES}
@@ -243,6 +245,7 @@ def run(config):
                 observer=OwnedObserver(config,client,output)
                 report['observer_setup']=observer.start()
             try:
+                if before_production is not None:before_production()
                 report['production']=(run_history(config,client,capabilities,ledger,histogram) if config.mode=='history'
                                       else run_load(config,ledger,histogram))
             finally:
@@ -295,9 +298,11 @@ def run(config):
         report['counts']=counts
         report.setdefault('audio',ledger.audio_counts())
         report['gap_samples']=ledger.gap_samples()
-        report['transport_failure_samples'] = ledger.transport_report(
-            ndjson_complete=report['checks']['archive_integrity']['status'] == 'passed',
-            audio_complete='listed_segments' in report['audio'])
+        verification = dict(ndjson_complete=report['checks']['archive_integrity']['status'] == 'passed',
+                            audio_complete='listed_segments' in report['audio'])
+        report['transport_failure_samples'] = ledger.transport_report(**verification)
+        report['producer_loopback_tcp'] = dict(ledger.producer_connect_counts,
+            samples=ledger.transport_report(samples=ledger.producer_connect_samples, **verification))
         report['checks']['offered_accounting']={'status':'passed' if accounted and all_offered else 'failed',
             'all_planned_inputs_offered':all_offered}
         report['checks']['complete_delivery']={'status':'passed' if complete else 'failed',

@@ -56,6 +56,96 @@ impl crate::RestoreKeys for HistoryRequestOperation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KnownSignalInputKind {
+    #[serde(rename = "broadcast")]
+    Broadcast,
+    #[serde(rename = "aviation")]
+    Aviation,
+    #[serde(rename = "maritime")]
+    Maritime,
+    #[serde(rename = "rail")]
+    Rail,
+    #[serde(rename = "municipal")]
+    Municipal,
+    #[serde(rename = "cellular")]
+    Cellular,
+    #[serde(rename = "short_range")]
+    ShortRange,
+    #[serde(rename = "wifi")]
+    Wifi,
+    #[serde(rename = "bluetooth")]
+    Bluetooth,
+    #[serde(rename = "remote_control")]
+    RemoteControl,
+    #[serde(rename = "satellite_navigation")]
+    SatelliteNavigation,
+    #[serde(rename = "other")]
+    Other,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl crate::RestoreKeys for KnownSignalInputKind {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KnownSignalRecordKind {
+    #[serde(rename = "broadcast")]
+    Broadcast,
+    #[serde(rename = "aviation")]
+    Aviation,
+    #[serde(rename = "maritime")]
+    Maritime,
+    #[serde(rename = "rail")]
+    Rail,
+    #[serde(rename = "municipal")]
+    Municipal,
+    #[serde(rename = "cellular")]
+    Cellular,
+    #[serde(rename = "short_range")]
+    ShortRange,
+    #[serde(rename = "wifi")]
+    Wifi,
+    #[serde(rename = "bluetooth")]
+    Bluetooth,
+    #[serde(rename = "remote_control")]
+    RemoteControl,
+    #[serde(rename = "satellite_navigation")]
+    SatelliteNavigation,
+    #[serde(rename = "other")]
+    Other,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl crate::RestoreKeys for KnownSignalRecordKind {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KnownSignalRecordLevelUnit {
+    #[serde(rename = "dBm")]
+    Dbm,
+}
+impl crate::RestoreKeys for KnownSignalRecordLevelUnit {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MeasurementQualificationStatus {
+    #[serde(rename = "supported")]
+    Supported,
+    #[serde(rename = "unverified")]
+    Unverified,
+    #[serde(rename = "partial")]
+    Partial,
+    #[serde(rename = "synthetic")]
+    Synthetic,
+}
+impl crate::RestoreKeys for MeasurementQualificationStatus {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MeasurementWebSocketEncoding {
     #[serde(rename = "protobuf")]
     Protobuf,
@@ -92,6 +182,37 @@ impl crate::RestoreKeys for NativePairingCredential {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairedRecheckResultInstrument {
+    #[serde(rename = "tinySA")]
+    Tinysa,
+    #[serde(rename = "AR-DV1")]
+    ArDv1,
+}
+impl crate::RestoreKeys for PairedRecheckResultInstrument {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairedRecheckResultMethodology {
+    #[serde(rename = "paired-local-recheck-v1")]
+    PairedLocalRecheckV1,
+}
+impl crate::RestoreKeys for PairedRecheckResultMethodology {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairedRecheckResultState {
+    #[serde(rename = "missing_evidence")]
+    MissingEvidence,
+    #[serde(rename = "evaluated")]
+    Evaluated,
+}
+impl crate::RestoreKeys for PairedRecheckResultState {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PairingInputClient {
     #[serde(rename = "browser")]
     Browser,
@@ -119,6 +240,19 @@ pub enum SecurityStatusMode {
     LanTls,
 }
 impl crate::RestoreKeys for SecurityStatusMode {
+    fn restore_keys(&mut self) {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SignalRecognitionState {
+    #[serde(rename = "new")]
+    New,
+    #[serde(rename = "similar")]
+    Similar,
+    #[serde(rename = "changed")]
+    Changed,
+}
+impl crate::RestoreKeys for SignalRecognitionState {
     fn restore_keys(&mut self) {}
 }
 
@@ -610,6 +744,79 @@ impl crate::RestoreKeys for HistoryViewportRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KnownSignalInput {
+    pub event_id: String,
+    pub kind: KnownSignalInputKind,
+    pub name: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for KnownSignalInput {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KnownSignalRecord {
+    pub bandwidth_hz: u64,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub baseline_id: Option<String>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub bin_span: Option<i64>,
+    pub center_frequency_hz: u64,
+    pub confirmed_at: UtcTimestamp,
+    pub created_at: UtcTimestamp,
+    pub end_frequency_hz: u64,
+    pub event_id: String,
+    pub first_seen: UtcTimestamp,
+    pub id: String,
+    pub kind: KnownSignalRecordKind,
+    pub last_seen: UtcTimestamp,
+    pub level_unit: KnownSignalRecordLevelUnit,
+    pub name: String,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub peak_level: Option<f64>,
+    pub project_id: String,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub scan_band_id: Option<String>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub scan_plan_id: Option<String>,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub scan_plan_revision: Option<i64>,
+    pub schema_version: u64,
+    pub source_refs: Vec<JSONObject>,
+    pub start_frequency_hz: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for KnownSignalRecord {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.source_refs);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MeasurementQualification {
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub reason: Option<String>,
+    pub status: MeasurementQualificationStatus,
+    #[serde(deserialize_with = "crate::codec::deserialize_required_nullable")]
+    pub verified_through_hz: Option<i64>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for MeasurementQualification {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeasurementWebSocket {
     pub encoding: MeasurementWebSocketEncoding,
     pub max_frame_bytes: u64,
@@ -665,6 +872,135 @@ fn runtime_const_nativepairing_paired<'de, D: serde::Deserializer<'de>>(
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedControls {
+    pub lower: PairedOriginals,
+    pub upper: PairedOriginals,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedControls {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.lower);
+        crate::RestoreKeys::restore_keys(&mut self.upper);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedLocalBackground {
+    pub ar_robust_sigma_counts: f64,
+    pub ar_s_meter_count: f64,
+    pub tiny_dbm: f64,
+    pub tiny_robust_sigma_db: f64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedLocalBackground {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedOriginals {
+    pub observation_ids: Vec<String>,
+    pub sweep_id: String,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedOriginals {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedRecheckInput {
+    pub controls: PairedControls,
+    pub initial: PairedOriginals,
+    pub neighbors: Vec<PairedOriginals>,
+    pub repeats: Vec<PairedOriginals>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedRecheckInput {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.controls);
+        crate::RestoreKeys::restore_keys(&mut self.initial);
+        crate::RestoreKeys::restore_keys(&mut self.neighbors);
+        crate::RestoreKeys::restore_keys(&mut self.repeats);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedRecheckResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<UtcTimestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub discrepancy_repeats: Option<u64>,
+    pub event_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_hz: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_ar_drop_counts: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_tiny_delta_db: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<PairedRecheckResultInstrument>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_background: Option<PairedLocalBackground>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub methodology: Option<PairedRecheckResultMethodology>,
+    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipe: Option<PairedRecheckInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_total: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_repeats: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simulated: Option<bool>,
+    pub state: PairedRecheckResultState,
+    pub visits: Vec<PairedRecheckVisit>,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedRecheckResult {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.local_background);
+        crate::RestoreKeys::restore_keys(&mut self.recipe);
+        crate::RestoreKeys::restore_keys(&mut self.visits);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PairedRecheckVisit {
+    pub ar_drop_counts: f64,
+    pub discrepancy_repeated: bool,
+    pub observation_ids: Vec<String>,
+    pub signal_repeated: bool,
+    pub sweep_id: String,
+    pub tiny_delta_db: f64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for PairedRecheckVisit {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<PairingInputClient>,
@@ -677,6 +1013,24 @@ pub struct PairingInput {
 impl crate::RestoreKeys for PairingInput {
     fn restore_keys(&mut self) {
         crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RecognizedGuardEvent {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peak_source: Option<JSONObject>,
+    pub recognition: SignalRecognition,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for RecognizedGuardEvent {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.peak_source);
+        crate::RestoreKeys::restore_keys(&mut self.recognition);
     }
 }
 
@@ -750,6 +1104,51 @@ impl crate::RestoreKeys for SecurityStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SignalBandReference {
+    pub applicability: String,
+    pub end_hz: u64,
+    pub kinds: Vec<String>,
+    pub label: String,
+    pub services: Vec<String>,
+    pub source_title: String,
+    pub source_url: String,
+    pub start_hz: u64,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SignalBandReference {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SignalRecognition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_matches: Option<Vec<SignalBandReference>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hypotheses: Option<Vec<JSONObject>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_matches: Option<Vec<JSONObject>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_features: Option<JSONObject>,
+    pub state: SignalRecognitionState,
+    #[serde(default, flatten)]
+    pub extra: JSONObject,
+}
+
+impl crate::RestoreKeys for SignalRecognition {
+    fn restore_keys(&mut self) {
+        crate::RestoreKeys::restore_keys(&mut self.extra);
+        crate::RestoreKeys::restore_keys(&mut self.band_matches);
+        crate::RestoreKeys::restore_keys(&mut self.hypotheses);
+        crate::RestoreKeys::restore_keys(&mut self.known_matches);
+        crate::RestoreKeys::restore_keys(&mut self.observed_features);
+    }
+}
+
 pub use crate::{SweepSummary, SweepSummaryPage};
 
 #[derive(Debug, Clone, Copy)]
@@ -780,6 +1179,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         features: &[],
         capabilities: &[],
         query: &[],
+        path_parameters: &[],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_band_plan",
+        method: "GET",
+        path: "/api/v1/band-plan",
+        backends: &["rust-candidate"],
+        features: &["monitoring_signal_catalog"],
+        capabilities: &[],
+        query: &["start_hz", "end_hz"],
         path_parameters: &[],
         max_request_bytes: None,
         request_features: &[],
@@ -1179,6 +1590,42 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         request_features: &[],
     },
     RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_events_event_id_paired_rechecks",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/paired-rechecks",
+        backends: &["rust-candidate"],
+        features: &["paired_event_rechecks"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_events_event_id_paired_rechecks",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/paired-rechecks",
+        backends: &["rust-candidate"],
+        features: &["paired_event_rechecks"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_events_event_id_recognition",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/recognition",
+        backends: &["rust-candidate"],
+        features: &["monitoring_signal_catalog"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id", "event_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
         operation_id: "post_api_v1_monitoring_projects_project_id_events_event_id_review",
         method: "POST",
         path: "/api/v1/monitoring-projects/{project_id}/events/{event_id}/review",
@@ -1237,6 +1684,30 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         capabilities: &[],
         query: &[],
         path_parameters: &["project_id", "sweep_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_known_signals",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/known-signals",
+        backends: &["rust-candidate"],
+        features: &["monitoring_signal_catalog"],
+        capabilities: &[],
+        query: &["before", "limit"],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "post_api_v1_monitoring_projects_project_id_known_signals",
+        method: "POST",
+        path: "/api/v1/monitoring-projects/{project_id}/known-signals",
+        backends: &["rust-candidate"],
+        features: &["monitoring_signal_catalog"],
+        capabilities: &[],
+        query: &[],
+        path_parameters: &["project_id"],
         max_request_bytes: None,
         request_features: &[],
     },
@@ -1418,6 +1889,18 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         query: &[],
         path_parameters: &["project_id"],
         max_request_bytes: Some(65536),
+        request_features: &[],
+    },
+    RuntimeOperation {
+        operation_id: "get_api_v1_monitoring_projects_project_id_signal_inbox",
+        method: "GET",
+        path: "/api/v1/monitoring-projects/{project_id}/signal-inbox",
+        backends: &["rust-candidate"],
+        features: &["monitoring_signal_catalog"],
+        capabilities: &[],
+        query: &["after", "limit"],
+        path_parameters: &["project_id"],
+        max_request_bytes: None,
         request_features: &[],
     },
     RuntimeOperation {

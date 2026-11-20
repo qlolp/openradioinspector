@@ -76,10 +76,10 @@ class DiagnosticTimerOwnershipTests(unittest.TestCase):
         profiles = (
             ("darwin", (3, 15, 0), False), ("darwin", (3, 15, 1), False),
             ("darwin", (3, 15, 2), False), ("darwin", (3, 15, 99), False),
-            ("linux", (3, 15, 2), True), ("win32", (3, 15, 2), True),
+            ("linux", (3, 15, 2), True), ("win32", (3, 15, 2), False),
             ("darwin", (3, 14, 1), False), ("darwin", (3, 14, 10), False),
             ("linux", (3, 14, 10), True), ("win32", (3, 14, 10), True),
-            ("darwin", (3, 16, 0), True),
+            ("darwin", (3, 16, 0), True), ("win32", (3, 16, 0), True),
             ("darwin", (3, 12, 10), False),
         )
         for platform, version, native in profiles:

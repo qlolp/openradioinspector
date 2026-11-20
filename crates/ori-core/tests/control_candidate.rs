@@ -1327,6 +1327,15 @@ async fn all_29_public_operations_keep_real_evidence_or_exact_windows_research_r
                 assert!(bytes(&preview["data_base64"]).starts_with(b"\x89PNG"));
                 expected.as_object_mut().unwrap().remove("artifact");
             }
+            if operation == "inspect" {
+                let receive = actual["capabilities"]["operations"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("receive.configure")
+                    .unwrap();
+                assert_eq!(receive["continuous_zero_span"], false);
+                assert_eq!(receive["fields"]["stop_hz"]["max"], 6_000_000_000u64);
+            }
             normalize(&mut actual);
             normalize(&mut expected);
             assert_eq!(actual, expected, "original public result {operation}");

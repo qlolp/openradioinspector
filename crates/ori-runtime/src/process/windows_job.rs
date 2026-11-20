@@ -124,10 +124,67 @@ impl Drop for Attributes {
     }
 }
 
+/// Original process handle retained by the launcher. Closing it leaves the
+/// process lifetime to its owner (the installed node, or the backend Job).
+pub(crate) struct WindowsProcess {
+    handle: OwnedHandle,
+    pid: u32,
+}
+impl WindowsProcess {
+    fn spawn(
+        command: &Command,
+        startup: &STARTUPINFOW,
+        inherit_handles: bool,
+        flags: u32,
+    ) -> io::Result<Self> {
+        let mut program = wide(command.get_program())?;
+        program.push(0);
+        let mut args = command_line(command)?;
+        let env = environment(command)?;
+        let mut info = PROCESS_INFORMATION::default();
+        check(unsafe {
+            CreateProcessW(
+                program.as_ptr(),
+                args.as_mut_ptr(),
+                null(),
+                null(),
+                i32::from(inherit_handles),
+                CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | flags,
+                env.as_ptr().cast(),
+                null(),
+                startup,
+                &mut info,
+            )
+        })?;
+        drop(unsafe { OwnedHandle::from_raw_handle(info.hThread) });
+        Ok(Self {
+            handle: unsafe { OwnedHandle::from_raw_handle(info.hProcess) },
+            pid: info.dwProcessId,
+        })
+    }
+
+    pub(crate) fn launch_controller(command: &Command) -> io::Result<Self> {
+        // The operator node outlives its start command. Even with NUL stdio,
+        // inheriting all handles keeps the caller's redirected pipe writer open.
+        let startup = STARTUPINFOW {
+            cb: size_of::<STARTUPINFOW>() as u32,
+            ..Default::default()
+        };
+        Self::spawn(command, &startup, false, 0)
+    }
+
+    pub(crate) fn exited(&self) -> io::Result<bool> {
+        match unsafe { WaitForSingleObject(self.handle.as_raw_handle(), 0) } {
+            WAIT_OBJECT_0 => Ok(true),
+            WAIT_TIMEOUT => Ok(false),
+            _ => Err(io::Error::last_os_error()),
+        }
+    }
+}
+
 pub(crate) struct JobChild {
     job: OwnedHandle,
-    process: OwnedHandle,
-    pid: u32,
+    process: WindowsProcess,
     _lifeline: Option<PipeWriter>,
 }
 impl JobChild {
@@ -172,46 +229,27 @@ impl JobChild {
         startup.StartupInfo.hStdOutput = output;
         startup.StartupInfo.hStdError = output;
         startup.lpAttributeList = attributes.0.as_mut_ptr().cast();
-        let mut program = wide(command.get_program())?;
-        program.push(0);
-        let mut args = command_line(command)?;
-        let env = environment(command)?;
-        let mut info = PROCESS_INFORMATION::default();
-        check(unsafe {
-            CreateProcessW(
-                program.as_ptr(),
-                args.as_mut_ptr(),
-                null(),
-                null(),
-                1,
-                CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-                env.as_ptr().cast(),
-                null(),
-                &startup.StartupInfo,
-                &mut info,
-            )
-        })?;
-        drop(unsafe { OwnedHandle::from_raw_handle(info.hThread) });
+        let process = WindowsProcess::spawn(
+            command,
+            &startup.StartupInfo,
+            true,
+            EXTENDED_STARTUPINFO_PRESENT,
+        )?;
         Ok(Self {
             job,
-            process: unsafe { OwnedHandle::from_raw_handle(info.hProcess) },
-            pid: info.dwProcessId,
+            process,
             _lifeline: pipe.map(|(_, writer)| writer),
         })
     }
     pub(crate) fn pid(&self) -> u32 {
-        self.pid
+        self.process.pid
     }
     pub(crate) fn exited(&self) -> io::Result<bool> {
-        match unsafe { WaitForSingleObject(self.process.as_raw_handle(), 0) } {
-            WAIT_OBJECT_0 => Ok(true),
-            WAIT_TIMEOUT => Ok(false),
-            _ => Err(io::Error::last_os_error()),
-        }
+        self.process.exited()
     }
     pub(crate) fn exit_code(&self) -> io::Result<u32> {
         let mut code = 0;
-        check(unsafe { GetExitCodeProcess(self.process.as_raw_handle(), &mut code) })?;
+        check(unsafe { GetExitCodeProcess(self.process.handle.as_raw_handle(), &mut code) })?;
         Ok(code)
     }
     pub(crate) fn terminate_and_reap(&self) -> io::Result<()> {
@@ -252,6 +290,64 @@ mod tests {
     const DIRECTORY: &str = "ORI_WINDOWS_TEST_JOB_DIRECTORY";
     const PHASE: &str = "ORI_WINDOWS_TEST_JOB_PHASE";
     const CHILD: &str = "process::windows_job::tests::job_fixture";
+
+    const CAPTURE_FIXTURE: &str = "process::windows_job::tests::capture_fixture";
+    const CAPTURE_DIRECTORY: &str = "ORI_TEST_WINDOWS_CAPTURE_DIRECTORY";
+
+    #[test]
+    fn capture_fixture() {
+        let Some(dir) = std::env::var_os(CAPTURE_DIRECTORY).map(PathBuf::from) else {
+            return;
+        };
+        if std::env::var_os("ORI_TEST_WINDOWS_CAPTURE_NODE").is_some() {
+            std::fs::write(dir.join("ready"), []).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while !dir.join("stop").exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            std::fs::write(dir.join("finished"), []).unwrap();
+        } else {
+            // The start helper itself has the parent's redirected stdout/stderr.
+            let mut service = Command::new(std::env::current_exe().unwrap());
+            service
+                .args(["--exact", CAPTURE_FIXTURE])
+                .env("ORI_TEST_WINDOWS_CAPTURE_NODE", "1");
+            drop(WindowsProcess::launch_controller(&service).unwrap());
+        }
+    }
+
+    #[test]
+    fn captured_start_reaches_eof_while_the_launched_node_is_still_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut start = Command::new(std::env::current_exe().unwrap());
+        start
+            .args(["--exact", CAPTURE_FIXTURE])
+            .env(CAPTURE_DIRECTORY, dir.path());
+        let (sender, result) = std::sync::mpsc::channel();
+        let reader = std::thread::spawn(move || sender.send(start.output()).unwrap());
+        let ready = dir.path().join("ready");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let reply = result.recv_timeout(Duration::from_secs(2));
+        let finished = dir.path().join("finished");
+        let observed_live_node = ready.exists() && !finished.exists();
+        std::fs::write(dir.path().join("stop"), []).unwrap();
+        reader.join().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !finished.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(finished.exists() && observed_live_node);
+        assert!(
+            reply
+                .expect("start retained a caller output pipe")
+                .unwrap()
+                .status
+                .success()
+        );
+    }
 
     #[test]
     fn job_fixture() {

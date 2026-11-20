@@ -1577,6 +1577,7 @@ name = "ori-archive"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ori-monitoring",
  "rusqlite",
  "serde",
  "serde_json",

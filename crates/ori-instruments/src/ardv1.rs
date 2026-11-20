@@ -233,12 +233,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> ArDv1<T> {
                 .ok_or_else(|| {
                     InstrumentError::Protocol("missing AR-DV1 firmware response".into())
                 })?;
+            self.firmware = Some(firmware.to_owned());
             if self.requested.profile == ReceiverProfile::MonitorV1 && firmware != "2504A" {
                 return Err(InstrumentError::UnsupportedProfile(
                     "ardv1-monitor-v1 requires VR2504A".into(),
                 ));
             }
-            self.firmware = Some(firmware.to_owned());
             let serial = self.transact("prepare", "RN").await?;
             if !serial.starts_with("RN") || serial.len() <= 2 {
                 return Err(InstrumentError::Protocol(

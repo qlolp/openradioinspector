@@ -18,6 +18,16 @@
 <label>Найти пункт меню <input id="menu-search" type="search"></label><select id="menu" size="8" aria-label="Каталог меню Ultra"></select><p id="menu-path"></p>
 <p>Каталог wiki включает новые прошивки и Ultra+. Наличие пункта проверяйте на живом ZS405. VBW, multiband, встроенные MEASURE, waterfall, LISTEN, calibration и expert управляются экраном.</p></section>
 <section><h2>Настройки приёма и генератора</h2><form id="settings"><label>Настройка <select id="setting-name"></select></label><div id="setting-value"></div><button>Применить</button></form>
+<p id="ultra-state" hidden></p>
+<p id="lna-advice" role="status" hidden></p>
+<details>
+<summary>Подготовка Ultra на ZS405</summary>
+<ul>
+<li>Откройте <b>CONFIG → MORE → ENABLE ULTRA</b> на экране прибора. Если флажок снят, выберите пункт и введите <code>4321</code>. Проверьте отметку в меню.</li>
+<li>Перед измерением уровней на гигагерцовых частотах остановите приём и соедините <b>CAL</b> и <b>RF</b> коротким кабелем SMA. Выполните <b>CONFIG → LEVEL CAL → CALIBRATE 100kHz to 5.34GHz</b>, затем выключите прибор, снимите кабель и включите прибор. Проверьте белые цифры уровней.</li>
+<li>Паспортный диапазон LNA заканчивается на 4 ГГц. Между 3,5 и 4 ГГц сравните показания с усилителем и без него. Для работы на 5 ГГц выключите LNA.</li>
+</ul>
+</details>
 <h2>Измерения, SD и лаборатория</h2><form id="operation"><label>Операция <select id="operation-name"></select></label><div id="operation-fields"></div><button>Выполнить</button></form>
 <p>Основной typed generator: sine 100 кГц–800 МГц, −115…−19 dBm. Расширенные варианты — через lab-экран. Нет одновременного analyzer/generator. Включение Ultra не подтверждает калиброванную точность расширенного диапазона.</p>
 <h2>Результат</h2><pre id="result" tabindex="0"></pre><details><summary>Подробности операции</summary><pre id="result-details"></pre></details><audio id="audio" controls hidden></audio>

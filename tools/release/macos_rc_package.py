@@ -115,6 +115,7 @@ def prepare(app: Path, source: str, core, supervisor, toolchains):
                 CFBundleShortVersionString='0.4.0', CFBundleVersion='1',
                 ORIReleaseVersion=RELEASE_VERSION, ORIPersonalRC=True)
     info.pop('NSMicrophoneUsageDescription', None)
+    info['NSScreenCaptureUsageDescription'] = 'Только при явном запуске инженерного теста измеряется показ маленького маркера на графике. Снимки экрана не сохраняются.'
     info['NSAppTransportSecurity'] = {'NSAllowsLocalNetworking': True}
     info_path.write_bytes(plistlib.dumps(info, sort_keys=False))
     components = {}
@@ -122,6 +123,7 @@ def prepare(app: Path, source: str, core, supervisor, toolchains):
         relative = 'Contents/Helpers/' + name
         components[name] = dict(path=relative, sha256=digest(app / relative), **value)
     build = dict(schema_version=1, release_version=RELEASE_VERSION, bundle_identifier=BUNDLE_ID,
+                 acceptance_protocol=2,
                  source_revision=source, architecture='arm64', minimum_os='14.0', target_os='27.3',
                  built_at=datetime.now(timezone.utc).isoformat(), components=components,
                  toolchains=toolchains, ui=dict(path='Contents/MacOS/' + UI_EXECUTABLE,

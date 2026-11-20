@@ -150,7 +150,7 @@ def requested(path, nonce):
     return True
 
 
-def adapter(binary,data,ready,stop,nonce,*,fixture_profile=None):
+def adapter(binary,data,ready,stop,nonce,*,fixture_profile=None,acceptance_profile=None,archive_max_bytes=None):
     """A direct child in the held owner session; stdin EOF drives Core close."""
     stopping = False
     def request_stop(*_args):
@@ -159,8 +159,17 @@ def adapter(binary,data,ready,stop,nonce,*,fixture_profile=None):
     for signum in (signal.SIGTERM,signal.SIGINT):signal.signal(signum,request_stop)
     command = [str(binary),'--mode','replay','--data-dir',str(data),
                '--host','127.0.0.1','--port','0','--stdin-lifeline','--ready-file',str(ready)]
+    if fixture_profile is not None and acceptance_profile is not None:
+        raise ValueError('Choose embedding or actual packaged acceptance, never both')
     if fixture_profile is not None:
         command = [str(binary), 'serve', str(fixture_profile)]
+    if acceptance_profile is not None:
+        command += ['--acceptance-profile',str(acceptance_profile),'--archive-max-bytes',str(64*1024**3)]
+    if archive_max_bytes is not None:
+        if type(archive_max_bytes) is not int or not 0<archive_max_bytes<=64*1024**3 \
+                or acceptance_profile is not None or fixture_profile is not None:
+            raise ValueError('Explicit archive quota requires the bounded ordinary packaged replay')
+        command += ['--archive-max-bytes',str(archive_max_bytes)]
     child = subprocess.Popen(command,stdin=subprocess.PIPE,
                              stderr=subprocess.STDOUT)
     backup_requested = False
@@ -187,9 +196,11 @@ def main():
     parser.add_argument('ready',type=Path);parser.add_argument('stop',type=Path)
     parser.add_argument('nonce')
     parser.add_argument('--fixture-profile', type=Path)
+    parser.add_argument('--acceptance-profile', type=Path)
+    parser.add_argument('--archive-max-bytes',type=int)
     args = parser.parse_args()
     if len(args.nonce)!=32 or any(c not in '0123456789abcdef' for c in args.nonce):return 2
-    return adapter(args.binary,args.data,args.ready,args.stop,args.nonce,fixture_profile=args.fixture_profile)
+    return adapter(args.binary,args.data,args.ready,args.stop,args.nonce,fixture_profile=args.fixture_profile,acceptance_profile=args.acceptance_profile,archive_max_bytes=args.archive_max_bytes)
 
 
 if __name__=='__main__':sys.exit(main())

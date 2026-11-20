@@ -67,7 +67,7 @@ jobs:
                          history_profile='paged-history', hardware_tested=False)
           (Path(os.environ['RUNNER_TEMP']) / 'reference-build.json').write_text(json.dumps(receipt) + '\n', encoding='utf-8')
       - name: Exercise original Job membership and cursor-page proofs
-        run: python -m unittest benchmarks.tests.test_concurrent benchmarks.tests.test_paged_history
+        run: python -m unittest benchmarks.tests.test_concurrent benchmarks.tests.test_paged_history benchmarks.tests.test_producer_connect
       - run: npm ci --prefix clients/web
       - if: runner.os == 'Windows'
         run: npx playwright install chromium

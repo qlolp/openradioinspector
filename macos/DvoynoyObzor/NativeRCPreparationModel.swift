@@ -36,8 +36,7 @@ struct NativeRCPreparationDraft {
 struct NativeRCReadiness {
     let preflight: MonitoringValue
     var baselineCollected: Bool {
-        let collection = preflight["baseline_collection"]
-        return collection["ready"].bool == true && (collection["sweeps"].integer ?? 0) >= 20 && (collection["elapsed_seconds"].double ?? 0) >= 60
+        NativeBaselineProgress(preflight: preflight).ready
     }
     var budgetReady: Bool {
         let storage = preflight["storage"]
@@ -130,7 +129,7 @@ final class NativeRCPreparationModel: ObservableObject {
     }
 
     func saveBaseline(workspace: MonitoringWorkspaceModel) async {
-        guard let client, owns(workspace), !busy, workspace.baselineConfirmed,
+        guard let client, owns(workspace), !busy, workspace.baselineConfirmed, workspace.preflightIsCurrent(),
               workspace.savedPreparationReady, !workspace.preparationDirty,
               NativeRCReadiness(preflight: workspace.preflight).baselineCollected else { return }
         let token = revision, id = projectID

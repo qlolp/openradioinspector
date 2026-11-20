@@ -3,7 +3,7 @@ import SpektrKomandy
 import AppKit
 
 struct ContentView: View {
-    @StateObject private var model: RemoteDualModel
+    @State private var model: RemoteDualModel
     @StateObject private var workspace: MonitoringWorkspaceModel
     @StateObject private var nodeConnection = NativeNodeConnectionModel()
     @StateObject private var localService = NativeLocalService()
@@ -12,7 +12,10 @@ struct ContentView: View {
     @State private var developmentCore = NativeDevelopmentCore()
     @State private var developmentConnectionTask: Task<Void, Never>?
     @State private var windowClosed = false
-    @AppStorage("native.workspace") private var workspaceMode = NativeWorkspace.monitoring.rawValue
+    @AppStorage("native.workspace") private var legacyWorkspaceMode = NativeWorkspace.monitoring.rawValue
+    private var workspaceMode: String {
+        navigation.destination.research == true ? NativeWorkspace.research.rawValue : NativeWorkspace.monitoring.rawValue
+    }
     private var mode: NativeWorkspace { NativeWorkspace(rawValue: workspaceMode) ?? .monitoring }
 
     init() {
@@ -21,15 +24,29 @@ struct ContentView: View {
         let remote = RemoteDualModel(requireRuntimeOwner: NativeLocalService.isPersonalRC, onArchiveContextReset: { [weak workspace] watermark in
             workspace?.resetArchiveContext(watermark: watermark)
         })
-        if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
-        _model = StateObject(wrappedValue: remote)
+        if let evidence=NativeAcceptanceTrace.shared {remote.serverURL=evidence.profile.coreURL}
+        else if NativeLocalService.isPersonalRC { remote.serverURL = NativeLocalService.endpoint }
+        _model = State(initialValue: remote)
     }
 
-    @AppStorage("native.workbench.tab") private var tab = "range"
-    @State private var showReceiver = false
+    @AppStorage("native.workbench.tab") private var legacyTab = "range"
+    @AppStorage("native.console.navigation.v1") private var savedNavigation = Data()
+    @State private var navigation = NativeConsoleNavigation()
+    @State private var restoredNavigation = false
+    @State private var sourceSheet: PlatformSweep?
+    @State private var prepareAfterSettings = false
+
+    private var consoleContext: NativeConsoleContext {
+        .init(server: model.client?.baseURL.root.absoluteString ?? "", project: workspace.selected,
+              session: model.selectedSessionID, stream: model.analyzer?.id ?? "")
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            if let evidence=NativeAcceptanceTrace.shared {
+                Text((evidence.profile.phase == "ui-test" ? "UI-автотест · синтетические данные · " : "Приёмочный тест · "+evidence.profile.phase+" · ")+evidence.profile.runID)
+                    .font(.caption).foregroundStyle(.orange).accessibilityIdentifier("engineering.scope")
+            }
             HStack(spacing: 12) {
                 Label {
                     Text("Двойной обзор")
@@ -44,57 +61,96 @@ struct ContentView: View {
                         Image(systemName: "waveform.path")
                     }
                 }.font(.headline)
-                Picker("Рабочая область", selection: $tab) {
-                    Text("Приборы").tag("devices")
-                    Text("Контроль диапазона").tag("range")
-                    Text("Сигналы").tag("signals")
-                    Text("Архив").tag("archive")
-                    Text("Охрана и исследование").tag("guard")
-                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 720)
+                Picker("Рабочая область", selection: Binding(get: { navigation.destination.page },
+                    set: { navigation.destination.page = $0 })) {
+                    ForEach(NativeConsolePage.allCases, id: \.self) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 320)
+                    .accessibilityIdentifier("workbench.navigation")
                 Spacer(minLength: 0)
-                Button("История уровней") { model.showFrequencyHistory = true }.disabled(!model.connected || model.analyzer == nil)
-                if tab == "range" {
-                    Toggle("AR-DV1", isOn: $showReceiver).toggleStyle(.button).disabled(model.receiver == nil)
-                }
+                Button("Настройки", systemImage: "gearshape") { navigation.destination.settings = .connection }
+                    .accessibilityIdentifier("workbench.settings")
             }.fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10).padding(.vertical, 6).controlSize(.small)
             Divider()
-            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded)
-            ZStack {
-                devicesPage.workbenchVisible(tab == "devices")
-                HSplitView {
-                    RemoteUltraPane(model: model, research: true, scanBands: currentScanBands).frame(minWidth: 640)
-                    if showReceiver, model.receiver != nil {
-                        RemoteArPane(model: model).frame(minWidth: 280, idealWidth: 300, maxWidth: 420)
+            NativeOperatorHeader(model: model, setupExpanded: $setupExpanded, workspace: mode,
+                                 openWorkspace: { navigation.destination.settings = .guardSettings })
+            NativeObservationActions(model: model, workspace: workspace,
+                prepare: presentPreparation,
+                settings: { navigation.destination.settings = $0 })
+            Group {
+                switch navigation.destination.page {
+                case .observation:
+                    HSplitView {
+                        RemoteUltraPane(model: model, research: true, scanBands: currentScanBands,
+                                        bandPlanWorkspace: workspace, compact: true)
+                            .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
+                        NativeGuardSignalsPane(workspace: workspace,
+                            openGuard: { navigation.destination.settings = .guardSettings }, compact: true,
+                            openReceiver: { navigation.destination.settings = .receiver }, remote: model)
+                            .frame(minWidth: 300, idealWidth: 350, maxWidth: 540, maxHeight: .infinity)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("observation.events")
                     }
-                }.workbenchVisible(tab == "range")
-                NativeSignalsPage(model: model, openSpectrum: { tab = "range" })
-                    .workbenchVisible(tab == "signals")
-                NativeArchivePage(model: model, openSpectrum: { tab = "range" })
-                    .workbenchVisible(tab == "archive")
-                VStack {
-                    Picker("Режим", selection: $workspaceMode) {
-                        ForEach(NativeWorkspace.allCases) { Text($0.title).tag($0.rawValue) }
-                    }.pickerStyle(.segmented).frame(maxWidth: 400)
-                    MonitoringWorkspacePane(server: model.connected ? model.serverURL : "", client: model.connected ? model.client : nil,
-                        sessionID: model.selectedSessionID, workspace: workspace, mode: mode,
-                        onProjectSession: { id in model.selectSession(id); Task { await model.reloadSessions() } },
-                        onResearch: { workspaceMode = NativeWorkspace.research.rawValue })
-                    Spacer(minLength: 0)
-                }.padding(8).workbenchVisible(tab == "guard")
+                case .archive:
+                    NativeArchivePage(model: model, openSpectrum: { navigation.destination.page = .observation })
+                }
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             NativeContinuityBar(model: model, workspace: workspace)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 1000, minHeight: 700)
-        .onChange(of: setupExpanded) { _, expanded in if expanded { tab = "devices"; setupExpanded = false } }
-        .onChange(of: model.coreReachable) { _, reachable in if reachable, tab == "devices" { tab = "range" } }
-        .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { tab = "range" } }
-        .sheet(isPresented: $model.showFrequencyHistory) { NativeFrequencyHistoryPane(model:model) }
+        .focusedSceneValue(\.nativeConsoleActions, NativeConsoleActions(
+            observe: { navigation.destination.page = .observation },
+            archive: { navigation.destination.page = .archive },
+            settings: { navigation.destination.settings = .connection },
+            prepare: { if model.connected { presentPreparation() } else { navigation.destination.settings = .connection } }))
+        .background(NativeMonitoringLifecycle(model: model, workspace: workspace))
+        .task {
+            await NativeConsoleServiceWatch.run(enabled: NativeLocalService.isPersonalRC,
+                                               inspect: { await localService.inspect() })
+        }
+        .onChange(of: consoleContext, initial: true) { _, context in
+            let migrateMode = !restoredNavigation && savedNavigation.isEmpty
+            if !restoredNavigation {
+                navigation = (try? JSONDecoder().decode(NativeConsoleNavigation.self, from: savedNavigation)) ?? NativeConsoleNavigation()
+                navigation.destination.settings = nil
+                restoredNavigation = true
+            }
+            navigation.activate(context, legacyTab: legacyTab)
+            if migrateMode { navigation.destination.research = legacyWorkspaceMode == NativeWorkspace.research.rawValue }
+        }
+        .onChange(of: navigation) { _, value in
+            var stored = value
+            stored.destination.settings = nil
+            if let data = try? JSONEncoder().encode(stored) { savedNavigation = data }
+        }
+        .onChange(of: setupExpanded) { _, expanded in
+            if expanded { navigation.destination.settings = .connection; setupExpanded = false }
+        }
+        .sheet(item: Binding(get: { navigation.destination.settings }, set: { navigation.destination.settings = $0 }),
+               onDismiss: {
+                   if prepareAfterSettings { prepareAfterSettings = false; showRCPreparation = true }
+               }) { section in
+            NativeConsoleSettingsPane(model: model, workspace: workspace, workspaceMode: Binding(
+                get: { workspaceMode },
+                set: { navigation.destination.research = $0 == NativeWorkspace.research.rawValue }),
+                                      initialSection: section, access: nodeConnection.authorizedNode?.access) { devicesPage }
+        }
+        .onChange(of: workspace.signalOriginal) { _, sweep in
+            guard navigation.destination.settings == nil, let sweep else { return }
+            if PlatformExactID.same(sweep.sessionId, model.selectedSessionID),
+               PlatformExactID.same(sweep.streamId, model.analyzer?.id ?? "") {
+                model.reviewedSweep = sweep; model.reviewedSweepRequest = UUID()
+            } else { sourceSheet = sweep }
+            workspace.clearSignalOriginal()
+        }
+        .sheet(item: $sourceSheet) { NativeGuardOriginalPane(sweep: $0) }
+        .onChange(of: model.reviewedSweepRequest) { _, _ in if model.reviewedSweep != nil { navigation.destination.page = .observation } }
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showFrequencyHistory }, set: { model.showFrequencyHistory = $0 })) { NativeFrequencyHistoryPane(model:model) }
         .sheet(isPresented: $showRCPreparation) { NativeRCPreparationPane(model: model, workspace: workspace) }
-        .sheet(isPresented: $model.showSerialForm) { RemoteSerialSessionPane(model: model) }
-        .sheet(isPresented: $model.showTinySAControl) {
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showSerialForm }, set: { model.showSerialForm = $0 })) { RemoteSerialSessionPane(model: model) }
+        .sheet(isPresented: Binding(get: { navigation.destination.settings == nil && model.showTinySAControl }, set: { model.showTinySAControl = $0 })) {
             RemoteTinySAControlPane(server: model.serverURL, sessionID: model.selectedSessionID, streamID: model.analyzer?.id ?? "",
                 client: model.client, access: nodeConnection.authorizedNode?.access)
         }
@@ -113,8 +169,41 @@ struct ContentView: View {
                 }
             }
         })
+        .task {
+            guard let evidence=NativeAcceptanceTrace.shared else{return}
+            NSApp.activate(ignoringOtherApps:true)
+            if evidence.profile.phase=="load" || evidence.profile.phase=="ui-test" {
+                navigation.destination.page = .observation; model.connect()
+                await model.reloadSessions()
+                model.selectSession(evidence.profile.warmupSessionID ?? evidence.profile.sessionID)
+            }
+            let root=URL(fileURLWithPath:evidence.profile.outputDirectory)
+            var switched=false
+            var serviceStopHandled=false
+            while !Task.isCancelled {
+                if evidence.profile.phase=="hardware",!serviceStopHandled,
+                   let value=try? String(contentsOf:root.appendingPathComponent("service-stop.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    serviceStopHandled=true
+                    await NativeAcceptanceServiceCleanup.finish(service:localService){successful,message in
+                        evidence.serviceStopped(successful:successful,message:message)
+                    }
+                    if localService.phase == .stopped {NSApp.terminate(nil);return}
+                }
+                if !switched,let value=try? String(contentsOf:root.appendingPathComponent("use-workload.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    switched=true;model.selectSession(evidence.profile.sessionID)
+                    await model.reloadSessions()
+                }
+                if let value=try? String(contentsOf:root.appendingPathComponent("ui-stop.request"),encoding:.utf8),
+                   value.trimmingCharacters(in:.whitespacesAndNewlines)==evidence.profile.runID {
+                    NSApp.terminate(nil);return
+                }
+                do {try await Task.sleep(for:.milliseconds(100))}catch{return}
+            }
+        }
         .onChange(of: workspaceMode) { _, value in
-            if value == NativeWorkspace.research.rawValue { tab = "guard" }
+            NativeAcceptanceTrace.shared?.record("workspace.changed", ["value": NativeWorkspace(rawValue: value)?.rawValue ?? "unknown"])
         }
         .onChange(of: model.coreReachable) { _, reachable in
             if reachable { setupExpanded = false }
@@ -137,13 +226,18 @@ struct ContentView: View {
         return project["scan_plan"]["config"]["bands"].items
     }
 
+    private func presentPreparation() {
+        if navigation.destination.settings != nil {
+            prepareAfterSettings = true; navigation.destination.settings = nil
+        } else { showRCPreparation = true }
+    }
+
     private var devicesPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if NativeLocalService.isPersonalRC {
                     NativeLocalServicePane(service: localService, connect: connectLocalService,
                         disconnect: { nodeConnection.cancel(); model.disconnect() })
-                    Button("Подготовить приборы…") { showRCPreparation = true }.disabled(!model.connected)
                     NativeConnectionPane(model: model, connection: nodeConnection, localServiceRequired: true,
                         localServiceReady: localService.status != nil, onLocalConnect: connectLocalService)
                 } else {

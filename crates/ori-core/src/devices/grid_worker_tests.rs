@@ -100,6 +100,10 @@ async fn high_grid_native_worker_commits_every_window_with_time_identity_and_one
         assert_eq!(s["settings"]["scan_window_index"], i % 2);
         assert_eq!(s["settings"]["scan_serial_baud"], 115200);
         assert_eq!(
+            s["settings"]["measurement_qualification"]["status"],
+            "unverified"
+        );
+        assert_eq!(
             s["settings"]["scan_rx_evidence"],
             json!({"device_id_sha256":"b3cc0475bb78a5026098858e9889acf666d31062d513d303314eca31d36e72f2",
             "source":"command_acknowledged","device_mode":"input","ultra":true,"lna":false,
@@ -139,6 +143,14 @@ async fn high_grid_native_worker_commits_every_window_with_time_identity_and_one
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(
+        coverage["measurement_qualification"]["status"],
+        "unverified"
+    );
+    assert_eq!(
+        last["measurement_qualification"],
+        raw["settings"]["measurement_qualification"]
+    );
     assert_eq!(last["ended_at"], raw["interval"]["ended_at"]);
     assert_eq!(last["started_at"], raw["interval"]["started_at"]);
     assert_eq!(last["index"], raw["settings"]["scan_window_index"]);

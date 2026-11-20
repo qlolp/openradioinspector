@@ -8,10 +8,15 @@ from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler,Request,build_opener
 
 from .config import BenchmarkError
+from .producer_http import ProducerHTTPHandler
 from .source import encode
 
 JSON_LIMIT=16*1024**2
 LINE_LIMIT=2*1024**2
+ERROR_LIMIT=16*1024
+_DIAGNOSTIC_ERROR_CODES=frozenset(('archive_query_budget','archive_export_failed','archive_export_closed',
+    'archive_export_busy','archive_queue_full','acquisition_pressure','background_io_unavailable',
+    'response_budget','archive_capacity_exceeded','insufficient_space'))
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -22,9 +27,27 @@ def segment(value):return quote(value,safe='')
 
 
 class HTTPFailure(BenchmarkError):
-    def __init__(self,status):
+    def __init__(self,status,server_code=None):
         self.status=status
-        super().__init__('http_failure','HTTP request failed with status '+str(status))
+        self.server_code=server_code if isinstance(server_code,str) and server_code in _DIAGNOSTIC_ERROR_CODES else None
+        detail=' ('+self.server_code+')' if self.server_code else ''
+        super().__init__('http_failure','HTTP request failed with status '+str(status)+detail)
+
+
+def error_code(response):
+    # Retain only known public error identifiers, never messages, headers,
+    # credentials or an unbounded response body. A read failure keeps its status.
+    try:
+        raw=response.read(ERROR_LIMIT+1)
+        if len(raw)>ERROR_LIMIT:return None
+        value=json.loads(raw)
+        if not isinstance(value,dict) or value.get('contract')!='openradioinspector-platform' \
+                or type(value.get('contract_version')) is not int or value['contract_version']!=1:
+            return None
+        error=value.get('error')
+        code=error.get('code') if isinstance(error,dict) else None
+        return code if isinstance(code,str) and code in _DIAGNOSTIC_ERROR_CODES else None
+    except (OSError,HTTPException,ValueError,TypeError,RecursionError):return None
 
 
 def request_failure_phase(cause):
@@ -41,6 +64,7 @@ def request_failure_phase(cause):
     for frame, phase in (
         (('socket', 'getaddrinfo'), 'name_resolution'),
         (('socket', 'create_connection'), 'tcp_connect'),
+        ((__package__ + '.producer_http', 'connect_loopback'), 'tcp_connect'),
         (('http.client', '_tunnel'), 'proxy_tunnel'),
         (('ssl', 'do_handshake'), 'tls_handshake'),
         (('http.client', 'connect'), 'connection_setup'),
@@ -71,12 +95,17 @@ class TransportFailure(BenchmarkError):
 
 
 class Client:
-    def __init__(self,config):
+    def __init__(self,config,*,producer=False):
         self.origin=config.base_url.rstrip('/')
         self.timeout=config.request_timeout
-        self.opener=build_opener(NoRedirect())
+        self.connect_attempts = []
+        handlers = [NoRedirect()]
+        if producer:
+            handlers.append(ProducerHTTPHandler(self.connect_attempts))
+        self.opener = build_opener(*handlers)
 
     def open(self,path,*,method='GET',payload=None,timeout=None):
+        self.connect_attempts.clear()
         if not path.startswith('/api/v1/') or path.startswith('//'):
             raise BenchmarkError('invalid_route','Only typed API v1 paths are allowed')
         raw=None if payload is None else encode(payload)
@@ -88,7 +117,10 @@ class Client:
         request=Request(self.origin+path,data=raw,headers=headers,method=method)
         try:return self.opener.open(request,timeout=self.timeout if timeout is None else timeout)
         except HTTPError as error:
-            status=error.code;error.close();raise HTTPFailure(status) from None
+            status=error.code
+            try:code=error_code(error)
+            finally:error.close()
+            raise HTTPFailure(status,code) from None
         except (OSError, HTTPException) as error:
             raise TransportFailure('request_or_headers', error) from None
 

@@ -1,4 +1,4 @@
-use crate::{GuardService, Result, util::*};
+use crate::{GuardService, Result, qualification::eligible_windows, util::*};
 use ori_monitoring::{ScanBand, ScanPlan, Sweep};
 use serde_json::{Value, json};
 
@@ -16,12 +16,49 @@ pub(crate) fn configured_plan(project: &Value) -> Result<Option<ScanPlan>> {
 }
 
 pub(crate) fn all_baselines_ready(project: &Value) -> Result<bool> {
-    Ok(match configured_plan(project)? {
-        Some(plan) => plan.bands.iter().all(|b| {
-            (0..b.window_count()).all(|w| project["band_baselines"][b.context_key(w)].is_string())
-        }),
-        None => project["baseline_id"].is_string(),
-    })
+    let Some(plan) = configured_plan(project)? else {
+        return Ok(project["baseline_id"].is_string());
+    };
+    let mut any = false;
+    for band in &plan.bands {
+        for index in eligible_windows(project, band) {
+            any = true;
+            if !project["band_baselines"][band.context_key(index)].is_string() {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(any)
+}
+
+// The first configured band can contain only excluded measurements. Older
+// projects may still carry that band's reference as their primary pointer.
+pub(crate) fn primary_baseline(project: &Value, plan: &ScanPlan) -> Value {
+    plan.bands
+        .iter()
+        .find_map(|band| {
+            eligible_windows(project, band)
+                .next()
+                .map(|i| project["band_baselines"][band.context_key(i)].clone())
+        })
+        .unwrap_or(Value::Null)
+}
+
+// Pin only eligible references when cloning an armed session or replacing a
+// baseline. Historical baseline records and original measurements stay intact.
+pub(crate) fn select_eligible_baselines(project: &mut Value, plan: &ScanPlan) {
+    for band in &plan.bands {
+        let eligible = eligible_windows(project, band).count() as u32;
+        if let Some(references) = project["band_baselines"].as_object_mut() {
+            for index in eligible..band.window_count() {
+                references.remove(&band.context_key(index));
+            }
+            if eligible == 0 {
+                references.remove(&band.id);
+            }
+        }
+    }
+    project["baseline_id"] = primary_baseline(project, plan);
 }
 
 fn profile_limit(project: &Value) -> Result<u64> {
