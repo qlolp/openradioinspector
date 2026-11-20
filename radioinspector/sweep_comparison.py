@@ -41,13 +41,13 @@ def _setting_value(value: Any, *, allow_null: bool = False) -> Any:
 
 
 def _settings_key(settings: dict[str, Any]) -> Any:
-    # sequence is a per-sweep counter, not an acquisition setting. No other
-    # field, including an unknown extension, is silently discarded.
-    if "sequence" in settings:
-        # Ignoring the counter for compatibility must not let an invalid JSON
-        # value escape into the response (memory-only ingest is permissive).
-        _setting_value(settings["sequence"], allow_null=True)
-    recorded = {key: value for key, value in settings.items() if key != "sequence"}
+    # Keep the counter and the derived profile assessment in the original
+    # response. Older sweeps may lack either field; unknown acquisition
+    # extensions still take part in the comparison.
+    recorded = settings.copy()
+    for key in ("sequence", "measurement_qualification"):
+        if key in recorded:
+            _setting_value(recorded.pop(key), allow_null=True)
     if not recorded:
         raise ComparisonIncompatibleError("В свипе не записаны настройки измерения")
     return _setting_value(recorded)

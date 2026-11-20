@@ -43,6 +43,11 @@ class NativeUIFixtureTests(unittest.TestCase):
                     self.assertEqual(original.frequencies_hz[110], 100_100_000)
                     self.assertEqual(original.levels[110], -51)
                     self.assertEqual(original.settings['measurement_qualification']['status'], 'synthetic')
+                    context = service.sweep_context(source['session_id'], {
+                        'sweep_id': source['sweep_id'], 'before': 0, 'after': 0})
+                    self.assertEqual(context['anchor_id'], original.id)
+                    self.assertEqual(context['items'][0]['settings'], original.settings)
+                    self.assertEqual(context['items'][0]['levels'], list(original.levels))
                     for reading in event['analysis'].get('receiver_status', []):
                         self.assertEqual(reading['session_id'], source['session_id'])
                         self.assertTrue(reading['metadata']['simulated'])

@@ -92,10 +92,18 @@ class SweepComparisonTests(unittest.TestCase):
             {"settings": {"rbw_hz": 20_000}},
             {"settings": {"rbw_hz": 10_000, "unknown_extension": True}},
             {"settings": {}}, {"settings": {"sequence": 10}},
+            {"settings": {"measurement_qualification": {"status": "supported"}}},
+            {"settings": {"rbw_hz": 10_000, "measurement_qualification": {"invalid": float("nan")}}},
             {"settings": {"rbw_hz": None}},
         ):
             with self.subTest(changes=changes), self.assertRaises(ComparisonIncompatibleError):
                 self.compare(**changes)
+
+    def test_archive_quality_does_not_change_acquisition_settings(self):
+        quality = {"status": "synthetic", "reason": None, "verified_through_hz": None}
+        result = self.compare(settings={"rbw_hz": 10_000, "measurement_qualification": quality})
+        self.assertEqual(result["target"]["settings"]["measurement_qualification"], quality)
+        self.assertNotIn("measurement_qualification", result["reference"]["settings"])
 
     def test_settings_type_aware_structural_equality(self):
         settings = {"rbw_hz": 10_000, "extension": {"a": [1, True, "on"], "b": False}}
