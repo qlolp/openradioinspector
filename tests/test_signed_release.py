@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from tools.release import release_artifacts as bundles, release_acceptance as gate, publish_release as publish
 
@@ -153,6 +154,27 @@ class PublicationTests(unittest.TestCase):
         for bad_jobs in [[], jobs[:-1], [*jobs[:-1], dict(jobs[-1], conclusion='skipped')]]:
             with self.assertRaises(ValueError):
                 publish.validate_run(good, bad_jobs, repo, REV, 'modern-clients.yml')
+
+    def test_github_review_uses_cli_bundle_download_and_archives_only_verified_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt_path = root / 'macos-acceptance.json'
+            receipt_path.write_text('{}')
+            proof = root / 'macos-acceptance.proof'
+            repo = SimpleNamespace(repo='owner/project', revision=REV)
+            def download(args, **kwargs):
+                self.assertEqual(args[:3], ['gh', 'attestation', 'download'])
+                (Path(kwargs['cwd']) / 'sha256-example.jsonl').write_text('{"id":1}\n{"id":2}\n')
+                return SimpleNamespace(returncode=0)
+            def verify(repository, receipt_file, bundle):
+                self.assertIs(repository, repo)
+                self.assertEqual(receipt_file, receipt_path)
+                if json.loads(bundle.read_bytes()) != {'id': 2}:
+                    raise ValueError('unrelated workflow attestation')
+            with patch.dict(os.environ, {'ORI_SIGNATURE_B64': ''}), patch.object(publish.subprocess, 'run', side_effect=download), \
+                    patch.object(publish, 'verify_github_attestation', side_effect=verify):
+                publish.fetch_witness(repo, receipt_path, proof)
+            self.assertEqual(json.loads(proof.read_bytes()), {'id': 2})
 
     def test_promotes_only_immutable_platform_prereleases_at_matching_git_commit(self):
         release = {'immutable': True, 'prerelease': True, 'draft': False, 'tag_name': 'v0.4.0-macos.rc.1'}

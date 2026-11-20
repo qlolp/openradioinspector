@@ -13,8 +13,14 @@ let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
 configuration.addsToRecentItems = false
 configuration.arguments = ["--acceptance-profile", args[1]]
-let application = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
-guard application.bundleURL?.resolvingSymlinksInPath() == url else { throw CocoaError(.executableLoad) }
+let pid: pid_t = try await withCheckedThrowingContinuation { continuation in
+    NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+        if let app { continuation.resume(returning: app.processIdentifier) }
+        else { continuation.resume(throwing: error ?? CocoaError(.executableLoad)) }
+    }
+}
+guard let application = NSRunningApplication(processIdentifier: pid),
+      application.bundleURL?.resolvingSymlinksInPath().path == url.path else { throw CocoaError(.executableLoad) }
 let clock = ContinuousClock()
 let deadline = clock.now.advanced(by: .seconds(70))
 while !application.isTerminated && clock.now < deadline {

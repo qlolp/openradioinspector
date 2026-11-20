@@ -191,14 +191,23 @@ def fetch_witness(repo, receipt, proof):
     if os.getenv('ORI_SIGNATURE_B64'):
         collect_dispatch_file(proof.parent, proof.name, 'ORI_SIGNATURE_B64', 4096)
         return
-    records = repo.api('attestations/sha256:' + digest(receipt) + '?per_page=100')
-    for record in records['attestations']:
-        write_json(proof, record['bundle'])
-        try:
-            verify_github_attestation(repo, receipt, proof)
-        except ValueError:
-            continue
-        return
+    # Current GitHub responses can carry either inline data or an expiring
+    # bundle_url. The official CLI handles both and writes one JSONL record per bundle.
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(['gh', 'attestation', 'download', str(receipt.resolve()), '--repo', repo.repo,
+                        '--predicate-type', 'https://slsa.dev/provenance/v1', '--limit', '100'],
+                       cwd=tmp, check=True)
+        files = list(Path(tmp).glob('*.jsonl'))
+        require(len(files) == 1, 'GitHub returned no acceptance bundles')
+        with files[0].open('rb') as records:
+            for raw in iter(lambda: records.readline(128 * 1024 + 1), b''):
+                require(len(raw) <= 128 * 1024, 'oversized GitHub acceptance bundle')
+                write_json(proof, json.loads(raw))
+                try:
+                    verify_github_attestation(repo, receipt, proof)
+                except ValueError:
+                    continue
+                return
     raise ValueError('submit an authorized SSH signature or complete the protected GitHub review of these exact bytes')
 
 
