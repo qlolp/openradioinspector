@@ -6,29 +6,34 @@ fn rc_configuration_uses_only_bundled_rust_and_an_explicit_isolated_archive() {
     let bundle_path = root.path().join("Applications/OpenRadioInspector RC.app");
     let data_path = root
         .path()
-        .join("Library/Application Support/OpenRadioInspector/macOS-RC");
+        .join("audio-python archive/Library/Application Support/OpenRadioInspector/macOS-RC");
     let bundle = bundle_path.as_path();
     let data = data_path.as_path();
-    let config =
-        ori_runtime::macos_agent::configuration(bundle, data, 64 * 1024 * 1024 * 1024).unwrap();
+    let maximum = 64 * 1024 * 1024 * 1024;
+    let config = ori_runtime::macos_agent::configuration(bundle, data, maximum).unwrap();
     assert_eq!(
         config.backend.program,
         bundle.join("Contents/Helpers/ori-core")
     );
     assert_eq!(config.backend.control_addr.to_string(), "127.0.0.1:8772");
-    let args = &config.backend.args;
     assert_eq!(
-        &args[..4],
-        ["--mode", "live", "--data-dir", data.to_str().unwrap()]
-    );
-    assert!(args.iter().any(|arg| arg == "--allow-serial"));
-    assert!(
-        !args
-            .iter()
-            .any(|arg| arg.contains("audio") || arg.contains("python"))
+        config.backend.args,
+        [
+            "--mode",
+            "live",
+            "--data-dir",
+            data.to_str().unwrap(),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8772",
+            "--allow-serial",
+            "--stdin-lifeline",
+            "--archive-max-bytes",
+            &maximum.to_string(),
+        ]
     );
     assert!(config.backend.supervisor_lifeline);
-    assert!(args.iter().any(|arg| arg == "--stdin-lifeline"));
     assert!(ori_runtime::macos_agent::configuration(bundle, data, 0).is_err());
     assert!(
         ori_runtime::macos_agent::configuration(std::path::Path::new("relative"), data, 1).is_err()
