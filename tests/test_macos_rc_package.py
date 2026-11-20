@@ -1,12 +1,67 @@
+import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.release import macos_rc_package as package
 
 
 class MacOSRCPackageTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        path = Path(__file__).resolve().parents[1] / 'packaging/macos/build_personal_rc.py'
+        spec = importlib.util.spec_from_file_location('personal_rc_builder_fixture', path)
+        cls.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.builder)
+
+    def test_busy_image_creation_never_promotes_a_partial_dmg(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'candidate.dmg'
+            paths = []
+
+            def create(args, **kwargs):
+                scratch = Path(args[-1])
+                self.assertFalse(scratch.exists())
+                self.assertFalse(target.exists())
+                paths.append(scratch)
+                if len(paths) == 1:
+                    scratch.write_bytes(b'partial')
+                    return subprocess.CompletedProcess(args, 1, 'hdiutil: create failed - Resource busy\n')
+                scratch.write_bytes(b'complete image')
+                return subprocess.CompletedProcess(args, 0, 'created\n')
+
+            with patch.object(self.builder.subprocess, 'run', side_effect=create), \
+                 patch.object(self.builder, 'run') as verify, patch('time.sleep') as pause:
+                self.builder.create_disk_image(Path(directory), target)
+                self.assertEqual(len(set(paths)), 2)
+                verify.assert_called_once_with('hdiutil', 'verify', paths[1])
+                pause.assert_called_once()
+                self.assertEqual(target.read_bytes(), b'complete image')
+                with self.assertRaises(FileExistsError):
+                    self.builder.create_disk_image(Path(directory), target)
+                self.assertEqual(len(paths), 2)
+
+    def test_dmg_creation_fails_without_masking_corruption_or_exhausted_busy_device(self):
+        for reason, attempts in [('Resource busy', 3), ('Permission denied', 1), (None, 1)]:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:
+                target = Path(directory) / 'candidate.dmg'
+                def create(args, **kwargs):
+                    Path(args[-1]).write_bytes(b'invalid image')
+                    return subprocess.CompletedProcess(args, int(reason is not None),
+                        f'hdiutil: create failed - {reason}\n' if reason else '')
+                with patch.object(self.builder.subprocess, 'run', side_effect=create) as calls, \
+                     patch.object(self.builder, 'run', side_effect=subprocess.CalledProcessError(1, ['verify'])) as verify, \
+                     patch('time.sleep') as pause:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.builder.create_disk_image(Path(directory), target)
+                    self.assertEqual(calls.call_count, attempts)
+                    self.assertEqual(pause.call_count, attempts - 1)
+                    self.assertEqual(verify.call_count, int(reason is None))
+                    self.assertFalse(target.exists())
+
     def app(self, root):
         app = root / 'Relocated RC.app'
         (app / 'Contents/MacOS').mkdir(parents=True)
@@ -46,10 +101,6 @@ class MacOSRCPackageTests(unittest.TestCase):
             with self.assertRaises(ValueError): package.validate_runtime_profile(app)
 
     def test_notices_are_created_when_xcode_app_has_no_resources_directory(self):
-        import importlib.util
-        root = Path(__file__).resolve().parents[1]
-        spec = importlib.util.spec_from_file_location('personal_rc_builder_fixture', root/'packaging/macos/build_personal_rc.py')
-        builder = importlib.util.module_from_spec(spec); spec.loader.exec_module(builder)
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             destination = folder/'RC.app/Contents/Resources/Notices'
@@ -60,7 +111,7 @@ class MacOSRCPackageTests(unittest.TestCase):
             for name in ['COPYRIGHT-library.html', 'COPYRIGHT.html']: (docs/name).write_text('Controlled Rust notice fixture')
             metadata = {'packages': [dict(id='fixture-core', name='ori-core', version='0.1.0', license='MIT', source=None,
                 manifest_path=str(crate/'Cargo.toml'))], 'resolve': {'nodes': [dict(id='fixture-core', dependencies=[])]}}
-            builder.notices(destination, metadata, folder/'sysroot')
+            self.builder.notices(destination, metadata, folder/'sysroot')
             self.assertEqual((destination/'crates/ori-core-0.1.0/LICENSE').read_text(), 'Controlled fixture license')
             inventory = json.loads((destination/'cargo-build-dependency-closure.json').read_text())
             self.assertEqual(inventory[0]['name'], 'ori-core')

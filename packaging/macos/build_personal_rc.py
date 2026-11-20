@@ -9,6 +9,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools/release'))
@@ -23,6 +25,27 @@ def run(*args, env=None, capture=False):
     print('+', ' '.join(str(a) for a in args), flush=True)
     return subprocess.run([str(a) for a in args], cwd=ROOT, env=env, check=True,
                           text=True, stdout=subprocess.PIPE if capture else None).stdout
+
+
+def create_disk_image(stage, destination):
+    if os.path.lexists(destination):
+        raise FileExistsError(destination)
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory(prefix='.dmg-', dir=destination.parent) as scratch:
+            image = Path(scratch) / 'candidate.dmg'
+            command = ['hdiutil', 'create', '-volname', 'OpenRadioInspector RC', '-srcfolder', str(stage),
+                       '-format', 'UDZO', str(image)]
+            result = subprocess.run(command, cwd=ROOT, env=dict(os.environ, LC_ALL='C'), text=True,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            print(result.stdout, end='', flush=True)
+            if result.returncode == 0:
+                run('hdiutil', 'verify', image)
+                os.link(image, destination)
+                return
+            if 'hdiutil: create failed - Resource busy' not in result.stdout.splitlines() or attempt == 2:
+                result.check_returncode()
+        # A failed create can leave a partial image. Each attempt owns a new path.
+        time.sleep(2 ** (attempt + 1))
 
 
 def notices(destination, metadata, sysroot):
@@ -150,8 +173,7 @@ def main():
         shutil.copyfile(ROOT / 'packaging/macos/PERSONAL-RC.txt', stage / 'READ-ME.txt')
     (stage / 'Applications').symlink_to('/Applications', target_is_directory=True)
     stem = 'OpenRadioInspector-' + package.RELEASE_VERSION + ('-macos-arm64' if args.developer_id else '-macos-arm64-adhoc')
-    run('hdiutil', 'create', '-volname', 'OpenRadioInspector RC', '-srcfolder', stage,
-        '-format', 'UDZO', packages_dir / (stem + '.dmg'))
+    create_disk_image(stage, packages_dir / (stem + '.dmg'))
     if args.developer_id:
         dmg = packages_dir / (stem + '.dmg')
         developer_id.sign(dmg, identity, runtime=False)
