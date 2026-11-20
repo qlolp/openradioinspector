@@ -123,30 +123,37 @@ def publish_training_window(data, filename, destination):
 
 
 def collect_training_images(directory, destination):
-    report = {}
-    images = {'macos-monitoring', 'macos-event'}
+    sources = {}
+    uuid_pattern = r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}'
+    suggested = re.compile(rf'(macos-monitoring|macos-event)(?:_[0-9]+_{uuid_pattern})?\.png')
+    export_id = re.compile(rf'{uuid_pattern}\.png')
     manifest = json.loads((directory / 'manifest.json').read_bytes())
     for test in manifest:
-        if test['testIdentifier'].split('/')[-1].rstrip('()') != 'testTrainingWindowCaptures':
+        if not re.fullmatch(r'(?:DvoynoyObzorUITests[./])?WorkbenchUITests/testTrainingWindowCaptures(?:\(\))?',
+                            test['testIdentifier']):
             continue
         for item in test['attachments']:
-            if item['isAssociatedWithFailure']:
+            if item['isAssociatedWithFailure'] is not False:
                 continue
             name = item['suggestedHumanReadableName']
-            matches = [label for label in images if label + '.png' in name]
-            if len(matches) != 1:
+            match = suggested.fullmatch(name)
+            if match is None:
                 continue
-            label = matches[0]
-            if label in report:
-                raise ValueError('Duplicate training screenshot')
-            path = (directory / item['exportedFileName']).resolve()
-            if path.parent != directory.resolve():
+            filename = match.group(1) + '.png'
+            exported = item['exportedFileName']
+            # Xcode 27 assigns the exported file its own UUID, distinct from
+            # the UUID in the suggested name. Associate them only via this row.
+            if exported not in (name, filename) and not export_id.fullmatch(exported):
                 raise ValueError('Invalid attachment path')
-            filename = label + '.png'
-            report[filename] = publish_training_window(path.read_bytes(), filename, destination)
-    if len(report) != len(images):
+            path = directory / exported
+            if path.is_symlink() or path.resolve().parent != directory.resolve():
+                raise ValueError('Invalid attachment path')
+            if filename in sources or path in sources.values():
+                raise ValueError('Duplicate training screenshot')
+            sources[filename] = path
+    if set(sources) != {'macos-monitoring.png', 'macos-event.png'}:
         raise ValueError('Missing named training window screenshots')
-    return report
+    return {name: publish_training_window(path.read_bytes(), name, destination) for name, path in sources.items()}
 
 
 def main(argv=None):

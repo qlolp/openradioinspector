@@ -136,6 +136,54 @@ class NativeUIRunnerTests(unittest.TestCase):
         self.assertEqual(targets[1], unit)
         self.assertNotIn('ORI_UI_TEST_PROFILES', ui['EnvironmentVariables'])
 
+    def test_xcode_27_named_windows_use_their_distinct_exported_attachment_ids(self):
+        import hashlib
+        import struct
+        # Actual suggested and exported names from Xcode 27, job 136013952903.
+        pairs = [
+            ('macos-event', 'E897FD6D-4061-475E-B226-9E733F993A3D',
+             'F96A0060-B631-4B55-B6D8-208B6DEC116B'),
+            ('macos-monitoring', 'ECF8DE7E-6DBC-45BF-96E4-AF30B871065A',
+             'ECE81D04-17B5-4304-877C-575F9B1BCCCE'),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exported = root / 'exported'
+            exported.mkdir()
+            records, expected = [], {}
+            for index, (label, suggested_id, exported_id) in enumerate(pairs):
+                data = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' + struct.pack('>II', 1200 + index, 792)
+                filename = exported_id + '.png'
+                (exported / filename).write_bytes(data)
+                expected[label + '.png'] = data
+                records.append(dict(suggestedHumanReadableName=f'{label}_0_{suggested_id}.png',
+                                    exportedFileName=filename, isAssociatedWithFailure=False))
+            # An unrelated suite, failure screenshot and near-match must not supply either window.
+            original = records[0]
+            document = [dict(testIdentifier='OtherTests/testTrainingWindowCaptures()', attachments=[original]),
+                        dict(testIdentifier='WorkbenchUITests/testTrainingWindowCaptures()', attachments=[
+                            *records, dict(original, isAssociatedWithFailure=True),
+                            dict(original, suggestedHumanReadableName='unrelated-macos-event.png')])]
+            manifest = exported / 'manifest.json'
+            manifest.write_text(json.dumps(document))
+            report = collect_training_images(exported, root)
+            self.assertEqual(set(report), set(expected))
+            for name, data in expected.items():
+                self.assertEqual((root / name).read_bytes(), data)
+                self.assertEqual(report[name]['sha256'], hashlib.sha256(data).hexdigest())
+
+            for rejected, reason in [
+                ([*records, original], 'Duplicate'),
+                ([original, dict(records[1], exportedFileName=original['exportedFileName'])], 'Duplicate'),
+                ([dict(original, exportedFileName='../another.png'), records[1]], 'attachment path'),
+                ([dict(original, suggestedHumanReadableName='macos-event_0_bad.png'), records[1]], 'Missing'),
+            ]:
+                with self.subTest(reason=reason, records=rejected):
+                    document[1]['attachments'] = rejected
+                    manifest.write_text(json.dumps(document))
+                    with self.assertRaisesRegex(ValueError, reason):
+                        collect_training_images(exported, root)
+
     def test_missing_or_ambiguous_ui_target_is_rejected(self):
         with self.assertRaises(ValueError):
             configure_test_run({'OtherTests': {'TestBundlePath': 'OtherTests.xctest'}}, '/p')

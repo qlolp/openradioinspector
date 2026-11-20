@@ -160,7 +160,7 @@ jobs:
           python -m macos.ci.report_command -- xcodebuild -project macos/DvoynoyObzor.xcodeproj -scheme DvoynoyObzor -configuration Debug -jobs 2 -destination platform=macOS -derivedDataPath "$RUNNER_TEMP/native-swift6" CODE_SIGNING_ALLOWED=NO build
       - name: Native UI actions against read-only synthetic sources
         run: python -B -m macos.ci.ui_smoke --report-dir "$RUNNER_TEMP/native-ui-tests" --derived-data "$RUNNER_TEMP/native-swift6"
-      - name: Preserve UI diagnostics on failure
+      - name: Preserve native UI diagnostics and verified training windows
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -168,6 +168,9 @@ jobs:
           path: |
             ${{ runner.temp }}/native-ui-tests/report.json
             ${{ runner.temp }}/native-ui-tests/*.log
+            ${{ runner.temp }}/native-ui-tests/macos-monitoring.png
+            ${{ runner.temp }}/native-ui-tests/macos-event.png
+            ${{ runner.temp }}/native-ui-tests/training-attachments/manifest.json
             ${{ runner.temp }}/native-ui-tests/cases/*/native/*.jsonl
             ${{ runner.temp }}/native-ui-tests/cases/*/native/*.json
 
