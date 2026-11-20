@@ -54,8 +54,8 @@
 | Артефакт разбора | Где лежит |
 |---|---|
 | Инвентарь по первичным артефактам: формы, надписи, реестр приёмников, модель данных, лицензионные сообщения | [`commercial-app-inventory.md`](commercial-app-inventory.md) |
-| Карта интерфейса: подписи элементов 133 форм | [`commercial-ui-map.md`](commercial-ui-map.md) |
-| Разбор справки: 24 файла, 397 тем, алгоритмы измерений оригинала | [`commercial-help.md`](commercial-help.md), [`commercial-help-texts.md`](commercial-help-texts.md) |
+| Карта интерфейса: подписи элементов 133 форм | Краткое описание форм приведено в [инвентаре](commercial-app-inventory.md). Статус извлечённых подписей указан в [реестре происхождения](release/provenance.md). |
+| Разбор справки: 24 файла, 397 тем, алгоритмы измерений оригинала | [Команда для разбора лицензированной копии](../tools/analysis/README.md) · [Статус текстов и индекса](release/provenance.md) |
 | Каталог методик измерения оригинала | [`measurement-methods.md`](measurement-methods.md) |
 | Программы разбора: PE и формы, строки, метаданные FireBird, MSI, справка WinHelp | [`tools/analysis/`](../tools/analysis/README.md) |
 | Протокол наблюдения живого оригинала | [`commercial-observation.md`](commercial-observation.md) |
