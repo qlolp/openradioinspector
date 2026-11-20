@@ -15559,6 +15559,26 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 5000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -28567,7 +28587,7 @@
     "legacy_loopback": "API credential authentication is disabled; existing mutation-origin checks still apply.",
     "revocation": "Revocation invalidates the native credential and browser sessions."
   },
-  "x-ori-baseline-schema-sha256": "722320104a91a06dd1401bfda6d78a2a2873ce9284066bb8c3029e86ba56c614",
+  "x-ori-baseline-schema-sha256": "48d882ba41e339d8407fe5ed37b241b5e59dfd719fb7187c6ce85c9527697026",
   "x-ori-contract": "openradioinspector-platform",
   "x-ori-contract-variant": "rust-candidate",
   "x-ori-contract-version": 1,

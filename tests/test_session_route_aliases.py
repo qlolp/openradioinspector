@@ -45,6 +45,23 @@ class SessionReadAliasTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_candidate_pages_validate_their_own_query_and_filter_before_offset(self):
+        base = self.base + "/candidates"
+        self.sessions.create_candidate(self.session.id, {
+            "id": "new-id", "source_stream_id": self.session.streams[0].id,
+            "interval": {"started_at": "2026-11-11T12:00:00Z", "ended_at": "2026-11-11T12:00:00Z"},
+            "center_frequency_hz": 100000003, "level_unit": "dBm",
+        })
+        for query, ids in [("", ["new-id", self.candidate.id]), ("?limit=1", ["new-id"]),
+                           ("?offset=1", [self.candidate.id]), ("?offset=1&state=queued", []),
+                           ("?state=queued&limit=1", [self.candidate.id])]:
+            status, body = self.get(base + query)
+            self.assertEqual(status, 200, body)
+            self.assertEqual([row["id"] for row in body["data"]], ids)
+        for query in ("?limit=5001", "?offset=9223372036854775808", "?limit=2&limit=3"):
+            self.assertEqual(self.get(base + query)[0], 400)
+        self.assertEqual(self.get(self.base + "/investigations?limit=unrelated")[0], 200)
+
     def test_candidate_alias_matches_direct_route_and_preserves_float_bits(self):
         tail = quote(self.candidate.id, safe="")
         direct = self.get(self.base + "/candidates/" + tail)

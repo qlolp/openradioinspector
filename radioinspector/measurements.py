@@ -96,6 +96,15 @@ class BandwidthResult:
 # Вспомогательные функции
 # --------------------------------------------------------------------------
 
+def _require_finite_levels(trace: Trace) -> None:
+    """Отклоняет неполученные точки до вычисления параметров сигнала."""
+    if not np.isfinite(trace.levels).all():
+        raise ValueError(
+            "Уровни измерения должны быть конечными числами: в трассе есть "
+            "неполученные точки (NaN или бесконечность)"
+        )
+
+
 def _db_to_mw(levels_db: np.ndarray) -> np.ndarray:
     """Перевод уровней из дБ в линейные мощности, мВт."""
     return np.power(10.0, levels_db / 10.0)
@@ -171,6 +180,7 @@ def occupied_bandwidth_beta2(
     frequency_uncertainty_hz:
         Погрешность измерения частоты средством измерений, Гц.
     """
+    _require_finite_levels(trace)
     if trace.size < 2:
         raise ValueError("Для измерения полосы необходимо не менее двух точек")
     if not 0 < beta < 100:
@@ -279,6 +289,7 @@ def bandwidth_at_level(
     −60 дБ), Нормы ГКРЧ 19-21 (контрольная ширина полосы частот на уровне
     минус 30 дБ).
     """
+    _require_finite_levels(trace)
     if trace.size < 2:
         raise ValueError("Для измерения полосы необходимо не менее двух точек")
     if n_db <= 0:
@@ -575,6 +586,7 @@ def field_strength(
     warnings = ["Устаревшая некалиброванная оценка уровня; не физическая напряжённость поля"]
     samples: list[float] = []
     for tr in traces:
+        _require_finite_levels(tr)
         if tr.size == 0:
             continue
         samples.append(float(np.max(tr.levels)))
@@ -654,6 +666,7 @@ def center_frequency_centroid(
     Условия применимости: симметричный спектр, отношение сигнал/шум не ниже
     30 дБ, сигнал в центре полосы обзора, не менее 200 точек в полосе.
     """
+    _require_finite_levels(trace)
     if trace.size < 3:
         raise ValueError("Для оценки центральной частоты необходимо не менее трёх точек")
 

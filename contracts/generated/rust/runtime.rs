@@ -2423,7 +2423,7 @@ pub const OPERATIONS: &[RuntimeOperation] = &[
         backends: &["python-legacy", "rust-candidate"],
         features: &["candidate_investigations"],
         capabilities: &[],
-        query: &["state"],
+        query: &["state", "limit", "offset"],
         path_parameters: &["id"],
         max_request_bytes: None,
         request_features: &[],

@@ -283,6 +283,16 @@ impl SessionService {
         session: &str,
         state: Option<&str>,
     ) -> SessionResult<Value> {
+        self.list_candidates_page(session, state, None, 0).await
+    }
+
+    pub async fn list_candidates_page(
+        &self,
+        session: &str,
+        state: Option<&str>,
+        limit: Option<usize>,
+        offset: u64,
+    ) -> SessionResult<Value> {
         if let Some(state) = state
             && !CANDIDATE_STATES.contains(&state)
         {
@@ -292,7 +302,9 @@ impl SessionService {
         }
         self.session(session).await?;
         Ok(json!(
-            self.archive.session_candidates(session, state).await?
+            self.archive
+                .session_candidates_page(session, state, limit, offset)
+                .await?
         ))
     }
     pub async fn list_investigations(

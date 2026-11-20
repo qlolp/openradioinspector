@@ -33,7 +33,7 @@ python -m pip install -e .
 python -m radioinspector demo --output ./demo-data --cycles 60
 ```
 
-Команда напечатает путь созданной базы панорам. Передайте его параметру `--database` команды `python -m radioinspector serve` и откройте `http://127.0.0.1:8770/`. Список команд обработки и экспорта доступен через `python -m radioinspector --help`.
+Команда напечатает путь созданной базы панорам. Передайте его параметру `--database` команды `python -m radioinspector serve` и откройте `http://127.0.0.1:8770/`. Список команд обработки и экспорта доступен через `python -m radioinspector --help`. [Примеры работы с архивом из CLI](docs/python-cli.md)
 
 | Для разработки | Где начать |
 |---|---|
