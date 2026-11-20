@@ -6,9 +6,27 @@ import math
 import statistics
 from collections import deque
 from ..contracts import parse_time, format_time
+from ..tinysa_profile import MAX_FREQUENCY_HZ
 
 VERSION = 'robust-city-v1'
 VOLATILE = {'sequence', 'connection_id', 'segment_id', 'revision', 'tune_sequence'}
+
+
+REFERENCE_REQUIRED = 'reference_required_above_800_mhz'
+
+
+def analyzer_adapter(project):
+    return project['profile']['analyzer']['settings'].get('adapter')
+
+
+def eligible_source(project, frequencies, settings):
+    """Archive admission uses the original grid and either indication of a physical source."""
+    adapter = analyzer_adapter(project)
+    if not frequencies:
+        return False
+    if adapter == 'tinysa-serial' or settings.get('adapter') == 'tinysa-serial':
+        return max(frequencies) <= MAX_FREQUENCY_HZ
+    return adapter == 'tinysa-sim'
 
 
 def stable(value):

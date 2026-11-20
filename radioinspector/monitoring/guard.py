@@ -9,6 +9,7 @@ from uuid import uuid4
 from ..contracts import format_time, parse_time, to_primitive, utc_now
 from ..device_workers import WorkerError
 from ..tinysa import audio
+from .detector import REFERENCE_REQUIRED, eligible_source
 from .models import record
 
 
@@ -238,6 +239,20 @@ class GuardOperations:
             events = self.store.pending_receiver_events(identifier, runtime['sid'])
             if not events: return
             event = max(events, key=lambda x:(x['last_seen'], x['id']))
+            ref = event['source_refs'][-1]
+            try:
+                source = self.history_original(identifier, ref['sweep_id'])
+            except KeyError:
+                source = None
+            grid = source['frequencies_hz'] if source else []
+            center = event['center_frequency_hz']
+            if (not grid or source['session_id'] != ref.get('session_id') or source['stream_id'] != ref.get('stream_id')
+                    or not eligible_source(project, grid, source['settings'])
+                    or not min(grid) <= event.get('start_frequency_hz', center) <= center
+                           <= event.get('end_frequency_hz', center) <= max(grid)):
+                event['analysis'] = dict(state='unsupported_frequency', reason=REFERENCE_REQUIRED)
+                self.store.put('event', event)
+                return
             try: self.receiver_target(event)
             except ValueError as exc:
                 event['analysis'] = dict(state='unsupported_frequency', reason=str(exc))

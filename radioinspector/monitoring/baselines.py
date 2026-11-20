@@ -4,7 +4,8 @@ import statistics
 from datetime import datetime, timezone
 
 from ..contracts import format_time, parse_time, to_primitive
-from .detector import Detector, build_baseline, VERSION
+from ..tinysa_profile import MAX_FREQUENCY_HZ
+from .detector import Detector, VERSION, REFERENCE_REQUIRED, analyzer_adapter, build_baseline, eligible_source
 from .models import record, text
 
 
@@ -17,6 +18,8 @@ class BaselineOperations:
             if identifier in self.runtime or project['state'] in ('armed', 'searching','degraded'):
                 raise ValueError('Снимите проект с охраны перед заменой эталона')
             sweeps,period = self.baseline_samples(project)
+            if any(not eligible_source(project, sweep.frequencies_hz, sweep.settings) for sweep in sweeps):
+                raise ValueError(REFERENCE_REQUIRED)
             baseline = record(identifier, name=text(payload.get('name'), 'Название эталона'),
                               location=text(payload.get('location'), 'Место'), **build_baseline(sweeps))
             baseline['confirmed'] = True
@@ -64,6 +67,27 @@ class BaselineOperations:
             index = next((i+1 for i,x in enumerate(items) if x.id == cursor), 0)
             return [(i+1, copy.deepcopy(s)) for i,s in enumerate(items) if index <= i < index+limit]
 
+    def eligible_reference(self, project, baseline):
+        frequencies = baseline.get('frequencies_hz', ())
+        if not frequencies:
+            return False
+        adapter = analyzer_adapter(project)
+        if max(frequencies) > MAX_FREQUENCY_HZ and adapter == 'tinysa-serial':
+            return False
+        if max(frequencies) <= MAX_FREQUENCY_HZ and adapter == 'tinysa-sim':
+            return True
+        references = baseline.get('source_refs', ())
+        if not references:
+            return False
+        ref = references[0]
+        try:
+            original = self.history_original(project['id'], ref['sweep_id'])
+        except KeyError:
+            return False
+        return (original['session_id'] == ref.get('session_id') and original['stream_id'] == ref.get('stream_id')
+                and original['frequencies_hz'] == frequencies
+                and eligible_source(project, original['frequencies_hz'], original['settings']))
+
     def detection_baseline(self, baseline):
         """Derive legacy cadence from source metadata, leaving the version frozen."""
         if baseline.get('sweep_period_seconds'):
@@ -99,12 +123,20 @@ class BaselineOperations:
             project = self.project(identifier)
             if not project.get('baseline_id'): raise ValueError('Нужен подтверждённый эталон')
             baseline = self.detection_baseline(self.store.get('baseline', project['baseline_id']))
+            if not self.eligible_reference(project, baseline):
+                raise ValueError(REFERENCE_REQUIRED)
             detector = Detector(baseline, project['parameters'], project.get('detector_state'))
             allowed = self.store.list('allowed', identifier, limit=1000)
             events = set()
             processed = 0
             quality_issues=0
+            excluded = 0
             for rowid, sweep in self._pending_sweeps(project):
+                if not eligible_source(project, sweep.frequencies_hz, sweep.settings):
+                    project.update(detector_cursor=sweep.id, detector_rowid=rowid)
+                    self.store.put('project', project)
+                    excluded += 1
+                    continue
                 regions, excess, thresholds = detector.step(sweep, allowed)
                 opens = self.store.open_events(identifier,sweep.session_id,baseline['id'])
                 with self.store.transaction():
@@ -161,8 +193,11 @@ class BaselineOperations:
                     project.update(detector_cursor=sweep.id, detector_rowid=rowid, detector_state=detector.state)
                     self.store.put('project', project)
                 processed += 1
-            return dict(project_id=identifier, event_ids=sorted(events)[:100], events_updated=len(events),
-                        processed_sweeps=processed, quality_issues=quality_issues,cursor=project.get('detector_cursor'))
+            result = dict(project_id=identifier, event_ids=sorted(events)[:100], events_updated=len(events),
+                          processed_sweeps=processed, quality_issues=quality_issues, cursor=project.get('detector_cursor'))
+            if excluded:
+                result['excluded_sweeps'] = excluded
+            return result
 
     def review_event(self, identifier, event_id, payload):
         with self.lock:

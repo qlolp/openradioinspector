@@ -6,8 +6,26 @@ from datetime import timedelta
 from ..contracts import format_time, utc_now
 from ..device_workers import WorkerError
 from ..session_store import _archive_time
+from ..tinysa_profile import MAX_FREQUENCY_HZ
+from .detector import analyzer_adapter, eligible_source
 from .models import text
 from .research import project_action
+
+
+# The range index contains the min/max of the original grid. Apply the same
+# admission as eligible_source before sampling, so upper windows cannot crowd
+# eligible lower originals out of the bounded reference.
+_BASELINE_SOURCES = """
+    FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id
+    WHERE i.session_id=:session AND s.stream_id=:stream AND
+          CASE WHEN :adapter='tinysa-serial' OR json_extract(s.settings_json,'$.adapter')='tinysa-serial'
+               THEN i.max_hz<=:limit_hz ELSE :adapter='tinysa-sim' END
+"""
+
+
+def _source_parameters(project):
+    return dict(session=project['active_session_id'], stream=project['analyzer_stream_id'],
+                adapter=analyzer_adapter(project), limit_hz=MAX_FREQUENCY_HZ)
 
 
 class PreparationOperations:
@@ -74,46 +92,66 @@ class PreparationOperations:
                 self.store.put('project',project)
         return dict(project=project,workers=self.workers.list_workers(project['active_session_id']))
 
-    def baseline_collection(self,project):
-        store=self.sessions._store;sid=project['active_session_id'];stream=project['analyzer_stream_id']
+    def _memory_baseline_sources(self, project):
+        sources = self.sessions.list_sweeps(project['active_session_id'],
+                                           stream_id=project['analyzer_stream_id'], limit=None)
+        return [s for s in sources if eligible_source(project, s.frequencies_hz, s.settings)]
+
+    def baseline_collection(self, project):
+        store = self.sessions._store
         if store:
             with store._lock:
-                row=store._connection.execute('''SELECT COUNT(*) AS count,MIN(i.started_at) AS first,MAX(i.ended_at) AS last
-                    FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id WHERE i.session_id=? AND s.stream_id=?''',(sid,stream)).fetchone()
+                row = store._connection.execute(
+                    'SELECT COUNT(*) AS count, MIN(i.started_at) AS first, MAX(i.ended_at) AS last ' +
+                    _BASELINE_SOURCES, _source_parameters(project)).fetchone()
             from ..contracts import parse_time
-            elapsed=(parse_time(row['last'])-parse_time(row['first'])).total_seconds() if row['count'] else 0.
-            count=row['count']
+            elapsed = (parse_time(row['last']) - parse_time(row['first'])).total_seconds() if row['count'] else 0.
+            count = row['count']
         else:
-            sweeps=self.sessions.list_sweeps(sid,stream_id=stream,limit=None)
-            count=len(sweeps);elapsed=(sweeps[-1].interval.ended_at-sweeps[0].interval.started_at).total_seconds() if sweeps else 0.
-        return dict(sweeps=count,elapsed_seconds=elapsed,minimum_sweeps=20,minimum_seconds=60,ready=count>=20 and elapsed>=60)
+            sweeps = self._memory_baseline_sources(project)
+            count = len(sweeps)
+            elapsed = (sweeps[-1].interval.ended_at-sweeps[0].interval.started_at).total_seconds() if sweeps else 0.
+        return dict(sweeps=count, elapsed_seconds=elapsed, minimum_sweeps=20, minimum_seconds=60,
+                    ready=count >= 20 and elapsed >= 60)
 
-    def baseline_samples(self,project):
-        sid=project['active_session_id'];stream=project['analyzer_stream_id'];store=self.sessions._store
-        recent=self.sessions.list_sweeps(sid,stream_id=stream,limit=20)
-        if len(recent)<20:return recent,None
-        periods=[(b.interval.started_at-a.interval.started_at).total_seconds() for a,b in zip(recent,recent[1:])]
-        period=statistics.median([x for x in periods if x>0]) if any(x>0 for x in periods) else 1.
-        target=recent[-1].interval.ended_at-timedelta(seconds=60)
+    def baseline_samples(self, project):
+        store = self.sessions._store
+        if store:
+            query = 'SELECT s.* ' + _BASELINE_SOURCES
+            parameters = _source_parameters(project)
+            with store._lock:
+                rows = store._connection.execute(query + ' ORDER BY i.started_at DESC,i.sweep_id DESC LIMIT 20',
+                                                 parameters).fetchall()
+                recent = [store._sweep_from_row(row) for row in reversed(rows)]
+        else:
+            all_items = self._memory_baseline_sources(project)
+            recent = all_items[-20:]
+        if len(recent) < 20:
+            return recent, None
+        periods = [(b.interval.started_at-a.interval.started_at).total_seconds() for a,b in zip(recent,recent[1:])]
+        period = statistics.median([x for x in periods if x>0]) if any(x>0 for x in periods) else 1.
+        target = recent[-1].interval.ended_at-timedelta(seconds=60)
         if not store:
-            all_items=self.sessions.list_sweeps(sid,stream_id=stream,limit=None)
-            older=[s for s in all_items if s.interval.started_at<=target]
-            start=min(recent[0].interval.started_at,older[-1].interval.started_at) if older else recent[0].interval.started_at
-            selected=[s for s in all_items if s.interval.started_at>=start]
-            stride=max(1,len(selected)//236)
-            values={s.id:s for s in selected[::stride][:236]+recent}
+            older = [s for s in all_items if s.interval.started_at<=target]
+            start = min(recent[0].interval.started_at,older[-1].interval.started_at) if older else recent[0].interval.started_at
+            selected = [s for s in all_items if s.interval.started_at>=start]
+            stride = max(1,len(selected)//236)
+            values = {s.id:s for s in selected[::stride][:236]+recent}
             return sorted(values.values(),key=lambda s:(s.interval.started_at,s.id)),period
         with store._lock:
-            row=store._connection.execute('''SELECT s.* FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id
-                WHERE i.session_id=? AND s.stream_id=? AND i.started_at<=? ORDER BY i.started_at DESC,s.id DESC LIMIT 1''',
-                (sid,stream,_archive_time(target))).fetchone()
-            start=min(recent[0].interval.started_at,store._sweep_from_row(row).interval.started_at) if row else recent[0].interval.started_at
-            end=recent[-1].interval.started_at;values={s.id:s for s in recent}
+            row = store._connection.execute(query +
+                ' AND i.started_at<=:target ORDER BY i.started_at DESC,i.sweep_id DESC LIMIT 1',
+                dict(parameters, target=_archive_time(target))).fetchone()
+            start = min(recent[0].interval.started_at,store._sweep_from_row(row).interval.started_at) if row else recent[0].interval.started_at
+            end = recent[-1].interval.started_at
+            parameters['end'] = _archive_time(end)
+            values = {s.id:s for s in recent}
             for index in range(236):
-                stamp=_archive_time(start+(end-start)*(index/235))
-                row=store._connection.execute('''SELECT s.* FROM monitoring_sweep_index i JOIN sweeps s ON s.id=i.sweep_id
-                    WHERE i.session_id=? AND s.stream_id=? AND i.started_at>=? AND i.started_at<=?
-                    ORDER BY i.started_at,s.id LIMIT 1''',(sid,stream,stamp,_archive_time(end))).fetchone()
+                parameters['stamp'] = _archive_time(start+(end-start)*(index/235))
+                row = store._connection.execute(query +
+                    ' AND i.started_at>=:stamp AND i.started_at<=:end ORDER BY i.started_at,i.sweep_id LIMIT 1',
+                    parameters).fetchone()
                 if row:
-                    sweep=store._sweep_from_row(row);values[sweep.id]=sweep
+                    sweep = store._sweep_from_row(row)
+                    values[sweep.id] = sweep
         return sorted(values.values(),key=lambda s:(s.interval.started_at,s.id)),period

@@ -12,7 +12,7 @@ from ..device_workers import WorkerError
 from ..trace import Trace
 from ..session_store import _archive_time
 from ..tinysa_profile import validate_receive_settings
-from .detector import fingerprint
+from .detector import REFERENCE_REQUIRED, eligible_source, fingerprint
 from .models import record, text
 
 
@@ -220,6 +220,8 @@ class ResearchOperations:
             while time.monotonic()<deadline and not runtime['stop'].wait(.1):
                 sweeps=self.sessions.list_sweeps(runtime['sid'],stream_id=stream,limit=1)
                 if sweeps and sweeps[0].interval.started_at>=started:
+                    if not eligible_source(project, sweeps[0].frequencies_hz, sweeps[0].settings):
+                        raise ValueError(REFERENCE_REQUIRED)
                     if fingerprint(sweeps[0]) != baseline['fingerprint']:raise ValueError('После возврата профиль не совпадает с эталоном')
                     with self.lock:
                         runtime['manual'].pop(stream,None);runtime.pop('search',None);runtime.pop('search_error',None)
@@ -331,7 +333,13 @@ class ResearchOperations:
         from ..contracts import Sweep
         project=self.project(identifier);baseline=self.store.get('baseline',project['baseline_id'])
         sweep=Sweep.from_dict(self.history_original(identifier,sweep_id))
-        compatible=fingerprint(sweep)==baseline['fingerprint']
+        eligible = eligible_source(project, sweep.frequencies_hz, sweep.settings) and self.eligible_reference(project, baseline)
+        compatible = eligible and fingerprint(sweep) == baseline['fingerprint']
+        reason = None
+        if not eligible:
+            reason = REFERENCE_REQUIRED
+        elif not compatible:
+            reason = 'Сетка/настройки не совпадают с эталоном'
         items=[]
         if compatible:
             selected=Trace(sweep.frequencies_hz,sweep.levels).decimate(320)
@@ -340,4 +348,4 @@ class ResearchOperations:
                 i=indexes[int(hz)];items.append(dict(frequency_hz=int(hz),baseline_p50_dbm=baseline['p50_dbm'][i],
                     baseline_p95_dbm=baseline['p95_dbm'][i],current_dbm=float(level),delta_db=float(level)-baseline['p50_dbm'][i]))
         return dict(baseline_id=baseline['id'],sweep_id=sweep_id,detector_version=baseline['detector_version'],compatible=compatible,
-                    reason=None if compatible else 'Сетка/настройки не совпадают с эталоном',items=items,display_only=True)
+                    reason=reason,items=items,display_only=True)

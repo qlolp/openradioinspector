@@ -136,3 +136,129 @@ class LegacyCadenceCompatibilityTests(unittest.TestCase):
         self.assertEqual(detector.state['quality_issue']['kind'],'data_gap')
         self.assertLess(detector.state['quality_issue']['gap_seconds'],0)
         self.assertEqual(len(detector.state['window']),1)
+
+
+class ArchivedBandQualificationTests(unittest.TestCase):
+    setUp = guard_tests.GuardTests.setUp
+
+    def serial_project(self):
+        session = self.sessions.create_session(monitoring_serial_session())
+        return self.service.create(dict(name='Imported', site='Fixture', session_id=session.id))
+
+    def original(self, project, index, first, *, adapter='tinysa-serial', peak=None):
+        levels = [-100.] * 9
+        if peak is not None:
+            levels[peak] = -80.
+        row = sweep(index, levels, project['active_session_id'], project['analyzer_stream_id'])
+        row.frequencies_hz = tuple(first + 10_000 * i for i in range(9))
+        row.settings.update(adapter=adapter, measurement_qualification={'status': 'supported'})
+        self.sessions.ingest_sweep(row)
+        return row
+
+    def confirm(self, project):
+        return self.service.create_baseline(project['id'], dict(name='Archive', location='Fixture', confirm=True))
+
+    def test_mixed_import_uses_lower_originals_and_advances_past_unverified_windows(self):
+        project = self.serial_project()
+        identifier = project['id']
+        low = 799_920_000
+        for i in range(20):
+            self.original(project, 2*i, low, adapter='tinysa-sim')
+            self.original(project, 2*i+1, 799_960_000, adapter='tinysa-sim')
+        self.assertEqual(self.service.baseline_collection(project)['sweeps'], 20)
+        baseline = self.confirm(project)
+        self.assertEqual(baseline['frequencies_hz'][-1], 800_000_000)
+        self.assertEqual(len(baseline['source_refs']), 20)
+        self.original(project, 40, 900_000_000, adapter='tinysa-sim', peak=2)
+        self.original(project, 41, low, adapter='tinysa-sim', peak=2)
+        detected = self.service.analyze(identifier)
+        self.assertEqual((detected['processed_sweeps'], detected['excluded_sweeps']), (1, 2))
+        self.assertEqual(detected['events_updated'], 1)
+        self.assertEqual(self.service.analyze(identifier)['processed_sweeps'], 0)
+        comparison = self.service.history_comparison(identifier, 'sweep-40')
+        self.assertFalse(comparison['compatible'])
+        self.assertEqual(comparison['items'], [])
+        self.assertEqual(comparison['reason'], 'reference_required_above_800_mhz')
+        raw = self.service.history_original(identifier, 'sweep-40')
+        self.assertEqual(raw['levels'][2], -80.)
+        self.assertEqual(len(self.sessions.list_sweeps(project['active_session_id'])), 42)
+        self.assertEqual(self.workers.active_count, 0)
+
+    def test_stored_high_reference_cannot_arm_compare_or_queue_a_low_peak_from_a_crossing_window(self):
+        from radioinspector.contracts import format_time, utc_now
+        from radioinspector.monitoring.detector import build_baseline
+        from radioinspector.monitoring.models import record
+        project = self.serial_project()
+        identifier = project['id']
+        rows = [self.original(project, i, 799_960_000) for i in range(20)]
+        self.assertFalse(self.service.baseline_collection(project)['ready'])
+        with self.assertRaises(ValueError):
+            self.confirm(project)
+        baseline = self.service.store.put('baseline', record(identifier, confirmed=True, **build_baseline(rows)))
+        project.update(baseline_id=baseline['id'], state='ready')
+        self.service.store.put('project', project)
+        self.service.save_preparation(identifier, dict(antenna_notes='Fixture', receive_path_confirmed=True,
+                                                       location_confirmed=True))
+        latest = self.original(project, 20, 799_960_000, peak=1)
+        self.assertFalse(self.service.preflight(identifier)['ready'])
+        self.assertFalse(self.service.history_comparison(identifier, latest.id)['compatible'])
+        with self.assertRaises(ValueError):
+            self.service.analyze(identifier)
+        self.assertEqual(self.service.store.list('event', identifier), [])
+        now = format_time(utc_now())
+        event = self.service.store.put('event', record(identifier, kind='impulse', disposition='unreviewed',
+            baseline_id=baseline['id'], first_seen=now, last_seen=now, center_frequency_hz=799_970_000,
+            start_frequency_hz=799_970_000, end_frequency_hz=799_970_000,
+            source_refs=[dict(session_id=latest.session_id, stream_id=latest.stream_id, sweep_id=latest.id)]))
+        runtime = dict(sid=latest.session_id, receiver_busy=False, manual={}, epoch=0, threads=[])
+        with patch('radioinspector.monitoring.guard.threading.Thread') as worker:
+            self.service._queue_receiver(identifier, runtime)
+            worker.assert_not_called()
+        self.assertEqual(self.service.store.get('event', event['id'])['analysis']['reason'],
+                         'reference_required_above_800_mhz')
+        self.assertEqual(self.workers.active_count, 0)
+
+    def test_explicit_simulation_remains_eligible_and_physical_originals_cannot_claim_simulation(self):
+        project = self.project
+        for i in range(20):
+            self.original(project, i, 900_000_000, adapter='tinysa-serial')
+        self.assertFalse(self.service.baseline_collection(project)['ready'])
+        with self.assertRaises(ValueError):
+            self.confirm(project)
+        for i in range(20, 40):
+            self.original(project, i, 900_000_000, adapter='tinysa-sim')
+        self.assertEqual(len(self.confirm(project)['source_refs']), 20)
+        self.original(project, 40, 900_000_000, adapter='tinysa-sim', peak=3)
+        self.assertEqual(self.service.analyze(project['id'])['events_updated'], 1)
+
+    def test_indexed_sampling_still_checks_geometry_of_each_original_selected_for_the_reference(self):
+        project = self.serial_project()
+        for i in range(20):
+            self.original(project, i, 900_000_000)
+        # Emulate an inconsistent index in an imported archive. The original is authoritative.
+        store = self.sessions._store
+        with store._lock, store._connection:
+            store._connection.execute('UPDATE monitoring_sweep_index SET min_hz=700000000,max_hz=700080000')
+        with self.assertRaises(ValueError):
+            self.confirm(project)
+        self.assertIsNone(self.service.project(project['id'])['baseline_id'])
+        self.assertEqual(self.service.history_original(project['id'], 'sweep-19')['frequencies_hz'][0], 900_000_000)
+
+    def test_memory_collection_filters_crossing_originals_before_sampling(self):
+        sessions = SessionService()
+        workers = DeviceWorkerManager(sessions)
+        service = MonitoringService(sessions, workers)
+        self.addCleanup(sessions.close)
+        self.addCleanup(workers.close)
+        self.addCleanup(service.close)
+        session = sessions.create_session(monitoring_serial_session())
+        project = service.create(dict(name='Memory', site='Fixture', session_id=session.id))
+        for i in range(40):
+            raw = sweep(i, session=session.id, stream=project['analyzer_stream_id'])
+            start = 799_920_000 if i % 2 == 0 else 799_990_000
+            raw.frequencies_hz = tuple(start+10_000*j for j in range(9))
+            sessions.ingest_sweep(raw)
+        self.assertEqual(service.baseline_collection(project)['sweeps'], 20)
+        baseline = service.create_baseline(project['id'], dict(name='Memory', location='Fixture', confirm=True))
+        self.assertEqual(len(baseline['source_refs']), 20)
+        self.assertEqual(baseline['frequencies_hz'][-1], 800_000_000)
