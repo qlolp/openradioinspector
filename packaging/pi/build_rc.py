@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools import build_modern_web
 from tools.release import native_notices
+from tools.release.operator_manual import stage_manual
 from tools.release.macos_rc_package import digest
 
 PACKAGE = 'openradioinspector-pi-rc'
@@ -101,7 +102,7 @@ def install_file(source, path, executable=False):
 
 
 def assemble(stage, output, debian_revision, env, build):
-    version = f'0.4.0~rc.1-{debian_revision}'
+    version = build['release_version'].replace('-rc.', '~rc.') + f'-{debian_revision}'
     evidence = dict(build, debian_version=version)
     manifest = stage / DOC / 'release.json'
     native_notices.write_json(manifest, evidence)
@@ -144,7 +145,7 @@ def assemble(stage, output, debian_revision, env, build):
         products.rename(output)
 
 
-def build_rc(output, rehearsal=None):
+def build_rc(output, rehearsal=None, *, distribution=False):
     if platform.system() != 'Linux':
         raise ValueError('Building a Debian candidate requires Linux and dpkg-deb')
     destinations = [output] + ([rehearsal] if rehearsal else [])
@@ -184,23 +185,30 @@ def build_rc(output, rehearsal=None):
             f'u ori-pi-rc - "OpenRadioInspector Pi RC" /var/lib/{PACKAGE} /usr/sbin/nologin\n', encoding='ascii')
         install_file(ROOT / 'LICENSE', stage / DOC / 'copyright')
         install_file(ROOT / 'docs/pi-rc1.md', stage / DOC / 'README.md')
+        manual = stage_manual(ROOT, stage / DOC / 'operator-guide')
         native_notices.collect(stage / DOC / 'notices', TARGET, metadata=metadata)
         if revision() != source:
             raise ValueError('Build source changed during packaging')
-        evidence = dict(schema_version=1, release_version=RELEASE, source_revision=source, target=TARGET,
+        evidence = dict(schema_version=1, release_version='0.4.0' if distribution else RELEASE, source_revision=source, target=TARGET, manual_sha256=manual,
                         supported_os='64-bit Raspberry Pi OS (Debian 12 or later)', components=components,
                         cargo_lock_sha256=digest(ROOT / 'Cargo.lock'), npm_lock_sha256=digest(ROOT / 'clients/web/package-lock.json'),
                         license_manifest_sha256=digest(stage / DOC / 'notices/licenses.json'), toolchains={'rust': rust, 'node': node},
                         web_assets={f'/modern/{name}': digest(web / name) for name in ui},
                         hardware_validation='not_run', pi_performance='not_run')
         for index, directory in enumerate(destinations, 1):
-            assemble(stage, directory, index, env, evidence)
+            if distribution and directory == rehearsal:
+                # The lifecycle VM installs this private RC before the final DEB.
+                assemble(stage, directory, 1, env, dict(evidence, release_version=RELEASE))
+            else:
+                assemble(stage, directory, index, env, evidence)
         print(f'{source}  {output}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--rehearsal-dir', type=Path, help='Also make a private second Debian revision for lifecycle testing')
+    parser.add_argument('--rehearsal-dir', type=Path, help='Also build a private upgrade fixture (the preceding RC when freezing 0.4.0)')
+    parser.add_argument('--distribution', action='store_true', help='Freeze an internally versioned 0.4.0 DEB')
     args = parser.parse_args()
-    build_rc(args.output_dir.absolute(), args.rehearsal_dir.absolute() if args.rehearsal_dir else None)
+    build_rc(args.output_dir.absolute(), args.rehearsal_dir.absolute() if args.rehearsal_dir else None,
+             distribution=args.distribution)

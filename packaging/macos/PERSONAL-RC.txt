@@ -24,3 +24,5 @@ candidate. Software checks, full 30-minute offered-load acceptance and eight
 hours with tinySA Ultra + AR-DV1 on the actual Mac are distinct gates. A hosted
 build or synthetic check does not constitute hardware acceptance. Weekly
 standalone testing remains required before claiming proven 24/7 operation.
+
+The offline operator guide is inside the copied app at Contents/Resources/operator-guide/index.html.

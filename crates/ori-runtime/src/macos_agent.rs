@@ -175,7 +175,10 @@ pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
     let source = value["source_revision"].as_str().unwrap_or("");
     if value["schema_version"] != 1
-        || value["release_version"] != "0.4.0-macos.rc.1"
+        || !matches!(
+            value["release_version"].as_str(),
+            Some("0.4.0-macos.rc.1" | "0.4.0")
+        )
         || value["bundle_identifier"] != "org.openradioinspector.macos.rc"
         || value["architecture"] != "arm64"
         || source.len() != 40

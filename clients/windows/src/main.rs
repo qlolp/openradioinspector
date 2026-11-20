@@ -392,7 +392,7 @@ fn main() {
         println!(
             "{}",
             serde_json::json!({"schema_version":1,"component":"openradioinspector-windows",
-            "version":env!("CARGO_PKG_VERSION"),"target_arch":std::env::consts::ARCH,"target_os":"windows",
+            "version":option_env!("ORI_INSTALLER_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),"target_arch":std::env::consts::ARCH,"target_os":"windows",
             "source_revision":option_env!("ORI_BUILD_SOURCE_SHA")})
         );
         return;

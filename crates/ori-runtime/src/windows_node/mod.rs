@@ -6,7 +6,7 @@ use pipe::Endpoint;
 use crate::{
     Error, Result,
     lease::{InstanceLease, WriterLease, read_private, state_directory},
-    process::windows_job::JobChild,
+    process::windows_job::{JobChild, WindowsProcess},
     service::{AdminCommand, ServiceConfig},
     supervisor::{BackendSpec, Supervisor},
 };
@@ -52,7 +52,10 @@ fn configuration(data: &Path, installation: &Path) -> Result<ServiceConfig> {
     if source.len() != 40
         || !source.bytes().all(|b| b.is_ascii_hexdigit())
         || manifest["schema_version"] != 1
-        || manifest["release_version"] != "0.4.0-rc.1"
+        || !matches!(
+            manifest["release_version"].as_str(),
+            Some("0.4.0-rc.1" | "0.4.0")
+        )
         || manifest["target"] != "x86_64-pc-windows-msvc"
         || manifest["source_revision"] != source
     {
@@ -279,19 +282,15 @@ async fn start(data: &Path) -> Result<Value> {
     if pipe::exists(data, Endpoint::Generic)? {
         return Err(Error::Busy);
     }
-    let mut child = Command::new(std::env::current_exe()?)
-        .args(["windows-node", "run"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let child = WindowsProcess::launch_controller(
+        Command::new(std::env::current_exe()?).args(["windows-node", "run"]),
+    )?;
     let deadline = Instant::now() + Duration::from_secs(70);
     loop {
         if let Some(value) = status(data).await? {
             return Ok(value);
         }
-        if child.try_wait()?.is_some() {
+        if child.exited()? {
             // A concurrent launch can own the lease while still binding its pipe.
             match InstanceLease::acquire(data) {
                 Err(Error::Busy) => {}

@@ -24,6 +24,12 @@ fn bundle_identity_binds_helpers_and_refuses_changed_or_mixed_components() {
         bundled_backend_id(&app).unwrap(),
         format!("macos-rc1-{:x}", Sha256::digest(&bytes))
     );
+    for (version, valid) in [("0.4.0", true), ("0.4.1", false)] {
+        let mut metadata_value = original.clone();
+        metadata_value["release_version"] = serde_json::json!(version);
+        std::fs::write(&metadata, serde_json::to_vec(&metadata_value).unwrap()).unwrap();
+        assert_eq!(bundled_backend_id(&app).is_ok(), valid);
+    }
     let mut mixed = original.clone();
     mixed["components"]["ori-core"]["source_revision"] = serde_json::json!("b".repeat(40));
     std::fs::write(&metadata, serde_json::to_vec(&mixed).unwrap()).unwrap();
