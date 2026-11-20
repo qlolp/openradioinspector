@@ -177,8 +177,17 @@ public static class OwnedTauriWindow {
     }
     $stage = 'connect_private_replay'
     if ($ReplayOrigin -cnotmatch '^http://127\.0\.0\.1:[1-9][0-9]{0,4}$') { throw 'invalid_replay_origin' }
+    $entry.SetFocus()
     $value.SetValue($ReplayOrigin)
-    if ($value.Current.Value -cne $ReplayOrigin) { throw 'fixture_address_not_set' }
+    # WebView2 publishes the accessibility tree asynchronously after React updates the input.
+    $editWait = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $entry = Wait-Named 'Адрес узла ядра' $type::Edit
+        $readback = $entry.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+        if ($readback -ceq $ReplayOrigin) { break }
+        Start-Sleep -Milliseconds 150
+    } while ($editWait.Elapsed.TotalSeconds -lt 5)
+    if ($readback -cne $ReplayOrigin) { throw 'fixture_address_not_set' }
     (Wait-Named 'Подключиться к узлу' $type::Button).GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     $stage = 'confirm_fixture_loopback'
     (Wait-Named 'Я выбираю совместимость с локальным ядром HTTP' $type::CheckBox).GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
