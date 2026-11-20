@@ -254,6 +254,9 @@ fn absent(path: &Path) -> Result<()> {
 }
 fn restore_destination(path: &Path) -> Result<()> {
     absent(path)?;
+    absent_sidecars(path)
+}
+fn absent_sidecars(path: &Path) -> Result<()> {
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut sidecar = path.as_os_str().to_owned();
         sidecar.push(suffix);
@@ -619,19 +622,51 @@ pub async fn init_compact_archive(destination: &Path) -> Result<()> {
 
 /// Online snapshot followed by offline materialization, keeping the input and any live WAL intact.
 pub fn materialize_archive(source: &Path, destination: &Path) -> Result<()> {
+    materialize(source, destination, false)
+}
+
+/// Checkpoint an exclusively owned, stopped source so its main file can be moved independently.
+pub fn materialize_stopped_archive(source: &Path, destination: &Path) -> Result<()> {
+    materialize(source, destination, true)
+}
+
+fn materialize(source: &Path, destination: &Path, stopped: bool) -> Result<()> {
     let staging = copy_staging(destination, ".ori-materialize-")?;
     let target = staging.path().join("archive.sqlite");
-    {
-        let original = db_open(source)?;
-        original.execute_batch("BEGIN")?;
-        let (main, _, _) = schema::versions(&original)?;
-        if main != schema::MAIN_VERSION && main != crate::panorama_events::VERSION {
-            return Err(crate::error::invalid(
-                "materialization requires archive schema 6 or 7",
-            ));
-        }
-        copy_snapshot(&original, &target, None, &mut Budget::new())?;
+    let original = if stopped {
+        let db = Connection::open_with_flags(
+            source,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        schema::functions(&db)?;
+        db.busy_timeout(Duration::ZERO)?;
+        // Attach SQLite's normal shared-memory WAL index first. Entering exclusive mode
+        // before the first read uses a heap index and can leave an existing SHM orphaned.
+        db.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))?;
+        db.execute_batch("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE; COMMIT")?;
+        db
+    } else {
+        db_open(source)?
+    };
+    original.execute_batch("BEGIN")?;
+    let (main, _, _) = schema::versions(&original)?;
+    if main != schema::MAIN_VERSION && main != crate::panorama_events::VERSION {
+        return Err(crate::error::invalid(
+            "materialization requires archive schema 6 or 7",
+        ));
     }
+    copy_snapshot(&original, &target, None, &mut Budget::new())?;
+    original.execute_batch("ROLLBACK")?;
+    // An online reader only needs the snapshot during the copy. A stopped source stays
+    // exclusively locked throughout verification of its replacement.
+    let stopped_source = if stopped {
+        Some(original)
+    } else {
+        original
+            .close()
+            .map_err(|(_, err)| ArchiveError::Sql(err))?;
+        None
+    };
     let mut db = Connection::open(&target)?;
     schema::functions(&db)?;
     db.execute_batch("PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON")?;
@@ -641,6 +676,20 @@ pub fn materialize_archive(source: &Path, destination: &Path) -> Result<()> {
     tx.commit()?;
     integrity(&db)?;
     db.close().map_err(|(_, err)| ArchiveError::Sql(err))?;
+    if let Some(original) = stopped_source {
+        let (busy, frames, copied): (i64, i64, i64) =
+            original.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+        // SQLite returns -1/-1 for a database already in rollback-journal mode.
+        if !matches!((busy, frames, copied), (0, 0, 0) | (0, -1, -1)) {
+            return Err(ArchiveError::AlreadyOpen);
+        }
+        original
+            .close()
+            .map_err(|(_, err)| ArchiveError::Sql(err))?;
+        absent_sidecars(source)?;
+    }
     publish_copy(&target, destination)
 }
 

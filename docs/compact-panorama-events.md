@@ -31,6 +31,8 @@ Stop the node to establish a final cutover watermark. A live materialization cap
 ori-core archive-materialize /private/node/sessions.sqlite3 /private/rollback/sessions-v6.sqlite3
 ```
 
+For a stopped archive whose main file will be renamed, pass `archive-materialize --stopped SOURCE.sqlite NEW.sqlite`. This mode needs write access to the source. SQLite takes an exclusive lock, copies the committed snapshot, checkpoints the WAL and closes its own sidecars. A competing reader or writer can prevent the operation. Keep the service stopped through the final replacement. The source retains its original schema and the destination uses v6.
+
 The Python equivalent is `python -m radioinspector.panorama_events materialize SOURCE.sqlite NEW.sqlite`. Both commands make a private staged copy, materialize every referenced event, remove the reference column, set schema 6, run integrity checks, sync the standalone database and publish it exclusively. Publication uses same-filesystem hard links and requires support in the destination directory, as on ext4 and NTFS. Source rows and source WAL contents stay under SQLite's ownership. An invalid reference, existing output or stale output sidecar aborts the operation. Select the new database when starting the previous core.
 
 A private recovery bundle preserves its source schema and credentials. Restoring a schema-7 bundle produces a schema-7 archive for the updated readers. Portable SQLite export materializes events as schema 6 and applies its existing credential and automatic-action sanitization. The research worker accepts sealed schema-6 and marked schema-7 recovery snapshots and reads canonical source vectors directly.

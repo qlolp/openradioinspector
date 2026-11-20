@@ -114,7 +114,7 @@ fn options() -> Result<Option<Options>> {
                 "--legacy-library DIR restricts explicit legacy PAN selection. Its scientific worker inherits the configured analysis interpreter and uses the installed radioinspector.legacy_rpc module."
             );
             println!(
-                "ori-core archive-init-compact NEW.sqlite\nori-core archive-materialize SOURCE.sqlite NEW.sqlite"
+                "ori-core archive-init-compact NEW.sqlite\nori-core archive-materialize [--stopped] SOURCE.sqlite NEW.sqlite"
             );
             return Ok(None);
         }
@@ -354,12 +354,22 @@ async fn execute() -> Result<()> {
             return Ok(());
         }
         Some("archive-materialize") => {
-            let [_, source, destination] = args.as_slice() else {
-                return Err(CoreError::Invalid(
-                    "archive-materialize SOURCE.sqlite NEW.sqlite",
-                ));
-            };
-            ori_archive::materialize_archive(Path::new(source), Path::new(destination))?;
+            match args.as_slice() {
+                [_, source, destination] => {
+                    ori_archive::materialize_archive(Path::new(source), Path::new(destination))?;
+                }
+                [_, flag, source, destination] if flag == "--stopped" => {
+                    ori_archive::materialize_stopped_archive(
+                        Path::new(source),
+                        Path::new(destination),
+                    )?;
+                }
+                _ => {
+                    return Err(CoreError::Invalid(
+                        "archive-materialize [--stopped] SOURCE.sqlite NEW.sqlite",
+                    ));
+                }
+            }
             return Ok(());
         }
         _ => {}

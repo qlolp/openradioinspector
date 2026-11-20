@@ -1,6 +1,6 @@
 use ori_archive::{
     Archive, ArchiveConfig, EventDraft, Mutation, init_compact_archive, materialize_archive,
-    restore_backup, verify_backup,
+    materialize_stopped_archive, restore_backup, verify_backup,
 };
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -44,6 +44,70 @@ fn python(script: &str, paths: &[&Path]) -> Vec<u8> {
         String::from_utf8_lossy(&output.stderr)
     );
     output.stdout
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stopped_export_preserves_committed_wal_and_refuses_a_pinned_reader() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("source.sqlite");
+    let converted = temp.path().join("converted.sqlite");
+    init_compact_archive(&source).await.unwrap();
+    let archive = Archive::open(ArchiveConfig::new(&source)).unwrap();
+    let mut session = fixture()["session"].clone();
+    session["created_at"] = json!("2026-11-11T00:00:00Z");
+    archive.create_session(session).await.unwrap();
+    archive
+        .append_sweeps(vec![fixture()["sweep"].clone()])
+        .await
+        .unwrap();
+    let events = archive.events(0, 20).await.unwrap();
+    archive.close().await.unwrap();
+
+    // Put a committed page solely in the WAL even if background maintenance just ran.
+    let writer = Connection::open(&source).unwrap();
+    writer
+        .set_db_config(
+            rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+            true,
+        )
+        .unwrap();
+    writer
+        .execute_batch("PRAGMA wal_autocheckpoint=0; PRAGMA application_id=424242")
+        .unwrap();
+    writer.close().unwrap();
+    let wal = temp.path().join("source.sqlite-wal");
+    assert!(fs::metadata(&wal).unwrap().len() > 32);
+    let pinned =
+        Connection::open_with_flags(&source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    pinned
+        .execute_batch("BEGIN; SELECT COUNT(*) FROM events")
+        .unwrap();
+    assert!(materialize_stopped_archive(&source, &converted).is_err());
+    assert!(!converted.exists());
+    assert!(fs::metadata(&wal).unwrap().len() > 32);
+    pinned.close().unwrap();
+
+    materialize_stopped_archive(&source, &converted).unwrap();
+    for (name, file, version) in [("source", &source, 7), ("converted", &converted, 6)] {
+        for suffix in ["-wal", "-shm", "-journal"] {
+            assert!(!temp.path().join(format!("{name}.sqlite{suffix}")).exists());
+        }
+        // Open the main file alone in a new directory, just as the old package would.
+        let directory = tempfile::tempdir().unwrap();
+        let standalone = directory.path().join("sessions.sqlite3");
+        fs::copy(file, &standalone).unwrap();
+        inspect(&standalone, version);
+        let db = Connection::open(&standalone).unwrap();
+        assert_eq!(
+            db.query_row("PRAGMA application_id", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            424242
+        );
+        db.close().unwrap();
+        let checked = Archive::open(ArchiveConfig::new(&standalone)).unwrap();
+        assert_eq!(checked.events(0, 20).await.unwrap(), events);
+        checked.close().await.unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

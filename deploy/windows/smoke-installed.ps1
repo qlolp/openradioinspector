@@ -321,16 +321,29 @@ try {
     Invoke-Node 'shutdown' | Out-Null
     Enter-SmokePhase 'materialize_v6'
     $previous = Join-Path $data 'smoke-format-v6.sqlite3'
-    & $core archive-materialize (Join-Path $data 'sessions.sqlite3') $previous
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previous)) { throw 'Installed compatibility export failed' }
-    # Only this test's freshly created files are used. Preserve the v7 source.
     $database = Join-Path $data 'sessions.sqlite3'
-    foreach ($suffix in @('-wal','-shm','-journal')) {
-        if (Test-Path -LiteralPath ($database + $suffix)) { throw 'Source archive has live sidecars' }
+    $savedV7 = Join-Path $data 'smoke-source-v7.sqlite3'
+    $leases = @()
+    try {
+        # The installed controller opens these files for its instance and writer leases.
+        # Deny that open throughout export and replacement, including the handoff after SQLite closes.
+        foreach ($name in @('instance.lock', 'writer.lock')) {
+            $lock = Join-Path (Join-Path $data '.ori-runtime') $name
+            $leases += [IO.File]::Open($lock, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        }
+        & $core archive-materialize --stopped $database $previous
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $previous)) { throw 'Installed compatibility export failed' }
+        if (Test-Path -LiteralPath $savedV7) { throw 'Previous archive backup already exists' }
+        foreach ($path in @($database, $previous, $savedV7)) {
+            foreach ($suffix in @('-wal','-shm','-journal')) {
+                if (Test-Path -LiteralPath ($path + $suffix)) { throw 'Archive swap encountered a live sidecar' }
+            }
+        }
+        Enter-SmokePhase 'open_existing_v6'
+        [IO.File]::Replace($previous, $database, $savedV7)
+    } finally {
+        foreach ($lease in $leases) { $lease.Dispose() }
     }
-    Enter-SmokePhase 'open_existing_v6'
-    Move-Item -LiteralPath $database -Destination (Join-Path $data 'smoke-source-v7.sqlite3')
-    Move-Item -LiteralPath $previous -Destination $database
     Enter-SmokePhase 'uninstall_preserving_data'
     Invoke-Node 'register' | Out-Null
     Uninstall-TestPackage
