@@ -114,6 +114,64 @@
           "waterfall_rows": 96
         }
       ]
+    },
+    {
+      "client": "Installed OpenRadioInspector Tauri/WebView2 operator application",
+      "host": "GitHub-hosted Windows x64, build 26100",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "release_version": "0.4.0-rc.1",
+      "delivery": "Per-user NSIS engineering installer on a disposable Windows user profile",
+      "installer_sha256": "cb794578c9692290765e50dcb00a86afa073ad8dc4d438c9c6a88fbea0dc46bf",
+      "installed_exe_sha256": "232991b759ef00eb68b46c8f42c9700e6d4e595976c4add66f82c447909adfab",
+      "installed_core_sha256": "f17dc6979fe73c411e9fa648a0f4b709a84f9c46e0d7982b7c36a707a8779ef4",
+      "authenticode": {
+        "desktop": {
+          "type": "None",
+          "timestamp_signer_thumbprint": null,
+          "valid": false,
+          "status": "NotSigned",
+          "signer_thumbprint": null
+        },
+        "installer": {
+          "type": "None",
+          "timestamp_signer_thumbprint": null,
+          "valid": false,
+          "status": "NotSigned",
+          "signer_thumbprint": null
+        }
+      },
+      "github_run_id": 44649053859,
+      "github_artifact_id": 14590977304,
+      "proof_archive_sha256": "0f3edfb6f9cda0494b647607efa8d6a0f876b12b28f6c6cef2b165ab08f17bf8",
+      "source": {
+        "source": "deploy/windows/operator-window-fixture.json",
+        "sha256": "dda353e8ff4effc63971e09a2b43c500b72bf91ee337398feb687f86f458be26",
+        "mode": "replay",
+        "adapters": [
+          "tinysa-sim",
+          "ardv1-sim"
+        ],
+        "verified_sweeps": 16,
+        "verified_observations": 4,
+        "serial_adapters_enabled": false,
+        "generator_output": "off"
+      },
+      "capture": "PrintWindow(PW_RENDERFULLCONTENT); installed application main HWND only",
+      "captures": [
+        {
+          "file": "images/windows-installed-connection.png",
+          "sha256": "b3834987ce248807c5b2f07d2e60ef093f17676aa206432eb72afbbf94dd3f7e",
+          "pixels": [
+            1366,
+            768
+          ],
+          "dpi": 96,
+          "theme": "light",
+          "scenario": "fresh_install_connection",
+          "requested_scenario": "monitoring",
+          "monitoring_unavailable_reason": "connect_private_replay_fixture_address_not_set"
+        }
+      ]
     }
   ]
 }
