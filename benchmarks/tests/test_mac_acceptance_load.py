@@ -13,6 +13,12 @@ from benchmarks.tests.test_benchmarks import http_fixture
 
 class NativeLoadReadinessTests(unittest.TestCase):
     def test_unpublished_ui_process_status_waits_until_observed_exit(self):
+        self.assert_load_waits_for_display({})
+
+    def test_native_load_can_respect_system_sleep_and_still_requires_a_visible_frame(self):
+        self.assert_load_waits_for_display({'respect_system_sleep': True})
+
+    def assert_load_waits_for_display(self, options):
         from benchmarks.ori_bench.mac_acceptance import load
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
@@ -31,9 +37,16 @@ class NativeLoadReadinessTests(unittest.TestCase):
                 with patch.object(load,'host',return_value=dict(system='Darwin',architecture='arm64',macos_version='27.3',memory_bytes=16*1024**3)),\
                      patch.object(load.shutil,'disk_usage',return_value=SimpleNamespace(free=1<<40)),\
                      patch.object(load,'bundle_identity',return_value=identity),\
-                     patch.object(load.subprocess,'run'),patch.object(load.subprocess,'Popen',return_value=awake),\
+                     patch.object(load.subprocess,'run'),patch.object(load.subprocess,'Popen',return_value=awake) as power_process,\
                      patch.object(load,'PackageNode',return_value=node),patch.object(load,'NativeWindow',return_value=window):
-                    report,status=load.run_load(root/'RC.app',root/'manifest.json',root/'result',smoke_seconds=1)
+                    report,status=load.run_load(root/'RC.app',root/'manifest.json',root/'result',smoke_seconds=1, **options)
+                if options.get('respect_system_sleep'):
+                    power_process.assert_not_called()
+                    self.assertEqual(report['requested_power_policy'], 'system')
+                else:
+                    self.assertEqual(power_process.call_args.args[0],
+                                     ['/usr/bin/caffeinate', '-dims', '-w', str(os.getpid())])
+                    self.assertEqual(report['requested_power_policy'], 'prevent_idle_sleep')
                 self.assertEqual(status,1)
                 self.assertEqual(report['errors'][0]['code'],'native_unavailable',report['errors'])
                 self.assertFalse(report['point2_passed'])

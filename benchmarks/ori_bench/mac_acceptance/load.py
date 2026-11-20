@@ -128,12 +128,12 @@ def closed_native_evidence(config,node,native,controller,warm_ids,identity):
         expected_ids=[identifier(config,'sweep',i) for i in range(config.planned_counts()['sweep'])])
 
 
-def run_load(app,manifest,output,*,smoke_seconds=None,transport='auto'):
+def run_load(app,manifest,output,*,smoke_seconds=None,transport='auto',respect_system_sleep=False):
     root=output_directory(output).resolve(strict=True)
     report=dict(schema_version=1,profile='macos-final-load',successful=False,point2_passed=False,
                 point4_passed=False,hardware_tested=False,errors=[],host=host(),
                 started_at=datetime.now(timezone.utc).isoformat(),smoke_only=smoke_seconds is not None,
-                requested_transport=transport,
+                requested_transport=transport,requested_power_policy='system' if respect_system_sleep else 'prevent_idle_sleep',
                 components={key:{'status':'not_run'} for key in
                     ('production','native','resources','online_backup','final_backup','restore','cleanup')})
     node=window=background=queue=events=awake=None
@@ -166,10 +166,11 @@ def run_load(app,manifest,output,*,smoke_seconds=None,transport='auto'):
         events=Events(root/'controller.jsonl',run_id)
         window=NativeWindow(app,native,profile);window.start()
         report['components']['native']['status']='running'
-        # The power assertion belongs to this synthetic load only. Never mask
-        # the service's own idle-sleep behavior in the physical acceptance.
-        awake=subprocess.Popen(['/usr/bin/caffeinate','-dimsu','-w',str(config.pids['owned_node_tree'])],stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        # Only inhibit idle sleep during an operator-selected synthetic load.
+        # Declaring user activity (-u) could wake a display that is already asleep.
+        if not respect_system_sleep:
+            awake=subprocess.Popen(['/usr/bin/caffeinate','-dims','-w',str(config.pids['owned_node_tree'])],
+                                   stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         warm_ids=[]
         for index in range(120):
             item=sweep(warm,index);warm_ids.append(item['id'])

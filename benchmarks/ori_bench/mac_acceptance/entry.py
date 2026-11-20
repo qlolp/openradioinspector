@@ -116,6 +116,8 @@ def main(argv=None):
     parser.add_argument('--load-report',type=Path)
     parser.add_argument('--companion-load-report',type=Path)
     parser.add_argument('--transport',choices=['auto','sse','binary-v1'],default='auto')
+    parser.add_argument('--respect-system-sleep',action='store_true',
+                        help='Use the current macOS sleep policy during synthetic loads, including the companion transport')
     parser.add_argument('--device-port',action='append',default=[])
     parser.add_argument('--allow-million',action='store_true')
     parser.add_argument('--self-check',action='store_true')
@@ -167,12 +169,14 @@ def main(argv=None):
         elif phase in ('load','all','smoke'):
             destination=root/'load'
             print('Оставьте окно графика видимым и неподвижным. Разрешите тестовую запись экрана: сохраняется только время показа маркера, без снимков.',flush=True)
-            report,status=run_load(args.app,manifest,root/'load',smoke_seconds=60 if phase=='smoke' else None,transport=args.transport)
+            report,status=run_load(args.app,manifest,root/'load',smoke_seconds=60 if phase=='smoke' else None,
+                                   transport=args.transport,respect_system_sleep=args.respect_system_sleep)
             report,status=record(report,destination)
             if phase=='all' and status==0 and report['point2_passed']:
                 other='sse' if report.get('actual_transports')==['binary-v1'] else 'binary-v1'
                 destination=root/'load-companion'
-                report,status=run_load(args.app,manifest,root/'load-companion',transport=other)
+                report,status=run_load(args.app,manifest,root/'load-companion',transport=other,
+                                       respect_system_sleep=args.respect_system_sleep)
                 report,status=record(report,destination)
                 if status==0 and report['point2_passed']:
                     destination=root/'hardware'
