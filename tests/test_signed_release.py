@@ -2,6 +2,7 @@
 import base64
 from contextlib import closing
 import copy
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -297,9 +298,18 @@ class PublicationTests(unittest.TestCase):
             gate.validate_receipt(form, 'pi', REV, HASH, HASH, 42)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            listing = b'100644 blob cafe\tdocs/operator-guide/index.html\x00100644 blob face\tdocs/operator-guide/images/screen.png\x00'
-            for i, src in enumerate(('./images/screen.png', 'https://example.invalid/remote.png', '../private.png')):
-                content = {'cafe': f'<img src="{src}">'.encode(), 'face': b'controlled screenshot'}
+            listing = (b'100644 blob cafe\tdocs/operator-guide/index.html\x00'
+                       b'100644 blob face\tdocs/operator-guide/images/screen.png\x00'
+                       b'100644 blob fade\tdocs/operator-guide/captures.json\x00')
+            original = b'controlled screenshot'
+            recorded = {'file': 'images/screen.png', 'sha256': sha256(original).hexdigest()}
+            cases = [('./images/screen.png', [recorded]), ('https://example.invalid/remote.png', [recorded]),
+                     ('../private.png', [recorded]), ('images/screen.png', [dict(recorded, sha256='0' * 64)]),
+                     ('images/screen.png', []), ('images/screen.png', [recorded, recorded])]
+            for i, (src, captures) in enumerate(cases):
+                provenance = {'version': 1, 'groups': [{'captures': captures}]}
+                content = {'cafe': f'<img src="{src}">'.encode(), 'face': original,
+                           'fade': json.dumps(provenance).encode()}
                 def git(args, cwd):
                     return listing if 'ls-tree' in args else content[args[-1]]
                 with patch('tools.release.operator_manual.subprocess.check_output', side_effect=git):

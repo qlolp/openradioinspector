@@ -51,4 +51,15 @@ def stage_manual(root, destination):
         if (url.scheme or url.netloc or url.query or not url.path or '\\' in url.path
                 or '..' in PurePosixPath(url.path).parts or PurePosixPath(url.path).as_posix() not in hashes):
             raise ValueError('operator guide references content outside the bundled files')
+    shown = {PurePosixPath(urlsplit(src).path).as_posix() for src in guide.images}
+    documented = set()
+    inventory = json.loads((destination / 'captures.json').read_text(encoding='utf-8'))
+    for group in inventory['groups']:
+        for capture in group['captures']:
+            name = capture['file']
+            if name in documented or name not in shown or capture['sha256'] != hashes[name]:
+                raise ValueError('screenshot or checksum differs from the capture inventory: ' + name)
+            documented.add(name)
+    if documented != shown:
+        raise ValueError('operator guide contains a screenshot without capture provenance')
     return hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()
