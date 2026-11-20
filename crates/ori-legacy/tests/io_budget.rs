@@ -380,6 +380,8 @@ async fn aborted_waiter_retains_post_child_budget_and_file_lock_until_actual_cle
         result = &mut close => panic!("closed while the SQL callback still owns its budget: {result:?}"),
         () = std::future::ready(()) => {}
     }
+    assert_eq!(controls.registrations.load(Ordering::SeqCst), 1);
+    assert!(with_spawn_exclusion(|| probe.try_lock()).is_err());
     release.send(()).unwrap();
     close.await.unwrap();
     assert_eq!(controls.registrations.load(Ordering::SeqCst), 0);

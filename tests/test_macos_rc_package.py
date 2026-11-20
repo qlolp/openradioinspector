@@ -1,14 +1,13 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+import plistlib
+import stat
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-import plistlib
-import os
-import stat
-from unittest import mock
 
 from tools.release import macos_rc_package as package
 
@@ -92,7 +91,7 @@ class MacOSRCPackageTests(unittest.TestCase):
             if path in executables:
                 return os.stat_result((result.st_mode | stat.S_IXUSR, *result[1:]))
             return result
-        patcher = mock.patch.object(Path, 'stat', autospec=True, side_effect=target_stat)
+        patcher = patch.object(Path, 'stat', autospec=True, side_effect=target_stat)
         patcher.start()
         self.addCleanup(patcher.stop)
         return app
@@ -200,6 +199,14 @@ class MacOSRCPackageTests(unittest.TestCase):
             info.pop('ORINativeAudioCapture',None)
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps(info))
             package.evidence(app,Path(directory)/'legacy-rc1-manifest.json')
+            signed = package.prepare(app, source, core, supervisor, {}, version='0.4.0')
+            self.assertEqual(signed['release_version'], '0.4.0')
+            self.assertEqual(signed['package_profile'], 'rc1')
+            signed_info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
+            self.assertNotIn('NSMicrophoneUsageDescription', signed_info)
+            package.evidence(app, Path(directory) / 'distribution-manifest.json')
+            with self.assertRaises(ValueError):
+                package.prepare(app, source, core, supervisor, {}, version='0.4.0', profile='rc2-audio')
 
     def test_evidence_rejects_ui_flags_which_disagree_with_the_admitted_profile(self):
         source='a'*40

@@ -11,6 +11,7 @@ mod model;
 mod outbox;
 mod panorama_events;
 mod queries;
+mod query_indexes;
 mod rows;
 mod schema;
 mod session_lifecycle;

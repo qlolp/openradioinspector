@@ -18,6 +18,7 @@ pub(crate) const KINDS: &[&str] = &[
     "scan-window-detector",
     "known-signal",
     "receiver-check",
+    "audio-mark",
 ];
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value
