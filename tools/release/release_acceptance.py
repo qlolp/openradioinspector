@@ -25,10 +25,21 @@ def number(value, low=0, high=math.inf):
 
 
 def validate_load(load, platform, profile):
-    keys(load, ['seconds', 'offered', 'archived', 'displays', 'offered_sweep_ids_sha256', 'reaction_p95_ms', 'queue_p95_ms',
+    keys(load, ['seconds', 'points_per_sweep', 'history_points_per_sweep', 'pcm_rate_hz', 'pcm_channels',
+                'online_history_verified', 'online_export_verified', 'online_backup_verified', 'offered', 'archived', 'displays', 'offered_sweep_ids_sha256', 'reaction_p95_ms', 'queue_p95_ms',
                 'commit_to_display_p95_ms', 'pan_min_fps', 'history_first_100_ms', 'history_sweeps',
                 'concurrent_clients', 'backup_restore_verified', 'report_sha256'], '30-minute run')
     counts = {'sweeps': 18000, 'observations': 18000, 'pcm_samples': 0 if platform == 'macos' else 86400000}
+    require(type(load['points_per_sweep']) is int and load['points_per_sweep'] == 4096
+            and type(load['history_points_per_sweep']) is int and load['history_points_per_sweep'] == 290,
+            'workload or million-sweep history uses the wrong point grid')
+    if platform == 'macos':
+        require(load['pcm_rate_hz'] is None and load['pcm_channels'] is None, 'Mac release profile excludes PCM')
+    else:
+        require(type(load['pcm_rate_hz']) is int and load['pcm_rate_hz'] == 48000
+                and type(load['pcm_channels']) is int and load['pcm_channels'] == 1, 'reference PCM must be mono 48 kHz')
+    require(all(load[k] is True for k in ('online_history_verified', 'online_export_verified', 'online_backup_verified')),
+            'history, export and backup must complete during acquisition')
     for field in ('offered', 'archived'):
         keys(load[field], counts, 'source totals')
         require(all(type(load[field][k]) is int and load[field][k] == n for k, n in counts.items()),

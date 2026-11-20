@@ -20,7 +20,8 @@ def template(platform, revision, artifact_hash, manifest_hash, run_id):
     loads = {}
     for name in profiles:
         displays = 3 if name == 'three-clients' else 1
-        loads[name] = dict(**blank('seconds offered_sweep_ids_sha256 reaction_p95_ms queue_p95_ms commit_to_display_p95_ms '
+        loads[name] = dict(**blank('seconds points_per_sweep history_points_per_sweep pcm_rate_hz pcm_channels online_history_verified '
+                                   'online_export_verified online_backup_verified offered_sweep_ids_sha256 reaction_p95_ms queue_p95_ms commit_to_display_p95_ms '
                                    'pan_min_fps history_first_100_ms history_sweeps backup_restore_verified report_sha256'),
                            offered=blank('sweeps observations pcm_samples'), archived=blank('sweeps observations pcm_samples'),
                            concurrent_clients=None, displays=[dict(client=n + 1, presented_sweeps=None, presented_sweep_ids_sha256=None)

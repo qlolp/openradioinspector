@@ -111,6 +111,9 @@ jobs:
             ${{ runner.temp }}/reference/report.json
             ${{ runner.temp }}/reference/producer/report.json
             ${{ runner.temp }}/reference/producer/observer.log
+            ${{ runner.temp }}/reference/producer/offers.sqlite
+            ${{ runner.temp }}/reference/producer/offers.sqlite-wal
+            ${{ runner.temp }}/reference/producer/render-events.ndjson
             ${{ runner.temp }}/reference/node-0/process.log
             ${{ runner.temp }}/reference/restored/receipt.json
           retention-days: 14

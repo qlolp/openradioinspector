@@ -19,7 +19,9 @@ HASH = 'e' * 64
 
 def receipt(platform):
     counts = {'sweeps': 18000, 'observations': 18000, 'pcm_samples': 0 if platform == 'macos' else 86400000}
-    work = {'seconds': 1800, 'offered': counts.copy(), 'archived': counts.copy(), 'offered_sweep_ids_sha256': HASH,
+    work = {'seconds': 1800, 'points_per_sweep': 4096, 'history_points_per_sweep': 290,
+            'pcm_rate_hz': None if platform == 'macos' else 48000, 'pcm_channels': None if platform == 'macos' else 1,
+            'online_history_verified': True, 'online_export_verified': True, 'online_backup_verified': True, 'offered': counts.copy(), 'archived': counts.copy(), 'offered_sweep_ids_sha256': HASH,
             'reaction_p95_ms': 100, 'queue_p95_ms': 200, 'commit_to_display_p95_ms': 250, 'pan_min_fps': 30,
             'history_first_100_ms': 500, 'history_sweeps': 1000000, 'concurrent_clients': 3,
             'backup_restore_verified': True, 'report_sha256': '1' * 64}
@@ -66,7 +68,9 @@ class ReceiptTests(unittest.TestCase):
                 (('protocol_passed',), False), (('hardware', 'seconds'), 28799),
                 (('hardware', 'physical'), 1), (('hardware', 'sweeps'), True),
                 (('hardware', 'devices'), ['simulator', 'AR-DV1']), (('hardware', 'unexplained_losses'), 1),
-                (('loads', transport, 'seconds'), 1799), (('loads', transport, 'reaction_p95_ms'), 100.01),
+                (('loads', transport, 'seconds'), 1799), (('loads', transport, 'points_per_sweep'), 290),
+                (('loads', transport, 'history_points_per_sweep'), 1), (('loads', transport, 'pcm_rate_hz'), 8000),
+                (('loads', transport, 'pcm_channels'), 2), (('loads', transport, 'online_export_verified'), False), (('loads', transport, 'reaction_p95_ms'), 100.01),
                 (('loads', transport, 'archived', 'sweeps'), 17999), (('loads', transport, 'displays', 0, 'presented_sweeps'), 17999),
                 (('loads', transport, 'queue_p95_ms'), float('nan')), (('software_runs',), {}),
                 (('loads', 'three-clients', 'displays'), valid['loads']['three-clients']['displays'][:2]),

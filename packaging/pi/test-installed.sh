@@ -35,8 +35,10 @@ dpkg --compare-versions "$(dpkg-deb -f "${rc[0]}" Version)" lt "$(dpkg-deb -f "$
 if [ "$#" -eq 5 ]; then
     node=$(realpath "$4")
     browser_cache=$(realpath "$5")
-    [ -x "$node" ] && [ -d "$browser_cache" ]
-    [ -n "${SUDO_USER:-}" ] && [ "$(id -u "$SUDO_USER")" -ne 0 ]
+    [ -x "$node" ]
+    [ -d "$browser_cache" ]
+    [ -n "${SUDO_USER:-}" ]
+    [ "$(id -u "$SUDO_USER")" -ne 0 ]
     capture=$(realpath "$(dirname "$checks")/../../clients/web/tests/capture-pi-installed.mjs")
     [ "$(dpkg-deb -f "${rc[0]}" Version)" = '0.4.0~rc.1-1' ]
     [ "$(dpkg-deb -f "${upgrade[0]}" Version)" = '0.4.0-1' ]
