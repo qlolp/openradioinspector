@@ -5,10 +5,12 @@ import Foundation
 let args = Array(CommandLine.arguments.dropFirst())
 guard args.count == 2 else { throw CocoaError(.coderInvalidValue) }
 let url = URL(fileURLWithPath: args[0]).resolvingSymlinksInPath()
-guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier,
-      NSRunningApplication.runningApplications(withBundleIdentifier: id).isEmpty else {
+guard let id = Bundle(url: url)?.bundleIdentifier else { throw CocoaError(.executableLoad) }
+let existing = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+guard !existing.contains(where: { $0.bundleURL?.resolvingSymlinksInPath().path == url.path }) else {
     throw CocoaError(.fileWriteFileExists)
 }
+let priorPIDs = Set(existing.map(\.processIdentifier))
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
 configuration.addsToRecentItems = false
@@ -19,7 +21,7 @@ let pid: pid_t = try await withCheckedThrowingContinuation { continuation in
         else { continuation.resume(throwing: error ?? CocoaError(.executableLoad)) }
     }
 }
-guard let application = NSRunningApplication(processIdentifier: pid),
+guard !priorPIDs.contains(pid), let application = NSRunningApplication(processIdentifier: pid),
       application.bundleURL?.resolvingSymlinksInPath().path == url.path else { throw CocoaError(.executableLoad) }
 let clock = ContinuousClock()
 let deadline = clock.now.advanced(by: .seconds(70))

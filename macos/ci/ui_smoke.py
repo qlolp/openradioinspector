@@ -87,12 +87,22 @@ def passed_cases(output, expected=CASES):
     return sorted(found)
 
 
-def confirm_idle_target(app):
+def confirm_idle_target(app, *, own_window=False):
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     bundle = info['CFBundleIdentifier']
-    check = ("ObjC.import('AppKit'); function run(args) { return "
-             "Number($.NSRunningApplication.runningApplicationsWithBundleIdentifier(args[0]).count) }")
-    if subprocess.check_output(['osascript', '-l', 'JavaScript', '-e', check, bundle], text=True).strip() != '0':
+    check = """ObjC.import('AppKit');
+    function run(args) {
+        const apps = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(args[0]);
+        if (args[2] !== 'own-window') return Number(apps.count);
+        for (let index = 0; index < apps.count; index++) {
+            const path = apps.objectAtIndex(index).bundleURL.URLByResolvingSymlinksInPath.path;
+            if (ObjC.unwrap(path) === args[1]) return 1;
+        }
+        return 0;
+    }"""
+    mode = 'own-window' if own_window else 'xcuitest'
+    if subprocess.check_output(['osascript', '-l', 'JavaScript', '-e', check, bundle, str(app.resolve()), mode],
+                               text=True).strip() != '0':
         raise ValueError('The target application is already running. Its active instance was left open.')
     facts = plistlib.loads(subprocess.check_output(['ioreg', '-n', 'Root', '-d1', '-a']))
     if isinstance(facts, list):
@@ -173,7 +183,7 @@ def main(argv=None):
                 '-jobs', '2', 'build-for-testing', 'CODE_SIGN_IDENTITY=-'], name='build-for-ui-testing',
                 environment=environment, directory=root, timeout=600)
         app = args.installed_app.resolve() if args.installed_app else derived / 'Build/Products/Debug/DvoynoyObzor.app'
-        info = confirm_idle_target(app)
+        info = confirm_idle_target(app, own_window=args.guide_only)
         executable = app / 'Contents/MacOS' / info['CFBundleExecutable']
         report['target'] = 'installed_bundle' if args.installed_app else 'xcode_debug_build'
         report['fixture'] = 'tests.ui_smoke_server'

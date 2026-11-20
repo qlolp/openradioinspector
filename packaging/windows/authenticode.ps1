@@ -16,8 +16,8 @@ function Test-ReleaseSigner($signature) {
     return $signature.SignerCertificate.Thumbprint -eq $fingerprint
 }
 $tsa = [uri]$env:ORI_WINDOWS_TIMESTAMP_URL
-if (-not $tsa.IsAbsoluteUri -or $tsa.Scheme -ne 'https' -or $tsa.UserInfo -or $tsa.Fragment -or $tsa.Query) {
-    throw 'Configure an HTTPS RFC 3161 timestamp service'
+if (-not $tsa.IsAbsoluteUri -or $tsa.Scheme -notin @('http', 'https') -or -not $tsa.Host -or $tsa.UserInfo -or $tsa.Fragment -or $tsa.Query) {
+    throw 'Configure the public HTTP(S) endpoint of the trusted RFC 3161 timestamp service'
 }
 $target = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
 $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
