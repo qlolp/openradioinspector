@@ -1,0 +1,29 @@
+OpenRadioInspector 0.4.0-macos.rc.2 — unaccepted personal audio candidate
+
+Apple Silicon / arm64. This optional package prepares post-RC1 audio testing.
+RC1 acceptance, target macOS 27.3, actual background microphone permissions,
+analogue wiring and the full audio workload remain separate open gates.
+It is not a public stable release and is not Developer-ID notarized.
+
+Use the same checksum, source-manifest and standard Gatekeeper procedure as RC1.
+Copy the app into /Applications and eject the DMG before starting the service.
+STOP the current service and wait for resource release before replacing the app.
+The archive location remains macOS-RC; switching packages must preserve new data.
+Do not restore an older archive over newer observations during rollback.
+
+The native audio backend is compiled and explicitly enabled in this profile.
+Starting the service does not select or open an audio input. Grant application
+microphone permission explicitly, then choose the core Mac's AR-DV1 analogue
+input and confirm its wiring in project preparation. A compatible exact mono
+PCM16 input is required by the current receive profile; unsupported float-only
+or multichannel formats are unavailable rather than silently converted/mixed.
+AR-DV1 USB control is not an audio source. Use its analogue output through a
+compatible Mac audio interface. Never choose a default microphone implicitly.
+
+Application permission is not evidence that the background LaunchAgent has
+permission or that recording works. Test the actual service before acceptance,
+including Command-Q, reopen, retune, device loss and permission revocation.
+Source errors remain visible and must not stop tinySA's independent coverage.
+
+Python/DuckDB analysis is not bundled. RF generation remains off in guard mode.
+Physical, full-load and week-long autonomous acceptance are not claimed.
