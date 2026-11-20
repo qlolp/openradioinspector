@@ -2,7 +2,7 @@
 //! archive coordinator and outside synchronous policy/runtime locks.
 use crate::{service::Ownership, util::*, *};
 use ori_archive::{EventDraft, Mutation};
-use ori_contracts::Session;
+use ori_contracts::{Session, UtcTimestamp};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -43,7 +43,9 @@ pub(crate) struct ProjectRuntime {
     pub stopped: bool,
     pub manual: BTreeMap<String, ManualLease>,
     pub claims: BTreeSet<(String, String)>,
-    pub receiver_busy: bool,
+    pub receiver_work: Option<crate::receiver::ReceiverWork>,
+    pub receiver_checks_done: BTreeSet<Option<String>>,
+    pub receiver_checks_resume_after: Option<UtcTimestamp>,
     pub error: Option<String>,
     pub warning: Option<String>,
     pub faults: BTreeMap<String, Option<String>>,
@@ -82,6 +84,8 @@ impl GuardService {
             token: r.token.clone(),
             epoch: r.epoch,
             expected_worker_instance: None,
+            event_dispatch: None,
+            idle_dispatch: None,
         }
     }
     pub(crate) fn target(r: &ProjectRuntime, stream: &str) -> ControlTarget {
@@ -96,6 +100,8 @@ impl GuardService {
             token: r.token.clone(),
             epoch: r.analyzer_epoch,
             expected_worker_instance: None,
+            event_dispatch: None,
+            idle_dispatch: None,
         }
     }
     pub(crate) fn sync_ownership(&self, id: &str, r: &ProjectRuntime) -> Result<()> {
@@ -200,6 +206,18 @@ impl GuardService {
         );
         Ok(())
     }
+    pub(crate) fn receiver_job_idle(&self, id: &str) -> Result<bool> {
+        let jobs = self
+            .jobs
+            .lock()
+            .map_err(|_| GuardError::Conflict("guard task lock failed".into()))?;
+        Ok(jobs
+            .get(&(id.to_owned(), JobKind::Receiver))
+            .is_none_or(|slot| {
+                slot.try_lock()
+                    .is_ok_and(|handle| handle.as_ref().is_none_or(JoinHandle::is_finished))
+            }))
+    }
     pub(crate) async fn drain_jobs(&self, id: Option<&str>) -> Result<()> {
         let keys = {
             let jobs = self
@@ -273,10 +291,21 @@ impl GuardService {
             if !stream["settings"].is_object() {
                 stream["settings"] = json!({});
             }
-            if !preparation && role == "receiver" {
-                stream["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
-                stream["settings"]["mode"] =
-                    p.get("receiver_mode").cloned().unwrap_or(json!("AUTO"));
+            if role == "receiver" {
+                // Guard clones use a retunable receiver for event investigations.
+                // An ordinary session may have used that port for a finite segment.
+                stream["settings"]
+                    .as_object_mut()
+                    .expect("receiver settings")
+                    .remove("fast_scan");
+                if !preparation {
+                    stream["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
+                    if stream["settings"]["adapter"] == "ardv1-serial" {
+                        stream["settings"]["monitoring_rx_readback"] = json!(true);
+                    }
+                    stream["settings"]["mode"] =
+                        p.get("receiver_mode").cloned().unwrap_or(json!("AUTO"));
+                }
             }
             if let Some(search) = search {
                 stream["settings"]
@@ -285,16 +314,26 @@ impl GuardService {
                     .remove("scan_plan");
                 let center = integer(search, "center_frequency_hz")?;
                 let span = integer(search, "span_hz")?;
-                stream["settings"]["start_hz"] = json!(
-                    center
-                        .checked_sub(span / 2)
-                        .ok_or_else(|| invalid("search frequency range"))?
-                );
-                stream["settings"]["stop_hz"] = json!(
-                    center
-                        .checked_add(span - span / 2)
-                        .ok_or_else(|| invalid("search frequency range"))?
-                );
+                let low = center
+                    .checked_sub(span / 2)
+                    .ok_or_else(|| invalid("search frequency range"))?;
+                let high = center
+                    .checked_add(span - span / 2)
+                    .ok_or_else(|| invalid("search frequency range"))?;
+                if let Some(plan) =
+                    crate::scan_plan::narrow_grid(p, search.get("scan_origin"), center, low, high)?
+                {
+                    let first = plan.bands[0].window(0).expect("validated narrow grid");
+                    stream["settings"]["scan_plan"] =
+                        json!({"schema_version":1,"id":id,"revision":1,"config":plan});
+                    stream["settings"]["start_hz"] = json!(first.start_hz);
+                    stream["settings"]["stop_hz"] = json!(first.stop_hz);
+                    stream["settings"]["points"] = json!(first.points);
+                    stream["settings"]["rbw_hz"] = json!(first.rbw_hz);
+                } else {
+                    stream["settings"]["start_hz"] = json!(low);
+                    stream["settings"]["stop_hz"] = json!(high);
+                }
                 if stream["settings"]["adapter"] == "tinysa-serial" {
                     crate::preflight::receive_settings(&stream["settings"])?;
                 }
@@ -302,8 +341,11 @@ impl GuardService {
             streams.push(stream);
         }
         let mut metadata = json!({"monitoring_project_id":p["id"]});
-        let name = if search.is_some() {
+        let name = if let Some(search) = search {
             metadata["source_search"] = json!(true);
+            if let Some(origin) = search.get("scan_origin") {
+                metadata["scan_origin"] = origin.clone();
+            }
             format!("{} · поиск", s(p, "name")?)
         } else if preparation {
             metadata["baseline_collection"] = json!(true);
@@ -455,6 +497,8 @@ impl GuardService {
             token,
             epoch: 0,
             expected_worker_instance: None,
+            event_dispatch: None,
+            idle_dispatch: None,
         };
         let result = self
             .control
@@ -561,9 +605,13 @@ impl GuardService {
         fields(&payload, &[], true)?;
         let _life = self.lock_project(id).await?;
         self.ensure_open()?;
-        let original = self.project(id).await?;
+        let mut original = self.project(id).await?;
         if self.runtime_snapshot(id)?.is_some() {
             return Ok(original);
+        }
+        let plan = crate::scan_plan::configured_plan(&original)?;
+        if let Some(plan) = &plan {
+            crate::scan_plan::select_eligible_baselines(&mut original, plan);
         }
         let preflight = if original["baseline_id"].is_null() {
             Value::Null
@@ -581,6 +629,13 @@ impl GuardService {
         self.control.stop_session(&old).await?;
         self.stop_archived_session(&old).await?;
         let mut created = self.clone_session(&original, false, None)?;
+        if plan
+            .as_ref()
+            .is_some_and(|p| p.bands.iter().any(|band| band.step_hz.is_some()))
+        {
+            created["metadata"]["scan_baselines"] = json!({"plan_id":original["scan_plan"]["id"],
+                "revision":original["scan_plan"]["revision"],"windows":original["band_baselines"]});
+        }
         if let Some(context) = context {
             created["streams"][0]["settings"]["monitoring_instrument_context"] = json!(context);
         }
@@ -630,7 +685,9 @@ impl GuardService {
             stopped: false,
             manual: BTreeMap::new(),
             claims: [(sid.clone(), analyzer), (sid, receiver)].into(),
-            receiver_busy: false,
+            receiver_work: None,
+            receiver_checks_done: BTreeSet::new(),
+            receiver_checks_resume_after: None,
             error: None,
             warning: None,
             faults: BTreeMap::new(),
@@ -764,7 +821,7 @@ impl GuardService {
         Ok(p)
     }
     pub async fn guard_status(&self, id: &str) -> Result<Value> {
-        let (r, mut p) = {
+        let (r, mut p, receiver_checks) = {
             // A restore commits its project before updating the in-memory lease.
             // Read both sides of that transition under the same coordinator.
             let _tx = self.coordinator.lock().await;
@@ -773,7 +830,14 @@ impl GuardService {
                 Ok(p) => p,
                 Err(e) => r.as_ref().map(|r| r.cached_project.clone()).ok_or(e)?,
             };
-            (r, p)
+            let receiver_checks = match self.receiver_checks_status(id, &p, r.as_ref()).await {
+                Ok(status) => status,
+                Err(GuardError::Archive(_)) if r.is_some() => {
+                    json!({"state":"unavailable","active_band_id":null,"completed":null,"total":null,"items":[]})
+                }
+                Err(error) => return Err(error),
+            };
+            (r, p, receiver_checks)
         };
         if let Some(r) = &r
             && let Some(error) = &r.error
@@ -788,7 +852,7 @@ impl GuardService {
             .list_workers(s(&p, "active_session_id")?)
             .await?;
         Ok(
-            json!({"project":p,"active":!self.closed.load(Ordering::Acquire)&&r.as_ref().is_some_and(|r|!r.stopped),"receiver_busy":r.as_ref().is_some_and(|r|r.receiver_busy),"error":r.as_ref().and_then(|r|r.error.as_ref().or(r.warning.as_ref())).map(|e|json!(e)).unwrap_or_else(||p.get("last_error").cloned().unwrap_or(Value::Null)),"manual":manual,"workers":value(&workers)?,"audio_configured":p.get("audio").is_some_and(|a|!a.is_null()),"hardware_validation":"not_run"}),
+            json!({"project":p,"active":!self.closed.load(Ordering::Acquire)&&r.as_ref().is_some_and(|r|!r.stopped),"receiver_busy":r.as_ref().is_some_and(|r|r.receiver_work.is_some()),"receiver_checks":receiver_checks,"error":r.as_ref().and_then(|r|r.error.as_ref().or(r.warning.as_ref())).map(|e|json!(e)).unwrap_or_else(||p.get("last_error").cloned().unwrap_or(Value::Null)),"manual":manual,"workers":value(&workers)?,"audio_configured":p.get("audio").is_some_and(|a|!a.is_null()),"hardware_validation":"not_run"}),
         )
     }
 }

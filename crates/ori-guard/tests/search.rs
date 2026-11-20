@@ -124,3 +124,56 @@ async fn expired_manual_analyzer_keeps_pause_and_rejects_new_search_or_marks() {
     assert_eq!(h.service.project(&id).await.unwrap()["coverage"], "paused");
     h.close().await;
 }
+
+#[tokio::test]
+async fn historical_event_uses_its_original_overlapping_band_phase_and_edges() {
+    let h = Harness::new().await;
+    let id = h.prepared().await;
+    let armed = h.service.arm(&id, json!({})).await.unwrap();
+    let parent = json!({"id":"archived-grid","project_id":id,"created_at":fixture()["clock"],"revision":7,
+    "config":{"name":"Overlapping phases","bands":[
+        {"id":"first","name":"First","start_hz":900000000,"stop_hz":900100000,"points":11,"step_hz":10000,"rbw_hz":30000,"max_revisit_seconds":10},
+        {"id":"second","name":"Second","start_hz":900005000,"stop_hz":900025000,"points":3,"step_hz":10000,"rbw_hz":10000,"max_revisit_seconds":20}
+    ]}});
+    h.archive.put_monitoring("scan-plan", parent).await.unwrap();
+    let mut event = fixture()["first_event"].clone();
+    event["id"] = json!("old-signal");
+    event["project_id"] = json!(id);
+    event["run_session_id"] = armed["active_session_id"].clone();
+    event["center_frequency_hz"] = json!(900015000);
+    event["scan_band_id"] = json!("second");
+    event["scan_plan_id"] = json!("archived-grid");
+    event["scan_window_index"] = json!(0);
+    event["scan_plan_revision"] = json!(6);
+    h.archive
+        .put_monitoring("event", event.clone())
+        .await
+        .unwrap();
+    let lease = h
+        .service
+        .manual_acquire(&id, json!({"role":"analyzer"}))
+        .await
+        .unwrap();
+    let body = json!({"token":lease["token"],"event_id":"old-signal","span_hz":100000});
+    assert!(h.service.search_start(&id, body.clone()).await.is_err());
+    event["scan_plan_revision"] = json!(7);
+    h.archive.put_monitoring("event", event).await.unwrap();
+    let started = h.service.search_start(&id, body).await.unwrap();
+    let session = h
+        .archive
+        .get_session(started["session_id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        session["metadata"]["scan_origin"],
+        json!({"plan_id":"archived-grid","revision":7,"band_id":"second","window_index":0})
+    );
+    let plan = &session["streams"][0]["settings"]["scan_plan"];
+    assert_ne!(plan["id"], json!("archived-grid"));
+    let band = &plan["config"]["bands"][0];
+    assert_eq!(band["start_hz"], 900005000);
+    assert_eq!(band["stop_hz"], 900025000);
+    assert_eq!(band["points"], 3);
+    h.close().await;
+}

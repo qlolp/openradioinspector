@@ -14,7 +14,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
         didSet { if !PlatformExactID.same(oldValue, selected) { projectPages.select(selected); invalidateProject() } }
     }
     @Published var status: MonitoringValue = .null
+    @Published private(set) var projectStatusVerifiedAt: ContinuousClock.Instant?
     @Published var preflight: MonitoringValue = .null
+    @Published private(set) var preflightEvidence = NativeConsolePreflightEvidence()
+    @Published var consoleVerdict = NativeConsoleVerdictDraft()
     @Published var events: [MonitoringValue] = []
     @Published var selectedEvent = ""
     @Published var event: MonitoringValue = .null
@@ -24,7 +27,19 @@ final class MonitoringWorkspaceModel: ObservableObject {
     @Published var selectedInput = ""
     @Published var audioConfirmed = false
     @Published var baselineConfirmed = false
-    @Published var scanPlansAvailable = false
+    @Published private var capabilities: MonitoringValue = .null
+    @Published private(set) var signalQueue = NativeGuardSignalQueue()
+    @Published private(set) var pairedRechecks: PlatformPairedRechecks?
+    @Published private(set) var signalEvent: MonitoringValue = .null
+    @Published private(set) var signalOriginal: PlatformSweep?
+    @Published private(set) var signalPending: Set<NativeGuardSignalRequest> = []
+    @Published private(set) var signalErrors: [NativeGuardSignalRequest: String] = [:]
+    @Published private(set) var knownSignals: [MonitoringValue] = []
+    @Published private(set) var knownSignalsPage = 0
+    @Published private(set) var knownSignalNotice = ""
+    @Published private(set) var bandPlan = MonitoringValue.null
+    @Published private(set) var bandPlanLoading = false
+    @Published private(set) var bandPlanError = ""
     @Published var details = "Выберите подготовленный сеанс."
     @Published var notice = ""
     @Published var error = ""
@@ -86,9 +101,23 @@ final class MonitoringWorkspaceModel: ObservableObject {
     private var playbackRevision = 0
     private var archiveHighWatermark: Int64?
     private var archiveHealthRevision = 0
+    private var signalRequests: [NativeGuardSignalRequest: UUID] = [:]
+    private var signalDetailPollValue = MonitoringValue.null
+    private var signalDetailRefreshedAt: ContinuousClock.Instant?
+    private var knownSignalsBefore: [String?] = [nil]
+    private(set) var bandPlanContext = 0
     let receiverModes = ["AUTO", "FM", "AM", "DSTAR", "YSF", "ALINCO", "NXDN", "P25", "DPMR", "DMR"]
 
     var project: MonitoringValue { status["project"] }
+    func projectStatusIsCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
+        guard !selected.isEmpty, PlatformExactID.same(project["id"].text, selected),
+              let verified = projectStatusVerifiedAt else { return false }
+        let age = verified.duration(to: now)
+        return age >= .zero && age <= .seconds(15)
+    }
+    func preflightIsCurrent(at now: ContinuousClock.Instant = .now) -> Bool {
+        preflight != .null && projectStatusIsCurrent(at: now) && preflightEvidence.isCurrent(at: now)
+    }
     var devices: [MonitoringValue] { audioInputs["devices"].items }
     var chosenDevice: MonitoringValue? { devices.first { $0["index"].scalar == selectedInput } }
     var isArmed: Bool { status["active"].bool == true || ["armed", "searching"].contains(project["state"].text) }
@@ -106,10 +135,16 @@ final class MonitoringWorkspaceModel: ObservableObject {
         (preparationSimulation || (savedPreparationReady && !preparationDirty))
     }
     private var baselinesReady: Bool {
-        guard !project["baseline_id"].text.isEmpty else { return false }
         let plan = project["scan_plan"]
-        guard plan != .null else { return true }
+        guard plan != .null else { return !project["baseline_id"].text.isEmpty }
         let bands = plan["config"]["bands"].items
+        let progress = preflight["baseline_collection"]["bands"].items
+        if progress.contains(where: { $0["eligible_windows"].integer != nil }) {
+            guard preflightIsCurrent(), PlatformExactID.same(preflight["project_id"].text, selected),
+                  progress.map({ PlatformExactID($0["band_id"].text) }) == bands.map(\.exactID) else { return false }
+            return preflight["baseline_ready"].bool == true
+        }
+        guard !project["baseline_id"].text.isEmpty else { return false }
         let baselines = project["band_baselines"]
         return !bands.isEmpty && bands.allSatisfy { band in
             let id = band["id"].text
@@ -139,6 +174,11 @@ final class MonitoringWorkspaceModel: ObservableObject {
         canEditPreparation && (preparationSimulation || (savedPreparationReady && !preparationDirty))
     }
     var canPlay: Bool { !pending && !selectedEvent.isEmpty && event["analysis"]["audio"] != .null }
+    var scanPlansAvailable: Bool { capabilities["features"]["monitoring_scan_plans"].bool == true }
+    var pairedRechecksAvailable: Bool { capabilities["features"]["paired_event_rechecks"].bool == true }
+    var signalCatalogAvailable: Bool { capabilities["features"]["monitoring_signal_catalog"].bool == true }
+    var signalContext: Int { revision }
+    var knownSignalsHasNext: Bool { knownSignalsBefore.indices.contains(knownSignalsPage + 1) }
 
     /// Capture the UI's project before an asynchronous button action can begin.
     func perform(_ action: @escaping @MainActor () async -> Void) {
@@ -156,15 +196,52 @@ final class MonitoringWorkspaceModel: ObservableObject {
         scope = next; selected = ""; projects = []; projectPages = MonitoringProjectPageState(); audioInputs = .null
         invalidateProject()
         client = server.isEmpty ? nil : suppliedClient
-        scanPlansAvailable = false
+        capabilities = .null
+        bandPlanContext += 1
+        bandPlan = .null; bandPlanLoading = false; bandPlanError = ""
     }
 
-    func loadScanPlanCapabilities() async {
+    func loadMonitoringCapabilities() async {
         guard let client else { return }
         let scope = self.scope
-        let value = try? await client.coreCapabilities()
+        var value = MonitoringValue.null
+        for attempt in 0...1 {
+            guard self.client === client, PlatformExactID.same(scope, self.scope), !Task.isCancelled else { return }
+            do {
+                value = try await client.coreCapabilities()
+                break
+            } catch {
+                let retryable: Bool
+                switch error as? PlatformError {
+                case .connection?: retryable = true
+                case .http(let status, _, _)?: retryable = status == 408 || status == 429 || (500...599).contains(status)
+                default: retryable = false
+                }
+                guard attempt == 0, retryable else { break }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
         guard self.client === client, PlatformExactID.same(scope, self.scope), !Task.isCancelled else { return }
-        scanPlansAvailable = value?["features"]["monitoring_scan_plans"].bool == true
+        let supportsCatalog = signalCatalogAvailable
+        capabilities = value
+        if supportsCatalog != signalCatalogAvailable {
+            cancelSignalRequests([.inbox, .inboxPage, .detail])
+            signalDetailRefreshedAt = nil
+        }
+    }
+
+    func loadBandPlan() async {
+        guard let client, signalCatalogAvailable, bandPlan == .null, !bandPlanLoading, !Task.isCancelled else { return }
+        let context = bandPlanContext
+        bandPlanLoading = true; bandPlanError = ""
+        defer { if context == bandPlanContext { bandPlanLoading = false } }
+        do {
+            let result = try await client.monitoringBandPlan()
+            guard context == bandPlanContext, signalCatalogAvailable, !Task.isCancelled else { return }
+            bandPlan = result
+        } catch {
+            if context == bandPlanContext, !Task.isCancelled { bandPlanError = error.localizedDescription }
+        }
     }
 
     /// Synchronous notification from the live view, including a failed current-health check.
@@ -177,7 +254,13 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     private func invalidateProject() {
         revision += 1; requestID = UUID(); pending = false
-        status = .null; preflight = .null; events = []; selectedEvent = ""; event = .null
+        status = .null; projectStatusVerifiedAt = nil
+        preflight = .null; events = []; selectedEvent = ""; event = .null
+        preflightEvidence.invalidate(); consoleVerdict = NativeConsoleVerdictDraft()
+        signalQueue = NativeGuardSignalQueue(); signalEvent = .null; signalOriginal = nil; pairedRechecks = nil
+        signalRequests = [:]; signalErrors = [:]; signalPending = []
+        signalDetailPollValue = .null; signalDetailRefreshedAt = nil
+        knownSignals = []; knownSignalsPage = 0; knownSignalsBefore = [nil]; knownSignalNotice = ""
         receiverMode = "AUTO"; audioEnabled = false; selectedInput = ""; audioConfirmed = false
         baselineConfirmed = false
         details = "Выберите проект и обновите состояние."; error = ""; notice = ""
@@ -305,8 +388,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
             archiveHighWatermark = watermark
             if rolledBack { resetArchiveContext(watermark: watermark) }
         }
-        await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
+        guard !pending else { return }
+        let succeeded = await run(request: { client, id in try await client.monitoringProject(id, resource: "status") }) { result in
             status = result
+            projectStatusVerifiedAt = PlatformExactID.same(result["project"]["id"].text, selected) ? .now : nil
             coverage = result["project"]["coverage"].text
             if !preparationSeeded {
                 antennaNotes = project["preparation"]["antenna_notes"].text
@@ -322,6 +407,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
                 // Each save of an assigned audio input requires an explicit operator confirmation.
                 audioConfirmed = false
             }
+        }
+        if !succeeded, generation == revision, healthRevision == archiveHealthRevision,
+           self.client === client, PlatformExactID.same(selected, projectID) {
+            projectStatusVerifiedAt = nil
         }
     }
 
@@ -367,8 +456,10 @@ final class MonitoringWorkspaceModel: ObservableObject {
 
     func checkPreflight() async {
         guard !selected.isEmpty else { return }
+        preflightEvidence.invalidate()
         await operationsRequest("preflight", request: { client, id in try await client.monitoringProject(id, resource: "preflight") }) { result in
             preflight = result
+            preflightEvidence.verify()
         }
     }
 
@@ -390,6 +481,199 @@ final class MonitoringWorkspaceModel: ObservableObject {
         await run(eventID: id, request: { client, project in
             try await client.monitoringEvent(projectID: project, eventID: id)
         }) { event = $0 }
+    }
+
+    func pollSignalEvents(refreshSelected: Bool = false) async {
+        let context = revision
+        let recognition = signalCatalogAvailable
+        let loaded = await signalRequest(.inbox, request: { client, project in
+            try await client.monitoringEvents(projectID: project, recognition: recognition)
+        }) { result in
+            updateSignalQueue { $0.update(result, at: Date()) }
+        }
+        guard loaded, revision == context, !Task.isCancelled else { return }
+        await refreshSignalDetail(force: refreshSelected)
+    }
+
+    func refreshSignalPage() async {
+        if let position = signalQueue.position {
+            let context = revision
+            let loaded = await loadSignalHistoryPage(position)
+            if loaded, context == revision, !Task.isCancelled { await refreshSignalDetail(force: true) }
+        } else {
+            await pollSignalEvents(refreshSelected: true)
+        }
+    }
+
+    func olderSignalEvents() async {
+        guard let position = signalQueue.olderPosition else { return }
+        await loadSignalHistoryPage(position)
+    }
+
+    func newerSignalEvents() async {
+        if signalQueue.position?.page == 2 { showLatestSignalEvents(); return }
+        guard let position = signalQueue.newerPosition else { return }
+        await loadSignalHistoryPage(position)
+    }
+
+    func showLatestSignalEvents() {
+        cancelSignalRequests([.inboxPage])
+        updateSignalQueue { $0.showLatest() }
+    }
+
+    @discardableResult
+    private func loadSignalHistoryPage(_ position: NativeGuardSignalQueue.Position) async -> Bool {
+        let recognition = signalCatalogAvailable
+        return await signalRequest(.inboxPage, request: { client, project in
+            try await client.monitoringEvents(projectID: project, recognition: recognition, after: position.after.rawValue)
+        }) { result in updateSignalQueue { $0.showHistory(result, at: position) } }
+    }
+
+    private func refreshSignalDetail(force: Bool) async {
+        guard let id = signalQueue.selectedID else { return }
+        let changed = signalQueue.selectedPollValue != signalDetailPollValue
+        // Catalog names and matching reasons can change without changing the inbox summary.
+        let due = signalDetailRefreshedAt.map { $0.duration(to: .now) >= .seconds(20) } ?? true
+        if force || changed || due { await loadSignalEvent(id) }
+    }
+
+    func selectSignalEvent(_ id: PlatformExactID?) {
+        updateSignalQueue { $0.select(id) }
+    }
+
+    private func updateSignalQueue(_ update: (inout NativeGuardSignalQueue) -> Void) {
+        let previous = signalQueue.selectedID
+        update(&signalQueue)
+        if previous != signalQueue.selectedID { resetSignalSelection() }
+    }
+
+    private func resetSignalSelection() {
+        cancelSignalRequests([.detail, .original, .confirm, .review, .rechecks])
+        pairedRechecks = nil
+        signalEvent = .null
+        consoleVerdict = NativeConsoleVerdictDraft(); knownSignalNotice = ""
+        signalOriginal = nil
+        signalDetailPollValue = .null
+        signalDetailRefreshedAt = nil
+    }
+
+    func loadSignalEvent(_ id: PlatformExactID) async {
+        let recognition = signalCatalogAvailable
+        let observed = signalQueue.selectedPollValue
+        await signalRequest(.detail, eventID: id, request: { client, project in
+            try await client.monitoringEvent(projectID: project, eventID: id.rawValue, recognition: recognition)
+        }) {
+            signalEvent = $0
+            consoleVerdict.receive(context: revision, event: id.rawValue,
+                disposition: $0["disposition"].text, comment: $0["operator_comment"].text)
+            updateSignalQueue { $0.markSelectedRead(id) }
+            signalDetailPollValue = observed
+            signalDetailRefreshedAt = .now
+        }
+    }
+
+    func loadPairedRechecks(eventID: PlatformExactID, recipe: MonitoringValue? = nil) async {
+        guard pairedRechecksAvailable, signalQueue.selectedID == eventID else { return }
+        await signalRequest(.rechecks, eventID: eventID, request: { client, project in
+            try await client.monitoringPairedRechecks(projectID: project, eventID: eventID.rawValue, recipe: recipe)
+        }) { pairedRechecks = $0 }
+    }
+
+    func openSignalOriginal(eventID: PlatformExactID, source: NativeGuardSignalSource) async {
+        await signalRequest(.original, eventID: eventID, request: { client, _ in
+            try await client.archiveOriginalSweep(sessionID: source.sessionID.rawValue, streamID: source.streamID.rawValue,
+                sweepID: source.sweepID.rawValue)
+        }) { signalOriginal = $0 }
+    }
+
+    func clearSignalOriginal() { signalOriginal = nil }
+
+    func reviewSignalEvent(eventID: PlatformExactID, disposition: String, comment: String) async {
+        guard comment.unicodeScalars.count <= 1000 else {
+            signalErrors[.review] = "Комментарий: не больше 1000 символов Unicode."; return
+        }
+        cancelSignalRequests([.detail])
+        await signalRequest(.review, eventID: eventID, request: { client, project in
+            let result = try await client.monitoringReviewEvent(projectID: project, eventID: eventID.rawValue,
+                                                              disposition: disposition, comment: comment)
+            guard PlatformExactID.same(result["id"].text, eventID.rawValue) else {
+                throw PlatformError.invalidResponse("Ядро подтвердило другое событие.")
+            }
+            return result
+        }) { result in
+            signalEvent = result
+            consoleVerdict.receive(context: revision, event: eventID.rawValue,
+                disposition: result["disposition"].text, comment: result["operator_comment"].text, force: true)
+            knownSignalNotice = "Решение оператора сохранено."
+        }
+    }
+
+    func loadKnownSignals(page: Int = 0) async {
+        guard signalCatalogAvailable, knownSignalsBefore.indices.contains(page) else { return }
+        let before = knownSignalsBefore[page]
+        await signalRequest(.catalog, request: { client, project in
+            try await client.monitoringKnownSignals(projectID: project, before: before)
+        }) { result in
+            knownSignals = result["items"].items
+            knownSignalsPage = page
+            knownSignalsBefore = Array(knownSignalsBefore.prefix(page + 1))
+            let cursor = result["next_cursor"].text
+            if !cursor.isEmpty { knownSignalsBefore.append(cursor) }
+        }
+    }
+
+    func saveKnownSignal(eventID: PlatformExactID, name: String, kind: MonitoringKnownSignalKind) async -> Bool {
+        guard signalCatalogAvailable else { return false }
+        let context = revision
+        let saved = await signalRequest(.confirm, eventID: eventID, request: { client, project in
+            try await client.monitoringSaveKnownSignal(projectID: project, eventID: eventID.rawValue, name: name, kind: kind)
+        }) { result in knownSignalNotice = "Сигнал «\(result["name"].text)» сохранён в каталоге." }
+        guard saved, revision == context, !Task.isCancelled else { return false }
+        cancelSignalRequests([.catalog, .detail])
+        await loadSignalEvent(eventID)
+        guard revision == context, !Task.isCancelled else { return false }
+        await loadKnownSignals()
+        return revision == context && !Task.isCancelled
+    }
+
+    func clearSignalError(_ request: NativeGuardSignalRequest) { signalErrors[request] = nil }
+
+    private func cancelSignalRequests(_ requests: [NativeGuardSignalRequest]) {
+        for request in requests {
+            signalRequests[request] = nil
+            signalPending.remove(request)
+            signalErrors[request] = nil
+        }
+    }
+
+    @discardableResult
+    private func signalRequest<Value: Sendable>(
+        _ channel: NativeGuardSignalRequest, eventID: PlatformExactID? = nil,
+        request: (PlatformClient, String) async throws -> Value,
+        apply: (Value) -> Void
+    ) async -> Bool {
+        guard let client, !selected.isEmpty, !signalPending.contains(channel),
+              eventID == nil || eventID == signalQueue.selectedID, !Task.isCancelled else { return false }
+        let context = revision, project = selected, token = UUID()
+        signalRequests[channel] = token
+        signalPending.insert(channel)
+        defer {
+            if signalRequests[channel] == token { signalRequests[channel] = nil; signalPending.remove(channel) }
+        }
+        func current() -> Bool {
+            revision == context && PlatformExactID.same(selected, project) && signalRequests[channel] == token &&
+                (eventID == nil || eventID == signalQueue.selectedID) && !Task.isCancelled
+        }
+        do {
+            let value = try await request(client, project)
+            guard current() else { return false }
+            signalErrors[channel] = nil
+            apply(value)
+            return true
+        } catch {
+            if current() { signalErrors[channel] = error.localizedDescription }
+            return false
+        }
     }
 
     func playAudio() async {
@@ -589,6 +873,7 @@ final class MonitoringWorkspaceModel: ObservableObject {
                operationsRequests[channel] == token, eventID == nil || PlatformExactID.same(selectedEvent, eventID), !Task.isCancelled {
                 operationsErrors[channel] = error.localizedDescription
                 if channel == "storage" { storage = .null }
+                if channel == "preflight" { preflight = .null; preflightEvidence.invalidate() }
             }
             return false
         }

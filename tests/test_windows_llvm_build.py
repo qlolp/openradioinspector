@@ -685,6 +685,24 @@ class LLVMToolAndCacheTests(unittest.TestCase):
             llvm.validate_cmake(self.cache(CMAKE_MAKE_PROGRAM=str(self.choco_shim),
                                            CMAKE_TOOLCHAIN_FILE=selected['cmake_toolchain']), selected)
 
+    def test_second_observed_shim_still_requires_the_exact_upstream_payload(self):
+        for corrupt_target in (False, True):
+            with self.subTest(corrupt_target=corrupt_target):
+                pins = self.chocolatey_fixture()
+                pins['NINJA_SHIM_20261116_SHA256'] = pins.pop('NINJA_SHIM_SHA256')
+                driver = self.prepare_driver()
+                if corrupt_target:
+                    self.choco_target.write_bytes(pe_x64() + b'tampered')
+                with patch.multiple(llvm, create=True, **pins):
+                    if corrupt_target:
+                        with self.assertRaisesRegex(llvm.LLVMError, 'differs from the verified upstream payload'):
+                            self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+                        self.assertEqual(self.calls, [])
+                    else:
+                        selected = self.preflight(driver, environment={'CHOCOLATEYINSTALL': str(self.choco_root)})
+                        self.assertEqual(selected['ninja'], str(self.choco_target))
+                        self.assertFalse(any(row[1][0] == str(self.choco_shim) for row in self.calls))
+
     def test_chocolatey_package_mismatch_and_unsafe_layout_fail_before_any_command(self):
         cases = ('shim_identity', 'missing_package', 'package_sha', 'zip_sha', 'wrong_id', 'wrong_version',
                  'target_sha', 'target_missing', 'duplicate', 'case_duplicate', 'traversal', 'absolute',

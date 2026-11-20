@@ -197,6 +197,180 @@ fn resume() -> Vec<Step> {
     ]);
     steps
 }
+
+#[tokio::test]
+async fn new_tinysa_connection_requires_the_identity_echo_after_stale_frames() {
+    let (mut wire, audit) = Scripted::new(setup());
+    wire.pending
+        .push_back((Duration::ZERO, b"\r\nch> ".to_vec()));
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    assert_drained(&audit);
+
+    let mut steps = setup();
+    steps[0]
+        .fragments
+        .insert(0, (Duration::ZERO, b"\r\ntinySA Shell\r\nch> ".to_vec()));
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    assert_drained(&audit);
+
+    let mut steps = setup();
+    steps[0]
+        .fragments
+        .insert(0, (Duration::ZERO, b"88000000 -90 0\r\nch> ".to_vec()));
+    let (mut wire, audit) = Scripted::new(steps);
+    wire.pending
+        .push_back((Duration::ZERO, b"stale payload\r\nch> ".to_vec()));
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    assert_drained(&audit);
+
+    let (wire, audit) = Scripted::new(vec![Step::bytes(
+        "info",
+        b"tinySA Ultra ZS405\r\nch> ".to_vec(),
+    )]);
+    let mut adapter = TinySa::new(
+        wire,
+        receive(),
+        IoLimits {
+            text_timeout: Duration::from_millis(20),
+            scan_timeout: Duration::from_millis(30),
+            ..IoLimits::default()
+        },
+    )
+    .unwrap();
+    assert!(adapter.prepare().await.is_err());
+    assert_eq!(sent(&audit), ["info\r"]);
+}
+
+#[tokio::test]
+async fn receive_adjustment_checks_all_fields_and_switches_ultra_around_frequency_edges() {
+    let mut steps = setup();
+    steps.push(help());
+    steps.extend([
+        Step::ack("lna off"),
+        Step::ack("ultra on"),
+        Step::ack("sweep 5150000000 5200000000 101"),
+        Step::ack("repeat 10"),
+        Step::ack("sweep 88000000 108000000 101"),
+        Step::ack("repeat 1"),
+        Step::ack("ultra off"),
+    ]);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = TinySa::new(wire, receive(), IoLimits::default()).unwrap();
+    adapter.prepare().await.unwrap();
+    let count = sent(&audit).len();
+    let configure = |settings, vbw_ratio| {
+        TinySaControl::ConfigureReceive(ReceiveAdjustment {
+            settings,
+            vbw_ratio,
+        })
+    };
+    for invalid in [
+        vec![Setting::OutputEnabled(true)],
+        vec![
+            Setting::StartHz(5_150_000_000),
+            Setting::StopHz(5_200_000_000),
+        ],
+        vec![
+            Setting::Lna(true),
+            Setting::AttenuationDb(Attenuation::Db(10)),
+        ],
+    ] {
+        assert!(adapter.execute(configure(invalid, None)).await.is_err());
+        assert_eq!(sent(&audit).len(), count);
+    }
+    let status = adapter
+        .execute(configure(
+            vec![
+                Setting::StartHz(5_150_000_000),
+                Setting::StopHz(5_200_000_000),
+                Setting::Ultra(true),
+                Setting::Lna(false),
+                Setting::Points(101),
+            ],
+            Some(VbwRatio::Tenth),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(status.settings["ultra"], true);
+    assert_eq!(status.settings["repeat"], 10);
+    assert_eq!(status.settings["vbw_ratio"], "1/10");
+    assert!(!status.settings_readback);
+    let status = adapter
+        .execute(configure(
+            vec![
+                Setting::StartHz(88_000_000),
+                Setting::StopHz(108_000_000),
+                Setting::Ultra(false),
+                Setting::Repeat(1),
+            ],
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(status.settings["ultra"], false);
+    assert!(status.settings.get("vbw_ratio").is_none());
+    assert_drained(&audit);
+}
+
+#[tokio::test]
+async fn receiver_scope_confirms_each_point_and_restores_its_original_raster() {
+    let steps = vec![
+        Step::line("RE1", "20"),
+        Step::line("VR", "20VR2504A"),
+        Step::line("RN", "20RN09521111"),
+        Step::line("VFA", "20"),
+        Step::line("ST", "20ST025.00"),
+        Step::line("SH", "20SH010.00"),
+        Step::line("VFA RF0088.00000 ST100.00 SH000.00 MD0F0", "20"),
+        Step::line("SH", "20SH000.00"),
+        Step::line("RX", "20RX VFA RF0088.00000 ST100.00 MD0F0 LM1371"),
+        Step::line("ZK", "20"),
+        Step::line("RX", "20RX VFA RF0088.10000 ST100.00 MD0F0 LM1361"),
+        Step::line("RF0088.15000", "20"),
+        Step::line("RX", "20RX VFA RF0088.15000 ST100.00 MD0F0 LM1351"),
+        Step::line("VFA ST025.00 SH010.00", "20"),
+        Step::line("ST", "20ST025.00"),
+        Step::line("SH", "20SH010.00"),
+        Step::line("EX", "20"),
+    ];
+    let (wire, audit) = Scripted::new(steps);
+    let config = ReceiverConfig {
+        frequency_hz: 88_000_000,
+        mode: ReceiverMode::Fm,
+        profile: ReceiverProfile::MonitorV1,
+    };
+    let scope = ReceiverScope::new(
+        88_000_000,
+        88_150_000,
+        100_000,
+        Duration::from_millis(15),
+        true,
+    )
+    .unwrap();
+    let mut receiver = ArDv1::new(wire, config, IoLimits::default())
+        .unwrap()
+        .with_scope(scope)
+        .unwrap();
+    assert!(receiver.tune(88_000_000, ReceiverMode::Fm).await.is_err());
+    for (index, (hz, command)) in [(88_000_000, "RF"), (88_100_000, "ZK"), (88_150_000, "RF")]
+        .into_iter()
+        .enumerate()
+    {
+        let sample = receiver.poll_receiver().await.unwrap();
+        assert_eq!(sample.frequency_hz, hz);
+        assert_eq!(sample.level_unit, "s_meter_count");
+        assert_eq!(sample.metadata["scan_index"], index);
+        assert_eq!(sample.metadata["scan_total"], 3);
+        assert_eq!(sample.metadata["scan_tune_command"], command);
+        assert_eq!(sample.metadata["frequency_source"], "receiver_RX");
+    }
+    receiver.close().await.unwrap();
+    assert_drained(&audit);
+}
 fn receiver_setup(firmware: &str) -> Vec<Step> {
     vec![
         Step::line("RE1", "20"),
@@ -222,6 +396,69 @@ fn sent(audit: &Arc<Mutex<Audit>>) -> Vec<String> {
 }
 fn assert_drained(audit: &Arc<Mutex<Audit>>) {
     assert_eq!(audit.lock().unwrap().remaining, 0);
+}
+
+#[tokio::test]
+async fn receiver_rejection_identifies_phase_command_and_code_without_private_data() {
+    for (rejected, phase, name) in [
+        ("RE1", "prepare", "RE1"),
+        ("VR", "prepare", "VR"),
+        ("RN", "prepare", "RN"),
+        ("RF0145.50000", "tune", "RF"),
+    ] {
+        let mut steps = receiver_setup("2504A");
+        steps.extend([
+            Step::line("VFA", "20"),
+            Step::line("MD0F0", "20"),
+            Step::line("RF0145.50000", "20"),
+        ]);
+        let index = steps
+            .iter()
+            .position(|step| step.command == rejected)
+            .unwrap();
+        steps.truncate(index);
+        steps.push(Step::line(rejected, "60? private-payload"));
+        let (wire, audit) = Scripted::new(steps);
+        let mut adapter = ArDv1::new(wire, receiver(), IoLimits::default()).unwrap();
+        let error = adapter.poll_receiver().await.unwrap_err().to_string();
+        assert_eq!(
+            error,
+            format!("device rejected command: AR-DV1 {phase} {name}: 60?")
+        );
+        assert!(adapter.state().restart_required);
+        assert!(adapter.poll_receiver().await.is_err());
+        assert_eq!(sent(&audit).len(), index + 1);
+        assert_drained(&audit);
+    }
+}
+
+#[tokio::test]
+async fn scoped_receiver_reports_only_the_status_of_an_unexpected_acknowledgement() {
+    for (reply, code) in [
+        ("10", "10"),
+        ("20LM1231", "20"),
+        ("private-payload", "unexpected acknowledgement"),
+    ] {
+        let mut steps = receiver_setup("2504A");
+        steps.push(Step::line("VFA", reply));
+        let (wire, audit) = Scripted::new(steps);
+        let scope =
+            ReceiverScope::new(88_000_000, 88_100_000, 100_000, Duration::ZERO, false).unwrap();
+        let config = ReceiverConfig {
+            profile: ReceiverProfile::MonitorV1,
+            ..receiver()
+        };
+        let mut adapter = ArDv1::new(wire, config, IoLimits::default())
+            .unwrap()
+            .with_scope(scope)
+            .unwrap();
+        assert_eq!(
+            adapter.poll_receiver().await.unwrap_err().to_string(),
+            format!("device rejected command: AR-DV1 scan VFA: {code}")
+        );
+        assert!(adapter.state().restart_required);
+        assert_drained(&audit);
+    }
 }
 
 fn inspection_oracle() -> serde_json::Value {
@@ -880,7 +1117,7 @@ async fn timed_out_or_dropped_exchange_cannot_consume_late_ack() {
 async fn raw_binary_uses_exact_echo_length_little_endian_and_open_grid() {
     let mut steps = setup();
     steps.push(help());
-    steps.push(Step::text("zero", "zero {level}\r\n174dBm\r\n"));
+    steps.push(Step::text("zero", "usage: zero {level}\r\n174dBm\r\n"));
     steps.push(Step::binary(
         "scanraw 100000000 101000000 3 0",
         b"{x\x80\x0ax\x00\x0bx\x80\x0b}",
@@ -1142,6 +1379,118 @@ async fn ardv1_auto_profile_requires_firmware_and_retains_decoder_evidence() {
         Err(InstrumentError::UnsupportedProfile(_))
     ));
     assert_eq!(sent(&audit), ["RE1\r", "VR\r"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn checked_readback_requires_the_terminal_vfo_mode_and_original_lm_count() {
+    for status in [
+        "10RX VFA RF0145.50000 ST010.00 MD0F0 LM1231",
+        "RX VFA RF0145.50000 ST010.00 MD0F0 LM1231",
+        "20RX VFB RF0145.50000 ST010.00 MD0F0 LM1231",
+        "20RX VFA RF0145.50000 ST010.00 MD0F1 LM1231",
+        "20RX VFA RF0145.50000 ST010.00 MD0F0 LM1237",
+    ] {
+        let mut steps = receiver_setup("2504A");
+        steps.extend([
+            Step::line("VFA", "20"),
+            Step::line("MD0F0", "20"),
+            Step::line("RF0145.50000", "20"),
+            Step::line("RX", "20RX VFA RF0145.50000 ST010.00 MD0F0 LM655353"),
+            Step::line("RX", status),
+        ]);
+        let (wire, audit) = Scripted::new(steps);
+        let config = ReceiverConfig {
+            profile: ReceiverProfile::MonitorV1,
+            ..receiver()
+        };
+        let mut adapter = ArDv1::new(wire, config, IoLimits::default())
+            .unwrap()
+            .with_frequency_readback()
+            .unwrap();
+        let sample = adapter.poll_receiver().await.unwrap();
+        assert_eq!(sample.level, 65_535);
+        assert_eq!(sample.raw_squelch_status, 3);
+        assert_eq!(sample.metadata["observed_frequency_hz"], 145_500_000);
+        assert_eq!(sample.metadata["requested_mode"], "FM");
+        assert!(adapter.poll_receiver().await.is_err());
+        assert!(adapter.state().observed_mode.is_none());
+        assert!(adapter.state().restart_required);
+        assert_drained(&audit);
+    }
+}
+
+#[test]
+fn receiver_segment_limits_include_the_final_off_grid_point() {
+    for (start, end, step) in [
+        (100_000, 100_000, 10),
+        (100_000, 100_011, 10),
+        (100_000, 110_000, 10),
+        (100_000, 1_300_000_010, 1_000_000),
+        (100_000, 100_200, 0),
+        (100_000, 100_200, 11),
+    ] {
+        assert!(ReceiverScope::new(start, end, step, Duration::ZERO, false).is_err());
+    }
+    assert_eq!(
+        ReceiverScope::new(100_000, 109_990, 10, Duration::ZERO, false)
+            .unwrap()
+            .points(),
+        1000
+    );
+    assert_eq!(
+        ReceiverScope::new(100_000, 100_030, 100, Duration::ZERO, false)
+            .unwrap()
+            .points(),
+        2
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn armed_readback_polls_settled_rx_and_fails_closed_on_wrong_frequency() {
+    let config = ReceiverConfig {
+        profile: ReceiverProfile::MonitorV1,
+        mode: ReceiverMode::Auto,
+        ..receiver()
+    };
+    let mut steps = receiver_setup("2504A");
+    steps.extend([
+        Step::line("VFA", "20"),
+        Step::line("MD000", "20"),
+        Step::line("RF0145.50000", "20"),
+        Step::line("RX", "20RX VFA RF0145.50000 ST010.00 MD700 LM1043"),
+        Step::line("RX", "20RX VFA RF0145.50010 ST010.00 MD700 LM1803"),
+    ]);
+    let (wire, audit) = Scripted::new(steps);
+    let mut adapter = ArDv1::new(wire, config, IoLimits::default())
+        .unwrap()
+        .with_frequency_readback()
+        .unwrap();
+    adapter.tune(145_500_000, ReceiverMode::Auto).await.unwrap();
+    assert!(!adapter.state().frequency_readback);
+    let tuned = tokio::time::Instant::now();
+    let sample = adapter.poll_receiver().await.unwrap();
+    assert!(tuned.elapsed() >= Duration::from_millis(25));
+    assert_eq!(sample.frequency_hz, 145_500_000);
+    assert_eq!(sample.level, 104);
+    assert_eq!(sample.level_unit, "s_meter_count");
+    assert_eq!(sample.raw_squelch_status, 3);
+    assert_eq!(sample.decoded_mode.as_deref(), Some("DMR"));
+    assert_eq!(sample.metadata["frequency_readback"], true);
+    assert_eq!(sample.metadata["frequency_source"], "receiver_RX");
+    assert_eq!(
+        sample.metadata["raw_receiver_status"],
+        "RX VFA RF0145.50000 ST010.00 MD700 LM1043"
+    );
+    assert!(adapter.state().frequency_readback);
+    assert!(matches!(
+        adapter.poll_receiver().await,
+        Err(InstrumentError::Protocol(_))
+    ));
+    assert!(adapter.state().frequency_hz.is_none());
+    assert!(!adapter.state().frequency_readback);
+    assert!(adapter.state().restart_required);
+    assert!(adapter.tune(145_500_000, ReceiverMode::Auto).await.is_err());
+    assert_drained(&audit);
 }
 
 #[tokio::test]

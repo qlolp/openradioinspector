@@ -74,6 +74,9 @@ jobs:
       # Only owned synthetic servers/archives, mocked COM and own PTYs are used.
       # Real receiver/analyzer acceptance remains separate and is not implied.
       # Windows permits explicit POSIX PTY, permission-bit and shell-launcher skips.
+      - name: Expose owned failure details through check annotations
+        if: failure()
+        run: python tools/release/annotate_checks.py release-reports
       - name: Record CI status before artifact upload
         if: always()
         shell: bash

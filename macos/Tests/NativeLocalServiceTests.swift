@@ -1,9 +1,60 @@
 import Foundation
 import XCTest
+import ServiceManagement
 import Darwin
 @testable import DvoynoyObzorSession
 
 final class NativeLocalServiceTests: XCTestCase {
+    @MainActor func testExplicitStartRegistersMissingAgentAndHonoursMacOSApproval() throws {
+        for initial: SMAppService.Status in [.notFound, .notRegistered, .requiresApproval, .enabled] {
+            var state = initial
+            var attempts = 0
+            let result = try NativeLocalService.registerForStart(status: { state }) {
+                attempts += 1
+                state = .enabled
+            }
+            XCTAssertEqual(attempts, initial == .notFound || initial == .notRegistered ? 1 : 0)
+            XCTAssertEqual(result, initial == .requiresApproval ? .approval : .enabled)
+        }
+        var state = SMAppService.Status.notFound
+        let denied = NSError(domain: "RegistrationFixture", code: 1)
+        let result = try NativeLocalService.registerForStart(status: { state }) {
+            state = .requiresApproval
+            throw denied
+        }
+        XCTAssertEqual(result, .approval)
+        XCTAssertThrowsError(try NativeLocalService.registerForStart(status: { .notFound }) { throw denied })
+    }
+
+    @MainActor func testSyntheticProfilesNeverSelectThePersonalRCService() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".bundle")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let plist: [String: Any] = ["CFBundleIdentifier": "test.personal-rc", "ORIPersonalRC": true]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: directory.appendingPathComponent("Contents/Info.plist"))
+        let bundle = try XCTUnwrap(Bundle(url: directory))
+        XCTAssertEqual(bundle.object(forInfoDictionaryKey: "ORIPersonalRC") as? Bool, true)
+        XCTAssertTrue(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: nil))
+        XCTAssertTrue(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "hardware"))
+        XCTAssertFalse(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "load"))
+        XCTAssertFalse(NativeLocalService.isPersonalRC(bundle: bundle, acceptancePhase: "ui-test"))
+    }
+    @MainActor
+    func testTwoAcceptanceLifecyclesRemoveRegistrationOnlyAfterConfirmedStop() async throws {
+        let ready=try reply();var registrations=0;var removals=0;var receipts:[Bool]=[]
+        let service=NativeLocalService(exchange:{command,_ in
+            if command=="stop" {return Data("{\"ok\":true}".utf8)}
+            return ready
+        },registration:{registrations+=1;return .enabled},unregister:{removals+=1})
+        for cycle in 1...2 {
+            await service.start();XCTAssertEqual(service.phase,.ready)
+            await NativeAcceptanceServiceCleanup.finish(service:service){success,_ in receipts.append(success)}
+            XCTAssertEqual(service.phase,.stopped);XCTAssertEqual(removals,cycle)
+            XCTAssertEqual(registrations,cycle)
+        }
+        XCTAssertEqual(receipts,[true,true])
+    }
     func testActualPrivateUnixSocketRoundTripUsesACompleteCommandAndReply() async throws {
         let directory = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("orc-" + String(UUID().uuidString.prefix(8)))
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])

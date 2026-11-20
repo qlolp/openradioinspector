@@ -14,6 +14,7 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
     simulator: false,
     analyzerPort: '',
     receiverPort: '',
+    monitoringReadback: false,
     startHz: 88000000,
     stopHz: 108000000,
     points: 201,
@@ -141,6 +142,16 @@ export function Prepare({ desk, close }: { desk: Desk; close: () => void }) {
                         'Conservative tinySA receive profile: 100 kHz–800 MHz, 2–290 points. No generator controls.',
                       )}
                 </p>
+                {!form.simulator && desk.capabilities?.features.ardv1_rx_readback === true && (
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={form.monitoringReadback}
+                      onChange={(e) => update('monitoringReadback', e.target.checked)}
+                    />
+                    {t('Verify target frequency and mode with AR-DV1 RX readback (VR2504A)')}
+                  </label>
+                )}
                 {!form.simulator && (
                   <div className="form-grid">
                     <label>

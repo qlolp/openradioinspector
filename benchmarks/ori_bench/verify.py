@@ -95,6 +95,16 @@ def audio(client,config,ledger,output):
             counts['offered_frames']==counts['verified_frames'] and expected_pcm.digest()==actual_pcm.digest()}
 
 
+def verify_sweep_summary(config, item, value):
+    peak=max(value['levels']);peak_index=value['levels'].index(peak)
+    expected={key:value[key] for key in ('id','session_id','stream_id','interval','level_unit')}
+    expected.update(point_count=config.points,min_frequency_hz=value['frequencies_hz'][0],
+        max_frequency_hz=value['frequencies_hz'][-1],peak_frequency_hz=value['frequencies_hz'][peak_index])
+    if any(item.get(key)!=field for key,field in expected.items()) \
+            or any(type(item.get(key)) is not int for key in ('point_count','min_frequency_hz','max_frequency_hz','peak_frequency_hz')) \
+            or struct.pack('>d',item['peak_level'])!=struct.pack('>d',peak):raise ValueError()
+
+
 def history(client,config,capabilities,histograms,ledger):
     summaries=capabilities.get('features',{}).get('sweep_summaries') is True
     metric='history_summary_ms' if summaries else 'history_full_payload_ms'
@@ -107,11 +117,6 @@ def history(client,config,capabilities,histograms,ledger):
         rows=result.get('items') if summaries else result
         if not isinstance(rows,list) or len(rows)>100:
             raise BenchmarkError('history_invalid','First history page is not bounded to 100 rows')
-        expected=min(100,config.planned_counts()['sweep'])
-        if len(rows)!=expected:
-            # Rejected offered inputs can reduce source counts in fault runs.
-            if config.scenario not in ('fault','overload'):
-                raise BenchmarkError('history_invalid','First history page source count is wrong')
         if summaries and any('levels' in row or 'frequencies_hz' in row for row in rows):
             raise BenchmarkError('history_invalid','Summary endpoint returned raw arrays')
         ordering=[]
@@ -122,19 +127,27 @@ def history(client,config,capabilities,histograms,ledger):
                 value=sweep(config,source['idx'])
                 ordering.append((start_us(config,'sweep',source['idx']),item['id'].encode('utf-8')))
                 if summaries:
-                    peak=max(value['levels']);peak_index=value['levels'].index(peak)
-                    expected={key:value[key] for key in ('id','session_id','stream_id','interval','level_unit')}
-                    expected.update(point_count=config.points,min_frequency_hz=value['frequencies_hz'][0],
-                        max_frequency_hz=value['frequencies_hz'][-1],peak_frequency_hz=value['frequencies_hz'][peak_index])
-                    if any(item.get(key)!=field for key,field in expected.items()) \
-                            or any(type(item.get(key)) is not int for key in ('point_count','min_frequency_hz','max_frequency_hz','peak_frequency_hz')) \
-                            or struct.pack('>d',item['peak_level'])!=struct.pack('>d',peak):raise ValueError()
+                    verify_sweep_summary(config, item, value)
                 elif measurement_hash('sweep',item)!=measurement_hash('sweep',value):raise ValueError()
             if ordering!=sorted(set(ordering),reverse=True):raise ValueError()
         except (ValueError,KeyError,TypeError,OverflowError):
             raise BenchmarkError('history_invalid','History source metadata, peak, or newest-first ordering changed') from None
-        if attempt:histograms[metric].add(elapsed)
-        else:first=elapsed;first_ids=[item['id'] for item in rows]
+        ids = [item['id'] for item in rows]
+        if attempt:
+            if ids != first_ids:
+                raise BenchmarkError('history_invalid', 'First page changed after the producer stopped')
+            histograms[metric].add(elapsed)
+        else:
+            first, first_ids = elapsed, ids
     return {'endpoint_kind':'summaries' if summaries else 'full_measurements',
             'first_request_ms':first,'repeat_count':config.history_repeats,'warm_cache_requested':True,
             'first_page_source_ids':first_ids}
+
+
+def verify_history_ids(history_result, ledger):
+    # Rejections and queue drops stay in the delivery denominator. The public
+    # history page must exactly match the newest independently verified sources.
+    newest = ledger.db.execute("SELECT id FROM offers WHERE kind='sweep' AND verified=1 "
+                               "ORDER BY idx DESC LIMIT 100")
+    if history_result['first_page_source_ids'] != [row[0] for row in newest]:
+        raise BenchmarkError('history_invalid', 'First history page does not identify the newest retained sources')

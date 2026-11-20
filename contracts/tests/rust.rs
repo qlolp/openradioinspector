@@ -502,6 +502,37 @@ fn strict_json_rejects_ambiguity_overflow_and_nonfinite_before_decode() {
 }
 
 #[test]
+fn output_validation_still_rejects_nested_duplicate_keys_and_overflow_without_a_value_tree() {
+    struct Duplicate;
+    impl serde::Serialize for Duplicate {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeMap;
+            let mut map = serializer.serialize_map(Some(2))?;
+            map.serialize_entry("a", &1)?;
+            map.serialize_entry("a", &2)?;
+            map.end()
+        }
+    }
+    assert!(to_json_vec(&vec![Some(Duplicate)]).is_err());
+    let overflow = Value::Number("1e999".parse().unwrap());
+    assert!(to_json_vec(&serde_json::json!({"nested":[overflow]})).is_err());
+    let legal = ori_contracts::parse_json_value(
+        br#"{"nested":[-0.0,18446744073709551616,{"a":1}],"other":{"a":2}}"#,
+        1000,
+    )
+    .unwrap();
+    let bytes = to_json_vec(&legal).unwrap();
+    assert_eq!(
+        ori_contracts::parse_json_value(&bytes, 1000).unwrap(),
+        legal
+    );
+    assert_eq!(
+        legal["nested"][0].as_f64().unwrap().to_bits(),
+        (-0.0_f64).to_bits()
+    );
+}
+
+#[test]
 fn legacy_offsets_keep_microseconds_without_float_epoch_math() {
     for (input, expected) in [
         ("2026-11-11 12:00:00", "2026-11-11T12:00:00.000000Z"),
@@ -621,4 +652,16 @@ fn real_serde_protocol_names_and_escape_prefixes_are_preserved_as_metadata() {
     );
     assert_eq!(typed.extra["future"], raw);
     assert_eq!(typed.interval.extra["future"], raw);
+}
+
+#[test]
+fn optional_receive_grid_round_trips_without_changing_legacy_band() {
+    use ori_contracts::runtime::ScanBand;
+    let f: Value = from_json_slice(include_bytes!("../fixtures/scan-grid-v1.json"), 8192).unwrap();
+    for (key, points, step) in [("legacy", 201, None), ("grid", 129991, Some(10000))] {
+        let band = serde_json::from_value::<ScanBand>(f[key].clone()).unwrap();
+        assert_eq!((band.points, band.step_hz), (points, step));
+        let encoded = serde_json::to_value(band).unwrap();
+        assert_eq!(encoded.get("step_hz"), f[key].get("step_hz"));
+    }
 }

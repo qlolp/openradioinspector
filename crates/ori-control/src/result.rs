@@ -314,8 +314,19 @@ pub(crate) async fn prepare(
     })
 }
 pub fn catalog() -> Value {
-    parse_json_value(include_bytes!("resources/capabilities.json"), 1024 * 1024)
-        .expect("versioned Python catalog")
+    let mut catalog = parse_json_value(include_bytes!("resources/capabilities.json"), 1024 * 1024)
+        .expect("versioned Python catalog");
+    catalog["operations"]["receive.configure"] = json!({
+        "label":"Приёмный диапазон и RBW",
+        "fields":{
+            "start_hz":{"label":"Начало, Гц","type":"integer","default":88000000,"min":100000,"max":6000000000u64},
+            "stop_hz":{"label":"Конец, Гц","type":"integer","default":108000000,"min":100000,"max":6000000000u64},
+            "points":{"label":"Точек","type":"integer","default":201,"min":2,"max":450},
+            "rbw_hz":{"label":"RBW, Гц","type":"choice","choices":[200,1000,3000,10000,30000,100000,300000,600000,850000],"default":30000}
+        },
+        "continuous_zero_span":false
+    });
+    catalog
 }
 pub fn service_guide(name: &str) -> Result<Value> {
     let guides = parse_json_value(include_bytes!("resources/guides.json"), 1024 * 1024)

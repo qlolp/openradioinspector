@@ -32,7 +32,7 @@ public struct PlatformComparisonSweep: Decodable, Equatable, Identifiable, Senda
     public let settings: [String: PlatformComparisonSetting]
 
     var isValid: Bool {
-        let recorded = settings.filter { $0.key != "sequence" }
+        let recorded = settings.filter { $0.key != "sequence" && $0.key != "measurement_qualification" }
         return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && levelUnit == "dBm" && !levels.isEmpty && levels.allSatisfy(\.isFinite)
             && !recorded.isEmpty && recorded.values.allSatisfy(\.isRecorded)

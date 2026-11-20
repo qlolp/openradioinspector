@@ -290,6 +290,15 @@ impl Archive {
     pub async fn latest_events(&self, limit: usize) -> Result<Vec<Value>> {
         validate_limit(limit, 1000)?;
         let maximum = self.inner.config.max_response_bytes;
-        self.inner.read(move|db|{let mut statement=db.prepare("SELECT * FROM (SELECT * FROM events ORDER BY sequence DESC LIMIT ?) ORDER BY sequence")?;crate::queries::collect(statement.query([limit as i64])?,rows::event,maximum)}).await
+        self.inner
+            .read(move |db| {
+                let select = crate::panorama_events::select(db)?;
+                let mut stmt = db.prepare(&format!("{select} ORDER BY e.sequence DESC LIMIT ?"))?;
+                let mut values =
+                    crate::queries::collect(stmt.query([limit as i64])?, rows::event, maximum)?;
+                values.reverse();
+                Ok(values)
+            })
+            .await
     }
 }

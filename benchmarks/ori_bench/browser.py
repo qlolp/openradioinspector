@@ -24,6 +24,7 @@ class OwnedObserver:
     def __init__(self,config,client,output):
         self.config,self.client,self.output=config,client,output
         self.process=None;self.log=None;self.closed=False
+        self.windows_owner = None
         self.render_path=output/'render-events.ndjson'
         self.ready_path=output/'render-ready.json'
         self.stop_path=output/'render-stop'
@@ -52,8 +53,13 @@ class OwnedObserver:
             '--stop-file',str(self.stop_path)]
         self.log=(self.output/'observer.log').open('x',encoding='utf-8')
         try:
-            self.process=subprocess.Popen(args,stdout=self.log,stderr=subprocess.STDOUT,
-                start_new_session=os.name!='nt')
+            if os.name == 'nt':
+                from .endurance_node import ROOT, start_owned
+                self.windows_owner = start_owned(args, environment=dict(os.environ), root=ROOT,
+                                                 log=self.log, shutdown_timeout=15)
+                self.process = self.windows_owner.process
+            else:
+                self.process=subprocess.Popen(args,stdout=self.log,stderr=subprocess.STDOUT,start_new_session=True)
             deadline=time.monotonic()+config.observer_ready_timeout
             while not self.ready_path.exists():
                 if self.process.poll() is not None:
@@ -81,16 +87,28 @@ class OwnedObserver:
         if self.closed:return self.completed
         self.closed=True
         if self.process is not None:
-            if grace and self.process.poll() is None:time.sleep(self.config.observer_grace_seconds)
-            self.stop_path.touch(exist_ok=True)
-            try:self.process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                if os.name!='nt':
+            if self.windows_owner is not None:
+                try:
+                    if grace and self.process.poll() is None:
+                        time.sleep(self.config.observer_grace_seconds)
+                    self.stop_path.touch(exist_ok=True)
+                    self.windows_owner.wait(15)
+                    self.windows_owner.release(5)
+                except BaseException:
+                    try:
+                        self.windows_owner.stop(5)
+                    finally:
+                        self.log.close()
+                    raise BenchmarkError('observer_failed', 'Windows observer required forced cleanup')
+            else:
+                if grace and self.process.poll() is None:time.sleep(self.config.observer_grace_seconds)
+                self.stop_path.touch(exist_ok=True)
+                try:self.process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
                     try:os.killpg(self.process.pid,signal.SIGTERM)
                     except ProcessLookupError:pass
-                else:self.process.terminate()
-                try:self.process.wait(timeout=5)
-                except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=5)
+                    try:self.process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:self.process.kill();self.process.wait(timeout=5)
             self.completed=self.process.returncode==0 and self.render_path.is_file()
         if self.log is not None:self.log.close()
         return self.completed

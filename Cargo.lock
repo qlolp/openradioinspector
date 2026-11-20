@@ -1577,6 +1577,7 @@ name = "ori-archive"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ori-monitoring",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1678,6 +1679,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "rustls-pemfile",
+ "same-file",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -1689,6 +1691,7 @@ dependencies = [
  "tokio-tungstenite",
  "unicode-general-category",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1740,6 +1743,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serialport",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "tokio",
  "tokio-serial",
@@ -1793,6 +1797,7 @@ dependencies = [
  "time",
  "tokio",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

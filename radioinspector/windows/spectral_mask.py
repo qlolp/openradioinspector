@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import tempfile
 import unicodedata
+from ..sweep_settings import acquisition_settings, same_json
 from .sweep_threshold import ThresholdPanel
 
 MAX_MASK_BYTES = 65536
@@ -85,18 +86,6 @@ def mask_template(source):
         vertices=[dict(frequency_hz=hz, limit_dbm=-80) for hz in (frequencies[0], frequencies[-1])]), ensure_ascii=False, indent=2)
 
 
-def same_json(left, right):
-    """JSON numeric equality never aliases booleans, including nested values."""
-    if type(left) in (int, float) and type(right) in (int, float):
-        return left == right
-    if type(left) is not type(right): return False
-    if isinstance(left, dict):
-        return left.keys() == right.keys() and all(same_json(left[k], right[k]) for k in left)
-    if isinstance(left, list):
-        return len(left) == len(right) and all(same_json(a, b) for a, b in zip(left, right))
-    return left == right
-
-
 def validate_mask_result(data, expected, source=None):
     def require(ok):
         if not ok:
@@ -106,13 +95,6 @@ def validate_mask_result(data, expected, source=None):
             return type(v) in (int, float) and isfinite(v)
         except OverflowError:
             return False
-    def json_value(v, null=False):
-        if v is None: return null
-        if type(v) in (str, bool): return True
-        if type(v) in (int, float): return number(v)
-        if isinstance(v, list): return all(json_value(x, null) for x in v)
-        if isinstance(v, dict): return all(isinstance(k, str) and json_value(x, null) for k, x in v.items())
-        return False
     session, stream, sweep_id = expected
     require(isinstance(data, dict))
     require(data.get('session_id') == session and data.get('stream_id') == stream)
@@ -131,10 +113,7 @@ def validate_mask_result(data, expected, source=None):
     levels = sweep.get('levels')
     require(isinstance(levels, list) and len(levels) == n and all(number(v) for v in levels))
     settings = sweep.get('settings')
-    require(isinstance(settings, dict))
-    recorded = {k: v for k, v in settings.items() if k != 'sequence'}
-    require(bool(recorded) and json_value(recorded))
-    require('sequence' not in settings or json_value(settings['sequence'], True))
+    acquisition_settings(settings)
     interval = sweep.get('interval')
     require(isinstance(interval, dict))
     times = []

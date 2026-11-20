@@ -24,7 +24,7 @@ fn admission_matches_python_shape_but_detailed_errors_remain_async() {
 }
 #[test]
 fn typed_allowlist_and_defaults_are_real_python_forms() {
-    assert_eq!(OperationKind::ALL.len(), 29);
+    assert_eq!(OperationKind::ALL.len(), 30);
     let values = [
         ("inspect", json!({})),
         ("capture", json!({})),
@@ -44,6 +44,10 @@ fn typed_allowlist_and_defaults_are_real_python_forms() {
         ("preset.load", json!({"confirm":true})),
         ("acquire.raw", json!({})),
         ("acquire.zero", json!({})),
+        (
+            "receive.configure",
+            json!({"start_hz":5_150_000_000u64,"stop_hz":5_200_000_000u64,"ultra":true,"vbw_ratio":"1/10"}),
+        ),
         ("service.guide", json!({})),
         ("trace", json!({})),
         ("marker", json!({})),
@@ -127,6 +131,18 @@ fn integer_fields_do_not_accept_boolean_float_or_injected_text() {
     );
 }
 
+#[test]
+fn receive_configuration_rejects_rf_or_conflicting_vbw_fields() {
+    for parameters in [
+        json!({}),
+        json!({"output_enabled":true}),
+        json!({"repeat":5,"vbw_ratio":"1/10"}),
+        json!({"vbw_ratio":"1/2"}),
+        json!({"start_hz":88_000_000,"rbw_hz":5}),
+    ] {
+        assert!(parse_operation(OperationKind::ReceiveConfigure, &parameters).is_err());
+    }
+}
 #[test]
 fn reserved_json_object_keys_cannot_turn_an_object_into_a_scalar_preset_command() {
     for value in [

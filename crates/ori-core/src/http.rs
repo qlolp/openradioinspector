@@ -37,6 +37,13 @@ pub(crate) fn json_response(status: StatusCode, value: &impl Serialize) -> Respo
 pub(crate) fn envelope(status: StatusCode, data: Value) -> Response {
     json_response(status, &Envelope::new(data))
 }
+pub(crate) fn instrument_artifact_json(item: &ori_archive::Artifact) -> ApiResult<Value> {
+    if item.mime_type != "application/json" {
+        return Err(ApiError::invalid("Instrument artifact is not JSON"));
+    }
+    parse_json_value(&item.payload, ori_control::MAX_BLOB_BYTES)
+        .map_err(|_| ApiError::invalid("Invalid JSON instrument artifact"))
+}
 fn scoped_parts(path: &str) -> ApiResult<(Vec<String>, Option<String>)> {
     let mut parts = path_parts(path)?;
     if parts.len() >= 3 && parts[..3] == ["api", "v1", "instances"] {
@@ -666,7 +673,7 @@ async fn get(
             "instrument",
             "artifacts",
             artifact,
-            "content",
+            format @ ("content" | "json"),
         ] => {
             stream_context(&core, id, stream).await?;
             let item = core
@@ -674,6 +681,9 @@ async fn get(
                 .get_artifact(id, stream, artifact)
                 .await?
                 .ok_or_else(|| ApiError::missing("instrument_not_found"))?;
+            if *format == "json" {
+                return Ok(envelope(StatusCode::OK, instrument_artifact_json(&item)?));
+            }
             let disposition = if item.mime_type == "image/png" {
                 "inline"
             } else {
@@ -697,12 +707,16 @@ async fn get(
             let stream = query.get("stream_id").map(String::as_str);
             let maximum = limit(&query, 100, 1000)?;
             if route[4] == "sweeps" {
-                json!(core.archive()?.list_sweeps(id, stream, maximum).await?)
+                let rows = core
+                    .archive()?
+                    .list_sweeps_encoded(id, stream, maximum)
+                    .await?;
+                return Ok(json_response(StatusCode::OK, &Envelope::new(rows)));
             } else {
-                json!(
+                Value::Array(
                     core.archive()?
                         .list_observations(id, stream, maximum)
-                        .await?
+                        .await?,
                 )
             }
         }
@@ -843,8 +857,15 @@ fn capabilities(core: &Core) -> Value {
     ] {
         value["features"][name] = Value::Bool(archived);
     }
-    value["features"]["explicit_serial_adapters"] =
-        Value::Bool(archived && core.config.devices.transport.is_some());
+    let serial = archived && core.config.devices.transport.is_some();
+    for name in [
+        "explicit_serial_adapters",
+        "ardv1_sampled_scope",
+        "ardv1_rx_readback",
+    ] {
+        value["features"][name] = Value::Bool(serial);
+    }
+    value["features"]["graceful_device_stop"] = Value::Bool(archived);
     let instrument_control = core.instrument_control.get().is_some();
     value["features"]["runtime_owner_scoped_requests"] =
         Value::Bool(core.config.identity.is_some());
@@ -922,7 +943,12 @@ fn capabilities(core: &Core) -> Value {
         "independent_device_streams",
         "monitoring_projects",
         "monitoring_scan_plans",
+        "monitoring_signal_catalog",
         "scan_plan_coverage",
+        "scan_band_measurement_qualification",
+        "paired_event_rechecks",
+        "scan_plan_grid_10khz",
+        "panorama_storage_forecast",
         "monitoring_guard",
         "candidate_investigations",
         "manual_investigation_handoff",
@@ -995,6 +1021,14 @@ fn openapi() -> &'static Value {
     })
 }
 
+pub(crate) fn graceful_stop(payload: &Value) -> ApiResult<bool> {
+    match payload.get("mode") {
+        None => Ok(false),
+        Some(value) if value == "graceful" => Ok(true),
+        Some(value) if value == "force" => Ok(false),
+        _ => Err(ApiError::invalid("mode must be graceful or force")),
+    }
+}
 async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<Response> {
     if parts.len() == 2 && parts[0] == "api" {
         return crate::legacy::post(core, parts, payload)
@@ -1032,7 +1066,9 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
                 devices.start_session(id).await?
             } else {
                 devices.authorize_public_session(id).await?;
-                devices.stop_session(id).await?
+                devices
+                    .stop_session_mode(id, graceful_stop(&payload)?)
+                    .await?
             };
             Ok(envelope(StatusCode::OK, json!(workers)))
         }
@@ -1053,7 +1089,10 @@ async fn post(core: &Arc<Core>, parts: &[String], payload: Value) -> ApiResult<R
                 "start" => devices.start_stream(id, stream, gate).await?.value()?,
                 "stop" => {
                     gate.authorize()?;
-                    devices.stop_stream(id, stream).await?.value()?
+                    devices
+                        .stop_stream_mode(id, stream, graceful_stop(&payload)?)
+                        .await?
+                        .value()?
                 }
                 _ => {
                     let frequency = payload

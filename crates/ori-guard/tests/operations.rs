@@ -21,6 +21,11 @@ async fn eight_hour_budget_reserves_a_future_backup_and_refuses_primary_only_spa
     let required = (rate * 43_200.).ceil() as u64;
     let database = report["capacity"]["database_bytes"].as_u64().unwrap();
     assert!(rate > 0.);
+    assert!(report["mean_stored_sweep_bytes"].as_f64().unwrap() > 0.);
+    assert!(report["sampled_sweeps"].as_u64().unwrap() >= 2);
+    assert_eq!(report["projected_bytes_per_day"], json!(rate * 86_400.));
+    assert!(report["wal_bytes"].as_u64().is_some());
+    assert!(report["writer_queue"]["writer_capacity"].as_u64().unwrap() >= 1);
     assert_eq!(
         report["backup_reserve_bytes"].as_u64(),
         database.checked_add(required)
@@ -56,6 +61,21 @@ async fn backup_budget_never_claims_readiness_without_a_measured_rate() {
         .await
         .unwrap();
     let id = p["id"].as_str().unwrap();
+    let first = h.service.storage_report(id, true).await.unwrap();
+    h.sources.advance(6);
+    let idle = h.service.storage_report(id, true).await.unwrap();
+    assert_eq!(
+        idle["capacity"]["database_bytes"],
+        first["capacity"]["database_bytes"]
+    );
+    assert_eq!(idle["sampled_sweeps"], 0);
+    for field in [
+        "bytes_per_second",
+        "projected_bytes_per_day",
+        "estimated_retention_seconds",
+    ] {
+        assert!(idle[field].is_null(), "{field} needs a positive rate");
+    }
     h.service
         .update_settings(id, json!({"archive":{"reserve_backup":true}}))
         .await

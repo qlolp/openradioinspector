@@ -2,10 +2,20 @@ name: Modern Web and Windows clients
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**']
+    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/**', 'Cargo.lock', 'deploy/windows/**', 'tools/release/prepare_windows_node.py', 'tools/release/native_notices.py', 'docs/operator-guide/**', 'tools/release/operator_manual.py']
   pull_request:
-    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/ori-stream/**', 'crates/ori-contracts/**']
+    paths: ['clients/web/**', 'clients/windows/**', '.github/workflows/modern-clients.yml', 'radioinspector/**', 'contracts/**', 'crates/**', 'Cargo.lock', 'deploy/windows/**', 'tools/release/prepare_windows_node.py', 'tools/release/native_notices.py', 'docs/operator-guide/**', 'tools/release/operator_manual.py']
   workflow_dispatch:
+    inputs:
+      prior_run_id:
+        description: 'Windows workflow run containing the compatible prior NSIS installer'
+        type: string
+      prior_installer_sha256:
+        description: 'Pinned SHA-256 of that exact prior installer'
+        type: string
+      prior_revision:
+        description: 'Pinned source revision of the prior installed helpers'
+        type: string
 
 permissions:
   contents: read
@@ -19,6 +29,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.13.0'
@@ -27,6 +40,20 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.15.1'
+      - name: Check offline guide links and original screenshot hashes
+        shell: python
+        run: |
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
+          from tools.release.operator_manual import stage_manual
+          stage_manual(Path.cwd(), Path(os.environ['RUNNER_TEMP']) / 'operator-guide')
+      - name: Downloadable Russian operator guide
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: OpenRadioInspector-operator-guide-ru
+          path: ${{ runner.temp }}/operator-guide/
+          if-no-files-found: error
       - run: python -m pip install -e .
       - run: npm ci
         working-directory: clients/web
@@ -62,10 +89,16 @@ jobs:
       - run: cargo test --manifest-path clients/windows/Cargo.toml --locked -- --test-threads=2
 
   windows-installer:
+    permissions:
+      contents: read
+      actions: read
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.13.0'
@@ -73,6 +106,9 @@ jobs:
           cache-dependency-path: |
             clients/web/package-lock.json
             clients/windows/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v6.1.0
+        with:
+          python-version: '3.15.1'
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable action, exact compiler below
         with:
           toolchain: '1.99.1'
@@ -81,26 +117,141 @@ jobs:
           workspaces: clients/windows
       - run: npm ci --prefix clients/web
       - run: npm ci --prefix clients/windows
-      - run: npm --prefix clients/web run build:native
-      - run: cargo test --manifest-path clients/windows/Cargo.toml --locked -- --test-threads=2
-      - name: Build per-user offline WebView2 installer
+      - name: Check Windows Job and private named pipe
+        id: native_ownership
+        run: cargo test -p ori-runtime --locked --lib -- --test-threads=2
+      - name: Build per-user offline WebView2 installer with serial core
+        id: package
         run: npm run build -- --ci -- --locked
         working-directory: clients/windows
-      - name: Install and launch packaged Windows client
+      - name: Hash the produced candidate before acceptance
+        id: checksum
         shell: pwsh
         run: |
-          $installer = Get-ChildItem clients/windows/target/release/bundle/nsis/*.exe | Select-Object -First 1
-          if (-not $installer) { throw 'NSIS installer missing' }
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "Installer exited $($install.ExitCode)" }
-          $binary = Join-Path $env:LOCALAPPDATA 'OpenRadioInspector/openradioinspector-windows.exe'
-          if (-not (Test-Path $binary)) { throw 'Installed client missing' }
-          $client = Start-Process -FilePath $binary -PassThru
-          Start-Sleep -Seconds 8
-          if ($client.HasExited) { throw "Packaged client exited $($client.ExitCode)" }
-          Stop-Process -Id $client.Id
+          $packages = @(Get-ChildItem clients/windows/target/release/bundle/nsis/*.exe)
+          if ($packages.Count -ne 1) { throw 'Expected one x64 NSIS installer' }
+          $hash = (Get-FileHash -Algorithm SHA256 $packages[0].FullName).Hash.ToLowerInvariant()
+          "$hash  $($packages[0].Name)" | Set-Content -Encoding ascii "$($packages[0].FullName).sha256"
+      - id: bridge
+        run: cargo test --manifest-path clients/windows/Cargo.toml --locked -- --test-threads=2
+      - name: Fetch the pinned previous Windows candidate
+        id: prior
+        if: github.event_name == 'workflow_dispatch' && inputs.prior_run_id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.prior_run_id }}
+          pattern: windows-x64-offline-rc*
+          merge-multiple: true
+          path: ${{ runner.temp }}/ori-prior-installer
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.checksum.outcome == 'success' && !cancelled()
+        with:
+          name: windows-x64-offline-rc-candidate
+          path: |
+            clients/windows/target/release/bundle/nsis/*.exe
+            clients/windows/target/release/bundle/nsis/*.sha256
+            clients/windows/runtime/rc-build-info.json
+      - name: Exercise installed local node and UI
+        id: installed
+        if: >-
+          !cancelled() && steps.checksum.outcome == 'success' && steps.bridge.outcome == 'success' &&
+          (steps.prior.outcome == 'success' || steps.prior.outcome == 'skipped')
+        shell: pwsh
+        env:
+          ORI_PRIOR_RUN: ${{ inputs.prior_run_id }}
+          ORI_PRIOR_SHA256: ${{ inputs.prior_installer_sha256 }}
+          ORI_PRIOR_REVISION: ${{ inputs.prior_revision }}
+        run: |
+          $packages = @(Get-ChildItem clients/windows/target/release/bundle/nsis/*.exe)
+          if ($packages.Count -ne 1) { throw 'Expected one x64 NSIS installer' }
+          $report = Join-Path $env:RUNNER_TEMP 'ori-windows-diagnostics/installation.json'
+          $check = @{Installer=$packages[0].FullName; ExpectedRevision=(git rev-parse HEAD); ReportPath=$report}
+          $check.WindowEvidenceDirectory = Join-Path $env:RUNNER_TEMP 'ori-windows-operator-window'
+          if ($env:ORI_PRIOR_RUN -or $env:ORI_PRIOR_SHA256 -or $env:ORI_PRIOR_REVISION) {
+            if ($env:ORI_PRIOR_RUN -notmatch '^[0-9]+$') { throw 'Prior workflow run ID missing' }
+            $previous = @(Get-ChildItem (Join-Path $env:RUNNER_TEMP 'ori-prior-installer') -Recurse -File -Filter *.exe)
+            if ($previous.Count -ne 1) { throw 'Expected exactly one prior NSIS installer' }
+            $check.PriorInstaller = $previous[0].FullName
+            $check.PriorInstallerSha256 = $env:ORI_PRIOR_SHA256
+            $check.PriorRevision = $env:ORI_PRIOR_REVISION
+          }
+          ./deploy/windows/smoke-installed.ps1 @check
+      - name: Verify the training fixture on the native replay core
+        if: "!cancelled() && steps.checksum.outcome == 'success'"
+        env:
+          ORI_REPLAY_TEST_CORE: ${{ github.workspace }}/clients/windows/runtime/ori-core.exe
+        run: python deploy/windows/capture_installed_window.py check-replay
+      - name: Record Windows build and install outcomes
+        id: diagnostics
+        if: always()
+        shell: pwsh
+        env:
+          ORI_EXPECTED_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+          ORI_OWNERSHIP_RESULT: ${{ steps.native_ownership.outcome }}
+          ORI_BUILD_RESULT: ${{ steps.package.outcome }}
+          ORI_HASH_RESULT: ${{ steps.checksum.outcome }}
+          ORI_BRIDGE_RESULT: ${{ steps.bridge.outcome }}
+          ORI_INSTALL_RESULT: ${{ steps.installed.outcome }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'ori-windows-diagnostics'
+          $null = [IO.Directory]::CreateDirectory($dir)
+          $packages = @(Get-ChildItem clients/windows/target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue)
+          $inventory = @(foreach ($file in $packages) {
+            @{bytes=$file.Length; sha256=(Get-FileHash $file.FullName).Hash.ToLowerInvariant()}
+          })
+          $smokeFile = Join-Path $dir 'installation.json'
+          if (-not (Test-Path -LiteralPath $smokeFile)) {
+            $phase = if ($packages.Count -eq 0) { 'installer_missing' } elseif ($packages.Count -gt 1) { 'installer_ambiguous' } else { 'acceptance_not_started' }
+            $fallback = @{schema_version=1; result='not_run'; phase=$phase; reached=@(); package_rollback='not_run'; installer_exit_code=$null}
+            [IO.File]::WriteAllText($smokeFile, ($fallback | ConvertTo-Json))
+          }
+          $smoke = Get-Content -Raw $smokeFile | ConvertFrom-Json
+          $captureDir = Join-Path $env:RUNNER_TEMP 'ori-windows-operator-window'
+          $null = [IO.Directory]::CreateDirectory($captureDir)
+          $captureReceipt = Join-Path $captureDir 'windows-installed-tauri.json'
+          if (-not (Test-Path -LiteralPath $captureReceipt)) {
+            $capture = @{schema_version=1; status='unavailable'; requested_scenario='monitoring'; reason='install_phase_' + $smoke.phase;
+                         expected_revision=$env:ORI_EXPECTED_REVISION; windows_build=[Environment]::OSVersion.Version.Build;
+                         authenticode=@{installer=@{status='not_checked'}; desktop=@{status='not_checked'}}}
+            [IO.File]::WriteAllText($captureReceipt, ($capture | ConvertTo-Json -Depth 4))
+          }
+          $capture = Get-Content -LiteralPath $captureReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+          if ($capture.status -eq 'captured') {
+            $image = Join-Path $captureDir 'windows-installed-tauri.png'
+            $mismatch = if ($capture.source_revision -cne $env:ORI_EXPECTED_REVISION) { 'window_source_revision_mismatch' }
+              elseif ($inventory.Count -ne 1 -or $capture.installer_sha256 -cne $inventory[0].sha256) { 'window_installer_digest_mismatch' }
+              elseif (-not (Test-Path -LiteralPath $image -PathType Leaf)) { 'window_png_missing' }
+              elseif ((Get-FileHash -LiteralPath $image).Hash -ine $capture.image.sha256) { 'window_png_digest_mismatch' }
+            if ($mismatch) {
+              $capture.status = 'unavailable'
+              $capture | Add-Member -Force NoteProperty reason $mismatch
+              $capture.image = $null
+              [IO.File]::WriteAllText($captureReceipt, ($capture | ConvertTo-Json -Depth 6))
+            } else { "window_image=$image" >> $env:GITHUB_OUTPUT }
+          }
+          "Installed window: $($capture.status), $($capture.scenario) $($capture.reason) $($capture.image.monitoring_unavailable_reason). Installer Authenticode: $($capture.authenticode.installer.status). Desktop Authenticode: $($capture.authenticode.desktop.status)." >> $env:GITHUB_STEP_SUMMARY
+          $packageGate = if ($smoke.result -eq 'passed' -and $smoke.package_rollback -eq 'passed') { 'passed' }
+            elseif ($smoke.result -eq 'failed') { 'failed' } else { 'pending' }
+          $result = [ordered]@{
+            schema_version=1; revision=$env:ORI_EXPECTED_REVISION; windows_build=[Environment]::OSVersion.Version.Build
+            ownership=$env:ORI_OWNERSHIP_RESULT; build=$env:ORI_BUILD_RESULT; bridge=$env:ORI_BRIDGE_RESULT
+            installed=$env:ORI_INSTALL_RESULT; installer_count=$packages.Count; installers=$inventory
+            checksum=$env:ORI_HASH_RESULT; artifact_class='unaccepted_candidate'; package_gate=$packageGate
+            package_rollback=$smoke.package_rollback
+          }
+          [IO.File]::WriteAllText((Join-Path $dir 'build.json'), ($result | ConvertTo-Json -Depth 4))
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: windows-offline-installer
-          path: clients/windows/target/release/bundle/nsis/*.exe
+          name: windows-x64-rc-diagnostics
+          path: ${{ runner.temp }}/ori-windows-diagnostics/*.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: windows-installed-operator-window
+          path: |
+            ${{ runner.temp }}/ori-windows-operator-window/windows-installed-tauri.json
+            ${{ steps.diagnostics.outputs.window_image }}
+          if-no-files-found: error

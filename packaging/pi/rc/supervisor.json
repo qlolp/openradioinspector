@@ -1,0 +1,20 @@
+{
+  "data_directory": "/var/lib/openradioinspector-pi-rc",
+  "backend": {
+    "name": "pi-rc-serial",
+    "program": "/usr/lib/openradioinspector-pi-rc/ori-core",
+    "args": [
+      "--mode", "live",
+      "--data-dir", "/var/lib/openradioinspector-pi-rc",
+      "--task-book", "/var/lib/openradioinspector-pi-rc/tasks.json",
+      "--host", "127.0.0.1", "--port", "8770",
+      "--archive-max-bytes", "68719476736",
+      "--allow-serial", "--stdin-lifeline"
+    ],
+    "control_addr": "127.0.0.1:8770",
+    "ports": ["127.0.0.1:8770"],
+    "startup_timeout_ms": 120000,
+    "shutdown_timeout_ms": 120000,
+    "supervisor_lifeline": true
+  }
+}

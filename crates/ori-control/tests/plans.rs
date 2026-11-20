@@ -44,6 +44,7 @@ fn typed_plans_reuse_existing_registry_and_do_not_resume_or_enable_rf_implicitly
         let params = match kind {
             OperationKind::LeaseAcquire => json!({"acknowledge_rf":true}),
             OperationKind::Setting => json!({"name":"lna","value":false}),
+            OperationKind::ReceiveConfigure => json!({"lna":false}),
             OperationKind::Touch => json!({"x":0,"y":0}),
             OperationKind::Keypad => json!({"text":"100M"}),
             OperationKind::SdDelete => json!({"confirm_delete":true}),

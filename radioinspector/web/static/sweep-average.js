@@ -25,17 +25,7 @@
     return object(a) && object(b) && Object.keys(a).length === Object.keys(b).length &&
       Object.keys(a).every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
   }
-  function setting(value, allowNull = false) {
-    if (value === null) return allowNull;
-    if (typeof value === "number") return finite(value);
-    if (["boolean", "string"].includes(typeof value)) return true;
-    if (Array.isArray(value)) return value.every(item => setting(item, allowNull));
-    return object(value) && Object.values(value).every(item => setting(item, allowNull));
-  }
-  function settingsValid(settings) {
-    return object(settings) && Object.keys(settings).some(key => key !== "sequence") &&
-      Object.entries(settings).every(([key, value]) => setting(value, key === "sequence"));
-  }
+
   // Compare UTC at microsecond precision, while displaying the original timestamp unchanged.
   function utc(value) {
     const match = typeof value === "string" && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/.exec(value);
@@ -66,14 +56,15 @@
         !Array.isArray(frequencies) || frequencies.length !== points ||
         !frequencies.every((v, i) => Number.isSafeInteger(v) && v >= 0 && (!i || v >= frequencies[i - 1])) ||
         !Array.isArray(source.levels) || source.levels.length !== points || !source.levels.every(finite) ||
-        !settingsValid(source.settings)) throw new Error("Некорректный dBm свип, сетка или записанные настройки");
+        !window.oriSweepSettings.valid(source.settings)) throw new Error("Некорректный dBm свип, сетка или записанные настройки");
     interval(source.interval);
   }
   function compatible(sources) {
-    const base = sources[0], comparable = settings => Object.fromEntries(Object.entries(settings).filter(([key]) => key !== "sequence"));
+    const base = sources[0];
+    const settings = window.oriSweepSettings.acquisition(base.settings);
     for (const source of sources) {
       if (source.stream_id !== snapshot.streamId || !equal(source.frequencies_hz, base.frequencies_hz) ||
-          !equal(comparable(source.settings), comparable(base.settings))) throw new Error("Свипы несовместимы: поток, сетка или записанные настройки");
+          !equal(window.oriSweepSettings.acquisition(source.settings), settings)) throw new Error("Свипы несовместимы: поток, сетка или записанные настройки");
     }
   }
   function count() {
@@ -96,7 +87,7 @@
     }
     for (let i = 0; i < ids.length; i++) {
       const source = r.sources[i], frozen = request.sources[i];
-      if (!object(source) || source.id !== frozen.id || !settingsValid(source.settings) ||
+      if (!object(source) || source.id !== frozen.id || !window.oriSweepSettings.valid(source.settings) ||
           !equal(source.settings, frozen.settings) || !sameInterval(source.interval, frozen.interval)) {
         throw new Error("Происхождение опорного не совпадает с закреплёнными свипами");
       }

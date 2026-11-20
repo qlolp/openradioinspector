@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use ori_archive::{Archive, EventDraft, Mutation};
 use rand::RngCore;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 pub(crate) const OPEN: &[&str] = &["queued", "tuning", "listening", "decoding"];
 const CANDIDATE_STATES: &[&str] = &["new", "queued", "investigating", "resolved", "dismissed"];
@@ -687,7 +687,7 @@ impl SessionService {
         Ok(json!(self.matching(session, &job, limit).await?))
     }
     pub async fn complete_investigation(&self, session: &str, id: &str) -> SessionResult<Value> {
-        self.complete_checked(session, id, None).await
+        self.complete_checked(session, id, None, None).await
     }
     pub async fn complete_investigation_with_check(
         &self,
@@ -695,13 +695,26 @@ impl SessionService {
         id: &str,
         check: Arc<dyn TuneCompletionCheck>,
     ) -> SessionResult<Value> {
-        self.complete_checked(session, id, Some(check)).await
+        self.complete_checked(session, id, Some(check), None).await
+    }
+    /// Guard evidence has a verified receiver receipt for each selected observation.
+    /// Other investigations retain their existing time, target and mode matching.
+    pub async fn complete_verified_investigation(
+        &self,
+        session: &str,
+        id: &str,
+        check: Arc<dyn TuneCompletionCheck>,
+        verified: &BTreeSet<&str>,
+    ) -> SessionResult<Value> {
+        self.complete_checked(session, id, Some(check), Some(verified))
+            .await
     }
     async fn complete_checked(
         &self,
         session: &str,
         id: &str,
         check: Option<Arc<dyn TuneCompletionCheck>>,
+        verified: Option<&BTreeSet<&str>>,
     ) -> SessionResult<Value> {
         let coordinator = self.archive.domain_coordinator();
         let _guard = coordinator.lock().await;
@@ -720,7 +733,15 @@ impl SessionService {
                 "У активного исследования отсутствует started_at",
             ));
         }
-        let observations = self.matching(session, &job, None).await?;
+        let mut observations = self.matching(session, &job, None).await?;
+        if let Some(verified) = verified {
+            observations.retain(|id| verified.contains(id.as_str()));
+            if observations.len() != verified.len() {
+                return Err(SessionError::invalid(
+                    "Подтверждённые наблюдения не принадлежат этому исследованию",
+                ));
+            }
+        }
         if observations.is_empty() {
             return Err(SessionError::invalid(
                 "Нет наблюдений целевого потока на выбранной частоте после начала исследования",

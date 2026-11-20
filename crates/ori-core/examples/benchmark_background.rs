@@ -1,5 +1,5 @@
 //! Trusted, hardware-free benchmark embedding. Not a production CLI or API.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod fixture {
     use ori_archive::{BackupCancellation, BackupOptions, restore_backup, verify_backup};
     use ori_core::{Core, CoreConfig};
@@ -10,8 +10,6 @@ mod fixture {
         collections::BTreeMap,
         fs,
         io::{Read, Write},
-        os::fd::{AsFd, AsRawFd},
-        os::unix::fs::MetadataExt,
         path::{Path, PathBuf},
         sync::{
             Arc,
@@ -51,6 +49,7 @@ mod fixture {
         stage.write_all(bytes)?;
         stage.as_file().sync_all()?;
         stage.persist_noclobber(path).map_err(|error| error.error)?;
+        #[cfg(unix)]
         fs::File::open(parent)?.sync_all()?;
         Ok(())
     }
@@ -59,24 +58,92 @@ mod fixture {
         bytes.push(b'\n');
         publish(path, &bytes)
     }
-    struct Ready(PathBuf, fs::Metadata);
+    struct Ready(PathBuf, same_file::Handle);
     impl Drop for Ready {
         fn drop(&mut self) {
-            if fs::symlink_metadata(&self.0)
-                .is_ok_and(|now| now.dev() == self.1.dev() && now.ino() == self.1.ino())
+            if fs::symlink_metadata(&self.0).is_ok_and(|meta| meta.is_file())
+                && same_file::Handle::from_path(&self.0).is_ok_and(|current| current == self.1)
             {
                 let _ = fs::remove_file(&self.0);
             }
         }
+    }
+    fn read_control(file: &mut fs::File, byte: &mut [u8; 1]) -> std::io::Result<Option<usize>> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let mut fd = libc::pollfd {
+                fd: file.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: this thread owns the live descriptor and its pollfd.
+            let ready = unsafe { libc::poll(&mut fd, 1, 100) };
+            if ready < 0 {
+                let error = std::io::Error::last_os_error();
+                return if error.kind() == std::io::ErrorKind::Interrupted {
+                    Ok(None)
+                } else {
+                    Err(error)
+                };
+            }
+            if ready == 0 {
+                return Ok(None);
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::{os::windows::io::AsRawHandle, ptr};
+            use windows_sys::Win32::{
+                Foundation::{ERROR_BROKEN_PIPE, ERROR_PIPE_NOT_CONNECTED},
+                System::Pipes::PeekNamedPipe,
+            };
+            let mut available = 0;
+            // SAFETY: the duplicated stdin handle is retained by this sole reader.
+            if unsafe {
+                PeekNamedPipe(
+                    file.as_raw_handle(),
+                    ptr::null_mut(),
+                    0,
+                    ptr::null_mut(),
+                    &mut available,
+                    ptr::null_mut(),
+                )
+            } == 0
+            {
+                let error = std::io::Error::last_os_error();
+                if matches!(
+                    error.raw_os_error().map(|code| code as u32),
+                    Some(ERROR_BROKEN_PIPE | ERROR_PIPE_NOT_CONNECTED)
+                ) {
+                    return Ok(Some(0));
+                }
+                return Err(error);
+            }
+            if available == 0 {
+                std::thread::sleep(Duration::from_millis(50));
+                return Ok(None);
+            }
+        }
+        file.read(byte).map(Some)
     }
     fn input(
         core: &Arc<Core>,
         done: Arc<AtomicBool>,
         sender: mpsc::Sender<()>,
     ) -> Result<std::thread::JoinHandle<std::io::Result<()>>> {
-        // One owned CLOEXEC duplicate, read only by this thread. A bounded poll
+        // One owned stdin duplicate, read only by this thread. A bounded poll
         // permits real JOIN even if serving fails before the parent's EOF.
-        let mut file = fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
+        #[cfg(unix)]
+        let mut file = {
+            use std::os::fd::AsFd;
+            fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?)
+        };
+        #[cfg(windows)]
+        let mut file = {
+            use std::os::windows::io::AsHandle;
+            fs::File::from(std::io::stdin().as_handle().try_clone_to_owned()?)
+        };
         let weak = Arc::downgrade(core);
         Ok(std::thread::Builder::new()
             .name("benchmark-stdin-lifeline".into())
@@ -84,27 +151,11 @@ mod fixture {
                 let result = (|| {
                     let mut asked = false;
                     while !done.load(Ordering::Acquire) {
-                        let mut fd = libc::pollfd {
-                            fd: file.as_raw_fd(),
-                            events: libc::POLLIN,
-                            revents: 0,
-                        };
-                        // SAFETY: this thread exclusively owns the live descriptor
-                        // and the one-element pollfd remains valid for this call.
-                        let ready = unsafe { libc::poll(&mut fd, 1, 100) };
-                        if ready < 0 {
-                            let error = std::io::Error::last_os_error();
-                            if error.kind() == std::io::ErrorKind::Interrupted {
-                                continue;
-                            }
-                            return Err(error);
-                        }
-                        if ready == 0 {
-                            continue;
-                        }
                         let mut byte = [0];
-                        if file.read(&mut byte)? == 0 {
-                            break;
+                        match read_control(&mut file, &mut byte)? {
+                            None => continue,
+                            Some(0) => break,
+                            Some(_) => {}
                         }
                         if asked || byte[0] != b'B' {
                             return Err(std::io::Error::other(
@@ -139,9 +190,9 @@ mod fixture {
                 .is_some_and(|path| !path.is_absolute())
             || !matches!(
                 profile.workload_profile.as_str(),
-                "modernization" | "macos-rc1"
+                "modernization" | "macos-rc1" | "paged-history"
             )
-            || if profile.workload_profile == "macos-rc1" {
+            || if profile.workload_profile != "modernization" {
                 profile.analysis_python.is_some()
                     || profile.research_cgroup.is_some()
                     || profile.research_best_effort
@@ -168,6 +219,9 @@ mod fixture {
         }
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
         let mut config = CoreConfig::replay(&profile.data);
+        if profile.workload_profile == "paged-history" {
+            ori_archive::init_compact_archive(&config.database).await?;
+        }
         config.devices.transport = None;
         if profile.workload_profile == "macos-rc1" {
             config.max_archive_bytes = Some(64 * 1024 * 1024 * 1024);
@@ -203,7 +257,10 @@ mod fixture {
     async fn serve_owned(core: Arc<Core>, listener: TcpListener, profile: Profile) -> Result<()> {
         let url = format!("http://{}\n", listener.local_addr()?);
         publish(&profile.ready, url.as_bytes())?;
-        let ready = Ready(profile.ready.clone(), fs::symlink_metadata(&profile.ready)?);
+        let ready = Ready(
+            profile.ready.clone(),
+            same_file::Handle::from_path(&profile.ready)?,
+        );
         let done = Arc::new(AtomicBool::new(false));
         let (sender, mut commands) = mpsc::channel(1);
         let input = input(&core, done.clone(), sender)?;
@@ -291,7 +348,7 @@ mod fixture {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::main]
 async fn main() {
     if let Err(error) = fixture::run().await {
@@ -300,8 +357,8 @@ async fn main() {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn main() {
-    eprintln!("benchmark_background requires the existing Unix managed-process benchmark backend");
+    eprintln!("benchmark_background requires a supported managed-process benchmark backend");
     std::process::exit(2);
 }

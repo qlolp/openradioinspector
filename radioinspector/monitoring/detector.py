@@ -6,9 +6,27 @@ import math
 import statistics
 from collections import deque
 from ..contracts import parse_time, format_time
+from ..tinysa_profile import MAX_FREQUENCY_HZ
 
 VERSION = 'robust-city-v1'
 VOLATILE = {'sequence', 'connection_id', 'segment_id', 'revision', 'tune_sequence'}
+
+
+REFERENCE_REQUIRED = 'reference_required_above_800_mhz'
+
+
+def analyzer_adapter(project):
+    return project['profile']['analyzer']['settings'].get('adapter')
+
+
+def eligible_source(project, frequencies, settings):
+    """Archive admission uses the original grid and either indication of a physical source."""
+    adapter = analyzer_adapter(project)
+    if not frequencies:
+        return False
+    if adapter == 'tinysa-serial' or settings.get('adapter') == 'tinysa-serial':
+        return max(frequencies) <= MAX_FREQUENCY_HZ
+    return adapter == 'tinysa-sim'
 
 
 def stable(value):
@@ -25,7 +43,10 @@ def fingerprint(sweep):
         raise ValueError('Для обнаружения нужна строго возрастающая сетка')
     if sweep.settings.get('overload') is True or sweep.settings.get('incomplete') is True:
         raise ValueError('Неполное/перегруженное измерение не используется для обнаружения')
-    document = dict(grid=sweep.frequencies_hz, settings=stable(sweep.settings))
+    acquisition = {k: v for k, v in sweep.settings.items() if k != 'measurement_qualification'}
+    if not acquisition:
+        raise ValueError('Для сравнения требуются настройки измерения')
+    document = dict(grid=sweep.frequencies_hz, settings=stable(acquisition))
     return hashlib.sha256(json.dumps(document, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 

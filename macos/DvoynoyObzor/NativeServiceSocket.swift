@@ -13,9 +13,19 @@ enum NativeServiceError: LocalizedError {
     }
 }
 
+private final class NativeServiceDataScope: @unchecked Sendable {
+    private let lock=NSLock()
+    private var value:URL?
+    func set(_ url:URL) {lock.lock();defer{lock.unlock()};value=url}
+    func get()->URL? {lock.lock();defer{lock.unlock()};return value}
+}
+
 enum NativeLocalServicePaths {
+    private static let acceptance=NativeServiceDataScope()
+    static func configureAcceptanceData(_ url:URL) {acceptance.set(url)}
     static func dataDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent("Library/Application Support/OpenRadioInspector/macOS-RC", isDirectory: true)
+        if let data=acceptance.get() {return data}
+        return home.appendingPathComponent("Library/Application Support/OpenRadioInspector/macOS-RC", isDirectory: true)
     }
     static func socket(data: URL = dataDirectory(), temporary: URL = FileManager.default.temporaryDirectory) -> URL {
         let digest = SHA256.hash(data: Data(data.resolvingSymlinksInPath().path.utf8))

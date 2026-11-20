@@ -3,7 +3,7 @@ import AppKit
 
 struct NativeDevelopmentCorePane: View {
     let core: NativeDevelopmentCore
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @ObservedObject var connection: NativeNodeConnectionModel
     @Binding var connectionTask: Task<Void, Never>?
     @Binding var windowClosed: Bool

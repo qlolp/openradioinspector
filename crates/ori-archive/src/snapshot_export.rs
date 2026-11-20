@@ -1,10 +1,11 @@
 //! Owned, read-only cursors over a completed backup or a live WAL snapshot.
 mod lifecycle;
+mod order;
 mod scoped;
 use crate::{Archive, ArchiveError, Result, error::invalid, rows, schema};
 pub(crate) use lifecycle::Shared as LiveExportOwner;
 use lifecycle::Shared;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, limits::Limit, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, limits::Limit};
 pub use scoped::{
     ScopedSnapshotExport, ScopedSnapshotInfo, ScopedSnapshotKind, ScopedSnapshotQuery,
     ScopedSnapshotRecord,
@@ -526,20 +527,13 @@ fn read_snapshot(
             return Err(invalid("foreign export stream"));
         }
     }
-    let count = |table: &str| -> Result<u64> {
-        Ok(db.query_row(
-            &format!(
-                "SELECT COUNT(*) FROM {table} WHERE session_id=?1 AND (?2 IS NULL OR stream_id=?2)"
-            ),
-            params![query.session_id, query.stream_id],
-            |r| r.get::<_, i64>(0),
-        )? as u64)
-    };
+    let (sweep_count, observation_count) = order::prepare(db, &query, limits, shared)?;
+    deadline(limits, shared)?;
     let info = SnapshotExportInfo {
         session_id: query.session_id.clone(),
         stream_id: query.stream_id.clone(),
-        sweeps: count("sweeps")?,
-        observations: count("observations")?,
+        sweeps: sweep_count,
+        observations: observation_count,
         boundary: db.query_row("SELECT COALESCE(MAX(sequence),0) FROM events", [], |r| {
             r.get::<_, i64>(0)
         })? as u64,
@@ -547,11 +541,12 @@ fn read_snapshot(
     if boundary.is_some_and(|boundary| boundary != info.boundary) {
         return Err(ArchiveError::Corrupt("snapshot event boundary".into()));
     }
-    // Sort only IDs, never raw point arrays. SQLite's sort spills to disk.
-    let mut sweeps = db.prepare("SELECT id FROM sweeps WHERE session_id=?1 AND (?2 IS NULL OR stream_id=?2) ORDER BY context_utc(started_at),context_utf8(id)")?;
-    let mut observations = db.prepare("SELECT id FROM observations WHERE session_id=?1 AND (?2 IS NULL OR stream_id=?2) ORDER BY context_utc(started_at),context_utf8(id)")?;
-    let mut sweep_rows = sweeps.query(params![query.session_id, query.stream_id])?;
-    let mut observation_rows = observations.query(params![query.session_id, query.stream_id])?;
+    let mut sweeps = db
+        .prepare("SELECT id FROM temp.ori_export_order WHERE kind=0 ORDER BY started_at,id_utf8")?;
+    let mut observations = db
+        .prepare("SELECT id FROM temp.ori_export_order WHERE kind=1 ORDER BY started_at,id_utf8")?;
+    let mut sweep_rows = sweeps.query([])?;
+    let mut observation_rows = observations.query([])?;
     db.set_limit(Limit::SQLITE_LIMIT_LENGTH, limits.max_record_bytes as i32)?;
     shared.publish(Ok(Ready::Legacy(info)));
     #[cfg(test)]
@@ -643,6 +638,64 @@ mod lifecycle_tests {
             stream_id: None,
         };
         (directory, archive, query)
+    }
+    #[tokio::test]
+    async fn export_preparation_never_counts_the_full_source() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("paged.sqlite");
+        let archive = Archive::open(ArchiveConfig::new(&path)).unwrap();
+        let fixture = crate::parse_json_value(
+            include_bytes!("../../../contracts/fixtures/measurement-v1.json"),
+            1024 * 1024,
+        )
+        .unwrap();
+        let mut session = fixture["session"].clone();
+        session["created_at"] = json!("2026-11-11T12:00:00.123456Z");
+        archive.create_session(session).await.unwrap();
+        for batch in 0..4 {
+            let values = (0..100)
+                .map(|i| {
+                    let mut value = fixture["sweep"].clone();
+                    value["id"] = json!(format!("paged-{:06}", batch * 100 + i));
+                    value
+                })
+                .collect();
+            archive.append_sweeps(values).await.unwrap();
+        }
+        archive.close().await.unwrap();
+        let mut db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        db.authorizer(Some(|context: AuthContext<'_>| {
+            if matches!(context.action, AuthAction::Function { function_name } if function_name.eq_ignore_ascii_case("count")) {
+                Authorization::Deny
+            } else {
+                Authorization::Allow
+            }
+        })).unwrap();
+        let (sender, receiver) = sync_channel(1);
+        let shared = Shared::new(Duration::from_secs(5), sender, None);
+        shared.sender.lock().unwrap().take();
+        let result = read_snapshot(
+            &mut db,
+            None,
+            SnapshotExportQuery {
+                session_id: fixture["session"]["id"].as_str().unwrap().into(),
+                stream_id: None,
+            },
+            SnapshotExportLimits::default(),
+            &shared,
+            receiver,
+        );
+        assert!(
+            result.is_ok(),
+            "preparation must use bounded metadata pages: {result:?}"
+        );
+        match shared.ready.lock().unwrap().as_ref() {
+            Some(Ok(Ready::Legacy(info))) => assert_eq!((info.sweeps, info.observations), (400, 0)),
+            _ => panic!("legacy export readiness"),
+        }
+        db.progress_handler(0, None::<fn() -> bool>).unwrap();
+        db.execute_batch("ROLLBACK").unwrap();
     }
     async fn until_closing(archive: &Archive) {
         tokio::time::timeout(Duration::from_secs(2), async {

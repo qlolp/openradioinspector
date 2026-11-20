@@ -5,6 +5,27 @@ use crate::{
     SpectrumKind, SpectrumSample, TinySaState,
 };
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
+use std::fmt::Write;
+
+/// Acknowledged input parameters for an owned 10 kHz scan. Keep the unit's
+/// reported device ID private when comparing the original and a bench reference.
+pub(crate) fn grid_rx_evidence(device_id: &str, settings: &Value) -> Value {
+    let mut unit_hash = String::with_capacity(64);
+    for byte in Sha256::digest(device_id.trim().as_bytes()) {
+        write!(&mut unit_hash, "{byte:02x}").expect("write to String");
+    }
+    json!({
+        "device_id_sha256": unit_hash,
+        "source": "command_acknowledged",
+        "device_mode": "input",
+        "lna": settings["lna"],
+        "attenuation_db": settings["attenuation_db"],
+        "calculation": settings["calculation"],
+        "ultra": settings["ultra"],
+        "rbw_hz": settings["rbw_hz"]
+    })
+}
 
 /// Supplied by the owning core, not a second lease/revision authority here.
 #[derive(Clone, Debug)]
@@ -71,8 +92,11 @@ pub fn legacy_monitoring_settings(
         "instrument_settings",
         "artifact_kind",
     ];
-    if source.len() != fields.len()
-        || source.keys().any(|key| !fields.contains(&key.as_str()))
+    let grid = source.get("scan_rx_evidence");
+    if source.len() != fields.len() + usize::from(grid.is_some())
+        || source
+            .keys()
+            .any(|key| !fields.contains(&key.as_str()) && key != "scan_rx_evidence")
         || source["adapter"] != "tinysa-serial"
         || source["device_mode"] != "input"
         || source["settings_source"] != "command_acknowledged"
@@ -137,6 +161,13 @@ pub fn legacy_monitoring_settings(
         "device_identity".into(),
         json!({"info":info,"firmware":firmware}),
     );
+    if let Some(grid) = grid {
+        let id = identity["deviceid"].as_str().ok_or_else(refuse)?;
+        if *grid != grid_rx_evidence(id, &state.settings) {
+            return Err(refuse());
+        }
+        result.insert("scan_rx_evidence".into(), grid.clone());
+    }
     if let Some(context) = context {
         if context.connection_id.is_empty()
             || context.connection_id.len() > 256

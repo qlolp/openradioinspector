@@ -1,0 +1,38 @@
+// Launch the SHA-bound fixture using the same macOS open-application event as Finder.
+import AppKit
+import Foundation
+
+let args = Array(CommandLine.arguments.dropFirst())
+guard args.count == 2 else { throw CocoaError(.coderInvalidValue) }
+let url = URL(fileURLWithPath: args[0]).resolvingSymlinksInPath()
+guard let id = Bundle(url: url)?.bundleIdentifier else { throw CocoaError(.executableLoad) }
+let existing = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+guard !existing.contains(where: { $0.bundleURL?.resolvingSymlinksInPath().path == url.path }) else {
+    throw CocoaError(.fileWriteFileExists)
+}
+let priorPIDs = Set(existing.map(\.processIdentifier))
+let configuration = NSWorkspace.OpenConfiguration()
+configuration.createsNewApplicationInstance = true
+configuration.addsToRecentItems = false
+configuration.arguments = ["--acceptance-profile", args[1]]
+let pid: pid_t = try await withCheckedThrowingContinuation { continuation in
+    NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+        if let app { continuation.resume(returning: app.processIdentifier) }
+        else { continuation.resume(throwing: error ?? CocoaError(.executableLoad)) }
+    }
+}
+guard !priorPIDs.contains(pid), let application = NSRunningApplication(processIdentifier: pid),
+      application.bundleURL?.resolvingSymlinksInPath().path == url.path else { throw CocoaError(.executableLoad) }
+let clock = ContinuousClock()
+let deadline = clock.now.advanced(by: .seconds(70))
+while !application.isTerminated && clock.now < deadline {
+    try await Task.sleep(for: .milliseconds(150))
+}
+if !application.isTerminated {
+    // This is the new instance returned by our launch, separate from every prior process.
+    application.terminate()
+    let cleanup = clock.now.advanced(by: .seconds(5))
+    while !application.isTerminated && clock.now < cleanup { try await Task.sleep(for: .milliseconds(100)) }
+    if !application.isTerminated { application.forceTerminate() }
+    throw CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "Истёк срок получения учебного окна"])
+}

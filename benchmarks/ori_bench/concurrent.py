@@ -6,6 +6,7 @@ import calendar
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
+from http.client import HTTPException
 import os
 from pathlib import Path
 import sys
@@ -13,11 +14,11 @@ import threading
 import time
 import uuid
 
-from .client import Client, HTTPFailure, segment
+from .client import Client, HTTPFailure, TransportFailure, segment
 from .concurrent_proof import ExportProof, MAX_FRAME_BYTES, overlap, reference_config
 from .config import BenchmarkError
 from .endurance import candidate_identity
-from .endurance_node import OwnedCandidate, ROOT, digest, publish_stop
+from .endurance_node import OwnedCandidate, ROOT, digest, publish_stop, start_owned
 from .runner import atomic_report, output_directory, run
 from .source import BASE, encode
 from tools.modernization.api_parity import load_json
@@ -36,9 +37,9 @@ def bounded_json(path, maximum=65536):
 
 class BackgroundCandidate(OwnedCandidate):
     def __init__(self, binary, output, python, *, cgroup=None, best_effort=False, workload_profile="modernization"):
-        if workload_profile not in ('modernization', 'macos-rc1'):
+        if workload_profile not in ('modernization', 'macos-rc1', 'paged-history'):
             raise BenchmarkError('invalid_config', 'Unknown trusted fixture profile')
-        invalid_rc = workload_profile == 'macos-rc1' and (python is not None or cgroup is not None or best_effort)
+        invalid_rc = workload_profile != 'modernization' and (python is not None or cgroup is not None or best_effort)
         invalid_full = workload_profile == 'modernization' and (python is None or not python.is_absolute()
             or not python.is_file() or not os.access(python, os.X_OK)
             or best_effort == (cgroup is not None) or (cgroup is not None and not cgroup.is_absolute()))
@@ -81,9 +82,9 @@ class BackgroundCandidate(OwnedCandidate):
 
 
 class BackgroundWork:
-    def __init__(self, config, node, after_seconds):
+    def __init__(self, config, node, after_seconds, *, record_paged_get=None):
         self.config, self.node, self.after = config, node, after_seconds
-        self.client = Client(config)
+        self.client = Client(config, record_paged_get=record_paged_get)
         self.cancelled, self.done, self.first_record = (threading.Event() for _ in range(3))
         self.lock = threading.Lock()
         self.raw = dict(phase='not_started', verified_records=0)
@@ -121,7 +122,10 @@ class BackgroundWork:
                 while not self.cancelled.is_set():
                     if time.monotonic() >= deadline:
                         raise BenchmarkError('background_incomplete', 'Live export deadline exceeded')
-                    raw = response.readline(MAX_FRAME_BYTES + 1)
+                    try:
+                        raw = response.readline(MAX_FRAME_BYTES + 1)
+                    except (OSError, HTTPException) as error:
+                        raise self.client.transport_error(path, 'response_body', error, response.status) from None
                     if not raw:
                         break
                     proof.observe(raw)
@@ -135,9 +139,10 @@ class BackgroundWork:
             with self.lock:
                 self.raw.update(result, phase='completed', finished_monotonic_ns=time.monotonic_ns())
         except Exception as error:
+            details = error.details if isinstance(error, TransportFailure) else {}
             with self.lock:
                 self.raw.update(phase='failed', finished_monotonic_ns=time.monotonic_ns(),
-                                error=dict(code=getattr(error, 'code', 'export_failed'), message=str(error)))
+                                error=dict(code=getattr(error, 'code', 'export_failed'), message=str(error), **details))
         finally:
             self.first_record.set()
 
@@ -146,7 +151,8 @@ class BackgroundWork:
             self._operations()
         except Exception as error:
             self.report['status'] = 'failed'
-            self.report['errors'].append(dict(code=getattr(error, 'code', 'background_failed'), message=str(error)))
+            details = error.details if isinstance(error, TransportFailure) else {}
+            self.report['errors'].append(dict(code=getattr(error, 'code', 'background_failed'), message=str(error), **details))
             self.cancel()
         finally:
             self.done.set()
@@ -190,6 +196,9 @@ class BackgroundWork:
             return
         if time.monotonic() >= deadline:
             raise BenchmarkError('background_incomplete', 'Backup/export did not enter their original owned operations')
+        self._history_work(deadline)
+
+    def _history_work(self, deadline):
         base_us = calendar.timegm(BASE.utctimetuple()) * 1000000 + BASE.microsecond
         request = dict(operation='summary', page_size=100,
                        filters=dict(session_id=self.config.session_id, stream_id=self.config.spectrum_id,
@@ -258,6 +267,8 @@ class BackgroundWork:
                 thread.join(self.config.bulk_timeout + self.config.request_timeout + 2)
                 if thread.is_alive():
                     raise BenchmarkError('background_cleanup_failed', 'Original background thread has not JOINED')
+        if self.export_thread is not None:
+            self.report['live_export'] = dict(self.raw)
         self.report['threads_joined'] = True
 
     def wait(self):
@@ -266,7 +277,6 @@ class BackgroundWork:
 
 
 def restore(node, output, timeout):
-    from tests.release_process_ownership import OwnedCommand
     restored = output / 'restored'
     restored.mkdir(mode=0o700)
     receipt = restored / 'receipt.json'
@@ -275,7 +285,7 @@ def restore(node, output, timeout):
     try:
         node.unchanged()
         command = [str(node.binary), 'restore', str(node.bundle), str(restored / 'archive.sqlite'), str(receipt)]
-        owner = OwnedCommand.start(command, environment=dict(os.environ), registry=node.registry,
+        owner = start_owned(command, environment=dict(os.environ), registry=node.registry,
                                    root=ROOT, log=log, shutdown_timeout=15)
         code = owner.wait(timeout)
         owner.release(15)
@@ -286,15 +296,19 @@ def restore(node, output, timeout):
         result = bounded_json(receipt)
         if result.get('status') != 'passed' or result.get('manifest') != node.backup_state().get('manifest'):
             raise BenchmarkError('restore_failed', 'Verified restore differs from the original backup receipt')
+        if node.workload_profile == 'paged-history' and result['manifest'].get('archive_schema') != 7:
+            raise BenchmarkError('restore_failed', 'Restored paged-history fixture did not retain the fresh compact v7 archive')
         return result | dict(joined=True, physical_carrier_independence='unmeasured')
     finally:
-        if owner is not None:
-            owner.stop(15)
-        log.close()
+        try:
+            if owner is not None:
+                owner.stop(15)
+        finally:
+            log.close()
 
 
 def run_concurrent(output, binary, python, *, cgroup=None, best_effort=False,
-                   run_id=None, smoke_seconds=None, observer_node='node'):
+                   run_id=None, smoke_seconds=None, observer_node='node', history_profile='research'):
     output = output_directory(output).resolve(strict=True)
     report = dict(report_version=1, successful=False, run_status='failed', errors=[],
                   hardware_tested=False, pi_acceptance_claimed=False, physical_carrier_independence='unmeasured')
@@ -303,8 +317,15 @@ def run_concurrent(output, binary, python, *, cgroup=None, best_effort=False,
     try:
         if not binary.is_absolute() or not binary.is_file() or not os.access(binary, os.X_OK):
             raise BenchmarkError('candidate_unavailable', 'Supply the immutable trusted fixture executable')
-        if os.name != 'posix' or sys.platform not in ('linux', 'darwin'):
-            raise BenchmarkError('candidate_unavailable', 'Existing managed-process backend requires Unix')
+        if sys.platform not in ('win32', 'linux', 'darwin'):
+            raise BenchmarkError('candidate_unavailable', 'No verified command owner for this platform')
+        if history_profile not in ('research', 'paged-history'):
+            raise BenchmarkError('invalid_config', 'Choose research or paged-history explicitly')
+        paged = history_profile == 'paged-history'
+        report.update(history_profile=history_profile, scientific_worker='not_requested' if paged else 'requested',
+                      full_30_minute_reference=smoke_seconds is None, actual_30_minute_run_observed=False)
+        if not paged and sys.platform == 'win32':
+            raise BenchmarkError('history_worker_unavailable', 'Scientific worker containment is unavailable on Windows; paged-history requires an explicit selection')
         options = dict(observer_node=observer_node)
         if smoke_seconds is not None:
             if not 1 <= smoke_seconds <= 60:
@@ -312,36 +333,49 @@ def run_concurrent(output, binary, python, *, cgroup=None, best_effort=False,
             options.update(duration_seconds=smoke_seconds, audio_segment_seconds=min(10, smoke_seconds))
         initial = reference_config('http://127.0.0.1:1', output / 'producer',
                                    run_id or 'concurrent-' + uuid.uuid4().hex, **options)
-        node = BackgroundCandidate(binary.resolve(strict=True), output, python, cgroup=cgroup, best_effort=best_effort)
+        node = BackgroundCandidate(binary.resolve(strict=True), output, python, cgroup=cgroup, best_effort=best_effort,
+                                   workload_profile='paged-history' if paged else 'modernization')
         origin = node.start()
         config = replace(initial, base_url=origin)
         client = Client(config)
         capabilities = client.json('/api/v1/capabilities')
         candidate_identity(capabilities, client.json('/api/v1/health'))
-        if capabilities.get('candidate', {}).get('history_worker_configured') is not True:
-            raise BenchmarkError('history_worker_unavailable', 'Trusted research containment/worker is unavailable; no fallback was selected')
+        expect_worker = history_profile == 'research'
+        if capabilities.get('candidate', {}).get('history_worker_configured') is not expect_worker:
+            raise BenchmarkError('history_worker_unavailable', 'Actual research worker differs from the explicit profile')
+        if paged and capabilities.get('features', {}).get('sweep_summaries') is not True:
+            raise BenchmarkError('history_unavailable', 'The requested cursor-paged archive route is unavailable')
         owned_pid = node.owner.status().get('child_pid')
         if type(owned_pid) is not int or owned_pid <= 0:
             raise BenchmarkError('candidate_unavailable', 'Original managed node has no validated process root')
         config = replace(config, pids={'owned_node_tree': owned_pid})
         report.update(workload=config.public(), candidate_sha256=node.sha256,
-            worker_provenance=dict(program=str(python), sha256=node.python_sha256,
+            worker_provenance=None if paged else dict(program=str(python), sha256=node.python_sha256,
                 args=['-I', '-m', 'radioinspector.research_rpc'], history_args=['-I', '-m', 'ori_research'],
                 deadline_ms=30000, require_hard_memory=not best_effort, best_effort=best_effort),
             full_30_minute_reference=smoke_seconds is None, actual_30_minute_run_observed=False)
-        report['resource_scope'] = 'Original managed adapter and descendants; separate Core-only RSS acceptance is unmeasured'
-        work = BackgroundWork(config, node, config.duration_seconds / 2)
+        report['resource_scope'] = ('Current and lifetime peak working set of the original Windows Job Core member'
+            if sys.platform == 'win32' else 'Original managed adapter and descendants; separate Core-only RSS acceptance is unmeasured')
+        if paged:
+            from .paged_history import PagedHistoryWork
+            work = PagedHistoryWork(config, node, config.duration_seconds / 2)
+        else:
+            work = BackgroundWork(config, node, config.duration_seconds / 2)
         work.start()
         produced, producer_status = run(config)
         report.update(producer_report='producer/report.json', producer_status=producer_status,
                       producer_complete_delivery=produced['checks']['complete_delivery'])
         work.wait()
+        if sys.platform == 'win32':
+            report['windows_core_memory'] = node.owner.core_memory(node.binary)
         work.cancel()
         node.close()
         work.join()
         report['background'] = work.report
         report['restore'] = restore(node, output, config.bulk_timeout)
-        if digest(python) != node.python_sha256:
+        if paged and work.report['status'] == 'passed':
+            work.check_production_overlap(output / 'producer' / 'offers.sqlite')
+        if not paged and digest(python) != node.python_sha256:
             raise BenchmarkError('worker_changed', 'Trusted Python executable changed during the run')
         report['successful'] = producer_status == 0 and work.report['status'] == 'passed'
         report['actual_30_minute_run_observed'] = report['successful'] and smoke_seconds is None \
@@ -376,8 +410,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--candidate', type=Path, required=True)
-    parser.add_argument('--analysis-python', type=Path, required=True)
-    policy = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('--history-profile', choices=('research', 'paged-history'), default='research')
+    parser.add_argument('--analysis-python', type=Path)
+    policy = parser.add_mutually_exclusive_group()
     policy.add_argument('--research-cgroup', type=Path)
     policy.add_argument('--research-best-effort', action='store_true')
     parser.add_argument('--run-id')
@@ -386,7 +421,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     report, status = run_concurrent(args.output_dir, args.candidate, args.analysis_python,
         cgroup=args.research_cgroup, best_effort=args.research_best_effort, run_id=args.run_id,
-        smoke_seconds=args.smoke_seconds, observer_node=args.observer_node)
+        smoke_seconds=args.smoke_seconds, observer_node=args.observer_node, history_profile=args.history_profile)
     print(encode(dict(report=str(args.output_dir.absolute() / 'report.json'),
                       run_status=report['run_status'], successful=report['successful'])).decode())
     return status

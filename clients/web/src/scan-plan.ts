@@ -1,4 +1,4 @@
-import type { DisplaySweep, Project } from './types';
+import type { BandCoverage, DisplaySweep, Project, WorkerStatus } from './types';
 
 export function scanKey(sweep: Pick<DisplaySweep, 'scan_context'>): string | undefined {
   const context = sweep.scan_context;
@@ -19,4 +19,18 @@ export function scanChoices(
     if (key && (options.size < 16 || options.has(key))) options.set(key, row.scan_context!.band_id);
   }
   return [...options].map(([key, label]) => ({ key, label }));
+}
+
+export function gridPointCount(start: string, stop: string): number | undefined {
+  if (!/^\d+$/.test(start) || !/^\d+$/.test(stop)) return;
+  const low = Number(start),
+    high = Number(stop),
+    span = high - low;
+  if (low < 100000 || high > 1300000000 || span <= 0 || span % 10000 !== 0) return;
+  return span / 10000 + 1;
+}
+
+export function coverageBands(worker?: WorkerStatus): BandCoverage[] {
+  const coverage = worker?.current?.scan_coverage as { bands?: BandCoverage[] } | undefined;
+  return coverage?.bands ?? [];
 }

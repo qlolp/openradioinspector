@@ -35,12 +35,17 @@ final class RemoteMeasurementStream {
         let sourceCursor = matches(sessionID: sessionID, streamID: streamID, receiverStreamID: receiverStreamID)
             ? appliedSourceCursor : UInt64(watermark)
         stop(); self.sessionID = sessionID; self.streamID = streamID; self.receiverStreamID = receiverStreamID
+        NativeAcceptanceTrace.shared?.streamReady(sessionID:sessionID)
+        let observer=NativeAcceptanceTrace.shared?.transportObserver()
+        NativeAcceptanceTrace.shared?.record("transport.selected",[
+            "transport":transport == .binaryV1 ? "binary-v1":"sse","after":sourceCursor,
+            "queue_capacity":transport == .binaryV1 ? 0:64])
         let requestRevision = revision
         appliedSourceCursor = sourceCursor
         measurements = PlatformLiveMeasurements(sessionID: sessionID, streamID: streamID, after: watermark, sweeps: sweeps, observation: observation, receiverStreamID: receiverStreamID)
         task = Task { [weak self] in
             do {
-                try await client.consumeMeasurements(after: sourceCursor, using: transport) { [weak self] event in
+                try await client.consumeMeasurements(after: sourceCursor, using: transport, observe: observer) { [weak self] event in
                     guard let self else { throw CancellationError() }
                     try await self.apply(event, revision: requestRevision, receive: receive)
                 }
@@ -59,9 +64,11 @@ final class RemoteMeasurementStream {
     private func apply(_ event: PlatformMeasurementEvent, revision expected: Int,
         receive: @MainActor ([PlatformSweep], PlatformObservation?, PlatformMeasurementEvent, PlatformLiveMeasurements.Change) async throws -> Void) async throws {
         guard !Task.isCancelled, expected == revision, var value = measurements else { throw CancellationError() }
+        if let sweep=event.committedEvent?.payload.sweep {NativeAcceptanceTrace.shared?.received(sweep.id,sequence:event.sequence)}
         let change = try event.committedEvent.map { try value.apply($0) } ?? .metadata
         try await receive(value.sweeps, value.observation, event, change)
         guard !Task.isCancelled, expected == revision else { throw CancellationError() }
+        if let sweep=event.committedEvent?.payload.sweep {NativeAcceptanceTrace.shared?.applied(sweep.id,sequence:event.sequence)}
         // Publish only after the consumer applied the model/display/source state.
         // The SDK sends ACK after this method returns; source-only UInt64 values
         // never enter the legacy Int64 plot/cache or block future source events.

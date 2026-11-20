@@ -1,0 +1,87 @@
+name: Publish accepted immutable 0.4.0 packages
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Accepted prerelease to publish, or all three accepted platforms for stable
+        required: true
+        type: choice
+        options: [macos, windows, pi, stable]
+      build_run:
+        description: Successful Freeze native candidate workflow run ID (platform prerelease)
+        type: string
+        default: '0'
+      rc_numbers:
+        description: Published/proposed immutable RC tag numbers by platform
+        type: string
+        default: '{"macos":1,"windows":1,"pi":1}'
+      receipt_b64:
+        description: Base64 of the sanitized signed platform acceptance JSON (prerelease only)
+        type: string
+      signature_b64:
+        description: Optional SSH witness signature in base64; omit for a GitHub-attested receipt
+        type: string
+
+concurrency:
+  group: immutable-0.4.0-publication
+  cancel-in-progress: false
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/0.4.0')
+    permissions:
+      actions: read
+      contents: write
+      attestations: read
+    runs-on: ubuntu-24.04
+    environment: release-publication
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: origin
+        name: Verify native build workflow identity and exact successful attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ inputs.platform }}
+          RUN_ID: ${{ inputs.build_run }}
+        run: python3 -m tools.release.publish_release origin "$PLATFORM" --build-run "$RUN_ID"
+      - if: inputs.platform != 'stable'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run }}
+          name: release-${{ inputs.platform }}-${{ github.sha }}-${{ steps.origin.outputs.attempt }}
+          path: ${{ runner.temp }}/candidate
+      - name: Create short-lived release App token
+        id: publisher
+        if: vars.RELEASE_APP_ID != ''
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-actions: read
+          permission-administration: read
+          permission-attestations: read
+      - name: Verify witness, CI, bytes, previous releases and repository immutability before publication
+        env:
+          GH_TOKEN: ${{ steps.publisher.outputs.token || secrets.RELEASE_PUBLISH_TOKEN || github.token }}
+          ORI_POLICY_READ_TOKEN: ${{ secrets.RELEASE_POLICY_READ_TOKEN }}
+          ORI_RECEIPT_B64: ${{ inputs.receipt_b64 }}
+          ORI_SIGNATURE_B64: ${{ inputs.signature_b64 }}
+          ORI_WITNESS_MACOS: ${{ vars.MACOS_ACCEPTANCE_PUBLIC_KEY }}
+          ORI_WITNESS_WINDOWS: ${{ vars.WINDOWS_ACCEPTANCE_PUBLIC_KEY }}
+          ORI_WITNESS_PI: ${{ vars.PI_ACCEPTANCE_PUBLIC_KEY }}
+          PLATFORM: ${{ inputs.platform }}
+          RUN_ID: ${{ inputs.build_run }}
+          RC_NUMBERS: ${{ inputs.rc_numbers }}
+        run: |
+          python3 -m tools.release.publish_release publish "$PLATFORM" --build-run "$RUN_ID" \
+            --candidate "$RUNNER_TEMP/candidate" --numbers "$RC_NUMBERS"

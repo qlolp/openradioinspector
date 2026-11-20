@@ -122,6 +122,11 @@ class ResponseParityTests(unittest.TestCase):
             with self.assertRaises(ValueError): validate_comparison(data, expected)
         data = response(); data['reference']['settings']['sequence'] = {'nullable': [None]}
         validate_comparison(data, expected)
+        data['reference']['settings']['measurement_qualification'] = {'status': 'synthetic', 'reason': None}
+        validate_comparison(data, expected)
+        data['reference']['settings'] = {'measurement_qualification': {'status': 'synthetic', 'reason': None}}
+        with self.assertRaises(ValueError):
+            validate_comparison(data, expected)
 
     def test_extrema_value_and_first_tie(self):
         expected = ('session', 's', 'r', 't')

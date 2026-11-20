@@ -27,7 +27,9 @@ const envelope = (data: unknown) => ({
   data,
 });
 
-export async function runLivePublicationDiagnostic(mode: 'coalesced' | 'spaced' | 'seed-replay') {
+export async function runLivePublicationDiagnostic(
+  mode: 'coalesced' | 'spaced' | 'seed-replay' | 'replay-burst',
+) {
   const capture = mode === 'seed-replay' ? captureSeedOrder() : undefined;
   const element = document.createElement('div');
   document.body.append(element);
@@ -218,7 +220,8 @@ export async function runLivePublicationDiagnostic(mode: 'coalesced' | 'spaced' 
     attributes: true,
     attributeFilter: ['data-sweep-id'],
   });
-  const sources: Sweep[] = ['A', 'B', 'C'].map((letter, index) => {
+  const letters = mode === 'replay-burst' ? [...'ABCDEFGH'] : [...'ABC'];
+  const sources: Sweep[] = letters.map((letter, index) => {
     const levels = Array.from(
       { length: 290 },
       (_, point) => -110 + ((point * 7 + index * 17) % 55),
@@ -329,7 +332,7 @@ export async function runLivePublicationDiagnostic(mode: 'coalesced' | 'spaced' 
       for (const complete of held.splice(0)) queueMicrotask(complete);
       await first;
       await deliver(sources[1], 1);
-    } else if (mode === 'coalesced') {
+    } else if (mode === 'coalesced' || mode === 'replay-burst') {
       // One native RAF callback plus its microtask checkpoint. No RAF/MO/Canvas
       // replacement: all three controlled parser completions precede publication.
       await new Promise<void>((resolve, reject) =>
@@ -354,7 +357,7 @@ export async function runLivePublicationDiagnostic(mode: 'coalesced' | 'spaced' 
       }
     }
     const afterApplied = read();
-    for (let index = 0; index < 20; index++) await tick();
+    for (let index = 0; index < 4 * sources.length + 8; index++) await tick();
     const final = read();
     const parsedNegativeZero = parsed.every(({ sweep }) => Object.is(sweep.levels[17], -0));
     const parsedArraysUnchanged = parsed.every(

@@ -23,21 +23,14 @@
     if (start > end) throw new Error("Некорректный интервал UTC");
     return `${start} … ${end}`;
   }
-  function setting(value, allowNull = false) {
-    if (value === null) return allowNull;
-    if (typeof value === "number") return finite(value);
-    if (["boolean", "string"].includes(typeof value)) return true;
-    if (Array.isArray(value)) return value.every(item => setting(item, allowNull));
-    return object(value) && Object.values(value).every(item => setting(item, allowNull));
-  }
+
   function sourceValid(source, frequencies, points) {
     if (!object(source) || !identity(source.id) || source.level_unit !== "dBm" ||
         !Number.isSafeInteger(points) || points < 3 || points > 16384 ||
         !Array.isArray(frequencies) || frequencies.length !== points ||
         !frequencies.every((v, i) => Number.isSafeInteger(v) && v >= 0 && (!i || v >= frequencies[i - 1])) ||
         !Array.isArray(source.levels) || source.levels.length !== points || !source.levels.every(finite) ||
-        !object(source.settings) || !Object.keys(source.settings).some(key => key !== "sequence") ||
-        !Object.entries(source.settings).every(([key, value]) => setting(value, key === "sequence"))) {
+        !window.oriSweepSettings.valid(source.settings)) {
       throw new Error("Некорректный исходный dBm свип, сетка или записанные настройки");
     }
     interval(source);

@@ -40,8 +40,69 @@ pub fn configuration(bundle: &Path, data: &Path, maximum: u64) -> Result<Service
     })
 }
 
+/// Explicit engineering scope. Normal macos-agent never reads this pointer.
+#[cfg(unix)]
+pub fn acceptance_configuration(bundle: &Path, home: &Path) -> Result<ServiceConfig> {
+    let base = home.join("Library/Application Support/OpenRadioInspector/macOS-Acceptance");
+    crate::lease::check_private(&base, true)?;
+    let active: serde_json::Value = serde_json::from_slice(&crate::lease::read_private(
+        &base.join("active.json"),
+        65536,
+    )?)?;
+    let profile = active["profile"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| Error::Unsafe("invalid acceptance profile path".into()))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&crate::lease::read_private(&profile, 65536)?)?;
+    let data = value["data_dir"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| Error::Unsafe("invalid acceptance data path".into()))?;
+    if active["version"] != 1
+        || value["version"] != 1
+        || value["phase"] != "hardware"
+        || active["run_id"].as_str().is_none_or(str::is_empty)
+        || active["run_id"] != value["run_id"]
+    {
+        return Err(Error::Unsafe("acceptance run identity mismatch".into()));
+    }
+    crate::lease::check_private(&data, true)?;
+    let mut config = configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?;
+    for argument in &mut config.backend.args {
+        if argument == "8772" {
+            *argument = "8774".into();
+        }
+    }
+    config.backend.control_addr = "127.0.0.1:8774".parse().expect("fixed acceptance loopback");
+    config.backend.ports = vec![config.backend.control_addr];
+    config.backend.args.extend([
+        "--acceptance-profile".into(),
+        profile.to_string_lossy().into_owned(),
+    ]);
+    Ok(config)
+}
+#[cfg(not(unix))]
+pub fn acceptance_configuration(_bundle: &Path, _home: &Path) -> Result<ServiceConfig> {
+    Err(Error::Unsafe(
+        "Mac acceptance requires Unix private paths".into(),
+    ))
+}
+
 #[cfg(target_os = "macos")]
 pub async fn run() -> Result<()> {
+    run_mode(false).await
+}
+
+#[cfg(target_os = "macos")]
+pub async fn run_acceptance() -> Result<()> {
+    run_mode(true).await
+}
+
+#[cfg(target_os = "macos")]
+async fn run_mode(acceptance: bool) -> Result<()> {
     let executable = std::fs::canonicalize(std::env::current_exe()?)?;
     let bundle = executable
         .parent()
@@ -73,12 +134,18 @@ pub async fn run() -> Result<()> {
     let home =
         std::ffi::OsStr::from_bytes(unsafe { std::ffi::CStr::from_ptr(pwd.pw_dir) }.to_bytes());
     let data = Path::new(home).join("Library/Application Support/OpenRadioInspector/macOS-RC");
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&data)?;
-    crate::lease::state_directory(&data)?;
-    let mut config = configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?;
+    if !acceptance {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&data)?;
+        crate::lease::state_directory(&data)?;
+    }
+    let mut config = if acceptance {
+        acceptance_configuration(bundle, Path::new(home))?
+    } else {
+        configuration(bundle, &data, 64 * 1024 * 1024 * 1024)?
+    };
     config.backend.name = bundled_backend_id(bundle)?;
     crate::service::run_personal_rc(config).await
 }
@@ -86,6 +153,11 @@ pub async fn run() -> Result<()> {
 #[cfg(not(target_os = "macos"))]
 pub async fn run() -> Result<()> {
     Err(Error::Unsafe("SMAppService RC agent requires macOS".into()))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub async fn run_acceptance() -> Result<()> {
+    Err(Error::Unsafe("Mac acceptance agent requires macOS".into()))
 }
 
 /// Identity of an immutable RC package, shared with the native client. This
@@ -103,7 +175,10 @@ pub fn bundled_backend_id(bundle: &Path) -> Result<String> {
     let value: serde_json::Value = serde_json::from_slice(&bytes)?;
     let source = value["source_revision"].as_str().unwrap_or("");
     if value["schema_version"] != 1
-        || value["release_version"] != "0.4.0-macos.rc.1"
+        || !matches!(
+            value["release_version"].as_str(),
+            Some("0.4.0-macos.rc.1" | "0.4.0")
+        )
         || value["bundle_identifier"] != "org.openradioinspector.macos.rc"
         || value["architecture"] != "arm64"
         || source.len() != 40

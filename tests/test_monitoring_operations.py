@@ -5,7 +5,7 @@ import json
 import threading
 import unittest
 import urllib.error
-from datetime import timedelta
+from datetime import timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from radioinspector.contracts import utc_now
@@ -21,6 +21,89 @@ class OperationalTests(unittest.TestCase):
             report=self.service.storage_report(self.project['id'],probe=True)
         self.assertFalse(report['ready']);self.assertFalse(report['automatic_deletion'])
         self.assertEqual(self.workers.active_count,0)
+
+    def test_forecast_samples_stored_arrays_and_reports_wal_separately(self):
+        from tests.test_monitoring_detector import sweep
+
+        project_id = self.project['id']
+        empty = self.service.storage_report(project_id)
+        self.assertEqual(empty['sampled_sweeps'], 0)
+        self.assertIsNone(empty['mean_stored_sweep_bytes'])
+        self.assertIsNone(empty['projected_bytes_per_day'])
+        samples = [sweep(i, session=self.session.id, stream=self.project['analyzer_stream_id']) for i in range(2)]
+        for sample in samples:
+            self.sessions.ingest_sweep(sample)
+        report = self.service.storage_report(project_id)
+        expected = sum(len(json.dumps(list(values), separators=(',', ':')).encode('utf-8'))
+                       for values in (samples[0].frequencies_hz, samples[0].levels))
+        self.assertEqual(report['sampled_sweeps'], 2)
+        self.assertEqual(report['mean_stored_sweep_bytes'], expected)
+        self.assertGreater(report['bytes_per_second'], 0)
+        self.assertEqual(report['projected_bytes_per_day'], report['bytes_per_second'] * 86400)
+        self.assertGreaterEqual(report['wal_bytes'], 0)
+
+    def test_flat_archive_without_sweeps_has_an_unknown_rate(self):
+        with patch('radioinspector.monitoring.operations.time.monotonic', return_value=100.) as clock:
+            first = self.service.storage_report(self.project['id'])
+            clock.return_value = 106.
+            idle = self.service.storage_report(self.project['id'])
+        self.assertEqual(idle['capacity']['database_bytes'], first['capacity']['database_bytes'])
+        self.assertEqual(idle['sampled_sweeps'], 0)
+        for field in ('bytes_per_second', 'projected_bytes_per_day', 'estimated_retention_seconds'):
+            self.assertIsNone(idle[field])
+
+    def test_forecast_reads_only_recent_captures_from_the_requested_stream(self):
+        from radioinspector.monitoring.storage_sample import _query
+
+        session = self.sessions.create_session({
+            'name': 'Forecast fixture',
+            'streams': [{'id': stream, 'role': 'spectrum_analyzer', 'device': 'synthetic',
+                         'level_unit': 'dBm'} for stream in ('sparse', 'busy')],
+        })
+        store = self.sessions._store
+        early = sweep(1, session=session.id, stream='sparse')
+        late = sweep(2, session=session.id, stream='sparse')
+        # Historical rows can use a different offset from the normalized time index.
+        # The next thousand sweeps all belong to the other stream.
+        with store._measurement_transaction():
+            for sample in (late, early):
+                store._insert_sweep(sample)
+            offset = timezone(timedelta(hours=3))
+            store._connection.execute(
+                "UPDATE sweeps SET started_at=?, ended_at=? WHERE id=?",
+                (early.interval.started_at.astimezone(offset).isoformat(),
+                 early.interval.ended_at.astimezone(offset).isoformat(), early.id),
+            )
+            store._insert_sweep(sweep(9000, session=session.id, stream='busy'))
+            for index in range(3, 1027):
+                store._insert_sweep(sweep(index, session=session.id, stream='busy'))
+
+        def canonical(stamp):
+            return stamp.isoformat(timespec='microseconds').replace('+00:00', 'Z')
+
+        with store.read_snapshot() as db:
+            for stream, expected in [('sparse', 2), ('absent', 0)]:
+                steps = 0
+
+                def count_steps():
+                    nonlocal steps
+                    steps += 100
+                    return 0
+
+                db.set_progress_handler(count_steps, 100)
+                try:
+                    row = db.execute(_query(), (session.id, stream)).fetchone()
+                finally:
+                    db.set_progress_handler(None, 0)
+                self.assertEqual(row[0], expected)
+                self.assertLess(steps, 1000, f'{stream} scanned unrelated history')
+                if stream == 'sparse':
+                    self.assertEqual(tuple(row[3:]), (canonical(early.interval.started_at),
+                                                      canonical(late.interval.ended_at)))
+            dense = db.execute(_query(), (session.id, 'busy')).fetchone()
+            self.assertEqual(dense[0], 128)
+            self.assertEqual(tuple(dense[3:]), (canonical(sweep(899).interval.started_at),
+                                                canonical(sweep(1026).interval.ended_at)))
 
     def test_settings_never_echo_webhook_secret_and_invalid_request_is_atomic(self):
         value=self.service.update_settings(self.project['id'],dict(webhook=dict(enabled=True,url='http://127.0.0.1/hook',secret='private-fixture-secret')))

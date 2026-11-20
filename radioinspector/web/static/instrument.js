@@ -41,8 +41,24 @@
   function showState(state){
     revision=state.revision??revision;
     $('state').textContent=`${state.mode||'?'} · rev ${revision??'?'} · ${state.profile_verified?'профиль подтверждён':'профиль ещё не проверен'} · настройки: ${state.settings_source||'unknown'} · физическая приёмка не выполнена`;
+    showUltraSettings(state.settings ?? {});
     if(!state.lease_active&&lease){lease=null;stopHeartbeat();}
     controls();
+  }
+  function showUltraSettings(settings = {}) {
+    const ultra = $('ultra-state');
+    ultra.hidden = typeof settings.ultra !== 'boolean';
+    ultra.textContent = ultra.hidden ? '' : `Настройка ядра Ultra · ${settings.ultra ? 'включена' : 'выключена'}. Проверьте флажок ENABLE ULTRA на экране прибора.`;
+
+    const advice = $('lna-advice');
+    const stopHz = settings.stop_hz;
+    advice.hidden = settings.lna !== true || !Number.isSafeInteger(stopHz) || stopHz <= 3_500_000_000;
+    if (advice.hidden) advice.textContent = '';
+    else if (stopHz > 4_000_000_000) {
+      advice.textContent = 'Верхняя граница выходит за паспортный диапазон LNA. Выключите LNA для этой развёртки.';
+    } else {
+      advice.textContent = 'Выше 3,5 ГГц сравните показания с LNA и без него.';
+    }
   }
   function input(spec,value){
     let el;
@@ -117,6 +133,7 @@
     const old=scope,token=lease;generation++;lease=null;scope=null;cap=null;active=null;busy=false;pointer=null;revision=null;stopHeartbeat();
     if(old&&token)fetch(prefix(old)+'/operations',{method:'POST',headers:{'Content-Type':'application/json','X-Instrument-Client':old.key},body:JSON.stringify({operation:'lease.release',lease_id:token,parameters:{},request_id:requestID()}),keepalive:true}).catch(()=>{});
     $('screen').removeAttribute('src');$('audio').pause();$('audio').removeAttribute('src');$('audio').hidden=true;$('result').textContent='';$('result-details').textContent='';$('artifacts').replaceChildren();controls();
+    showUltraSettings();
   }
   async function connect(event){event?.preventDefault();retire();artifactOffset=0;scope={session:$('session').value.trim(),stream:$('stream').value.trim(),key:ownerKey()};const s=scope,g=generation;
     try{const data=await json(s,'/capabilities');if(!same(g,s))return;cap=data.capabilities;

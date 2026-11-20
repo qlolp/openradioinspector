@@ -56,6 +56,9 @@ impl Termination {
 }
 
 pub async fn run(config: ServiceConfig) -> Result<()> {
+    #[cfg(windows)]
+    return crate::windows_node::serve(config, false).await;
+    #[cfg(not(windows))]
     run_with_policy(config, false).await
 }
 
@@ -241,16 +244,23 @@ pub async fn admin(data: &Path, command: AdminCommand) -> Result<serde_json::Val
         }
         Ok(serde_json::from_slice(&response)?)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    return crate::windows_node::admin(data, command).await;
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (data, command);
-        Err(Error::Unsafe("native Windows clients must embed the supervisor and call its lifecycle API; Unix admin sockets are unavailable".into()))
+        Err(Error::Unsafe(
+            "local administrative transport unavailable".into(),
+        ))
     }
 }
 
 /// Darwin's sockaddr_un is short. Keep leases by the archive, and place only
 /// its owner-only admin socket in the OS-provided per-user temporary directory.
 pub fn admin_socket_path(data: &Path) -> Result<PathBuf> {
+    #[cfg(windows)]
+    return crate::windows_node::admin_pipe_path(data);
+    #[cfg(not(windows))]
     let state = state_directory(data)?;
     #[cfg(target_os = "macos")]
     {
@@ -289,6 +299,6 @@ pub fn admin_socket_path(data: &Path) -> Result<PathBuf> {
         let _ = state;
         Ok(path)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     Ok(state.join("supervisor.sock"))
 }

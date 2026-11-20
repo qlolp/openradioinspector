@@ -10,7 +10,7 @@ import time
 from urllib.parse import urlsplit
 
 from . import VERSION
-from .client import Client,HTTPFailure,segment
+from .client import Client,HTTPFailure,TransportFailure,segment
 from .config import BenchmarkError
 from .ledger import Ledger
 from .metrics import Histogram,Sampler,host
@@ -123,17 +123,20 @@ def send(client,config,ledger,kind,index,histograms):
         ledger.status(key,'accepted',201)
         histograms['offered_to_ack_ms'].add((time.monotonic_ns()-row['offered_ns'])/1e6)
     except HTTPFailure as error:ledger.status(key,'rejected',error.status)
+    except TransportFailure as error:ledger.transport_failure(key, error, started)
     except BenchmarkError as error:
         ledger.status(key,'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
     except (ValueError,TypeError,KeyError,OverflowError):ledger.status(key,'invalid_ack')
-    finally:histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+    finally:
+        histograms['request_ms'].add((time.monotonic_ns()-started)/1e6)
+        ledger.producer_connect(key, client.connect_attempts)
 
 
 def run_load(config,ledger,histograms):
     pending=queue.Queue(maxsize=config.queue_capacity)
     finished=threading.Event();cancelled=threading.Event()
     def worker():
-        client=Client(config)
+        client=Client(config, producer=True)
         while True:
             try:kind,index=pending.get(timeout=.05)
             except queue.Empty:
@@ -200,6 +203,9 @@ def run_history(config,client,capabilities,ledger,histograms):
             histograms['offered_to_ack_ms'].add((time.monotonic_ns()-offered)/1e6)
         except HTTPFailure as error:
             for index in indexes:ledger.status(identifier(config,'sweep',index),'rejected',error.status)
+        except TransportFailure as error:
+            for index in indexes:
+                ledger.transport_failure(identifier(config, 'sweep', index), error, started)
         except BenchmarkError as error:
             for index in indexes:ledger.status(identifier(config,'sweep',index),
                 'transport_unknown' if error.code=='transport_error' else 'invalid_ack')
@@ -217,7 +223,7 @@ def run_history(config,client,capabilities,ledger,histograms):
             'maximum_batch_request_bytes':byte_limit,'offered_to_ack_samples_are_batches':True}
 
 
-def run(config):
+def run(config, *, before_production=None):
     output=output_directory(config.output_dir)
     ledger=Ledger(output/'offers.sqlite')
     histogram={name:Histogram() for name in LATENCIES}
@@ -239,20 +245,27 @@ def run(config):
                 observer=OwnedObserver(config,client,output)
                 report['observer_setup']=observer.start()
             try:
+                if before_production is not None:before_production()
                 report['production']=(run_history(config,client,capabilities,ledger,histogram) if config.mode=='history'
                                       else run_load(config,ledger,histogram))
             finally:
                 if observer is not None:
                     report['observer_completed']=observer.close()
-            report['history']=verify.history(client,config,capabilities,histogram,ledger)
+            # Measure the original history request before the full export warms
+            # the cache. Preserve independent source evidence on a history error.
+            history_error = None
+            try:
+                report['history'] = verify.history(client,config,capabilities,histogram,ledger)
+            except BenchmarkError as error:
+                history_error = error
             report['checks']['archive_integrity']=verify.archive(client,config,ledger)
             if config.planned_counts()['audio']:report['audio']=verify.audio(client,config,ledger,output)
             else:report['audio']=ledger.audio_counts()
             missing=ledger.db.execute("SELECT COUNT(*) FROM offers WHERE status='accepted' AND verified=0").fetchone()[0]
             if missing:raise BenchmarkError('archive_invalid','Acknowledged source input is missing from the archive')
-            newest=[row[0] for row in ledger.db.execute("SELECT id FROM offers WHERE kind='sweep' AND verified=1 ORDER BY idx DESC LIMIT 100")]
-            if report['history']['first_page_source_ids']!=newest:
-                raise BenchmarkError('history_invalid','First history page does not identify the newest retained sources')
+            if history_error is not None:
+                raise history_error
+            verify.verify_history_ids(report['history'], ledger)
             report['event_watermark_after']=client.json('/api/v1/health').get('last_event_id')
             render_path=observer.render_path if observer is not None else config.render_events
             if render_path:
@@ -285,6 +298,11 @@ def run(config):
         report['counts']=counts
         report.setdefault('audio',ledger.audio_counts())
         report['gap_samples']=ledger.gap_samples()
+        verification = dict(ndjson_complete=report['checks']['archive_integrity']['status'] == 'passed',
+                            audio_complete='listed_segments' in report['audio'])
+        report['transport_failure_samples'] = ledger.transport_report(**verification)
+        report['producer_loopback_tcp'] = dict(ledger.producer_connect_counts,
+            samples=ledger.transport_report(samples=ledger.producer_connect_samples, **verification))
         report['checks']['offered_accounting']={'status':'passed' if accounted and all_offered else 'failed',
             'all_planned_inputs_offered':all_offered}
         report['checks']['complete_delivery']={'status':'passed' if complete else 'failed',

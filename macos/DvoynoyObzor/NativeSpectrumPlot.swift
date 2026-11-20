@@ -2,11 +2,6 @@ import SwiftUI
 import CoreGraphics
 import SpektrKomandy
 
-private struct NativeWaterfallRasterRow: @unchecked Sendable {
-    let id: PlatformExactID
-    let image: CGImage
-}
-
 struct NativeSpectrumPlot: View {
     let sweeps: [PlatformSweep]
     let selected: PlatformSweep?
@@ -16,24 +11,42 @@ struct NativeSpectrumPlot: View {
     let cursor: NativeSpectrumSample?
     let markers: [NativeSpectrumSample]
     let layout: NativeSpectrumPlotLayout
-    var window: ClosedRange<Date>? = nil
+    let timeline: NativeSpectrumTimeline
     var showMinimum = true
     var showMaximum = true
     var reference: PlatformSweep? = nil
-    @State private var rasters: [NativeWaterfallRasterRow] = []
-    private struct Request: Equatable {
-        let sweeps: [PlatformSweep]
+    @State private var prepared = NativeSpectrumRenderCache()
+    @State private var preparedRequest: Request?
+    private struct Sources: Equatable {
         let ids: [PlatformExactID]
+        let selected: PlatformExactID?
         let bounds: PlatformSpectrumScale?
-        let range: ClosedRange<Double>
+        let threshold: Double?
+        let reference: PlatformExactID?
+    }
+    private struct Request: Equatable {
+        let sources:Sources
+        let raster:NativeSpectrumRasterWindow?
     }
 
     var body: some View {
-        let timeline = NativeSpectrumTimeline(sweeps, window: window)
-        Canvas { context, _ in
+        let acceptance=NativeAcceptanceTrace.shared
+        let fullLower=Double(selected?.frequenciesHz.first ?? 0)
+        let fullUpper=max(fullLower+1,Double(selected?.frequenciesHz.last ?? 1))
+        let selectedID=selected?.exactID
+        let raster=NativeSpectrumRasterWindow.covering(range,within:fullLower...fullUpper,previous:preparedRequest?.raster)
+        let request=Request(sources:Sources(ids:sweeps.map(\.exactID),selected:selectedID,bounds:bounds,threshold:threshold,reference:reference?.exactID),raster:raster)
+        let ready=preparedRequest==request
+        let geometryReady=preparedRequest?.sources==request.sources
+        // A new marker may certify only geometry prepared from that exact source.
+        let evidence=ready && raster != nil ? acceptance?.frame(for:selected?.id,viewport:range):nil
+        let markerTag=acceptance?.tag ?? 0
+        // Only captured, immutable paths/bitmaps enter the renderer. Composite
+        // them asynchronously so drawing does not hold up UI input and delivery.
+        Canvas(rendersAsynchronously: true) { context, _ in
             let plot = layout.spectrum, water = layout.waterfall
             func x(_ hz: Double) -> Double { plot.minX + (hz - range.lowerBound) / (range.upperBound - range.lowerBound) * plot.width }
-            func label(_ text: String, _ point: CGPoint, color: Color = .secondary, anchor: UnitPoint = .center) {
+            func label(_ text: String, _ point: CGPoint, color: Color = .white.opacity(0.82), anchor: UnitPoint = .center) {
                 context.draw(Text(text).font(.system(size: 10, design: .monospaced)).foregroundStyle(color), at: point, anchor: anchor)
             }
             func line(_ a: CGPoint, _ b: CGPoint, color: Color, dashed: Bool = false) {
@@ -57,38 +70,35 @@ struct NativeSpectrumPlot: View {
             label("дБм", CGPoint(x: 8, y: 8), anchor: .leading)
             label("МГц", CGPoint(x: 8, y: plot.maxY + 12), anchor: .leading)
             label("UTC", CGPoint(x: 8, y: water.minY - 8), anchor: .leading)
-            if let bounds, let selected {
+            if geometryReady, let bounds, let selected {
                 func y(_ level: Double) -> Double { plot.maxY - bounds.fraction(level) * plot.height }
                 var clipped = context; clipped.clip(to: Path(plot))
-                func trace(_ values: [Double], color: Color, width: Double) {
-                    var path = Path()
-                    for i in values.indices {
-                        let point = CGPoint(x: x(Double(selected.frequenciesHz[i])), y: y(values[i]))
-                        if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
-                    }
-                    clipped.stroke(path, with: .color(color), lineWidth: width)
+                let span=range.upperBound-range.lowerBound
+                var transform=CGAffineTransform(a:(prepared.upper-prepared.lower)/span*plot.width,b:0,c:0,d:plot.height,
+                    tx:x(prepared.lower),ty:plot.maxY)
+                func trace(_ path:CGPath?, color: Color, width: Double) {
+                    guard let path=path?.copy(using:&transform) else{return}
+                    clipped.stroke(Path(path), with: .color(color), lineWidth: width)
                 }
                 // Envelopes cover exactly the displayed history, never an unrelated grid.
-                let sameGrid = sweeps.filter { $0.frequenciesHz == selected.frequenciesHz }
-                if !sameGrid.isEmpty {
-                    if showMinimum { trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.min() ?? selected.levels[i] }, color: .cyan.opacity(0.6), width: 1) }
-                    if showMaximum { trace(selected.levels.indices.map { i in sameGrid.map { $0.levels[i] }.max() ?? selected.levels[i] }, color: .orange.opacity(0.7), width: 1) }
+                if showMinimum {trace(prepared.minimum,color:.cyan.opacity(0.6),width:1)}
+                if showMaximum {trace(prepared.maximum,color:.orange.opacity(0.7),width:1)}
+                trace(prepared.reference,color:.purple,width:1.5)
+                for sample in prepared.thresholdPoints {
+                    let point=sample.applying(transform)
+                    guard plot.contains(point) else{continue}
+                    clipped.fill(Path(ellipseIn:CGRect(x:point.x-2,y:point.y-2,width:4,height:4)),with:.color(.red))
                 }
-                if let reference, reference.frequenciesHz == selected.frequenciesHz, reference.levelUnit == selected.levelUnit {
-                    trace(reference.levels, color: .purple, width: 1.5)
-                }
-                if let threshold {
-                    for i in selected.levels.indices where selected.levels[i] > threshold && range.contains(Double(selected.frequenciesHz[i])) {
-                        let px = x(Double(selected.frequenciesHz[i]))
-                        clipped.fill(Path(ellipseIn: CGRect(x: px - 2, y: y(selected.levels[i]) - 2, width: 4, height: 4)), with: .color(.red))
-                    }
-                }
-                trace(selected.levels, color: .white, width: 1.5)
+                trace(prepared.current, color: .white, width: 1.5)
                 if let threshold, threshold >= bounds.lower, threshold <= bounds.upper {
                     line(CGPoint(x: plot.minX, y: y(threshold)), CGPoint(x: plot.maxX, y: y(threshold)), color: .red, dashed: true)
                 }
                 let labelCount = max(1, min(3, Int(plot.width / 240)))
-                let peaks = NativeSpectrumInspection.peaks(in: selected, range: range, limit: labelCount)
+                var peaks:[Int]=[]
+                for i in prepared.peakCandidates where range.contains(Double(selected.frequenciesHz[i])) {
+                    if peaks.allSatisfy({abs($0-i)>=3}) {peaks.append(i)}
+                    if peaks.count==labelCount {break}
+                }
                 for (number, bin) in peaks.enumerated() {
                     let point = CGPoint(x: x(Double(selected.frequenciesHz[bin])), y: y(selected.levels[bin]))
                     let caption = CGPoint(x: plot.minX + plot.width * (Double(number) + 0.5) / Double(labelCount), y: 7)
@@ -102,12 +112,16 @@ struct NativeSpectrumPlot: View {
             }
             for row in timeline.rows {
                 guard let rect = timeline.waterfallRect(for: row, in: water) else { continue }
+                let rowID=row.sweep.exactID
                 var band = context
                 band.clip(to: Path(rect))
-                if let raster = rasters.first(where: { $0.id == row.sweep.exactID }) {
-                    band.draw(Image(decorative: raster.image, scale: 1), in: rect)
+                if geometryReady, let raster = prepared.rows.first(where: { $0.id == rowID }) {
+                    let span=range.upperBound-range.lowerBound
+                    let imageRect=CGRect(x:water.minX+(raster.lower-range.lowerBound)/span*water.width,y:rect.minY,
+                        width:(raster.upper-raster.lower)/span*water.width,height:rect.height)
+                    band.draw(Image(decorative: raster.image, scale: 1), in: imageRect)
                 }
-                if selected?.exactID == row.sweep.exactID {
+                if selectedID == rowID {
                     band.stroke(Path(rect), with: .color(.yellow.opacity(0.85)), lineWidth: 1)
                 }
             }
@@ -131,37 +145,23 @@ struct NativeSpectrumPlot: View {
                     line(CGPoint(x: water.minX, y: py), CGPoint(x: water.maxX, y: py), color: .white.opacity(0.9))
                 }
             }
+            NativeAcceptanceMarker.draw(&context,frame:evidence,tag:markerTag)
             if sweeps.isEmpty { label("Нет измерений — выберите сеанс и начните приём", CGPoint(x: plot.midX, y: plot.midY)) }
         }
-        .task(id: Request(sweeps: sweeps, ids: sweeps.map(\.exactID), bounds: bounds, range: range)) {
-            let source = sweeps, scale = bounds, visible = range
-            let task = Task.detached(priority: .userInitiated) { Self.makeRasters(source, bounds: scale, range: visible) }
-            let images = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
-            guard !Task.isCancelled else { return }
-            rasters = images
-        }
-    }
-
-    nonisolated private static func makeRasters(_ sweeps: [PlatformSweep], bounds: PlatformSpectrumScale?, range: ClosedRange<Double>) -> [NativeWaterfallRasterRow] {
-        guard let bounds else { return [] }
-        return sweeps.compactMap { sweep in
-            guard !Task.isCancelled,
-                  let space = CGColorSpace(name: CGColorSpace.sRGB),
-                  let context = CGContext(data: nil, width: 1024, height: 1, bitsPerComponent: 8, bytesPerRow: 4096,
-                    space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-            context.setAllowsAntialiasing(false)
-            for i in sweep.levels.indices {
-                let frequencies = sweep.frequenciesHz
-                let f = Double(frequencies[i])
-                let low = i == 0 ? f : (Double(frequencies[i - 1]) + f) / 2
-                let high = i == frequencies.count - 1 ? f : (Double(frequencies[i + 1]) + f) / 2
-                let x = (low - range.lowerBound) / (range.upperBound - range.lowerBound) * 1024
-                let width = (high - low) / (range.upperBound - range.lowerBound) * 1024
-                let color = WaterfallPalette.color(bounds.fraction(sweep.levels[i]))
-                context.setFillColor(red: color.red, green: color.green, blue: color.blue, alpha: 1)
-                context.fill(CGRect(x: x, y: 0, width: max(1, width), height: 1))
+        .background(Color(red:0.035,green:0.045,blue:0.065))
+        .background {if evidence != nil, acceptance?.profile.phase=="load" {NativeAcceptanceGeometry()}}
+        .accessibilityLabel("Панорама частот и история водопада")
+        .task(id: request) {
+            let source=sweeps,selected=selected,scale=bounds,threshold=threshold,reference=reference,previous=prepared,raster=request.raster
+            let task=Task.detached(priority:.userInitiated) {
+                try NativeSpectrumRenderCache.prepare(source,selected:selected,bounds:scale,
+                    threshold:threshold,reference:reference,viewport:raster?.range,rasterWidth:raster?.pixelWidth,previous:previous)
             }
-            return context.makeImage().map { NativeWaterfallRasterRow(id: sweep.exactID, image: $0) }
+            do {
+                let result=try await withTaskCancellationHandler(operation:{try await task.value},onCancel:{task.cancel()})
+                guard !Task.isCancelled else{return}
+                prepared=result;preparedRequest=request
+            } catch is CancellationError {} catch {acceptance?.record("native.error",["message":error.localizedDescription])}
         }
     }
 }

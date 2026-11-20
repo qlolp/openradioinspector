@@ -1,4 +1,5 @@
 import Foundation
+import Dispatch
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -22,6 +23,8 @@ public struct PlatformCommittedEvent: Decodable, Equatable, Sendable {
     /// Original SSE data document, including unknown fields and exact numeric
     /// tokens. Do not reconstruct opaque JSON through floating-point values.
     public fileprivate(set) var sourceJSON: Data? = nil
+    fileprivate var transportReceivedNanoseconds: UInt64? = nil
+    fileprivate var decodedNanoseconds: UInt64? = nil
     private enum CodingKeys: String, CodingKey { case sequence, eventType, occurredAt, sessionId, payload }
 
     init(sequence: Int64, eventType: String, occurredAt: String, sessionId: String?, sweep: PlatformSweep?, observation: PlatformObservation?) {
@@ -73,7 +76,8 @@ public struct PlatformEventParser: Sendable {
 
     /// Deliver each complete event before decoding the next. A large network
     /// chunk cannot discard an already validated prefix when the queue fills.
-    mutating func append(_ bytes: Data, receive: (PlatformCommittedEvent) throws -> Void) throws {
+    mutating func append(_ bytes: Data, receivedAtNanoseconds: UInt64? = nil,
+                         receive: (PlatformCommittedEvent) throws -> Void) throws {
         for byte in bytes {
             eventBytes += 1
             guard eventBytes <= maximumEventBytes else { throw PlatformEventError.oversizedEvent }
@@ -100,6 +104,10 @@ public struct PlatformEventParser: Sendable {
                         guard event.sessionId?.utf8.elementsEqual(observation.sessionId.utf8) == true else { throw PlatformEventError.malformedEvent }
                     }
                     event.sourceJSON = data
+                    if let receivedAtNanoseconds {
+                        event.transportReceivedNanoseconds = receivedAtNanoseconds
+                        event.decodedNanoseconds = DispatchTime.now().uptimeNanoseconds
+                    }
                     try receive(event)
                 }
                 data.removeAll(keepingCapacity: true); id = nil; type = nil; eventBytes = 0
@@ -181,7 +189,8 @@ extension PlatformClient {
     }
 
     /// Cancelling the iterator closes only this UI's HTTP subscription.
-    public func committedEvents(after cursor: Int64) throws -> AsyncThrowingStream<PlatformCommittedEvent, Error> {
+    public func committedEvents(after cursor: Int64,
+        observe: (@Sendable (PlatformMeasurementTiming) -> Void)? = nil) throws -> AsyncThrowingStream<PlatformCommittedEvent, Error> {
         guard cursor >= 0 else { throw PlatformError.invalidCommand("Курсор должен быть неотрицательным") }
         var request = URLRequest(url: try baseURL.endpoint(path: "/events", query: [.init(name: "after", value: String(cursor))]))
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -189,7 +198,7 @@ extension PlatformClient {
         try authorize(&request)
         // The core sends heartbeats every 15 s. Do not extend normal request timeouts.
         return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
-            let delegate = PlatformEventDelegate(continuation: continuation)
+            let delegate = PlatformEventDelegate(continuation: continuation, observe: observe)
             let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
             let connection = URLSession(configuration: eventSessionConfiguration, delegate: delegate, delegateQueue: queue)
             let task = connection.dataTask(with: request)
@@ -205,7 +214,18 @@ private final class PlatformEventDelegate: NSObject, URLSessionDataDelegate, @un
     private let continuation: AsyncThrowingStream<PlatformCommittedEvent, Error>.Continuation
     private var parser = PlatformEventParser()
     private var finished = false
-    init(continuation: AsyncThrowingStream<PlatformCommittedEvent, Error>.Continuation) { self.continuation = continuation }
+    private let observe: (@Sendable (PlatformMeasurementTiming) -> Void)?
+    init(continuation: AsyncThrowingStream<PlatformCommittedEvent, Error>.Continuation,
+         observe: (@Sendable (PlatformMeasurementTiming) -> Void)?) {
+        self.continuation = continuation; self.observe = observe
+    }
+    private func report(_ stage: PlatformMeasurementTiming.Stage, event: PlatformCommittedEvent,
+                        at: UInt64, queued: Int? = nil) {
+        observe?(PlatformMeasurementTiming(stage: stage,
+            sourceID: event.payload.sweep?.id ?? event.payload.observation?.id,
+            eventType: event.eventType, sequence: UInt64(event.sequence), transport: .serverSentEvents,
+            atNanoseconds: at, queuedEvents: queued, payloadBytes: event.sourceJSON?.count ?? 0))
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
@@ -221,10 +241,18 @@ private final class PlatformEventDelegate: NSObject, URLSessionDataDelegate, @un
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !finished else { return }
+        let received = observe == nil ? nil : DispatchTime.now().uptimeNanoseconds
         do {
-            try parser.append(data) { event in
+            try parser.append(data, receivedAtNanoseconds: received) { event in
+                if let read = event.transportReceivedNanoseconds, let decoded = event.decodedNanoseconds {
+                    report(.received, event: event, at: read)
+                    report(.decoded, event: event, at: decoded)
+                }
                 switch continuation.yield(event) {
-                case .enqueued: break
+                case .enqueued(let remaining):
+                    if observe != nil {
+                        report(.queued, event: event, at: DispatchTime.now().uptimeNanoseconds, queued: 64 - remaining)
+                    }
                 case .dropped: throw PlatformEventError.consumerOverrun
                 case .terminated: session.invalidateAndCancel(); throw CancellationError()
                 @unknown default: throw PlatformEventError.consumerOverrun

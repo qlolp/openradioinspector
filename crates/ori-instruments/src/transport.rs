@@ -271,7 +271,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             Err(_) => Err(InstrumentError::Timeout),
         }
     }
-    async fn clean_input(&mut self) -> Result<()> {
+    async fn clean_input(&mut self, fresh_identity_query: bool) -> Result<bool> {
         if !self.stash.is_empty() {
             return Err(InstrumentError::Protocol(
                 "unread bytes before command".into(),
@@ -281,11 +281,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
             let mut bytes = [0u8; 4096];
             let mut buffer = ReadBuf::new(&mut bytes);
             match Pin::new(&mut self.io).poll_read(cx, &mut buffer) {
-                Poll::Pending => Poll::Ready(Ok(())),
+                Poll::Pending => Poll::Ready(Ok(false)),
                 Poll::Ready(Err(error)) => Poll::Ready(Err(instrument_io(error))),
                 Poll::Ready(Ok(())) if buffer.filled().is_empty() => Poll::Ready(Err(
                     InstrumentError::Io(std::io::ErrorKind::UnexpectedEof.into()),
                 )),
+                Poll::Ready(Ok(()))
+                    if fresh_identity_query
+                        && buffer.filled().ends_with(b"ch> ")
+                        && ends_at_prompt(buffer.filled()) =>
+                {
+                    Poll::Ready(Ok(true))
+                }
                 Poll::Ready(Ok(())) => Poll::Ready(Err(InstrumentError::Protocol(
                     "unread bytes before command".into(),
                 ))),
@@ -294,7 +301,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         .await
     }
     async fn send(&mut self, command: &str) -> Result<()> {
-        self.clean_input().await?;
+        self.send_with_startup(command, false).await?;
+        Ok(())
+    }
+    async fn send_with_startup(
+        &mut self,
+        command: &str,
+        fresh_identity_query: bool,
+    ) -> Result<bool> {
+        let discarded = self.clean_input(fresh_identity_query).await?;
         let data = format!("{command}\r");
         tokio::time::timeout(self.limits.write_timeout, async {
             self.io.write_all(data.as_bytes()).await?;
@@ -303,7 +318,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         .await
         .map_err(|_| InstrumentError::Timeout)?
         .map_err(instrument_io)?;
-        Ok(())
+        Ok(discarded)
     }
     async fn chunk(&mut self, maximum: usize) -> Result<()> {
         let mut bytes = [0u8; 4096];
@@ -348,18 +363,45 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send> Connection<T> {
         validate_command(command)?;
         let guard = self.begin()?;
         let cancel = self.cancellation_handle();
+        let identifying = command == "info" && leading_prompt;
+        let total = if identifying {
+            deadline.max(self.limits.scan_timeout)
+        } else {
+            deadline
+        };
         let result = tokio::select! { biased;
             _=cancel.cancelled()=>Err(InstrumentError::Cancelled),
-            result=tokio::time::timeout(deadline,async {
-                self.send(command).await?;
+            result=tokio::time::timeout(total,async {
+                // An interrupted scan may finish transmitting on a freshly
+                // opened port. Only the first, read-only query can discard
+                // preceding frames, and it must see its own echo.
+                let discarded = self.send_with_startup(command, identifying).await?;
+                let mut need_echo = identifying;
+                let mut allow_prefix = leading_prompt && !identifying;
+                let mut awaiting_first_byte = identifying && !discarded;
                 loop {
-                    self.chunk(self.limits.max_text_bytes).await?;
+                    if awaiting_first_byte {
+                        tokio::time::timeout(deadline, self.chunk(self.limits.max_text_bytes))
+                            .await.map_err(|_| InstrumentError::Timeout)??;
+                        awaiting_first_byte = false;
+                    } else {
+                        self.chunk(self.limits.max_text_bytes).await?;
+                    }
+                    if need_echo {
+                        let Some(start) = identity_echo(&self.stash) else { continue; };
+                        self.stash.drain(..start);
+                        need_echo = false;
+                    }
+                    if allow_prefix && let Some(body) = self.stash.trim_ascii_start().strip_prefix(b"ch> ") {
+                        self.stash.drain(..self.stash.len() - body.len());
+                        allow_prefix = false;
+                    }
                     // Stock ea71dfd emits all four bytes, including the final
                     // space. A split `ch>` must not leave that byte to taint or
                     // prefix the next command's response.
                     if self.stash.ends_with(b"ch> ") {
                         let raw=std::mem::take(&mut self.stash);
-                        return parse_text(&raw,command,leading_prompt);
+                        return parse_text(&raw,command,allow_prefix);
                     }
                 }
             })=>result.map_err(|_|InstrumentError::Timeout).and_then(|r|r),
@@ -448,6 +490,25 @@ fn validate_command(command: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+fn identity_echo(bytes: &[u8]) -> Option<usize> {
+    const ECHO: &[u8] = b"info\r\n";
+    bytes
+        .windows(ECHO.len())
+        .enumerate()
+        .find_map(|(index, window)| {
+            if window != ECHO {
+                return None;
+            }
+            let prefix = bytes[..index].trim_ascii_end();
+            (prefix.is_empty() || ends_at_prompt(prefix)).then_some(index)
+        })
+}
+fn ends_at_prompt(bytes: &[u8]) -> bool {
+    bytes
+        .trim_ascii_end()
+        .strip_suffix(b"ch>")
+        .is_some_and(|body| body.is_empty() || body.ends_with(b"\n") || body.ends_with(b"\r"))
 }
 fn parse_text(raw: &[u8], command: &str, leading_prompt: bool) -> Result<String> {
     if !raw.is_ascii()

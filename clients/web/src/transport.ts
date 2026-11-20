@@ -14,6 +14,7 @@ export interface Connection extends Transport {
   native: boolean;
   ready?: boolean;
   connect(node: string): Promise<void>;
+  localNode?(action: 'start' | 'shutdown' | 'register' | 'unregister'): Promise<void>;
   pair(code: string, label: string): Promise<void>;
   revokePairing(): Promise<void>;
   configureStream?(capabilities: Capabilities): void;
@@ -143,6 +144,9 @@ export async function connection(): Promise<Connection> {
     },
     async openLegacy() {
       await invoke('open_legacy');
+    },
+    async localNode(action) {
+      await invoke('local_node', { action });
     },
     async connect(node) {
       await invoke('connect_node', { node });

@@ -30,6 +30,15 @@ def panel():
 
 
 class ThresholdValidationTests(unittest.TestCase):
+    def test_frozen_source_keeps_the_exact_quality_annotation(self):
+        data = response()
+        data['sweep']['settings']['measurement_qualification'] = {'status': 'synthetic', 'reason': None}
+        source = dict(deepcopy(data['sweep']), frequencies_hz=data['frequencies_hz'])
+        validate_threshold(data, EXPECTED, source)
+        del source['settings']['measurement_qualification']
+        with self.assertRaises(ValueError):
+            validate_threshold(data, EXPECTED, source)
+
     def test_happy(self):
         self.assertEqual(validate_threshold(response(), EXPECTED), response())
         text = threshold_text(response())

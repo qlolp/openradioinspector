@@ -63,3 +63,23 @@ it('decodes known float64 source fields and preserves unknown metadata for origi
   expect(Object.is(clone.sweep?.levels[0], -0)).toBe(true);
   expect(clone.sweep?.levels[2]).toBe(Number.MAX_VALUE);
 });
+
+it('binds a paired recheck to the exact project and event before displaying its flags', async () => {
+  const { responseValue } = await import('../src/wire');
+  const route = '/api/v1/monitoring-projects/project%20one/events/event%20two/paired-rechecks';
+  const body = (project_id: string, event_id: string) =>
+    JSON.stringify({
+      contract: 'openradioinspector-platform',
+      contract_version: 1,
+      data: { state: 'missing_evidence', project_id, event_id, visits: [] },
+    });
+  expect(responseValue(route, body('project one', 'event two'))).toMatchObject({
+    data: { state: 'missing_evidence' },
+  });
+  expect(() => responseValue(route, body('other', 'event two'))).toThrow(
+    'Source evidence mismatch',
+  );
+  expect(() => responseValue(route, body('project one', 'other'))).toThrow(
+    'Source evidence mismatch',
+  );
+});

@@ -1,8 +1,28 @@
 import SwiftUI
 import SpektrKomandy
+import Observation
+
+/// A window owns one bounded snapshot; unmounted charts do no render work.
+@MainActor
+final class NativeSpectrumViewMemory {
+    struct Snapshot {
+        let scope: [PlatformExactID]
+        let zoom: ClosedRange<Double>?
+        let frozen: [PlatformSweep]?
+        let selected: PlatformExactID?
+        let markers: [NativeSpectrumSample]
+        let timeEnd: Date?
+        let offset: Double
+        let reference: PlatformSweep?
+        let scale: PlatformSpectrumScale?
+        let lastReview: UUID?
+    }
+    var snapshot: Snapshot?
+}
 
 /// Both panels use identical frequency coordinates, saved sweep IDs and UTC intervals.
 struct NativeSpectrumInspector: View {
+    @State private var timeCache = NativeSpectrumTimeCache()
     let sweeps: [PlatformSweep]
     let scale: PlatformSpectrumScale?
     let threshold: Double?
@@ -16,6 +36,10 @@ struct NativeSpectrumInspector: View {
     var reviewedSweep: PlatformSweep? = nil
     var reviewRequest = UUID()
     var onFollowFrequency: ((Int64) -> Void)?
+    var bandPlanWorkspace: MonitoringWorkspaceModel?
+    var viewMemory: NativeSpectrumViewMemory?
+    var viewMemoryScope: [PlatformExactID] = []
+    @State private var lastAppliedReview: UUID?
     @AppStorage("native.plot.split") private var split = 0.50
     @AppStorage("native.plot.seconds") private var seconds = 120.0
     @AppStorage("native.plot.minimum") private var showMinimum = true
@@ -36,7 +60,7 @@ struct NativeSpectrumInspector: View {
     @State private var cursor: NativeSpectrumSample?
     @State private var inGap = false
     @State private var markers: [NativeSpectrumSample] = []
-    @State private var zoom: ClosedRange<Double>?
+    @State private var viewport = NativeSpectrumViewport()
     @State private var peakIndex = -1
     @State private var threeDimensional = false
     @State private var gestureRange: ClosedRange<Double>?
@@ -67,51 +91,75 @@ struct NativeSpectrumInspector: View {
         let first = Double(source.last?.frequenciesHz.first ?? 0)
         return first...max(first + 1, Double(source.last?.frequenciesHz.last ?? 1))
     }
+    private var zoom: ClosedRange<Double>? {
+        get { viewport.zoom }
+        nonmutating set { viewport.zoom = newValue }
+    }
     private var range: ClosedRange<Double> { zoom ?? fullRange }
     private var bounds: PlatformSpectrumScale? { inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
 
     var body: some View {
+        // All controls and the plot share one display snapshot per body pass.
+        // Re-reading the computed properties below used to repeatedly parse,
+        // filter and sort the same history during every navigation update.
+        let source = self.source
+        let time = timeCache.snapshot(source, seconds: seconds, end: timeEnd)
+        let window = time.window
+        let displayed = time.sweeps
+        let selected = NativeSpectrumInspection.selectedSweep(selectedID, in: displayed)
+        let bounds = inspectionScale ?? scale ?? PlatformSpectrumScale.fit(displayed.flatMap(\.levels))
         VStack(alignment: .leading, spacing: 6) {
-            NativeSpectrumRangeHeader(sweep: selected, range: range)
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
+                HStack {
+                    NativeSpectrumRangeHeader(sweep: selected, range: range).layoutPriority(1)
+                    Spacer(minLength: 6)
+                    if let bandPlanWorkspace {
+                        NativeBandPlanButton(workspace: bandPlanWorkspace, range: source.isEmpty ? nil : range)
+                    }
+                }
+            }
             HStack(spacing: 6) {
-                Picker("Вид", selection: $threeDimensional) {
-                    Text("2D").tag(false); Text("3D").tag(true)
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 70)
-                Button("＋") { magnify(0.5) }.help("Масштаб графика; прибор не перестраивается")
-                Button("−") { magnify(2) }
-                Button("←") { pan(-0.25) }
-                Button("→") { pan(0.25) }
+                Button("＋") { magnify(0.5) }.accessibilityLabel("Увеличить масштаб")
+                Button("−") { magnify(2) }.accessibilityLabel("Уменьшить масштаб")
+                Button("←") { pan(-0.25) }.accessibilityLabel("Сдвинуть диапазон влево")
+                Button("→") { pan(0.25) }.accessibilityLabel("Сдвинуть диапазон вправо")
                 Button("Весь диапазон") { zoom = nil }
-                Toggle("Полоса", isOn: $selectBand).toggleStyle(.button).disabled(threeDimensional)
-                Menu("Измерить") {
-                    Button("Измерить видимый участок") { measureRange(range) }
-                    Button("Маркер → центр") {
-                        if let marker = markers.last ?? cursor {
-                            let half = (range.upperBound - range.lowerBound) / 2
-                            measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
-                        }
-                    }.disabled(markers.isEmpty && cursor == nil)
-                }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
-                Menu("История") {
+                Menu("Инструменты") {
+                    Toggle("Трёхмерный водопад", isOn: $threeDimensional)
+                    Toggle("Выделение полосы", isOn: $selectBand).disabled(threeDimensional)
+                    Button("Следующий пик") { choosePeak(next: true) }
+                    Toggle("Следить за пиком", isOn: $trackingPeak)
+                    Toggle("Минимумы", isOn: $showMinimum)
+                    Toggle("Максимумы", isOn: $showMaximum)
+                    Button("Подобрать шкалу") { inspectionScale = PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
+                    Menu("Эталон") {
+                        Button("Закрепить выбранный свип") { reference = selected; referenceVisible = true }.disabled(selected == nil)
+                        Toggle("Показывать", isOn: $referenceVisible)
+                        Button("Удалить с графика") { reference = nil }
+                    }
                     Button("Следить за уровнем маркера") {
                         if let marker = markers.last ?? cursor { onFollowFrequency?(marker.frequency) }
                     }.disabled(onFollowFrequency == nil || (markers.isEmpty && cursor == nil))
-                }
-                Button("Пик") { choosePeak(next: true) }
-                Toggle("Следить", isOn: $trackingPeak).toggleStyle(.button)
-                Toggle("Min", isOn: $showMinimum).toggleStyle(.button)
-                Toggle("Max", isOn: $showMaximum).toggleStyle(.button)
-                Button("Шкала") { inspectionScale = PlatformSpectrumScale.fit(displayed.flatMap(\.levels)) }
-                Menu("Эталон") {
-                    Button("Закрепить выбранный свип") { reference = selected; referenceVisible = true }
-                        .disabled(selected == nil)
-                    Toggle("Показывать", isOn: $referenceVisible)
-                    Button("Удалить с графика") { reference = nil }
+                    Menu("Перестроить прибор") {
+                        Button("Измерить видимый участок") { measureRange(self.range) }
+                        Button("Маркер → центр") {
+                            if let marker = markers.last ?? cursor {
+                                let half = (self.range.upperBound - self.range.lowerBound) / 2
+                                measureRange(max(100_000, Double(marker.frequency) - half)...min(6_000_000_000, Double(marker.frequency) + half))
+                            }
+                        }.disabled(markers.isEmpty && cursor == nil)
+                    }.disabled(client == nil || tuning || !liveReceiving || holdingPresentation)
                 }
                 Spacer(minLength: 0)
-                Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? .green : .yellow)
+                Text(presentationStatus).foregroundStyle(!holdingPresentation && liveReceiving ? Color.green : Color.orange)
+                    .accessibilityIdentifier("spectrum.context")
             }.controlSize(.small).font(.caption)
+            if let sweep = selected ?? displayed.last {
+                Text("Качество свипа · " + NativeBandCoverage.quality(of: sweep))
+                    .font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("spectrum.qualification")
+            }
             if !tuneMessage.isEmpty { Text(tuneMessage).font(.caption).foregroundStyle(.orange) }
+            NativeSpectrumViewportReader(viewport: viewport, fullRange: fullRange) { range in
             GeometryReader { geometry in
                 let layout = NativeSpectrumPlotLayout(size: geometry.size, spectrumFraction: split)
                 if threeDimensional {
@@ -123,7 +171,7 @@ struct NativeSpectrumInspector: View {
                 } else {
                 NativeSpectrumPlot(sweeps: displayed, selected: selected, bounds: bounds, range: range,
                                    threshold: threshold, cursor: cursor, markers: markers, layout: layout,
-                                   window: window, showMinimum: showMinimum, showMaximum: showMaximum,
+                                   timeline: time.timeline, showMinimum: showMinimum, showMaximum: showMaximum,
                                    reference: referenceVisible ? reference : nil)
                     .contentShape(Rectangle())
                     .onContinuousHover { phase in
@@ -181,6 +229,7 @@ struct NativeSpectrumInspector: View {
                             }
                     }
                 }
+            }
             }.frame(minHeight: 120)
             HStack(spacing: 6) {
                 Picker("Окно", selection: $seconds) {
@@ -230,18 +279,34 @@ struct NativeSpectrumInspector: View {
         .padding(10)
         .background(Color(red: 0.055, green: 0.075, blue: 0.10), in: RoundedRectangle(cornerRadius: 10))
         .environment(\.colorScheme, .dark)
-        .onChange(of: reviewRequest) { _, _ in
-            guard let reviewedSweep else { returnToLive(); reference = nil; return }
-            guard PlatformExactID.same(reviewedSweep.sessionId, sessionID), PlatformExactID.same(reviewedSweep.streamId, streamID) else { return }
-            archiveTask?.cancel(); archive.reset(); historySweeps = []
-            frozen = [reviewedSweep]; selectedID = reviewedSweep.exactID
-            timeEnd = NativeSpectrumTimeline.date(reviewedSweep.interval.endedAt)
-            cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
+        .onChange(of: viewMemoryScope, initial: true) { _, scope in
+            if let snapshot = viewMemory?.snapshot, snapshot.scope == scope {
+                zoom = snapshot.zoom; frozen = snapshot.frozen; selectedID = snapshot.selected
+                markers = snapshot.markers; timeEnd = snapshot.timeEnd; offset = snapshot.offset
+                reference = snapshot.reference; inspectionScale = snapshot.scale
+                lastAppliedReview = snapshot.lastReview
+            }
+            applyReviewedSource()
         }
+        .onChange(of: reviewRequest) { _, _ in applyReviewedSource() }
         .onChange(of: seconds) { _, _ in
             archiveTask?.cancel(); archive.reset(); historySweeps = []; archiveWindow = nil
         }
-        .onDisappear { archiveTask?.cancel(); tuneTask?.cancel() }
+        .task(id: !streamID.isEmpty && sweeps.last?.sessionId==sessionID && sweeps.last?.streamId==streamID) {
+            guard let evidence=NativeAcceptanceTrace.shared,evidence.profile.phase=="load",
+                  sessionID==evidence.profile.sessionID else{return}
+            guard let token=NativeAcceptanceScenario.attach(session:sessionID,stream:streamID,
+                sourceSession:sweeps.last?.sessionId,sourceStream:sweeps.last?.streamId,
+                pan:{pan($0)},zoom:{magnify($0)}) else{return}
+            defer {NativeAcceptanceScenario.detach(token)}
+            while !Task.isCancelled {do {try await Task.sleep(for:.seconds(60))}catch{return}}
+        }
+        .onDisappear {
+            archiveTask?.cancel(); tuneTask?.cancel()
+            viewMemory?.snapshot = .init(scope: viewMemoryScope, zoom: zoom, frozen: frozen,
+                selected: selectedID, markers: markers, timeEnd: timeEnd, offset: offset,
+                reference: reference, scale: inspectionScale, lastReview: lastAppliedReview)
+        }
         .onChange(of: trackingPeak) { _, enabled in
             if enabled {
                 let frequencyZoom = zoom
@@ -265,6 +330,21 @@ struct NativeSpectrumInspector: View {
         .onChange(of: sweeps.last?.frequenciesHz) { old, new in
             if frozen == nil, old != nil && old != new { frozen = nil; selectedID = nil; cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(sweeps.last?.levels ?? []) }
         }
+    }
+
+    private func applyReviewedSource() {
+        guard let reviewedSweep else {
+            if lastAppliedReview != nil { returnToLive(); reference = nil; lastAppliedReview = nil }
+            return
+        }
+        guard lastAppliedReview != reviewRequest,
+              PlatformExactID.same(reviewedSweep.sessionId, sessionID),
+              PlatformExactID.same(reviewedSweep.streamId, streamID) else { return }
+        lastAppliedReview = reviewRequest
+        archiveTask?.cancel(); archive.reset(); historySweeps = []
+        frozen = [reviewedSweep]; selectedID = reviewedSweep.exactID
+        timeEnd = NativeSpectrumTimeline.date(reviewedSweep.interval.endedAt)
+        cursor = nil; markers = []; zoom = nil; inspectionScale = PlatformSpectrumScale.fit(reviewedSweep.levels)
     }
 
     private func measureRange(_ target: ClosedRange<Double>) {
@@ -356,6 +436,27 @@ struct NativeSpectrumInspector: View {
     }
 }
 
+@MainActor @Observable
+final class NativeSpectrumViewport {
+    var zoom: ClosedRange<Double>?
+}
+
+struct NativeSpectrumViewportReader<Content: View>: View {
+    private let viewport: NativeSpectrumViewport
+    private let fullRange: ClosedRange<Double>
+    private let content: (ClosedRange<Double>) -> Content
+
+    init(viewport: NativeSpectrumViewport, fullRange: ClosedRange<Double>,
+         @ViewBuilder content: @escaping (ClosedRange<Double>) -> Content) {
+        self.viewport = viewport
+        self.fullRange = fullRange
+        self.content = content
+    }
+
+    // Read navigation in this leaf, outside the panel that creates it.
+    var body: Content { content(viewport.zoom ?? fullRange) }
+}
+
 struct NativeSpectrumRangeHeader: View {
     let sweep: PlatformSweep?
     let range: ClosedRange<Double>
@@ -363,11 +464,13 @@ struct NativeSpectrumRangeHeader: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(NativeSpectrumInspection.frequency(range.lowerBound)) — \(NativeSpectrumInspection.frequency(range.upperBound))")
                 .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .accessibilityIdentifier("spectrum.range")
+                .accessibilityValue(sweep?.id ?? "Нет исходника")
             if let sweep {
                 let count = sweep.frequenciesHz.count
-                let steps = zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).map { $1 - $0 }
-                let uniform = Set(steps).count == 1
-                let step = uniform ? String(format: "%.3f кГц", Double(steps.first ?? 0) / 1000) : "неравномерный"
+                let firstStep = count > 1 ? sweep.frequenciesHz[1] - sweep.frequenciesHz[0] : 0
+                let uniform = count > 1 && zip(sweep.frequenciesHz, sweep.frequenciesHz.dropFirst()).allSatisfy { $1 - $0 == firstStep }
+                let step = uniform ? String(format: "%.3f кГц", Double(firstStep) / 1000) : "неравномерный"
                 HStack {
                     Text(NativeSpectrumInspection.interval(sweep))
                     if let start = NativeSpectrumTimeline.date(sweep.interval.startedAt), let end = NativeSpectrumTimeline.date(sweep.interval.endedAt) {

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+db=/var/lib/openradioinspector-pi-rc/sessions.sqlite3
+# Run under the service UID. Existing archives keep their format.
+if [ ! -e "$db" ] && [ ! -L "$db" ]; then
+    exec /usr/lib/openradioinspector-pi-rc/ori-core archive-init-compact "$db"
+fi

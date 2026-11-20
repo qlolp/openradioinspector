@@ -354,13 +354,13 @@ class ReleaseDiagnosticTests(unittest.TestCase):
 
 
     def test_watchdog_version_boundaries_preserve_single_selection_and_cleanup(self):
-        # Expected native-timer platforms are explicit: Darwin 3.14/3.15 use
-        # the joined watchdog even after the upstream version fix boundary.
+        # Darwin 3.14/3.15 and Windows 3.15 use the joined watchdog after the
+        # upstream version fix boundary.
         for version, native_platforms in (
             ((3, 12, 10), ()), ((3, 13, 9), ()),
             ((3, 13, 10), ("linux", "win32", "darwin")),
             ((3, 14, 0), ()), ((3, 14, 1), ("linux", "win32")),
-            ((3, 15, 0), ("linux", "win32")),
+            ((3, 15, 0), ("linux",)),
         ):
             for platform in ("linux", "win32", "darwin"):
                 for outcome in (0, 1, KeyboardInterrupt(), RuntimeError("suite failed")):

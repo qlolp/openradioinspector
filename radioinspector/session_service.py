@@ -243,6 +243,7 @@ class SessionService:
                 "measurement_map": True,
                 "remote_audio_stream": True,
                 "archive_capacity_guard": True,
+                "panorama_storage_forecast": persistent,
                 "archive_automatic_deletion": False,
                 "measurement_batch_ingest": True,
                 "measurement_batch_atomic": True,

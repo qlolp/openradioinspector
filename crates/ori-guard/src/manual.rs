@@ -166,6 +166,8 @@ impl GuardService {
             token: lease.token,
             epoch: r.epoch,
             expected_worker_instance: lease.worker_instance,
+            event_dispatch: None,
+            idle_dispatch: None,
         };
         let target = Self::target(&r, &stream);
         self.authorize_control(&target, Some(&permit))?;
@@ -303,6 +305,7 @@ impl GuardService {
                     return Err(ControlError::Denied.into());
                 }
                 runtime.manual.remove(&stream);
+                runtime.receiver_checks_resume_after = Some(self.clock.now());
                 Ok(())
             })?;
             Ok::<(), GuardError>(())
@@ -351,29 +354,23 @@ impl GuardService {
         let started = self.clock.now();
         let project = self.project(id).await?;
         let plan = crate::scan_plan::configured_plan(&project)?;
-        let contexts = if let Some(plan) = &plan {
-            plan.bands
-                .iter()
-                .map(|band| {
-                    Ok((
-                        band.id.clone(),
-                        s(&project["band_baselines"], &band.id)?.to_owned(),
-                    ))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            vec![(String::new(), s(&project, "baseline_id")?.to_owned())]
-        };
         let mut expected = std::collections::BTreeMap::new();
-        for (band, baseline_id) in contexts {
-            let baseline = self.get_record("baseline", &baseline_id, Some(id)).await?;
-            if plan.is_some()
-                && (baseline["scan_plan_id"] != project["scan_plan"]["id"]
-                    || baseline["scan_band_id"] != band)
-            {
-                return Err(invalid("Эталон не относится к текущему поддиапазону"));
+        if let Some(plan) = &plan {
+            for band in &plan.bands {
+                for index in 0..band.window_count() {
+                    let key = band.context_key(index);
+                    let baseline = self
+                        .get_record("baseline", s(&project["band_baselines"], &key)?, Some(id))
+                        .await?;
+                    crate::scan_plan::check_baseline(&project, band, index, &baseline)?;
+                    expected.insert(key, s(&baseline, "fingerprint")?.to_owned());
+                }
             }
-            expected.insert(band, s(&baseline, "fingerprint")?.to_owned());
+        } else {
+            let baseline = self
+                .get_record("baseline", s(&project, "baseline_id")?, Some(id))
+                .await?;
+            expected.insert(String::new(), s(&baseline, "fingerprint")?.to_owned());
         }
         let mut verified = std::collections::BTreeSet::new();
         let current = self
@@ -395,7 +392,13 @@ impl GuardService {
                 self.analyzer_permit(id, &current),
             )
             .await?;
-        let deadline = self.clock.monotonic() + Duration::from_secs(100);
+        // Long grid surveys keep running while disarm and receiver controls
+        // remain available. Only a freshly verified new window extends the wait.
+        drop(_life);
+        let gridded = plan
+            .as_ref()
+            .is_some_and(|p| p.bands.iter().any(|b| b.step_hz.is_some()));
+        let mut deadline = self.clock.monotonic() + Duration::from_secs(100);
         loop {
             let current = self
                 .runtime_snapshot(id)?
@@ -406,27 +409,29 @@ impl GuardService {
             }
             let sweeps = self
                 .archive
-                .sweeps_after_ingestion(&current.sid, Some(stream), after, expected.len())
+                .sweeps_after_ingestion(&current.sid, Some(stream), after, expected.len().min(64))
                 .await?;
             for (sequence, raw) in &sweeps {
                 after = *sequence;
                 let sweep: ori_contracts::Sweep = decode(raw)?;
                 if sweep.interval.started_at >= started {
-                    let band = if plan.is_some() {
-                        if raw["settings"]["scan_plan_id"] != project["scan_plan"]["id"] {
-                            return Err(invalid("Измерение не относится к текущему плану обзора"));
+                    let key = match &plan {
+                        Some(p) => {
+                            let (band, index) =
+                                crate::scan_plan::source_scope(&project, p, &sweep)?;
+                            band.context_key(index)
                         }
-                        s(&raw["settings"], "scan_band_id")?
-                    } else {
-                        ""
+                        None => String::new(),
                     };
                     let fingerprint = expected
-                        .get(band)
-                        .ok_or_else(|| invalid("Неизвестный поддиапазон обзора"))?;
+                        .get(&key)
+                        .ok_or_else(|| invalid("Неизвестное окно обзора"))?;
                     if ori_monitoring::fingerprint(&sweep)? != *fingerprint {
                         return Err(invalid("Профиль широкого обзора не совпал с эталоном"));
                     }
-                    verified.insert(band.to_owned());
+                    if verified.insert(key) && gridded {
+                        deadline = self.clock.monotonic() + Duration::from_secs(100);
+                    }
                 }
             }
             if verified.len() == expected.len() {
@@ -454,6 +459,7 @@ impl GuardService {
                     runtime.manual.remove(stream);
                     runtime.search = None;
                     runtime.search_error = None;
+                    runtime.receiver_checks_resume_after = Some(self.clock.now());
                     runtime.cached_project = p.clone();
                     Ok(())
                 })?;

@@ -99,6 +99,35 @@ the ledger and report. An expected fault/overload run can exit 0 with
 finished with consistent accounting, not that every offered source was archived.
 Invalid archive content or an invalid acknowledgement still fails the run.
 
+The first 32 transport failures include only bounded per-offer diagnostics.
+For a TCP connection, socket send, response header or response body failure,
+`phase` names the operation where the standard HTTP client raised the error.
+A resolver, proxy tunnel or TLS failure has its own phase when its frame is
+available. Unrecognized frames retain the broader `request_or_headers` phase.
+`request_write_completed` indicates that the local HTTP request write returned.
+The field is omitted when the phase is unknown. A body read failure also records
+the HTTP status observed in the headers. Monotonic offer, request start and
+failure timestamps can be compared with background activity on the same host.
+After verification, `retained_source_verified` is true for a matched source,
+false for a source absent from a completed verification, or null when the
+retained source is unknown. `source_verifier` identifies the session NDJSON
+export for measurements or the artifact verification for audio.
+
+Each scheduled producer POST over direct numeric-loopback HTTP shares one deadline across
+TCP connection, request and response. The producer can replace up to three sockets whose
+handshake timed out before the first HTTP write. `producer_loopback_tcp` records request,
+attempt and timeout totals, plus up to 32 affected offer IDs with each dial’s budget,
+elapsed time, outcome and independent source verification. Two 60-second Windows x64
+runs at `99984e5` each recovered three such timeouts and verified all 600 original
+4,096-point sweeps, 600 observations and six WAVs. [Push run](https://github.com/qlolp/openradioinspector/actions/runs/44647450200) · [PR run](https://github.com/qlolp/openradioinspector/actions/runs/44647504208)
+
+The Windows push at `e8fd8b9` verified those same offers and all 1,800 Canvas draws.
+Its separate paged-history controller failed during a TCP connection after 89 verified
+pages. The controller now applies the same pre-write dial budget to its direct loopback
+GETs. `background.loopback_tcp` counts original requests, socket attempts, timeouts
+and requests that failed to connect. Affected samples include the public
+route name and each dial’s timing. [Failed Windows push](https://github.com/qlolp/openradioinspector/actions/runs/44649053750/job/135999034448)
+
 The separate accelerated source-time scenario is:
 
 ```sh
@@ -278,6 +307,9 @@ python -m benchmarks.ori_bench.observe --report-dir /tmp/ori-stress-001 \
 The producer and browser must run on the same host wall clock; hostname hashes,
 clock declarations and nonnegative deltas are checked. Each client must observe
 every offered sweep, with no observer drops, before the render check can pass.
+`client_coverage` reports each client's observed and missing counts. For the
+first eight missing draw markers per client it includes the offered sweep ID,
+source index, acknowledgement status and result of archive verification.
 The metric is **offered-to-render**, a conservative upper bound for
 committed-to-render when producer/browser clocks are shared. It is never
 reported as a measured commit-to-render interval. Without valid evidence the

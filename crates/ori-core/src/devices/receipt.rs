@@ -189,6 +189,36 @@ impl RetainedWorkerHandle {
         }
         Ok(())
     }
+    /// A short segment can naturally finish between the ready notification and
+    /// the HTTP start response. Its receipt only reports the original worker.
+    pub(crate) fn check_start(
+        &self,
+        allow_completed_segment: bool,
+    ) -> DeviceResult<Option<WorkerStatus>> {
+        if allow_completed_segment && let Some(total) = self.worker.scope_points {
+            let status = self.worker.snapshot();
+            if status.measurements == total as u64 && status.last_error.is_none() {
+                let manager = self.worker.manager.upgrade().ok_or(DeviceError::Closed)?;
+                let current = manager.registry.lock().map_err(|_| DeviceError::Closed)?;
+                if current.closed
+                    || self.worker.stop_mode.load(Ordering::Acquire) != WorkerStop::Running as u8
+                    || self.worker.start_generation
+                        != self.worker.lifecycle.generation.load(Ordering::Acquire)
+                    || !current
+                        .workers
+                        .get(&self.target)
+                        .is_some_and(|worker| Arc::ptr_eq(worker, &self.worker))
+                {
+                    return Err(DeviceError::Denied);
+                }
+                drop(current);
+                self.gate.check(Some(&self.worker))?;
+                return Ok(Some(status));
+            }
+        }
+        self.check()?;
+        Ok(None)
+    }
     /// The same supplied callback and immutable expected worker; no new permit.
     pub(crate) fn execution_gate(&self) -> ExecutionGate {
         self.gate.clone()
@@ -226,13 +256,24 @@ impl DeviceManager {
         self: &Arc<Self>,
         handle: &RetainedWorkerHandle,
     ) -> DeviceResult<WorkerStatus> {
+        self.stop_retained_worker_mode(handle, false).await
+    }
+    pub(crate) async fn stop_retained_worker_mode(
+        self: &Arc<Self>,
+        handle: &RetainedWorkerHandle,
+        graceful: bool,
+    ) -> DeviceResult<WorkerStatus> {
         if !Weak::ptr_eq(&handle.worker.manager, &Arc::downgrade(self)) {
             return Err(DeviceError::Denied);
         }
+        handle.worker.request_stop_mode(graceful);
         let status = handle
             .worker
-            .stop_and_join(self.options.stop_timeout)
+            .wait_stopped(self.options.stop_timeout, graceful)
             .await?;
+        if status.alive {
+            return Ok(status);
+        }
         handle
             .worker
             .tune_tasks
@@ -241,6 +282,27 @@ impl DeviceManager {
         Ok(status)
     }
     pub(crate) fn capture_worker(
+        self: &Arc<Self>,
+        target: &Target,
+        gate: ExecutionGate,
+    ) -> DeviceResult<RetainedWorkerHandle> {
+        let handle = self.bind_worker(target, gate)?;
+        handle.check()?;
+        Ok(handle)
+    }
+    pub(crate) fn capture_worker_for_stop(
+        self: &Arc<Self>,
+        target: &Target,
+        gate: ExecutionGate,
+    ) -> DeviceResult<RetainedWorkerHandle> {
+        let handle = self.bind_worker(target, gate)?;
+        // A repeated stop can wait for, or force, the same draining worker.
+        if !handle.worker.stopping.load(Ordering::Acquire) {
+            handle.check()?;
+        }
+        Ok(handle)
+    }
+    fn bind_worker(
         self: &Arc<Self>,
         target: &Target,
         mut gate: ExecutionGate,
@@ -258,13 +320,11 @@ impl DeviceManager {
         };
         gate.check(Some(&worker))?;
         gate.expected_worker = Some(worker.instance.clone());
-        let handle = RetainedWorkerHandle {
+        Ok(RetainedWorkerHandle {
             target: target.clone(),
             worker,
             gate,
-        };
-        handle.check()?;
-        Ok(handle)
+        })
     }
 }
 impl Worker {
@@ -322,13 +382,28 @@ impl Worker {
         timeout: Duration,
     ) -> DeviceResult<WorkerStatus> {
         self.request_stop();
-        tokio::time::timeout(timeout, self.completion.wait())
-            .await
-            .map_err(|_| {
-                DeviceError::Worker(
+        self.wait_stopped(timeout, false).await
+    }
+    async fn wait_stopped(
+        self: &Arc<Self>,
+        timeout: Duration,
+        allow_pending: bool,
+    ) -> DeviceResult<WorkerStatus> {
+        match tokio::time::timeout(timeout, self.completion.wait()).await {
+            Ok(result) => result?,
+            Err(_) if allow_pending => {
+                let status = self.snapshot();
+                if status.alive {
+                    return Ok(status);
+                }
+                self.completion.wait().await?;
+            }
+            Err(_) => {
+                return Err(DeviceError::Worker(
                     "Original worker cleanup deadline exceeded; ownership retained".into(),
-                )
-            })??;
+                ));
+            }
+        }
         if let Some(released) = &self.released {
             tokio::time::timeout(timeout, released.wait())
                 .await

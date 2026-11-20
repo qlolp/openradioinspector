@@ -15,6 +15,14 @@ struct NativeReceiveDraft {
     var trigger = "auto"
     var triggerLevel = "-60"
 
+    func lnaAdvice(stopHz: Int64?) -> String? {
+        guard lna, let stopHz, stopHz > 3_500_000_000 else { return nil }
+        if stopHz > 4_000_000_000 {
+            return "Верхняя граница выходит за паспортный диапазон LNA. Выключите LNA для этой развёртки."
+        }
+        return "Выше 3,5 ГГц сравните показания с LNA и без него."
+    }
+
     func parameters() throws -> [String: MonitoringValue] {
         func integer(_ text: String, _ range: ClosedRange<Int64>, _ name: String) throws -> Int64 {
             guard let value = Int64(text), range.contains(value) else { throw PlatformError.invalidCommand("Проверьте поле \(name)") }

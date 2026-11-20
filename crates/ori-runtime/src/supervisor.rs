@@ -58,7 +58,6 @@ pub enum CutoverOutcome {
 use crate::{
     Error,
     lease::{InstanceLease, WriterLease, open_private, state_directory},
-    process::OwnedChild,
 };
 use std::{
     fs::File,
@@ -73,9 +72,14 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
+#[cfg(not(windows))]
+use crate::process::OwnedChild as BackendChild;
+#[cfg(windows)]
+use crate::process::windows_job::JobChild as BackendChild;
+
 struct Backend {
     spec: BackendSpec,
-    child: OwnedChild,
+    child: BackendChild,
     token: String,
     instance_id: String,
 }
@@ -192,7 +196,10 @@ impl Supervisor {
             })
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let child = OwnedChild::spawn(&mut command)?;
+        #[cfg(not(windows))]
+        let child = BackendChild::spawn(&mut command)?;
+        #[cfg(windows)]
+        let child = BackendChild::spawn(&command, spec.supervisor_lifeline)?;
         self.active = Some(Backend {
             spec: spec.clone(),
             child,

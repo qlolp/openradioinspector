@@ -60,3 +60,22 @@ for (const mode of ['coalesced', 'spaced'] as const) {
     }
   });
 }
+
+test('an eight-sweep replay burst draws every acknowledged source after browser presentation', async ({
+  page,
+}, info) => {
+  await page.goto('./e2e/live-publication.html', { waitUntil: 'networkidle' });
+  const result = await page.evaluate(() =>
+    (window as any).runLivePublicationDiagnostic('replay-burst'),
+  );
+  await writeFile(info.outputPath('burst-draws.json'), JSON.stringify(result, null, 2));
+  const ids = [...'ABCDEFGH'].map((letter) => 'committed-e\u0301-' + letter);
+  expect(result.applied.map((row: any) => row.id)).toEqual(ids);
+  expect(result.maximumPending).toBe(1);
+  expect(result.observed.map((row: any) => row.id)).toEqual(ids);
+  expect(result.observed.every((row: any) => row.id === row.marker && row.pixels !== null)).toBe(
+    true,
+  );
+  expect(new Set(result.observed.map((row: any) => row.frame)).size).toBe(ids.length);
+  expect(result.inputArraysUnchanged && result.parsedArraysUnchanged).toBe(true);
+});

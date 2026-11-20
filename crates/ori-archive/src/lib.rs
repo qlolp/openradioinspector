@@ -5,19 +5,24 @@ mod candidate_precision;
 mod checkpoint;
 mod domains;
 mod error;
+mod export_indexes;
 mod json;
 mod model;
 mod outbox;
+mod panorama_events;
 mod queries;
 mod rows;
 mod schema;
 mod session_lifecycle;
 mod session_queries;
 mod snapshot_export;
+mod storage_sample;
 mod validate;
+pub use storage_sample::SweepStorageSample;
 mod writer;
 pub use backup::{
-    BackupCancellation, BackupIoBudget, BackupOptions, restore_backup, verify_backup,
+    BackupCancellation, BackupIoBudget, BackupOptions, init_compact_archive, materialize_archive,
+    materialize_stopped_archive, restore_backup, verify_backup,
 };
 pub use checkpoint::{CheckpointBudget, CheckpointIoPermit};
 pub use error::{ArchiveError, Result};
@@ -26,7 +31,7 @@ pub use model::*;
 pub use outbox::{
     ClaimedNotification, NotificationClaim, NotificationCompletion, NotificationRow, WebhookConfig,
 };
-pub use queries::{BaselineSelection, CapturePosition, RecordPage};
+pub use queries::{BaselineSelection, CapturePosition, KnownSignalTarget, RecordPage};
 pub use schema::{MAIN_VERSION, MONITORING_VERSION, PRECISION_DDL, PRECISION_VERSION};
 use serde_json::{Value, json};
 pub use session_lifecycle::SessionLifecycleReceipt;
@@ -116,9 +121,10 @@ impl Archive {
             let maximum = self.inner.config.max_response_bytes;
             self.inner
                 .read(move |db| {
-                    let mut stmt = db.prepare(
-                        "SELECT * FROM events WHERE sequence>? ORDER BY sequence LIMIT ?",
-                    )?;
+                    let select = panorama_events::select(db)?;
+                    let mut stmt = db.prepare(&format!(
+                        "{select} WHERE e.sequence>? ORDER BY e.sequence LIMIT ?"
+                    ))?;
                     queries::collect(
                         stmt.query(rusqlite::params![after as i64, limit as i64])?,
                         rows::event,

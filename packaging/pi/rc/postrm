@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+unit=openradioinspector-pi-rc.service
+case "$1" in
+    remove) deb-systemd-helper mask "$unit" >/dev/null ;;
+    purge)
+        deb-systemd-helper purge "$unit" >/dev/null
+        deb-systemd-helper unmask "$unit" >/dev/null
+        ;;
+esac
+if [ -d /run/systemd/system ]; then systemctl daemon-reload; fi

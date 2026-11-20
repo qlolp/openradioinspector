@@ -8,6 +8,8 @@ the same operations without unused-variable or unused-mut lint exceptions.
 
 ## Compatibility and precision
 
+Fresh archives explicitly initialized by the packaged node can store referenced sweep events in schema 7. The API replays full source vectors. See [compact panorama events](compact-panorama-events.md) for initialization, validation, recovery copies and measured storage.
+
 Main schema 6, monitoring schema 4 and `instrument_artifacts` retain their actual Python table/JSON formats. Fixed DDL was extracted from an empty foundation `SQLiteSessionStore` by the owned synthetic fixture generator. A checked-in UTF-16 v5 fixture includes offset timestamps, non-BMP IDs, history metadata and closed WAV bytes. Migration tests compare every original raw and metadata row, including original JSON strings. The v5 ingestion backfill follows Python `ORDER BY id` capture order. A current v6/monitoring4 open does not scan raw history to rebuild the index. Older migration work runs before acquisition starts.
 
 Exact dependency pins and the lockfile resolve rusqlite 0.41.1 / libsqlite3-sys 0.39.1, whose bundled engine reports **SQLite 3.54.1** in the runtime test. Every canonical writer enables WAL, `synchronous=FULL` and foreign keys. UTC output retains six fractional digits; historical timestamp text is not rewritten. Connection-local `context_utc` and `context_utf8` functions provide UTC microsecond and exact UTF-8 byte ordering in UTF-16 archives. No custom-function index changes historical tables.

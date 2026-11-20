@@ -738,4 +738,42 @@ final class MonitoringTests: XCTestCase {
         _ = try await client.monitoringSettings(projectID: "p", body: ["detector": .object(expected)])
     }
 
+    func testPairedRechecksBindTheEventAndKeepTwoOutcomesInNativeUnits() async throws {
+        let paired = """
+            {"state":"evaluated","methodology":"paired-local-recheck-v1","project_id":"p","event_id":"e",
+             "frequency_hz":100100000,"instrument":"tinySA","signal_repeats":1,"discrepancy_repeats":0,
+             "repeat_total":1,"simulated":true,"local_background":{"tiny_dbm":-99.5,"ar_s_meter_count":24,
+             "tiny_robust_sigma_db":2,"ar_robust_sigma_counts":4},"visits":[{"sweep_id":"s1","observation_ids":["r1"],
+             "tiny_delta_db":11.5,"ar_drop_counts":-2,"signal_repeated":true,"discrepancy_repeated":false}]}
+            """
+        let client = try makeClient { request in
+            XCTAssertTrue(request.url!.path.hasSuffix("/monitoring-projects/p/events/e/paired-rechecks"))
+            return (self.response(request), self.envelope(paired))
+        }
+        let value = try await client.monitoringPairedRechecks(projectID: "p", eventID: "e")
+        XCTAssertEqual(value.localBackground?.arSMeterCount, 24)
+        XCTAssertEqual(value.localBackground?.tinyDbm, -99.5)
+        XCTAssertEqual(value.visits.first?.tinyDeltaDb, 11.5)
+        XCTAssertEqual(value.visits.first?.arDropCounts, -2)
+        XCTAssertEqual(value.signalRepeats, 1)
+        XCTAssertEqual(value.discrepancyRepeats, 0)
+        for invalid in [paired.replacingOccurrences(of: "\"event_id\":\"e\"", with: "\"event_id\":\"other\""),
+                        paired.replacingOccurrences(of: "\"signal_repeats\":1", with: "\"signal_repeats\":0")] {
+            let bad = try makeClient { request in (self.response(request), self.envelope(invalid)) }
+            do {
+                _ = try await bad.monitoringPairedRechecks(projectID: "p", eventID: "e")
+                XCTFail("Wrong scope or contradictory totals were accepted")
+            } catch PlatformError.invalidResponse { }
+        }
+    }
+
+    func testMissingEvidenceDoesNotBecomeAZeroOrNegativeRecheck() async throws {
+        let client = try makeClient { request in
+            (self.response(request), self.envelope(#"{"state":"missing_evidence","visits":[]}"#))
+        }
+        let value = try await client.monitoringPairedRechecks(projectID: "p", eventID: "e")
+        XCTAssertTrue(value.visits.isEmpty)
+        XCTAssertNil(value.signalRepeats)
+        XCTAssertNil(value.discrepancyRepeats)
+    }
 }

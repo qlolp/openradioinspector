@@ -1,0 +1,70 @@
+name: Raspberry Pi arm64 release candidate
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.13.0'
+      - name: Confirm the requested source checkout
+        env:
+          SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
+      - name: Compile serial binaries and Vite SPA for the Debian 12 ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          node_dir=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" -v "$node_dir:/opt/ori-node:ro" -w /src \
+            -e RUSTUP_TOOLCHAIN=1.99.1 -e CARGO_BUILD_JOBS=3 \
+            rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c \
+            bash -euc '
+              export PATH="/opt/ori-node/bin:$PATH"
+              git config --global --add safe.directory /src
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake python3
+              npm ci --prefix clients/web --no-audit --no-fund
+              python3 packaging/pi/build_rc.py --distribution --output-dir build/pi/release --rehearsal-dir build/pi/rehearsal
+            '
+      - name: Install the pinned browser on the ARM64 runner before going offline
+        working-directory: clients/web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pi-browser
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Verify the installed service, upgrade the RC to 0.4.0 and capture its WebUI offline
+        run: |
+          sudo bash packaging/pi/test-installed.sh build/pi/rehearsal build/pi/release \
+            "$RUNNER_TEMP/pi-rc-proof" "$(command -v node)" "$RUNNER_TEMP/pi-browser"
+      - name: Preserve native package and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openradioinspector-pi-rc-arm64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/pi/release/*
+          if-no-files-found: error
+          retention-days: 90
+      - name: Preserve installation and archive checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: openradioinspector-pi-rc-proof-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/pi-rc-proof/
+          if-no-files-found: warn
+          retention-days: 90

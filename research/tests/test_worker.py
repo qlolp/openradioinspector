@@ -197,6 +197,17 @@ create_backup(sys.argv[1],sys.argv[2])
                 self.failure(self.request(), code='source_record_invalid')
                 self.assertEqual(list(self.cache.glob('cache-*/manifest.json')), [])
 
+    def test_schema_7_research_uses_original_source_vectors_and_sealed_schema(self):
+        self.snapshot = make_snapshot(self.root / 'compact', schema=7)
+        with sqlite3.connect(self.snapshot) as db:
+            db.execute("ALTER TABLE events ADD COLUMN ori_sweep_ref_v1 TEXT REFERENCES sweeps(id)")
+            db.execute("UPDATE events SET ori_sweep_ref_v1=?", (FIXTURE['sweep']['id'],))
+        db.close()
+        self.reseal()
+        result = self.success(self.request())['result']
+        self.assertEqual(result['manifest']['source']['archive_schema'], 7)
+        self.assertEqual(result['manifest']['source']['counts']['sweeps'], 1)
+
     def test_unknown_schema_is_rejected_before_export(self):
         self.snapshot = make_snapshot(self.root / 'future', schema=7)
         self.failure(self.request(), code='unsupported_schema')

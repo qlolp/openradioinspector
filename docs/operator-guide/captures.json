@@ -1,0 +1,284 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "client": "Production WebUI 0.4.0",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79",
+      "delivery": "Vite preview of clients/web/dist on loopback; all five files matched a clean git-archive rebuild at source_revision",
+      "source": "clients/web/tests/core_fixture.py; disposable synthetic SQLite archive, no physical instruments",
+      "capture": "clients/web/e2e/station.spec.ts, Playwright page screenshot; original PNG without edits",
+      "bundle_files_sha256": {
+        "assets/core-C8HHdHhl.js": "a510613c3b56f5feaaa42b25db7d2ed8e335afd2625d6b7257507fd168e95c1f",
+        "assets/frame.worker-PYJNmVHN.js": "810bd510836fd8ca6ec4ea7aeb83f188057aa99505c6b65eebcdced3e8aef9a9",
+        "assets/index-DCQfTxyf.css": "9ce63e01fb5d2fcc8aa95a799e698df7d9b6efedacbb2a128fd72debbb62d49d",
+        "assets/index-DHKq4kh_.js": "ba53c85a79f71e2fc37efe4d46bf97b61a0d542992ea00e1f8480f07ed80ce4a",
+        "index.html": "f8e9438e26cca8df4bdb12650fe30d0e393bcf28a3a770622079fe95b0f22d73"
+      },
+      "captures": [
+        {
+          "file": "images/web-linux-monitoring.png",
+          "sha256": "0e1c62fa584250918c64b0871b4e77b7b2ebdcacef66709759ddff4dcb6387ab",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "system",
+          "scenario": "192 archived synthetic sweeps, two frequency periods; stopped guard"
+        },
+        {
+          "file": "images/web-linux-event.png",
+          "sha256": "d2d8227646fbd61061eda26e9ab65885f33113524404274e4c6dcfe64313902e",
+          "pixels": [
+            1920,
+            1080
+          ],
+          "device_scale_factor": 1.25,
+          "theme": "light",
+          "scenario": "archived event and linked simulated AR-DV1 observation"
+        },
+        {
+          "file": "images/web-linux-guard.png",
+          "sha256": "a8b12c25e06bb2abbeeb7f9a6da60d982584f15eabfd8af27bff4cf9f1e4c421",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "dark",
+          "scenario": "armed synthetic guard with both simulator workers running"
+        }
+      ],
+      "source_revision": "04d314e91d998eb490c1afbdb1584f1eeb53c553"
+    },
+    {
+      "client": "Production WebUI 0.4.0",
+      "host": "Debian GNU/Linux 13, x86-64",
+      "browser": "Chromium 156.0.8078.79",
+      "delivery": "Vite preview of clients/web/dist on loopback; all five files matched a clean git-archive rebuild at source_revision",
+      "source": "clients/web/tests/core_fixture.py; disposable synthetic SQLite archive, no physical instruments",
+      "capture": "clients/web/e2e/station.spec.ts, Playwright page screenshot; original PNG without edits",
+      "bundle_files_sha256": {
+        "assets/core-C8HHdHhl.js": "a510613c3b56f5feaaa42b25db7d2ed8e335afd2625d6b7257507fd168e95c1f",
+        "assets/frame.worker-PYJNmVHN.js": "810bd510836fd8ca6ec4ea7aeb83f188057aa99505c6b65eebcdced3e8aef9a9",
+        "assets/index-DCQfTxyf.css": "9ce63e01fb5d2fcc8aa95a799e698df7d9b6efedacbb2a128fd72debbb62d49d",
+        "assets/index-DZX4dN8d.js": "de9efbdb12f6d17429898265c3e877c428e648968baa6f5d2de4c2bf10c2415f",
+        "index.html": "322d6b6df8f6e07bc0e65ba6013651714f1210ddd13f744e479d77954793b53a"
+      },
+      "captures": [
+        {
+          "file": "images/web-linux-research.png",
+          "sha256": "f0c6785b2b053c6df61b453d243e6f1088056b91e85babecff4cbaea9f2866d1",
+          "pixels": [
+            1920,
+            1080
+          ],
+          "device_scale_factor": 1.25,
+          "theme": "light",
+          "scenario": "selected original in archive research"
+        }
+      ],
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc"
+    },
+    {
+      "client": "WebUI served by the installed Raspberry Pi ARM64 Debian package",
+      "host": "GitHub-hosted ARM64 Linux VM, Ubuntu 24.04.5 LTS",
+      "architecture": "arm64",
+      "kernel": "7.0.0-1017-azure",
+      "physical_pi": false,
+      "hardware_tested": false,
+      "browser": "Chromium 158.0.8127.18",
+      "delivery": "http://127.0.0.1:8770/modern/",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "package": "openradioinspector-pi-rc_0.4.0-1_arm64.deb",
+      "package_sha256": "bbb51d9ecfe70a112e10a67f11e1de6ee0cf1f85b2ba02623b30871b87868fb8",
+      "embedded_index_sha256": "322d6b6df8f6e07bc0e65ba6013651714f1210ddd13f744e479d77954793b53a",
+      "github_run_id": 44649058876,
+      "github_proof_artifact_id": 14590445877,
+      "github_package_artifact_id": 14589064639,
+      "source": "Installed serial-enabled Rust core and systemd supervisor; isolated offline test namespace, a disposable training project, 96 synthetic saved sweeps and a fixture receiver observation",
+      "capture": "clients/web/tests/capture-pi-installed.mjs; Playwright viewport screenshot after the spectrum displayed the original sweep ID",
+      "captures": [
+        {
+          "file": "images/pi-package-arm64-vm.png",
+          "sha256": "a6469766bc1722592383082dca90d9ffec9ebfec0bcbe287be80bcc4ff594b2b",
+          "pixels": [
+            1366,
+            768
+          ],
+          "device_scale_factor": 1,
+          "theme": "system (light)",
+          "scenario": "Monitoring workspace during preparation; stopped guard and receiver, current peak 103.6 MHz, two waterfall periods",
+          "displayed_original_sweep_id": "pi-guide-synthetic-095",
+          "waterfall_rows": 96
+        }
+      ]
+    },
+    {
+      "client": "Installed OpenRadioInspector Tauri/WebView2 operator application",
+      "host": "GitHub-hosted Windows x64, build 26100",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "release_version": "0.4.0-rc.1",
+      "delivery": "Per-user NSIS engineering installer on a disposable Windows user profile",
+      "installer_sha256": "cb794578c9692290765e50dcb00a86afa073ad8dc4d438c9c6a88fbea0dc46bf",
+      "installed_exe_sha256": "232991b759ef00eb68b46c8f42c9700e6d4e595976c4add66f82c447909adfab",
+      "installed_core_sha256": "f17dc6979fe73c411e9fa648a0f4b709a84f9c46e0d7982b7c36a707a8779ef4",
+      "authenticode": {
+        "desktop": {
+          "type": "None",
+          "timestamp_signer_thumbprint": null,
+          "valid": false,
+          "status": "NotSigned",
+          "signer_thumbprint": null
+        },
+        "installer": {
+          "type": "None",
+          "timestamp_signer_thumbprint": null,
+          "valid": false,
+          "status": "NotSigned",
+          "signer_thumbprint": null
+        }
+      },
+      "github_run_id": 44649053859,
+      "github_artifact_id": 14590977304,
+      "proof_archive_sha256": "0f3edfb6f9cda0494b647607efa8d6a0f876b12b28f6c6cef2b165ab08f17bf8",
+      "source": {
+        "source": "deploy/windows/operator-window-fixture.json",
+        "sha256": "dda353e8ff4effc63971e09a2b43c500b72bf91ee337398feb687f86f458be26",
+        "mode": "replay",
+        "adapters": [
+          "tinysa-sim",
+          "ardv1-sim"
+        ],
+        "verified_sweeps": 16,
+        "verified_observations": 4,
+        "serial_adapters_enabled": false,
+        "generator_output": "off"
+      },
+      "capture": "PrintWindow(PW_RENDERFULLCONTENT); installed application main HWND only",
+      "captures": [
+        {
+          "file": "images/windows-installed-connection.png",
+          "sha256": "b3834987ce248807c5b2f07d2e60ef093f17676aa206432eb72afbbf94dd3f7e",
+          "pixels": [
+            1366,
+            768
+          ],
+          "dpi": 96,
+          "theme": "light",
+          "scenario": "fresh_install_connection",
+          "requested_scenario": "monitoring",
+          "monitoring_unavailable_reason": "connect_private_replay_fixture_address_not_set"
+        }
+      ]
+    },
+    {
+      "client": "Installed native OpenRadioInspector RC SwiftUI application",
+      "host": "MacBook Air, Apple Silicon, macOS 27.3",
+      "architecture": "arm64",
+      "toolchain": "Xcode 27.2 (27B52), Swift 6.4.2",
+      "source_revision": "e8fd8b9b0414905d4fe7da637a0dae004bceb4fc",
+      "release_version": "0.4.0-macos.rc.1",
+      "delivery": "Isolated installation from a read-only mounted engineering DMG, with verified ad-hoc code signature and bundle inventory",
+      "dmg_sha256": "b7f849f0217544489c2926844e325224ec5888294787033cf62a8898cafd4879",
+      "app_executable_sha256": "844d1dcdf6689d37ca058e9482487558b55469fec282829104416376cf42c988",
+      "signing": "ad-hoc",
+      "developer_id": false,
+      "physical_instruments": false,
+      "source": "Isolated HTTP/SQLite training fixture tests.ui_smoke_server, archived synthetic measurements",
+      "training_archive_sha256_before_and_after": "609aaf4c566e18fc28bf25475505ccc44fc0b6973f0d27420ddd0d6b350e4bb8",
+      "capture": "ScreenCaptureKit, current process app window only; original Retina PNG",
+      "captures": [
+        {
+          "file": "images/macos-monitoring.png",
+          "sha256": "c7d818197cd94947b3c60a2498472d86450557488b1d8054935949d9b0fab024",
+          "pixels": [
+            2400,
+            1480
+          ],
+          "window_points": [
+            1200,
+            740
+          ],
+          "device_scale_factor": 2,
+          "theme": "dark",
+          "scenario": "Stopped monitoring; 16 synthetic archived sweeps, 201 points per sweep, 10 kHz grid and 100.100 MHz P1 at -51.0 dBm, two events, no selection"
+        },
+        {
+          "file": "images/macos-event.png",
+          "sha256": "e2e5db95feaa5130591e7cd31cebe1efa6926dc100863c1886b6d41f44f9cd62",
+          "pixels": [
+            2400,
+            1480
+          ],
+          "window_points": [
+            1200,
+            740
+          ],
+          "device_scale_factor": 2,
+          "theme": "dark",
+          "scenario": "First persistent exceedance selected; Open original enabled, peak -51.0 dBm, 18.0 dB above the reference, one simulated AR-DV1 observation of 23 S-meter counts"
+        }
+      ]
+    },
+    {
+      "client": "Installed OpenRadioInspector Tauri/WebView2 operator application",
+      "host": "GitHub-hosted Windows x64, build 26100",
+      "source_revision": "c39da0dd15b8b3de9b3a23bfcc46fa3052d33f76",
+      "release_version": "0.4.0-rc.1",
+      "delivery": "Per-user NSIS engineering installer on a disposable Windows profile, operator workspace connected to an isolated loopback replay core",
+      "installer_sha256": "abf2d47ad18559d3b8050417ac99b089d542d99ac11377f571e9378bc92712f9",
+      "installed_exe_sha256": "cf307135667b79cef291d8628f20efd8a4b9155f4f5be242c52e53848fd977f8",
+      "installed_core_sha256": "470d38eea0d7ae68d6e741e9abc5a3fa263aa7d6cbf12d1a969b9fbeea6a9504",
+      "authenticode": {
+        "installer": {
+          "status": "NotSigned",
+          "signer_thumbprint": null,
+          "timestamp_signer_thumbprint": null,
+          "type": "None",
+          "valid": false
+        },
+        "desktop": {
+          "status": "NotSigned",
+          "signer_thumbprint": null,
+          "timestamp_signer_thumbprint": null,
+          "type": "None",
+          "valid": false
+        }
+      },
+      "github_run_id": 44653506105,
+      "github_artifact_id": 14592813111,
+      "proof_archive_sha256": "a99d1ebc0be2347f0b89cac578b270ea2069efca78d742ae5d9542a42d325448",
+      "source": {
+        "source": "deploy/windows/operator-window-fixture.json",
+        "sha256": "dda353e8ff4effc63971e09a2b43c500b72bf91ee337398feb687f86f458be26",
+        "mode": "replay",
+        "adapters": [
+          "tinysa-sim",
+          "ardv1-sim"
+        ],
+        "verified_sweeps": 16,
+        "verified_observations": 4,
+        "serial_adapters_enabled": false,
+        "generator_output": "off"
+      },
+      "capture": "PrintWindow(PW_RENDERFULLCONTENT); installed application main HWND only",
+      "captures": [
+        {
+          "file": "images/windows-installed-monitoring.png",
+          "sha256": "954e5fb6efbf75231ccb510a8dbf3aa5f8ab6c02bc85e2e18b3d3f9fb49acd06",
+          "pixels": [
+            1366,
+            768
+          ],
+          "dpi": 96,
+          "theme": "system (light)",
+          "scenario": "Monitoring; training project on loopback, guard stopped, synthetic tinySA peak 102.5 MHz / -45.0 dBm and AR-DV1 at 22 S-meter counts",
+          "waterfall_committed_rows_before_capture": 8,
+          "waterfall_rows_visible_in_png": 9
+        }
+      ]
+    }
+  ]
+}

@@ -35,4 +35,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod process;
 pub mod service;
 pub mod supervisor;
+#[cfg(windows)]
+pub mod windows_node;
 pub mod worker;

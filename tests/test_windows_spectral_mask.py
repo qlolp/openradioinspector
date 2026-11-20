@@ -69,16 +69,18 @@ class MaskValidationTests(unittest.TestCase):
 
     def test_settings_provenance_is_type_aware_and_includes_sequence(self):
         r=response()
-        r['sweep']['settings'].update(nested={'flags': [True, {'enabled': False}]}, sequence={'number': 7, 'nullable': None})
+        r['sweep']['settings'].update(nested={'flags': [True, {'enabled': False}]}, sequence={'number': 7, 'nullable': None},
+                                       measurement_qualification={'status': 'supported', 'reason': None})
         source=dict(deepcopy(r['sweep']), frequencies_hz=r['frequencies_hz'])
         validate_mask_result(r, ('session','s','a'), source)
-        for change in ('bool', 'nested_bool', 'sequence', 'missing_sequence'):
+        for change in ('bool', 'nested_bool', 'sequence', 'missing_sequence', 'missing_qualification'):
             changed=deepcopy(r)
             settings=changed['sweep']['settings']
             if change=='bool': settings['nested']['flags'][0]=1
             if change=='nested_bool': settings['nested']['flags'][1]['enabled']=0
             if change=='sequence': settings['sequence']['number']=8
             if change=='missing_sequence': settings.pop('sequence')
+            if change=='missing_qualification': settings.pop('measurement_qualification')
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_mask_result(changed, ('session','s','a'), source)
         changed=deepcopy(r); changed['sweep']['settings']['rbw_hz']=1000.0

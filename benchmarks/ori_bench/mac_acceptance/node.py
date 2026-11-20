@@ -1,0 +1,66 @@
+"""Packaged CLI using the existing owned process session and EOF lifeline."""
+import subprocess
+import sys
+from pathlib import Path
+from ..config import BenchmarkError
+from ..concurrent import bounded_json
+from ..endurance_node import OwnedCandidate,publish_stop
+from .evidence import private_json
+from .budget import recovery_timeout,wait_for_backup
+
+
+class PackageNode(OwnedCandidate):
+    def __init__(self,binary,output,run_id,*,restore_bundle=None,commit_diagnostics=True):
+        if type(commit_diagnostics) is not bool or (restore_bundle is not None and not commit_diagnostics):
+            raise ValueError('Restore requires owner diagnostics; history may explicitly omit them')
+        super().__init__(Path(binary),Path(output))
+        self.run_id=run_id;self.restore_bundle=restore_bundle;self.commit_diagnostics=commit_diagnostics
+        self.receipts=self.output/'evidence';self.receipts.mkdir(mode=0o700)
+        self.bundle=self.receipts/'backup';self.backup_requested=False
+        self.final_bundle=self.receipts/'final-backup';self.final_requested=False
+
+    def start(self):
+        if sys.platform!='darwin' and not sys.platform.startswith('linux'):
+            raise BenchmarkError('unsupported_host','Mac acceptance ownership is unavailable on this host; no process was started')
+        return super().start()
+
+    def _adapter_command(self,data):
+        if not self.commit_diagnostics:
+            return super()._adapter_command(data)+['--archive-max-bytes',str(64*1024**3)]
+        if self.restore_bundle is not None:
+            timeout=recovery_timeout(bounded_json(self.restore_bundle/'manifest.json'))
+            result=subprocess.run([str(self.binary),'acceptance-restore',str(self.restore_bundle),
+                                   str(data/'sessions.sqlite3'),str(self.receipts/'restore.json')],
+                                  cwd=self.output,stdin=subprocess.DEVNULL,capture_output=True,timeout=timeout)
+            (self.output/'restore.log').write_bytes(result.stdout+result.stderr)
+            if result.returncode:raise BenchmarkError('restore_failed','Actual packaged restore failed; see restore.log')
+        profile=self.receipts/'core-profile.json'
+        private_json(profile,dict(version=1,run_id=self.run_id,phase='load',output_dir=str(self.receipts),
+                                  data_dir=str(data),expected_core_sha256=self.sha256))
+        return super()._adapter_command(data)+['--acceptance-profile',str(profile)]
+
+    def request_backup(self):
+        if not self.commit_diagnostics:raise BenchmarkError('diagnostics_unavailable','History-only owner has no acceptance backup control')
+        if self.backup_requested:raise BenchmarkError('duplicate_backup','One owner backup per run')
+        publish_stop(self.receipts/'backup.request',self.run_id)
+        self.backup_requested=True
+
+    def backup_state(self):
+        for name in ['backup-finished.json','backup-started.json']:
+            path=self.receipts/name
+            if path.exists() or path.is_symlink():return bounded_json(path)
+        return dict(phase='requested' if self.backup_requested else 'not_requested')
+
+    def request_final_backup(self):
+        if not self.commit_diagnostics:raise BenchmarkError('diagnostics_unavailable','History-only owner has no acceptance backup control')
+        if self.final_requested:raise BenchmarkError('duplicate_backup','Final owner backup already requested')
+        publish_stop(self.receipts/'final-backup.request',self.run_id);self.final_requested=True
+
+    def final_backup_state(self):
+        for name in ['final-backup-finished.json','final-backup-started.json']:
+            path=self.receipts/name
+            if path.exists() or path.is_symlink():return bounded_json(path)
+        return dict(phase='requested' if self.final_requested else 'not_requested')
+
+    def wait_for_backup(self,*,final=False):
+        return wait_for_backup(self.receipts,final=final,owner=self.owner)

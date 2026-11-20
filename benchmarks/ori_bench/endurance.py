@@ -199,6 +199,7 @@ def reverify(client,config,ledger,output,capabilities):
             raise BenchmarkError('archive_invalid','An offered source was lost after restart')
     if audio['all_offered_pcm_preserved'] is not True:
         raise BenchmarkError('audio_invalid','Original closed PCM was lost after restart')
+    verify.verify_history_ids(history, ledger)
     return dict(history=history,archive=archive,audio=audio,counts=counts)
 
 

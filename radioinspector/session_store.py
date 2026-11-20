@@ -11,7 +11,7 @@ import json
 import sqlite3
 import struct
 import threading
-from . import candidate_precision
+from . import candidate_precision, panorama_events
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -73,7 +73,8 @@ def _object(value: str) -> dict[str, Any]:
 class SQLiteSessionStore:
     """Потокобезопасное хранилище платформы на стандартном ``sqlite3``."""
 
-    def __init__(self, path: str, *, max_database_bytes: Optional[int] = None) -> None:
+    def __init__(self, path: str, *, max_database_bytes: Optional[int] = None,
+                 compact_sweep_events: bool = False) -> None:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("Путь к базе сеансов не должен быть пустым")
         if max_database_bytes is not None and (
@@ -103,9 +104,7 @@ class SQLiteSessionStore:
         )
         try:
             with self._lock, self._connection:
-                version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-                if version > SCHEMA_VERSION:
-                    raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
+                panorama_events.writer_format(self._connection, SCHEMA_VERSION, compact_sweep_events)
                 from .observation_precision import check_extension, install_extension
                 check_extension(self._connection)
                 candidate_precision.check_extension(self._connection)
@@ -118,14 +117,17 @@ class SQLiteSessionStore:
                 self._connection.execute("PRAGMA synchronous = FULL")
                 # DDL and version advance are one rollback-safe migration.
                 self._connection.execute("BEGIN IMMEDIATE")
-                version = self._connection.execute("PRAGMA user_version").fetchone()[0]
-                if version > SCHEMA_VERSION:
-                    raise ValueError(f"Неподдерживаемая версия архива сеансов: {version}")
+                version, compact, initialize = panorama_events.writer_format(
+                    self._connection, SCHEMA_VERSION, compact_sweep_events)
                 self._create_schema()
                 install_extension(self._connection)
                 candidate_precision.install_extension(self._connection)
                 self._create_ingestion_schema(backfill=version < 6)
-                self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                if initialize:
+                    self._connection.execute(panorama_events.INSTALL)
+                self._compact = compact or initialize
+                self._event_select = panorama_events.JOINED if self._compact else panorama_events.INLINE
+                self._connection.execute(f"PRAGMA user_version = {panorama_events.VERSION if self._compact else SCHEMA_VERSION}")
         except BaseException:
             self._connection.close()
             raise
@@ -735,27 +737,22 @@ class SQLiteSessionStore:
             event_type=row["event_type"],
             occurred_at=parse_time(row["occurred_at"]),
             session_id=row["session_id"],
-            payload=_object(row["payload_json"]),
+            payload=panorama_events.payload(row),
         )
 
     def load_events(self, *, after: int = 0, limit: int = 1000) -> list[SessionEvent]:
         """Возвращает последние события после ``after`` в порядке sequence."""
         with self._lock:
             rows = self._connection.execute(
-                """
-                SELECT * FROM (
-                    SELECT * FROM events WHERE sequence > ?
-                    ORDER BY sequence DESC LIMIT ?
-                ) ORDER BY sequence
-                """,
+                f"{self._event_select} WHERE e.sequence > ? ORDER BY e.sequence DESC LIMIT ?",
                 (after, limit),
             ).fetchall()
-            return [self._event(row) for row in rows]
+            return [self._event(row) for row in reversed(rows)]
 
     def events(self, *, after: int = 0, limit: int = 100) -> list[SessionEvent]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT * FROM events WHERE sequence > ? ORDER BY sequence LIMIT ?",
+                f"{self._event_select} WHERE e.sequence > ? ORDER BY e.sequence LIMIT ?",
                 (after, limit),
             ).fetchall()
             return [self._event(row) for row in rows]
@@ -764,7 +761,7 @@ class SQLiteSessionStore:
         """A bounded event read outside the persistent archive's writer lock."""
         with self.read_snapshot() as connection:
             row = connection.execute(
-                "SELECT * FROM events WHERE sequence > ? ORDER BY sequence LIMIT 1",
+                f"{self._event_select} WHERE e.sequence > ? ORDER BY e.sequence LIMIT 1",
                 (after,),
             ).fetchone()
             return self._event(row) if row is not None else None
@@ -785,13 +782,29 @@ class SQLiteSessionStore:
         if len(sweeps) != len(events):
             raise ValueError("Число свипов и событий пакета должно совпадать")
         with self._measurement_transaction():
-            for sweep in sweeps:
-                self._insert_sweep(sweep)
-            for event in events:
+            if not self._compact:
+                for sweep in sweeps:
+                    self._insert_sweep(sweep)
+                for event in events:
+                    self._insert_event(event)
+                return
+            for sweep, event in zip(sweeps, events):
+                vectors = self._insert_sweep(sweep)
+                if event.event_type == "sweep.received":
+                    data = to_primitive(event)
+                    frame = panorama_events.encode(data, sweep, *vectors)
+                    if frame is not None:
+                        self._connection.execute(
+                            """INSERT INTO events(sequence,event_type,occurred_at,session_id,payload_json,ori_sweep_ref_v1)
+                               VALUES(?,?,?,?,?,?)""",
+                            (event.sequence, event.event_type, data["occurred_at"], event.session_id, frame, sweep.id))
+                        continue
                 self._insert_event(event)
 
-    def _insert_sweep(self, sweep: Sweep) -> None:
+    def _insert_sweep(self, sweep: Sweep) -> tuple[str, str]:
         data = to_primitive(sweep)
+        hz = _json(data["frequencies_hz"])
+        levels = _json(data["levels"])
         self._connection.execute(
             """
             INSERT INTO sweeps (
@@ -803,7 +816,7 @@ class SQLiteSessionStore:
                 data["id"], data["session_id"], data["stream_id"],
                 _archive_time(sweep.interval.started_at),
                 _archive_time(sweep.interval.ended_at),
-                _json(data["frequencies_hz"]), _json(data["levels"]),
+                hz, levels,
                 data["level_unit"], _json(data["settings"]),
             ),
         )
@@ -815,6 +828,7 @@ class SQLiteSessionStore:
             "INSERT INTO sweep_ingestion(sweep_id, session_id, stream_id) VALUES (?, ?, ?)",
             (sweep.id, sweep.session_id, sweep.stream_id),
         )
+        return hz, levels
 
     def record_observation(
         self, observation: ReceiverObservation, *, event: Optional[SessionEvent] = None

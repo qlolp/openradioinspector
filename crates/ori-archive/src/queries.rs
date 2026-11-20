@@ -1,8 +1,10 @@
+mod scan_windows;
 use crate::*;
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{
     Connection, OptionalExtension, named_params, params, params_from_iter, types::Value as SqlValue,
 };
+pub(crate) use scan_windows::{insert_scan_window_scope, install_scan_window_scope};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -30,6 +32,16 @@ pub struct CapturePosition {
 pub struct RecordPage {
     pub items: Vec<Value>,
     pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct KnownSignalTarget<'a> {
+    pub center_frequency_hz: u64,
+    pub scan_plan_id: Option<&'a str>,
+    pub scan_band_id: Option<&'a str>,
+    pub scan_plan_revision: Option<u64>,
+    pub bandwidth_hz: u64,
+    pub bin_span: Option<u64>,
 }
 
 fn round_ratio(numerator: u128, denominator: u128) -> u128 {
@@ -362,6 +374,14 @@ pub(crate) fn collect(
     Ok(values)
 }
 fn query_sweeps(db: &Connection, query: &SweepQuery, maximum: usize) -> Result<Page<Value>> {
+    query_sweeps_with(db, query, maximum, Ok)
+}
+fn query_sweeps_with<T>(
+    db: &Connection,
+    query: &SweepQuery,
+    maximum: usize,
+    mut encode: impl FnMut(Value) -> Result<T>,
+) -> Result<Page<T>> {
     if query.session_id.is_none() && query.project_id.is_none() {
         return Err(error::invalid(
             "a session or project history scope is required",
@@ -443,24 +463,27 @@ fn query_sweeps(db: &Connection, query: &SweepQuery, maximum: usize) -> Result<P
         clauses.join(" AND ")
     );
     let mut statement = db.prepare(&sql)?;
-    let mut items = collect(
-        statement.query(params_from_iter(arguments.iter()))?,
-        rows::sweep,
-        maximum,
-    )?;
-    let more = items.len() > query.limit;
-    items.truncate(query.limit);
-    let next_cursor = if more {
-        items.last().map(|value| MeasurementCursor {
-            started_at: value["interval"]["started_at"]
-                .as_str()
-                .expect("decoded timestamp")
-                .into(),
-            id: value["id"].as_str().expect("decoded ID").into(),
-        })
-    } else {
-        None
-    };
+    let mut rows = statement.query(params_from_iter(arguments.iter()))?;
+    let (mut items, mut remaining, mut last, mut more) = (Vec::new(), maximum, None, false);
+    while let Some(row) = rows.next()? {
+        let value = rows::sweep(row)?;
+        // Keep the same byte budget, including the look-ahead row. The wire
+        // path can release each numeric tree before decoding the next row.
+        charge(&value, &mut remaining)?;
+        if items.len() < query.limit {
+            last = Some(MeasurementCursor {
+                started_at: value["interval"]["started_at"]
+                    .as_str()
+                    .expect("decoded timestamp")
+                    .into(),
+                id: value["id"].as_str().expect("decoded ID").into(),
+            });
+            items.push(encode(value)?);
+        } else {
+            more = true;
+        }
+    }
+    let next_cursor = if more { last } else { None };
     Ok(Page { items, next_cursor })
 }
 fn observations(
@@ -641,6 +664,32 @@ impl Archive {
         query.stream_id = stream.map(str::to_owned);
         query.limit = limit;
         let mut values = self.sweep_page(query).await?.items;
+        values.reverse();
+        Ok(values)
+    }
+    /// The same recent-source query/order as list_sweeps, with only one decoded
+    /// numeric row alive at a time. RawValue retains strict, already-decoded
+    /// JSON spelling without reinterpreting literal metadata keys.
+    pub async fn list_sweeps_encoded(
+        &self,
+        session: &str,
+        stream: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<Box<serde_json::value::RawValue>>> {
+        validate_limit(limit, 1000)?;
+        let mut query = SweepQuery::session(session);
+        query.stream_id = stream.map(str::to_owned);
+        query.limit = limit;
+        let maximum = self.inner.config.max_response_bytes;
+        let mut values = self
+            .inner
+            .read(move |db| {
+                query_sweeps_with(db, &query, maximum, |value| {
+                    Ok(serde_json::value::to_raw_value(&value)?)
+                })
+                .map(|page| page.items)
+            })
+            .await?;
         values.reverse();
         Ok(values)
     }
@@ -938,6 +987,82 @@ impl Archive {
             value,
         }])
         .await
+    }
+    pub async fn matching_known_signals(
+        &self,
+        project: &str,
+        targets: &[KnownSignalTarget<'_>],
+    ) -> Result<Vec<Value>> {
+        if targets.is_empty() {
+            return Ok(Vec::new());
+        }
+        validate_limit(targets.len(), 200)?;
+        let project = project.to_owned();
+        let targets = serde_json::to_string(targets)?;
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner
+            .read(move |db| {
+                let mut statement = db.prepare(
+                    "WITH targets AS (
+                        SELECT DISTINCT value FROM json_each(?2)
+                    ), ranked AS (
+                        SELECT r.id, r.payload,
+                               row_number() OVER (
+                                   PARTITION BY t.value ORDER BY r.created_at DESC, r.id DESC
+                               ) AS rank
+                        FROM monitoring_records r JOIN targets t
+                          ON json_extract(r.payload,'$.center_frequency_hz') = json_extract(t.value,'$.center_frequency_hz')
+                         AND json_extract(r.payload,'$.scan_plan_id') IS json_extract(t.value,'$.scan_plan_id')
+                         AND json_extract(r.payload,'$.scan_band_id') IS json_extract(t.value,'$.scan_band_id')
+                         AND json_extract(r.payload,'$.scan_plan_revision') IS json_extract(t.value,'$.scan_plan_revision')
+                         AND (json_extract(r.payload,'$.bandwidth_hz') BETWEEN
+                                (json_extract(t.value,'$.bandwidth_hz') + 1) / 2
+                                AND 2 * json_extract(t.value,'$.bandwidth_hz')
+                              OR (json_extract(t.value,'$.bandwidth_hz') = 0
+                                  AND json_extract(r.payload,'$.bin_span') = 1)
+                              OR (json_extract(r.payload,'$.bandwidth_hz') = 0
+                                  AND json_extract(t.value,'$.bin_span') = 1))
+                        WHERE r.kind='known-signal' AND r.project_id=?1
+                    ) SELECT payload FROM ranked WHERE rank<=5 GROUP BY id ORDER BY min(rank), id DESC",
+                )?;
+                let mut rows = statement.query(params![project, targets])?;
+                let mut remaining = maximum;
+                let mut output = Vec::new();
+                while let Some(row) = rows.next()? {
+                    push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?;
+                }
+                Ok(output)
+            })
+            .await
+    }
+    pub async fn latest_receiver_checks(&self, project: &str, session: &str) -> Result<Vec<Value>> {
+        let project = project.to_owned();
+        let session = session.to_owned();
+        let maximum = self.inner.config.max_response_bytes;
+        self.inner
+            .read(move |db| {
+                let mut statement = db.prepare(
+                    "WITH ranked AS (
+                        SELECT rowid AS attempt, payload, row_number() OVER (
+                            PARTITION BY json_extract(payload,'$.scan_band_id')
+                            ORDER BY rowid DESC
+                        ) AS rank
+                        FROM monitoring_records
+                        WHERE kind='receiver-check' AND project_id=?1
+                            AND json_extract(payload,'$.session_id')=?2
+                    )
+                    SELECT payload FROM ranked WHERE rank=1
+                    ORDER BY attempt DESC LIMIT 16",
+                )?;
+                let mut rows = statement.query(params![project, session])?;
+                let mut output = Vec::new();
+                let mut remaining = maximum;
+                while let Some(row) = rows.next()? {
+                    push(&mut output, rows::object(row.get(0)?)?, &mut remaining)?;
+                }
+                Ok(output)
+            })
+            .await
     }
     pub async fn list_monitoring(&self, kind: &str, query: MonitoringQuery) -> Result<Vec<Value>> {
         if !validate::KINDS.contains(&kind) {

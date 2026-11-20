@@ -285,7 +285,7 @@ measurement request. Exact wire order, all refusal assertions and the final
 complete artifact/evidence set remain required. No production control behavior
 or deadline changes.
 
-The spectrum's undrawn display queue now retains the first maximum and newest
+When the 16-source display queue overflows, it retains the first maximum and newest
 source instead of a stale 64-source FIFO prefix. The current canvas owner and
 two-RAF marker protocol are unchanged; coalescing is visible and affects no
 archived source, source bits or Worker/applied ACK. See

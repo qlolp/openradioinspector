@@ -3,7 +3,7 @@ import SpektrKomandy
 
 /// All acquisition, band scheduling and detection execute in the core's device actor.
 struct NativeReceiveWorkbench: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @Environment(\.dismiss) private var dismiss
     @State private var tab = 0
     @State private var draft = NativeReceiveDraft()
@@ -22,8 +22,12 @@ struct NativeReceiveWorkbench: View {
     @State private var selectedArtifact: MonitoringValue = .null
     @State private var loaded = false
     @State private var recoverySupported = false
+    @State private var operations: MonitoringValue = .null
     private var running: Bool { model.worker(for: model.analyzer?.id)?.alive == true }
     private var watching: Bool { status["watch"] != .null }
+    private func supports(_ name: String) -> Bool {
+        operations[name] != .null && operations[name]["available"].bool != false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -56,7 +60,7 @@ struct NativeReceiveWorkbench: View {
             }
             Picker("Раздел", selection: $tab) {
                 Text("Тракт и развёртка").tag(0)
-                Text("Наблюдение и события").tag(1)
+                if supports("watch.start") || watching { Text("Наблюдение и события").tag(1) }
                 Text("Zero Span").tag(2)
                 Text("Журнал архива").tag(3)
             }.pickerStyle(.segmented)
@@ -78,11 +82,17 @@ struct NativeReceiveWorkbench: View {
         }.padding(18).frame(minWidth: 860, idealWidth: 940, minHeight: 620)
             .task(id: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? ""].map { PlatformExactID($0) }) {
                 task?.cancel(); busy = false; loaded = false; status = .null; recoverySupported = false
+                operations = .null
+                if tab == 1 { tab = 0 }
                 if let client = model.client {
                     let session = model.selectedSessionID, stream = model.analyzer?.id
                     let features = try? await client.workbenchFeatures()
+                    let available = if let stream {
+                        try? await client.tinySAControlOperations(sessionID: session, streamID: stream)
+                    } else { nil as MonitoringValue? }
                     if !Task.isCancelled, model.client === client, model.selectedSessionID == session, model.analyzer?.id == stream {
                         recoverySupported = features?.contains("explicit_stream_recovery") == true
+                        operations = available ?? .null
                     }
                 }
                 await refresh(initialize: true)
@@ -126,9 +136,21 @@ struct NativeReceiveWorkbench: View {
             HStack {
                 field("Аттенюатор, дБ / auto", text: $draft.attenuation)
                 Toggle("LNA", isOn: $draft.lna)
-                Toggle("Ultra до 6 ГГц", isOn: $draft.ultra)
+                Toggle("Запрос Ultra", isOn: $draft.ultra)
                 Picker("Spur", selection: $draft.spur) { ForEach(["auto","off","on"], id: \.self) { Text($0) } }.frame(width: 160)
             }
+            if let ultra = status["settings"]["ultra"].bool {
+                Text("Настройка ядра Ultra · \(ultra ? "включена" : "выключена")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if draft.ultra || status["settings"]["ultra"].bool == true {
+                Text("Подтвердите Ultra по флажку ENABLE ULTRA на экране прибора.")
+                    .font(.caption)
+            }
+            if let advice = draft.lnaAdvice(stopHz: status["settings"]["stop_hz"].integer) {
+                Label(advice, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+            }
+            ultraPreparation
             HStack {
                 field("Точек 2–450", text: $draft.points)
                 field("Повторы 1–1000", text: $draft.repeats).disabled(draft.useVBW)
@@ -143,7 +165,7 @@ struct NativeReceiveWorkbench: View {
                     ForEach(["auto","1","1/3","1/10","1/30","1/100"], id: \.self) { Text($0) }
                 }.frame(width: 180).disabled(!draft.useVBW)
             }
-            Text("VBW — эквивалент через repeat для прошивки ea71dfd, не аппаратный readback. Малые отношения увеличивают время измерения. LNA отключает внутреннее ослабление. Ultra требует проверки ложных откликов.")
+            Text("VBW — эквивалент через repeat для прошивки ea71dfd. Малые отношения увеличивают время измерения. С LNA внутренний аттенюатор выключен.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Picker("Триггер", selection: $draft.trigger) {
@@ -156,10 +178,23 @@ struct NativeReceiveWorkbench: View {
                 Button("Применить тракт и развёртку") {
                     do { run("receive.configure", parameters: try draft.parameters()) }
                     catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
+                }.disabled(busy || !running || watching || !supports("receive.configure"))
                 Button("Считать настройки ядра") { task = Task { await refresh(initialize: true) } }.disabled(busy)
             }
             Text("Подтверждение: \(status["settings_source"].text) · readback: \(status["settings_readback"].scalar)").font(.caption)
+        }
+    }
+
+    private var ultraPreparation: some View {
+        DisclosureGroup("Подготовка Ultra на ZS405") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("На экране прибора откройте CONFIG → MORE → ENABLE ULTRA. Если флажок снят, выберите пункт и введите 4321. Проверьте отметку в этом меню.")
+                Text("Перед измерением уровней на гигагерцовых частотах остановите приём и соедините CAL и RF коротким кабелем SMA. Выполните CONFIG → LEVEL CAL → CALIBRATE 100kHz to 5.34GHz, затем выключите прибор, снимите кабель и включите прибор. Проверьте белые цифры уровней.")
+                Text("Паспортный диапазон LNA заканчивается на 4 ГГц. Между 3,5 и 4 ГГц сравните показания с усилителем и без него. Для диапазона 5 ГГц выключите LNA.")
+                Text("Диапазон для ручных измерений Ultra задаётся в панели «Экран и управление tinySA». Проверяйте возможные зеркальные и ложные отклики.")
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -205,18 +240,20 @@ struct NativeReceiveWorkbench: View {
                     do { run("acquire.zero", parameters: ["start_hz": .integer(try NativeAnalyzerDraft.hz(zeroFrequency)), "points": .integer(450)]) }
                     catch { message = error.localizedDescription }
                 }.disabled(busy || !running || watching)
-                Button("Непрерывный Zero Span") {
-                    do {
-                        let hz = try NativeAnalyzerDraft.hz(zeroFrequency)
-                        run("receive.configure", parameters: ["start_hz": .integer(hz), "stop_hz": .integer(hz)])
-                    } catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
-                Button("Вернуть диапазон полосы 1") {
-                    do {
-                        guard let band = bands.first, case .object(let values) = try band.value() else { return }
-                        run("receive.configure", parameters: values.filter { $0.key != "name" })
-                    } catch { message = error.localizedDescription }
-                }.disabled(busy || !running || watching)
+                if supports("receive.configure") && operations["receive.configure"]["continuous_zero_span"].bool != false {
+                    Button("Непрерывный Zero Span") {
+                        do {
+                            let hz = try NativeAnalyzerDraft.hz(zeroFrequency)
+                            run("receive.configure", parameters: ["start_hz": .integer(hz), "stop_hz": .integer(hz)])
+                        } catch { message = error.localizedDescription }
+                    }.disabled(busy || !running || watching)
+                    Button("Вернуть диапазон полосы 1") {
+                        do {
+                            guard let band = bands.first, case .object(let values) = try band.value() else { return }
+                            run("receive.configure", parameters: values.filter { $0.key != "name" })
+                        } catch { message = error.localizedDescription }
+                    }.disabled(busy || !running || watching)
+                }
             }
             Text("График уровня последовательных отсчётов. Точное время каждого отсчёта прошивка не передаёт; показывается общий UTC-интервал, без выдуманной временной сетки.").font(.caption)
             NativeZeroSpanPlot(data: zeroData).frame(height: 260)

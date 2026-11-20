@@ -301,7 +301,10 @@ def _run_diagnostic_python_suite(report_path: Path, diagnostic_after: float, *, 
     version = tuple(sys.version_info[:3])
     fixed = version >= (3, 14, 1) or (3, 13, 10) <= version < (3, 14, 0)
     darwin_observed = sys.platform == "darwin" and version[:2] in ((3, 14), (3, 15))
-    if not fixed or darwin_observed:
+    # Windows 3.15 also produced a partial periodic frame dump followed by
+    # 0xC0000005 while worker threads were exiting on the hosted runner.
+    windows_observed = sys.platform == "win32" and version[:2] == (3, 15)
+    if not fixed or darwin_observed or windows_observed:
         watchdog = _GilSafeWatchdog(diagnostic_after, sys.__stderr__)
         watchdog.start()
         try:

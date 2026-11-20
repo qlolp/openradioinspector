@@ -33,6 +33,10 @@ swift test --skip testPhysicalTinySAUltraSmokeIfConnected
 swift test --package-path SpektrKomandy
 ```
 
+The physical tinySA case also requires `ORI_RUN_PHYSICAL_TINYSA_TEST=1` before
+it enumerates ports. Use the separate [hardware protocol](../docs/release/hardware-acceptance.md)
+with the normal port owner stopped; an ordinary `swift test` must not claim USB.
+
 Build the `DvoynoyObzor` scheme in Xcode to check the launcher-to-package boundary.
 In environments that prohibit SwiftPM's nested sandbox, add `--disable-sandbox`
 to the test commands. Some integration tests skip when their optional fixtures

@@ -52,7 +52,7 @@ struct RemoteArPane: View {
         let port: String
     }
 
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     @State private var scopeTarget: ScopeTarget?
 
     private var receiverPort: String? {
@@ -128,9 +128,11 @@ struct RemoteArPane: View {
 }
 
 struct RemoteUltraPane: View {
-    @ObservedObject var model: RemoteDualModel
+    @Bindable var model: RemoteDualModel
     var research = true
     var scanBands: [MonitoringValue] = []
+    var bandPlanWorkspace: MonitoringWorkspaceModel?
+    var compact = false
     @State private var detailsExpanded = false
 
     var body: some View {
@@ -149,9 +151,11 @@ struct RemoteUltraPane: View {
                         .disabled(model.worker(for: model.analyzer?.id)?.alive != true || model.busy)
                 }
             }.controlSize(.small)
-            NativeMeasurementStatus(model: model)
-            NativeAnalyzerControls(model: model)
-                .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+            if !compact {
+                NativeMeasurementStatus(model: model)
+                NativeAnalyzerControls(model: model)
+                    .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID), PlatformExactID(model.analyzer?.id ?? "")])
+            }
             if !scanBands.isEmpty || !model.availableScanBandIDs.isEmpty {
                 Picker("Поддиапазон графика", selection: Binding(get: { model.selectedScanBand }, set: model.selectScanBand)) {
                     if model.selectedScanBand.isEmpty { Text("Ожидание измерения").tag("") }
@@ -172,15 +176,18 @@ struct RemoteUltraPane: View {
                                     presentationPaused: model.spectrumPresentation.paused,
                                     setPresentationPaused: { model.setSpectrumPaused($0) },
                                     reviewedSweep: model.reviewedSweep, reviewRequest: model.reviewedSweepRequest,
-                                    onFollowFrequency: { model.followFrequency($0) })
+                                    onFollowFrequency: { model.followFrequency($0) },
+                                    bandPlanWorkspace: bandPlanWorkspace,
+                                    viewMemory: model.spectrumViewMemory,
+                                    viewMemoryScope: [model.serverURL, model.selectedSessionID, model.analyzer?.id ?? "", model.selectedScanBand].map { PlatformExactID($0) })
                 .id([PlatformExactID(model.serverURL), PlatformExactID(model.selectedSessionID),
                      PlatformExactID(model.analyzer?.id ?? ""), PlatformExactID(model.selectedScanBand)])
-                .frame(minHeight: 370).layoutPriority(1)
+                .frame(minHeight: compact ? 320 : 370).layoutPriority(1)
             HStack {
                 Button("Автомасштаб") { model.fitSpectrum() }
                 Text("Порог показа, дБм").font(.caption)
                 TextField("дБм", text: $model.threshold).frame(width: 65)
-                    .help("Линия на графике. Реакции охраны настраиваются отдельно во вкладке «Охрана и исследование».")
+                    .help("Линия на графике. Реакции охраны настраиваются отдельно в настройках охраны.")
 
                 Spacer()
                 Button(detailsExpanded ? "Скрыть настройки" : "Настройки и анализ") { detailsExpanded.toggle() }
@@ -195,6 +202,10 @@ struct RemoteUltraPane: View {
                 Button("Готово") { detailsExpanded = false }.keyboardShortcut(.cancelAction)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if compact {
+                            NativeMeasurementStatus(model: model)
+                            NativeAnalyzerControls(model: model)
+                        }
                         NativeSpectrumReadout(points: model.displayCurrent)
                         DisclosureGroup("Порог и ручная шкала") {
                             VStack(alignment: .leading, spacing: 8) {
@@ -272,6 +283,39 @@ struct RemoteUltraPane: View {
     }
 }
 
+@MainActor private protocol WorkbenchWindowSizingHost: AnyObject {
+    func useFixedWorkbenchSizing(preservingLimits: Bool)
+}
+
+extension NSHostingView: WorkbenchWindowSizingHost {
+    fileprivate func useFixedWorkbenchSizing(preservingLimits: Bool) {
+        guard !sizingOptions.isEmpty else { return }
+        if preservingLimits {
+            needsUpdateConstraints = true
+            updateConstraintsForSubtreeIfNeeded()
+        }
+        let limits = preservingLimits ? constraints.filter {
+            $0.firstItem === self && $0.secondItem == nil && $0.constant.isFinite
+                && ($0.firstAttribute == .width || $0.firstAttribute == .height)
+                && $0.relation != .equal
+        } : []
+        sizingOptions = []
+        guard preservingLimits else { return }
+        updateConstraintsForSubtreeIfNeeded()
+        // Keep the pane's declared limits after AppKit removes its automatic
+        // constraints. Dividers still honor minima/maxima without fitting the
+        // whole pane again for each incoming frame.
+        for limit in limits where !limit.isActive {
+            let fixed = NSLayoutConstraint(item: self, attribute: limit.firstAttribute,
+                relatedBy: limit.relation, toItem: nil, attribute: .notAnAttribute,
+                multiplier: 1, constant: limit.constant)
+            fixed.priority = limit.priority
+            fixed.identifier = "ori.workbench.fixedLimit"
+            fixed.isActive = true
+        }
+    }
+}
+
 // Observe this particular window; other WindowGroup windows keep their own sessions.
 struct WindowCloseObserver: NSViewRepresentable {
     var onClose: () -> Void
@@ -284,16 +328,65 @@ struct WindowCloseObserver: NSViewRepresentable {
 
     func updateNSView(_ view: WindowCloseView, context: Context) {
         view.onClose = onClose
+        view.scheduleWorkbenchSizing()
     }
 }
 
 final class WindowCloseView: NSView {
     var onClose: (() -> Void)?
+    private var sizingUpdateScheduled = false
+
+    func scheduleWorkbenchSizing() {
+        guard let window, !sizingUpdateScheduled else { return }
+        sizingUpdateScheduled = true
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self else { return }
+            self.sizingUpdateScheduled = false
+            guard let window, self.window === window else { return }
+            var ancestor = self.superview
+            var root: NSView?
+            while let view = ancestor {
+                if view is any WorkbenchWindowSizingHost { root = view }
+                ancestor = view.superview
+            }
+            guard let root else { return }
+            // HSplitView creates additional hosts for its panes. Disabling only
+            // the outer host leaves those panes measuring the entire subtree.
+            @MainActor func apply(_ view: NSView) {
+                (view as? any WorkbenchWindowSizingHost)?.useFixedWorkbenchSizing(preservingLimits: true)
+                for child in view.subviews { apply(child) }
+            }
+            apply(root)
+            window.contentMinSize = CGSize(width: 1000, height: 700)
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: nil)
         if let window {
+            // ContentView already defines this minimum. Automatic intrinsic
+            // constraints otherwise remeasure the entire workbench per frame.
+            var ancestor = superview
+            var host: (any WorkbenchWindowSizingHost)?
+            while let view = ancestor {
+                if let value = view as? any WorkbenchWindowSizingHost { host = value }
+                ancestor = view.superview
+            }
+            if let host {
+                host.useFixedWorkbenchSizing(preservingLimits: false)
+                window.contentMinSize = CGSize(width: 1000, height: 700)
+                scheduleWorkbenchSizing()
+                // AppKit can finish attaching the hosting view after this hook
+                // and reset its minimum; apply it after that transaction too.
+                DispatchQueue.main.async { [weak self, weak window] in
+                    guard let self, let window, self.window === window else { return }
+                    window.contentMinSize = CGSize(width: 1000, height: 700)
+                    NativeAcceptanceTrace.shared?.record("window.content_sizing", [
+                        "automatic": false, "minimum_width": window.contentMinSize.width,
+                        "minimum_height": window.contentMinSize.height])
+                }
+            }
             NotificationCenter.default.addObserver(self, selector: #selector(windowWillClose),
                 name: NSWindow.willCloseNotification, object: window)
         }

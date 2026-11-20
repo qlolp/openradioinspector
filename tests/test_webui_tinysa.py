@@ -17,6 +17,10 @@ class WebTinySATests(unittest.TestCase):
         # The package owns this pane; verify the actual linked source ownership.
         XcodeSourceRegistrationTests().test_each_native_source_is_compiled_once_and_object_keys_are_unique()
         self.assertTrue((root/'macos/DvoynoyObzor/TinySAControlPane.swift').is_file())
-        app_configs=[v['buildSettings'] for v in project.values() if v.get('isa')=='XCBuildConfiguration' and v.get('buildSettings',{}).get('PRODUCT_BUNDLE_IDENTIFIER')]
+        apps=[v for v in project.values() if v.get('isa')=='PBXNativeTarget' and v.get('productType')=='com.apple.product-type.application']
+        self.assertEqual(len(apps),1)
+        configuration_ids=project[apps[0]['buildConfigurationList']]['buildConfigurations']
+        # Permission strings belong to the application, not its XCUITest runner.
+        app_configs=[project[key]['buildSettings'] for key in configuration_ids]
         self.assertEqual(len(app_configs),2)
         for config in app_configs:self.assertIn('аналогового',config['INFOPLIST_KEY_NSMicrophoneUsageDescription'])

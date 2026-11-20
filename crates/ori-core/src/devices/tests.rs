@@ -19,6 +19,9 @@ struct RevocationPoint {
     permission: Arc<AtomicBool>,
 }
 struct Factory {
+    reject_firmware_once: AtomicBool,
+    reject_exit_once: AtomicBool,
+    wrong_rx_at: AtomicUsize,
     opens: AtomicUsize,
     drops: Arc<AtomicUsize>,
     commands: Arc<Mutex<Vec<String>>>,
@@ -33,6 +36,9 @@ struct Factory {
 impl Factory {
     fn new(shutdown_failure: bool) -> Arc<Self> {
         Arc::new(Self {
+            reject_firmware_once: AtomicBool::new(false),
+            reject_exit_once: AtomicBool::new(false),
+            wrong_rx_at: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
             drops: Arc::default(),
             commands: Arc::default(),
@@ -104,9 +110,16 @@ impl TransportFactory for Factory {
             let started = self.poll_started.clone();
             let release = self.poll_release.clone();
             let analyzer = stream.role == DeviceRole::SpectrumAnalyzer;
+            let wrong_rx_at = self.wrong_rx_at.load(Ordering::Acquire);
+            let reject_firmware =
+                !analyzer && self.reject_firmware_once.swap(false, Ordering::AcqRel);
+            let reject_exit = !analyzer && self.reject_exit_once.swap(false, Ordering::AcqRel);
             let revoke_after = self.revoke_after.clone();
             tokio::spawn(async move {
                 let mut command = Vec::new();
+                let mut frequency = "RF0145.50000".to_owned();
+                let mut mode = "F0".to_owned();
+                let mut rx_count = 0;
                 while let Ok(byte) = device.read_u8().await {
                     if byte != b'\r' {
                         command.push(byte);
@@ -134,8 +147,10 @@ impl TransportFactory for Factory {
                         format!("{command}\r\n{body}ch> ")
                     } else {
                         match command.as_str() {
-                            "VR" => "20VR2504A\r\n",
-                            "RN" => "20RNSYNTHETIC\r\n",
+                            "VR" if reject_firmware => "60?\r\n".into(),
+                            "EX" if reject_exit => "60?\r\n".into(),
+                            "VR" => "20VR2504A\r\n".into(),
+                            "RN" => "20RNSYNTHETIC\r\n".into(),
                             "LM" => {
                                 if pause.load(Ordering::Acquire) {
                                     started.fetch_add(1, Ordering::AcqRel);
@@ -145,11 +160,27 @@ impl TransportFactory for Factory {
                                         break;
                                     }
                                 }
-                                "20LM1371\r\n"
+                                "20LM1371\r\n".into()
                             }
-                            _ => "20\r\n",
+                            "RX" => {
+                                rx_count += 1;
+                                let reported = if rx_count == wrong_rx_at {
+                                    "RF0146.00000"
+                                } else {
+                                    frequency.as_str()
+                                };
+                                format!("20RX VFA {reported} ST010.00 MD0{mode} LM1371\r\n")
+                            }
+                            _ => {
+                                if command.starts_with("RF") {
+                                    frequency.clone_from(&command);
+                                }
+                                if let Some(selected) = command.strip_prefix("MD0") {
+                                    mode = selected.to_owned();
+                                }
+                                "20\r\n".into()
+                            }
                         }
-                        .to_owned()
                     };
                     if device.write_all(reply.as_bytes()).await.is_err() {
                         break;
@@ -192,6 +223,273 @@ async fn until(check: impl Fn() -> bool) {
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn receiver_scope_commits_the_final_point_before_releasing_its_port() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let core = core(directory.path(), factory.clone()).await;
+    let archive = core.archive().unwrap();
+    let mut session = session("scope");
+    session["streams"][0]["id"] = json!("scope-r");
+    session["streams"][1]["id"] = json!("scope-a");
+    session["streams"][0]["settings"] = json!({"adapter":"ardv1-serial",
+        "receiver_profile":"ardv1-monitor-v1", "mode":"FM", "period_s":0,
+        "fast_scan":{"start_hz":88_000_000,"stop_hz":88_150_000,"step_hz":100_000,"settle_s":0}});
+    archive.create_session(session).await.unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let target = Target::new("scope", "scope-r");
+    let started = manager
+        .start_stream("scope", "scope-r", manager.public_gate(target.clone()))
+        .await
+        .unwrap();
+    until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    let receipt = manager
+        .retain_started_worker(
+            &target,
+            started.worker_instance.as_deref().unwrap(),
+            manager.public_gate(target.clone()),
+        )
+        .unwrap();
+    assert_eq!(receipt.check_start(true).unwrap().unwrap().measurements, 3);
+    assert!(
+        receipt.check().is_err(),
+        "a completed segment cannot take new control commands"
+    );
+    let report = manager.stop_stream("scope", "scope-r").await.unwrap();
+    assert!(
+        receipt.check_start(true).is_err(),
+        "an explicit stop supersedes the old start receipt"
+    );
+    assert_eq!(report.measurements, 3);
+    assert!(!report.alive && report.last_error.is_none());
+    let mut observations = archive
+        .list_observations("scope", Some("scope-r"), 10)
+        .await
+        .unwrap();
+    observations.sort_by_key(|row| row["metadata"]["scan_index"].as_u64().unwrap());
+    assert_eq!(observations.len(), 3);
+    for (row, frequency) in observations
+        .iter()
+        .zip([88_000_000, 88_100_000, 88_150_000])
+    {
+        assert_eq!(row["frequency_hz"], frequency);
+        assert_eq!(row["metadata"]["frequency_readback"], true);
+        assert_eq!(
+            row["metadata"]["scope_source"],
+            "sequential_receiver_readback"
+        );
+        assert!(row["metadata"].get("receiver_tune_context").is_none());
+    }
+    assert_eq!(factory.commands.lock().unwrap().last().unwrap(), "EX");
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn wrong_segment_frequency_is_discarded_while_the_analyzer_keeps_recording() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.wrong_rx_at.store(2, Ordering::Release);
+    let core = core(directory.path(), factory.clone()).await;
+    let archive = core.archive().unwrap();
+    let mut recording = session("paired");
+    recording["streams"][0]["id"] = json!("paired-r");
+    recording["streams"][1]["id"] = json!("paired-a");
+    recording["streams"][0]["settings"] = json!({"adapter":"ardv1-serial",
+        "receiver_profile":"ardv1-monitor-v1", "mode":"FM", "period_s":0,
+        "fast_scan":{"start_hz":88_000_000,"stop_hz":88_150_000,"step_hz":100_000,"settle_s":0}});
+    archive.create_session(recording).await.unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let gate = |stream| manager.public_gate(Target::new("paired", stream));
+    manager
+        .start_stream("paired", "paired-a", gate("paired-a"))
+        .await
+        .unwrap();
+    manager
+        .start_stream("paired", "paired-r", gate("paired-r"))
+        .await
+        .unwrap();
+    until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    let report = manager.stop_stream("paired", "paired-r").await.unwrap();
+    assert_eq!(report.measurements, 1);
+    assert!(report.last_error.unwrap().contains("RX did not confirm"));
+    assert_eq!(report.current["requested_frequency_hz"], 88_100_000);
+    assert!(report.current["observed_frequency_hz"].is_null());
+    assert_eq!(report.current["frequency_readback"], false);
+    let rows = archive
+        .list_observations("paired", Some("paired-r"), 10)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["frequency_hz"], 88_000_000);
+    assert_eq!(rows[0]["level"], 137.0);
+    let before = archive
+        .list_sweeps("paired", Some("paired-a"), 100)
+        .await
+        .unwrap()
+        .len();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while archive
+            .list_sweeps("paired", Some("paired-a"), 100)
+            .await
+            .unwrap()
+            .len()
+            <= before
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(factory.commands.lock().unwrap().last().unwrap(), "RX");
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn simulated_receiver_refuses_a_native_segment_before_start() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let core = core(directory.path(), factory.clone()).await;
+    let mut recording = session("sim-segment");
+    recording["streams"][0]["id"] = json!("sim-r");
+    recording["streams"][1]["id"] = json!("sim-a");
+    recording["streams"][0]["settings"] = json!({
+        "adapter": "ardv1-sim",
+        "fast_scan": {"start_hz":88_000_000,"stop_hz":88_100_000,"step_hz":100_000}
+    });
+    core.archive()
+        .unwrap()
+        .create_session(recording)
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let target = Target::new("sim-segment", "sim-r");
+    let error = manager
+        .start_stream("sim-segment", "sim-r", manager.public_gate(target))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, DeviceError::Invalid(_)));
+    assert_eq!(factory.opens.load(Ordering::Acquire), 0);
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn graceful_stop_commits_the_running_poll_before_releasing_transport() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.pause_poll.store(true, Ordering::Release);
+    let mut config = CoreConfig::replay(directory.path());
+    config.devices.transport = Some(factory.clone());
+    config.devices.stop_timeout = Duration::from_millis(100);
+    let core = Core::open(config).await.unwrap();
+    core.archive()
+        .unwrap()
+        .create_session(session("devices"))
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap().clone();
+    let target = Target::new("devices", "r");
+    manager
+        .start_stream("devices", "r", manager.public_gate(target.clone()))
+        .await
+        .unwrap();
+    until(|| factory.poll_started.load(Ordering::Acquire) == 1).await;
+    let pending = manager
+        .stop_stream_mode("devices", "r", true)
+        .await
+        .unwrap();
+    assert!(pending.alive);
+    assert_eq!(pending.value().unwrap()["stopping"], true);
+    assert_eq!(factory.drops.load(Ordering::Acquire), 0);
+    factory.poll_release.add_permits(1);
+    let stopped = manager
+        .stop_stream_mode("devices", "r", true)
+        .await
+        .unwrap();
+    assert_eq!(stopped.measurements, 1);
+    assert!(!stopped.alive && stopped.last_error.is_none());
+    assert_eq!(factory.commands.lock().unwrap().last().unwrap(), "EX");
+    assert_eq!(
+        core.archive()
+            .unwrap()
+            .list_observations("devices", Some("r"), 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rejected_receiver_start_leaves_spectrum_recording_until_explicit_reconnect() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.reject_firmware_once.store(true, Ordering::Release);
+    let core = core(directory.path(), factory.clone()).await;
+    let manager = core.devices.as_ref().unwrap();
+    let archive = core.archive().unwrap();
+    let gate = |stream| manager.public_gate(Target::new("devices", stream));
+    manager
+        .start_stream("devices", "a", gate("a"))
+        .await
+        .unwrap();
+    let error = manager
+        .start_stream("devices", "r", gate("r"))
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("AR-DV1 prepare VR: 60?"));
+    let workers = manager.list(Some("devices")).await.unwrap();
+    let receiver = workers.iter().find(|w| w.stream_id == "r").unwrap();
+    assert!(!receiver.alive);
+    assert!(
+        receiver
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("AR-DV1 prepare VR: 60?")
+    );
+    let before = workers
+        .iter()
+        .find(|w| w.stream_id == "a")
+        .unwrap()
+        .measurements;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let workers = manager.list(Some("devices")).await.unwrap();
+            if workers
+                .iter()
+                .any(|w| w.stream_id == "a" && w.alive && w.measurements > before)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        !archive
+            .list_sweeps("devices", Some("a"), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        archive
+            .list_observations("devices", Some("r"), 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    manager
+        .start_stream("devices", "r", gate("r"))
+        .await
+        .unwrap();
+    assert_eq!(factory.opens.load(Ordering::Acquire), 2);
+    core.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -523,6 +821,134 @@ async fn cleanup_failure_latches_core_and_retains_writer_ownership_even_after_tr
 }
 
 #[tokio::test]
+async fn rejected_segment_exit_keeps_ownership_and_persists_the_terminal_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    factory.reject_exit_once.store(true, Ordering::Release);
+    let core = core(directory.path(), factory.clone()).await;
+    let archive = core.archive().unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let mut segment = session("exit-test");
+    segment["streams"][0]["id"] = json!("exit-r");
+    segment["streams"][1]["id"] = json!("exit-a");
+    segment["streams"][0]["settings"] = json!({"adapter":"ardv1-serial",
+        "receiver_profile":"ardv1-monitor-v1", "mode":"FM", "period_s":0,
+        "fast_scan":{"start_hz":88_000_000,"stop_hz":88_100_000,"step_hz":100_000,"settle_s":0}});
+    archive.create_session(segment).await.unwrap();
+    let gate = manager.public_gate(Target::new("exit-test", "exit-r"));
+    manager
+        .start_stream("exit-test", "exit-r", gate)
+        .await
+        .unwrap();
+    until(|| factory.drops.load(Ordering::Acquire) == 1).await;
+    assert!(manager.stop_stream("exit-test", "exit-r").await.is_err());
+    let stored = archive.get_session("exit-test").await.unwrap().unwrap();
+    let receiver = stored["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|stream| stream["id"] == "exit-r")
+        .unwrap();
+    assert_eq!(receiver["state"], "error");
+    assert_eq!(
+        archive
+            .list_observations("exit-test", Some("exit-r"), 5)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    let other = manager.public_gate(Target::new("devices", "r"));
+    assert!(manager.start_stream("devices", "r", other).await.is_err());
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    assert!(core.close().await.is_err());
+}
+
+#[tokio::test]
+async fn native_rx_poll_commits_raw_readback_bound_to_the_applied_tune_receipt() {
+    let directory = tempfile::tempdir().unwrap();
+    let factory = Factory::new(false);
+    let core = core(directory.path(), factory.clone()).await;
+    let mut verified = session("verified");
+    verified["streams"][0]["id"] = json!("verified-r");
+    verified["streams"][1]["id"] = json!("verified-a");
+    verified["streams"][0]["settings"]["receiver_profile"] = json!("ardv1-monitor-v1");
+    verified["streams"][0]["settings"]["monitoring_rx_readback"] = json!(true);
+    core.archive()
+        .unwrap()
+        .create_session(verified)
+        .await
+        .unwrap();
+    let manager = core.devices.as_ref().unwrap();
+    let target = Target::new("verified", "verified-r");
+    manager
+        .start_stream(
+            "verified",
+            "verified-r",
+            manager.public_gate(target.clone()),
+        )
+        .await
+        .unwrap();
+    let report = manager
+        .tune(
+            target.clone(),
+            145_600_000,
+            Some("AM".into()),
+            manager.public_gate(target.clone()),
+        )
+        .await
+        .unwrap();
+    let observation = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let samples = core
+                .archive()
+                .unwrap()
+                .list_observations("verified", Some("verified-r"), 20)
+                .await
+                .unwrap();
+            if let Some(sample) = samples
+                .into_iter()
+                .find(|s| s["frequency_hz"] == 145_600_000)
+            {
+                break sample;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    report.revalidate().unwrap();
+    let metadata = &observation["metadata"];
+    let expected = ori_guard::receiver_tune_context(
+        report.worker.worker_instance.as_deref().unwrap(),
+        report.applied_tune_revision,
+        observation["id"].as_str().unwrap(),
+    );
+    assert_eq!(metadata["receiver_tune_context"], expected);
+    assert_eq!(metadata["frequency_readback"], true);
+    assert_eq!(
+        metadata["raw_receiver_status"],
+        "RX VFA RF0145.60000 ST010.00 MD0F1 LM1371"
+    );
+    assert!(
+        observation["interval"]["started_at"].as_str().unwrap() >= report.acknowledged_at.as_str()
+    );
+    assert_eq!(observation["mode"], "AM");
+    assert_eq!(observation["level"], 137.0);
+    assert_eq!(observation["level_unit"], "s_meter_count");
+    assert_eq!(factory.opens.load(Ordering::Acquire), 1);
+    assert!(
+        !factory
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| command == "LM")
+    );
+    core.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn shutdown_cancels_an_owned_poll_and_drains_already_admitted_tunes_before_writer_release() {
     let directory = tempfile::tempdir().unwrap();
     let factory = Factory::new(false);
@@ -633,6 +1059,7 @@ async fn actual_analyzer_duplex_source_commits_original_level_bits_and_explicit_
                 }
                 assert_eq!(sweep["settings"]["device_identity"]["firmware"],ori_instruments::FIRMWARE);
                 assert!(sweep["settings"]["device_identity"].get("deviceid").is_none(),"canonical receive provenance matches existing Python, identity validation remains separate");
+                assert_eq!(sweep["settings"]["measurement_qualification"]["status"], "supported");
                 assert_eq!(sweep["settings"]["hardware_validation"], "not_run");
                 assert!(sweep["settings"].get("device_mode").is_none());
                 assert_eq!(

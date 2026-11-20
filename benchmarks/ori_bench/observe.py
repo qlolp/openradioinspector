@@ -30,6 +30,7 @@ def correlate(path,config,ledger,histogram):
         raise BenchmarkError('observer_invalid','Observer evidence is missing or exceeds 64 MiB')
     host_sha=hashlib.sha256(socket.gethostname().encode()).hexdigest()
     metadata=None;summary=None;observed=0;duplicates=0;digest=hashlib.sha256()
+    observed_by_client = []
     for raw in records(path):
         digest.update(raw)
         try:row=json.loads(raw)
@@ -42,6 +43,7 @@ def correlate(path,config,ledger,histogram):
                     or row.get('draw_contract')!='data-sweep-id-after-draw' \
                     or type(row.get('clients')) is not int or not 1<=row['clients']<=8:
                 raise BenchmarkError('observer_invalid','Observer clock, host, or after-draw contract is unverified')
+            observed_by_client = [0] * row['clients']
             continue
         if row.get('kind')=='observer_summary':
             if summary is not None or type(row.get('dropped')) is not int or row['dropped']<0:
@@ -62,17 +64,46 @@ def correlate(path,config,ledger,histogram):
         with ledger.db:
             changed=ledger.db.execute('INSERT OR IGNORE INTO rendered VALUES (?,?,?)',
                                      (source['id'],row['client'],rendered)).rowcount
-        if changed:histogram.add(latency);observed+=1
+        if changed:
+            histogram.add(latency)
+            observed += 1
+            observed_by_client[int(row['client'])] += 1
         else:duplicates+=1
     if metadata is None:raise BenchmarkError('observer_invalid','Observer metadata is missing')
-    expected=ledger.counts()['sweep']['offered']*metadata['clients']
+    offered=ledger.counts()['sweep']['offered']
+    expected=offered*metadata['clients']
+    coverage = []
+    for client, count in enumerate(observed_by_client):
+        missing = offered - count
+        samples = []
+        if missing:
+            rows = ledger.db.execute('''SELECT o.id,o.idx,o.status,o.verified FROM offers o
+                WHERE o.kind='sweep' AND NOT EXISTS
+                    (SELECT 1 FROM rendered r WHERE r.id=o.id AND r.client=?)
+                ORDER BY o.idx LIMIT 8''', (str(client),))
+            samples = [dict(id=row['id'], index=row['idx'], source_status=row['status'],
+                            source_verified=bool(row['verified'])) for row in rows]
+        coverage.append(dict(client=str(client), observed=count, missing=missing, missing_samples=samples))
+    diagnostics = (summary or {}).get('final_presentation_epoch', [])
+    if not isinstance(diagnostics, list) or len(diagnostics) > metadata['clients']:
+        raise BenchmarkError('observer_invalid', 'Invalid final presentation counters')
+    for index, counters in enumerate(diagnostics):
+        if not isinstance(counters, dict) or counters.get('client') != str(index):
+            raise BenchmarkError('observer_invalid', 'Invalid presentation client')
+        counts = {}
+        for key in ('applied', 'evicted_before_presentation', 'coalesced_before_draw'):
+            value = counters.get(key)
+            if value is not None and (type(value) is not int or not 0 <= value <= 2**53 - 1):
+                raise BenchmarkError('observer_invalid', 'Invalid presentation count')
+            counts[key] = value
+        coverage[index]['final_presentation_epoch'] = counts
     metric=histogram.report()
     passed=bool(expected and summary is not None and not summary['dropped'] and not summary.get('failed')
                 and summary.get('records')==observed+duplicates and observed==expected
                 and metric['p95_upper_ms']<=250)
     return {'status':'passed' if passed else 'failed','metric':'offered-to-render conservative upper bound',
         'committed_to_render_measured':False,'clock':'same-host unix wall clock',
-        'clients':metadata['clients'],'observed_unique_renders':observed,'expected_renders':expected,
+        'clients':metadata['clients'],'client_coverage':coverage,'observed_unique_renders':observed,'expected_renders':expected,
         'duplicate_markers':duplicates,'observer_completed':summary is not None,
         'observer_dropped':summary['dropped'] if summary else None,'p95_upper_ms':metric['p95_upper_ms'],
         'target_ms':250,'observer_sha256':digest.hexdigest(),

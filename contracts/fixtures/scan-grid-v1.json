@@ -1,0 +1,4 @@
+{
+  "legacy": {"id":"fm", "name":"FM", "start_hz":88000000, "stop_hz":108000000, "points":201, "rbw_hz":10000, "max_revisit_seconds":10},
+  "grid": {"id":"common", "name":"Общий диапазон", "start_hz":100000, "stop_hz":1300000000, "points":129991, "step_hz":10000, "rbw_hz":30000, "max_revisit_seconds":900}
+}

@@ -9,10 +9,15 @@ pub(crate) const KINDS: &[&str] = &[
     "allowed",
     "event",
     "event-source",
+    "event-peak",
+    "paired-recheck",
     "quality",
     "source-search",
     "position-mark",
     "scan-plan",
+    "scan-window-detector",
+    "known-signal",
+    "receiver-check",
 ];
 pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value
@@ -321,8 +326,77 @@ pub(crate) fn candidate(value: &mut Value) -> Result<()> {
     strings(value, "observation_ids")?;
     Ok(())
 }
+// A full 10 kHz survey has 449 physical windows. Publish the complete
+// confirmed band and its project pointer in one normal SQLite transaction.
+// Byte and writer admission budgets apply to this batch as for all others.
+fn complete_grid_baselines(values: &[Mutation]) -> bool {
+    let Some((
+        Mutation::Monitoring {
+            kind,
+            value: project,
+        },
+        records,
+    )) = values.split_last()
+    else {
+        return false;
+    };
+    if kind != "project" || records.len() > 449 {
+        return false;
+    }
+    let Some(Mutation::Monitoring { value: first, .. }) = records.first() else {
+        return false;
+    };
+    let Some(band) = first["scan_band_id"].as_str() else {
+        return false;
+    };
+    let planned = first["scan_window_count"].as_u64().unwrap_or(0);
+    if planned != records.len() as u64 {
+        // A physical plan may span the reference limit. Its guard can confirm
+        // exactly the prefix of complete, qualified windows in this transaction.
+        let config: ori_monitoring::ScanPlan =
+            match serde_json::from_value(project["scan_plan"]["config"].clone()) {
+                Ok(config) => config,
+                Err(_) => return false,
+            };
+        let limit = ori_monitoring::scan::TINYSA_REFERENCE_LIMIT_HZ;
+        if project["profile"]["analyzer"]["settings"]["adapter"] != "tinysa-serial"
+            || config.validate_receive_plan(limit).is_err()
+        {
+            return false;
+        }
+        let Some(b) = config.bands.iter().find(|b| b.id == band) else {
+            return false;
+        };
+        if b.step_hz.is_none() || u64::from(b.window_count()) != planned {
+            return false;
+        }
+        let eligible = (0..b.window_count())
+            .take_while(|index| {
+                b.window(*index)
+                    .is_some_and(|window| window.stop_hz <= limit)
+            })
+            .count();
+        if records.len() != eligible {
+            return false;
+        }
+    }
+    records.iter().enumerate().all(|(index, item)| {
+        let Mutation::Monitoring { kind, value } = item else {
+            return false;
+        };
+        kind == "baseline"
+            && value["project_id"] == project["id"]
+            && value["scan_plan_id"] == project["scan_plan"]["id"]
+            && value["scan_plan_revision"] == project["scan_plan"]["revision"]
+            && value["scan_band_id"] == band
+            && value["scan_window_index"].as_u64() == Some(index as u64)
+            && value["scan_window_count"].as_u64() == Some(planned)
+            && value["id"] == project["band_baselines"][format!("{band}:{index}")]
+    })
+}
+
 pub(crate) fn mutations(values: &mut [Mutation]) -> Result<()> {
-    if values.is_empty() || values.len() > 256 {
+    if values.is_empty() || (values.len() > 256 && !complete_grid_baselines(values)) {
         return Err(invalid("mutation batch count"));
     }
     for mutation in values {

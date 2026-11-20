@@ -13,7 +13,7 @@ import struct
 
 from .protocol import I64_MAX, WorkerError
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSIONS = (6, 7)
 COLUMNS = {
     'sessions': {'id'},
     'streams': {'id','session_id','device','role','level_unit','label','settings_json','capabilities_json'},
@@ -122,8 +122,8 @@ def open_snapshot(path, filters, budget):
                 or type(manifest['event_watermark']) is not int \
                 or manifest['event_watermark'] < 0:
             _invalid()
-        if type(manifest['archive_schema']) is not int or manifest['archive_schema'] != SCHEMA_VERSION:
-            raise WorkerError('unsupported_schema', 'Research supports archive schema 6 only')
+        if type(manifest['archive_schema']) is not int or manifest['archive_schema'] not in SCHEMA_VERSIONS:
+            raise WorkerError('unsupported_schema', 'Research supports archive schemas 6 and 7')
         signature = path.stat()
         sha = file_digest(path, budget, source=True)
         if sha != manifest['archive']['sha256'] or signature.st_size != manifest['archive']['bytes'] \
@@ -137,14 +137,19 @@ def open_snapshot(path, filters, budget):
             db.execute('PRAGMA trusted_schema=OFF')
             db.execute('PRAGMA cache_size=-2048')
             db.execute('PRAGMA mmap_size=0')
-            if db.execute('PRAGMA user_version').fetchone()[0] != SCHEMA_VERSION:
-                raise WorkerError('unsupported_schema', 'Research supports archive schema 6 only')
+            version = db.execute('PRAGMA user_version').fetchone()[0]
+            if version != manifest['archive_schema']:
+                raise WorkerError('unsupported_schema', 'Research supports archive schemas 6 and 7')
             tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if not COLUMNS.keys() <= tables:
                 _invalid()
             for table, expected in COLUMNS.items():
                 if not expected <= {row[1] for row in db.execute(f'PRAGMA table_info({table})')}:
                     _invalid()
+            compact = any(row[1] == 'ori_sweep_ref_v1' for row in db.execute('PRAGMA table_info(events)'))
+            if compact != (version == 7) or (compact and not any(tuple(row[2:5]) ==
+                    ('sweeps', 'ori_sweep_ref_v1', 'id') for row in db.execute('PRAGMA foreign_key_list(events)'))):
+                raise WorkerError('unsupported_schema', 'Unknown panorama event format')
             extensions=canonical_extensions(db,tables)
             if db.execute('PRAGMA quick_check(1)').fetchone()[0] != 'ok' \
                     or db.execute('PRAGMA foreign_key_check').fetchone() is not None:
@@ -164,7 +169,7 @@ def open_snapshot(path, filters, budget):
                                     (filters['stream_id'],)).fetchone()
                 if stream is None or ('session_id' in filters and stream[0] != filters['session_id']):
                     raise WorkerError('invalid_filter', 'Stream filter is absent from the selected session')
-            source = {'sha256':sha, 'bytes':signature.st_size, 'archive_schema':SCHEMA_VERSION,
+            source = {'sha256':sha, 'bytes':signature.st_size, 'archive_schema':version,
                 'canonical_extensions':extensions,
                 'event_watermark':watermark, 'counts':counts,
                 'recovery_manifest_sha256':hashlib.sha256(raw).hexdigest(),

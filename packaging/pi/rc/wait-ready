@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+# The admin socket authenticates the peer UID and checks the owned backend PID.
+# Wait for the supervisor to create its private state before the first probe.
+data=/var/lib/openradioinspector-pi-rc
+while [ ! -S "$data/.ori-runtime/supervisor.sock" ] ||
+        ! /usr/lib/openradioinspector-pi-rc/ori-supervisor status "$data" >/dev/null 2>&1; do
+    sleep 1
+done

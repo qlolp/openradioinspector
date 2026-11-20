@@ -33,6 +33,7 @@ pub enum TinySaRequest {
     Inspect,
     Poll,
     PollBand(ReceiveConfig),
+    PollGrid(ReceiveConfig),
     AcquireRaw(RawScanConfig),
     CaptureScreen,
     Control(TinySaControl),
@@ -110,6 +111,9 @@ impl TinySaActor {
                     TinySaRequest::Poll => adapter.poll_spectrum().await.map(TinySaReply::Spectrum),
                     TinySaRequest::PollBand(config) => {
                         adapter.poll_band(config).await.map(TinySaReply::Spectrum)
+                    }
+                    TinySaRequest::PollGrid(config) => {
+                        adapter.poll_grid(config).await.map(TinySaReply::Spectrum)
                     }
                     TinySaRequest::AcquireRaw(config) => adapter
                         .acquire_raw(config)
@@ -258,7 +262,7 @@ impl ArDv1Actor {
                     matches!(
                         request.command,
                         ArDv1Request::Prepare | ArDv1Request::Tune { .. } | ArDv1Request::Close
-                    ),
+                    ) || (adapter.scanning() && matches!(request.command, ArDv1Request::Poll)),
                     Ordering::SeqCst,
                 );
                 let result = match request.command {
@@ -314,6 +318,8 @@ impl ArDv1Actor {
             state.frequency_hz = None;
             state.mode = None;
             state.frequency_source = "unknown".into();
+            state.frequency_readback = false;
+            state.observed_mode = None;
         }
         state.restart_required |= self.cancel.is_tainted();
         state

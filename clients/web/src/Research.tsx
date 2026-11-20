@@ -1,4 +1,6 @@
 import { t } from './i18n';
+import { ReceiverSegment } from './ReceiverSegment';
+import { PairedRechecks } from './PairedRechecks';
 import { encodePathSegment } from './wire';
 import { useEffect, useRef, useState } from 'react';
 import { historyQuery, ResourceScope, type HistoryFilters } from './api';
@@ -12,8 +14,14 @@ import type { Comparison, DisplaySweep, Page, Sweep } from './types';
 export function Research({
   desk,
   openOriginal,
+  active = true,
+  pairedEvent = '',
+  setPairedEvent,
 }: {
   desk: Desk;
+  active?: boolean;
+  pairedEvent?: string;
+  setPairedEvent?: (id: string) => void;
   openOriginal: (id: string) => void;
 }) {
   const [filters, setFilters] = useState<HistoryFilters>({}),
@@ -504,10 +512,36 @@ export function Research({
             </>
           )}
         </Panel>
-        <Panel
-          title={t('Source search')}
-          eyebrow={titleCase(desk.search?.coverage || t('stopped'))}
-        >
+        {active && desk.capabilities?.features.paired_event_rechecks === true && (
+          <Panel title={t('Compare paired visits')}>
+            <label>
+              {t('Event to recheck')}
+              <select
+                value={pairedEvent}
+                onChange={(event) => setPairedEvent?.(event.target.value)}
+              >
+                <option value="">{t('Choose an event')}</option>
+                {desk.events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {hz(event.center_frequency_hz)} · {utc(event.last_seen)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {desk.events.some((event) => event.id === pairedEvent) && (
+              <PairedRechecks
+                key={JSON.stringify([desk.connectionVersion, desk.projectId, pairedEvent])}
+                desk={desk}
+                eventId={pairedEvent}
+                editable
+              />
+            )}
+          </Panel>
+        )}
+        {desk.capabilities?.features.ardv1_sampled_scope === true && (
+          <ReceiverSegment desk={desk} />
+        )}
+        <Panel title={t('Source search')} eyebrow={titleCase(desk.search?.coverage)}>
           <p>
             {t('Maximum from core')}{' '}
             <strong className="mono">
@@ -516,9 +550,7 @@ export function Research({
             </strong>
           </p>
           <p className="muted">
-            {desk.search?.series.length || 0}
-            {t('/256 recent source sweeps · broad coverage')}{' '}
-            {desk.search?.coverage || t('stopped')}
+            {t('{count}/256 recent source sweeps', { count: desk.search?.series.length ?? 0 })}
           </p>
           {desk.search?.error && <p className="error-text">{desk.search.error}</p>}
           <ol className="marks">

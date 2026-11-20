@@ -5,6 +5,8 @@ import hashlib
 import json
 
 from .contracts import to_primitive
+from .sweep_comparison import SWEEP_METADATA_KEYS
+from .sweep_settings import json_value
 from .sweep_references import normalize_reference_name
 from .sweep_summaries import _time
 
@@ -38,7 +40,10 @@ def history_request(value):
 
 
 def history_item(sweep, frequencies):
-    settings = {k:v for k,v in sweep.settings.items() if k != 'sequence'}
+    settings = sweep.settings.copy()
+    for key in SWEEP_METADATA_KEYS:
+        if key in settings and not json_value(settings.pop(key), nullable=True):
+            raise ValueError('Метаданные свипа должны содержать только значения JSON')
     context = dict(stream=sweep.stream_id, unit=sweep.level_unit, grid=sweep.frequencies_hz, settings=settings)
     if not settings:
         context['unknown_configuration'] = sweep.id

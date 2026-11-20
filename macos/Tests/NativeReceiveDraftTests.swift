@@ -18,6 +18,17 @@ import SpektrKomandy
         draft.attenuation = "0"
         #expect(throws: Never.self) { try draft.parameters() }
     }
+    @Test func lnaAdviceUsesTheTopOfTheSweepAndRemainsAdvisory() throws {
+        var draft = NativeReceiveDraft()
+        #expect(draft.lnaAdvice(stopHz: 5_000_000_000) == nil)
+        draft.lna = true
+        #expect(draft.lnaAdvice(stopHz: nil) == nil)
+        #expect(draft.lnaAdvice(stopHz: 3_500_000_000) == nil)
+        #expect(draft.lnaAdvice(stopHz: 3_500_000_001)?.contains("сравните") == true)
+        #expect(draft.lnaAdvice(stopHz: 4_000_000_000)?.contains("сравните") == true)
+        #expect(draft.lnaAdvice(stopHz: 5_000_000_000)?.contains("Выключите LNA") == true)
+        #expect(try draft.parameters()["lna"] == .boolean(true))
+    }
     @Test func vbwAndRepeatAreMutuallyExclusiveRequests() throws {
         var draft = NativeReceiveDraft(); draft.useVBW = true; draft.vbw = "1/10"
         let values = try draft.parameters()

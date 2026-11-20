@@ -28,6 +28,12 @@ final class NativeRCBundleTests: XCTestCase {
         try save()
         let id = try NativeRCBundle.backendID(at: root)
         XCTAssertTrue(id.hasPrefix("macos-rc1-")); XCTAssertEqual(id.count, 74)
+        value["release_version"] = "0.4.1"
+        try save()
+        XCTAssertThrowsError(try NativeRCBundle.backendID(at: root))
+        value["release_version"] = "0.4.0"
+        try save()
+        XCTAssertNotEqual(try NativeRCBundle.backendID(at: root), id)
         var mixed = components["ori-core"] as! [String: Any]
         mixed["source_revision"] = String(repeating: "b", count: 40)
         components["ori-core"] = mixed; value["components"] = components; try save()

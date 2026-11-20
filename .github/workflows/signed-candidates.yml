@@ -1,0 +1,132 @@
+name: Freeze native 0.4.0 candidate
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Target package
+        type: choice
+        required: true
+        options: [macos, windows, pi]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: build-${{ inputs.platform }}
+    if: github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/0.4.0')
+    environment: release-build-${{ inputs.platform }}
+    # A repository variable can select an existing protected HSM/Xcode runner.
+    runs-on: ${{ inputs.platform == 'macos' && (vars.MACOS_RELEASE_RUNNER || 'macos-latest') || inputs.platform == 'windows' && (vars.WINDOWS_RELEASE_RUNNER || 'windows-latest') || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Require the dispatched checkout to belong to protected main
+        run: python -c "from tools.release.publish_release import Repository; Repository()"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: inputs.platform != 'macos'
+        with:
+          node-version: '26.13.0'
+      - name: Select Xcode for Apple Silicon
+        if: inputs.platform == 'macos'
+        run: bash macos/ci/select-xcode.sh
+      - name: Provision temporary Apple keychain when hosted credentials are configured
+        if: inputs.platform == 'macos'
+        env:
+          ORI_MAC_P12: ${{ secrets.MAC_CERTIFICATE_P12_B64 }}
+          ORI_MAC_P12_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          ORI_NOTARY_P8: ${{ secrets.NOTARY_PRIVATE_KEY_B64 }}
+          ORI_NOTARY_KEY_ID: ${{ vars.NOTARY_KEY_ID }}
+          ORI_NOTARY_ISSUER: ${{ vars.NOTARY_ISSUER }}
+        run: python packaging/macos/signing_keychain.py prepare
+      - name: Build, timestamp, notarize and staple the application and DMG
+        if: inputs.platform == 'macos'
+        shell: bash
+        env:
+          ORI_MAC_CERT_SHA1: ${{ vars.MAC_CERTIFICATE_SHA1 }}
+          ORI_MAC_TEAM_ID: ${{ vars.MAC_TEAM_ID }}
+          ORI_NOTARY_PROFILE: ${{ vars.NOTARY_KEYCHAIN_PROFILE }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.1 --profile minimal --target aarch64-apple-darwin
+          python packaging/macos/build_personal_rc.py --developer-id --output-dir build/distribution/macos
+          python packaging/macos/build_acceptance_kit.py --output-dir build/distribution/engineering --app-manifest build/distribution/macos/dmg-root/manifest.json
+      - name: Remove temporary Apple keychain
+        if: always() && inputs.platform == 'macos'
+        run: python packaging/macos/signing_keychain.py cleanup
+      - name: Retain the exact Mac engineering kit separately for the bench
+        if: inputs.platform == 'macos'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-engineering-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            build/distribution/engineering/OpenRadioInspector-Mac-Tests.zip
+            build/distribution/engineering/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90
+      - if: inputs.platform == 'windows'
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.99.1'
+      - if: inputs.platform == 'windows'
+        run: npm ci --prefix clients/web
+      - if: inputs.platform == 'windows'
+        run: npm ci --prefix clients/windows
+      - name: Authenticate hosted Windows signing through Azure OIDC
+        if: inputs.platform == 'windows' && vars.WINDOWS_SIGNING_PROVIDER == 'azure'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Prepare verified Microsoft signing provider
+        if: inputs.platform == 'windows' && vars.WINDOWS_SIGNING_PROVIDER == 'azure'
+        shell: pwsh
+        env:
+          ORI_AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          ORI_AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          ORI_AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+        run: ./packaging/windows/azure-signing.ps1
+      - name: Authenticode-sign native binaries and the offline NSIS with RFC 3161
+        if: inputs.platform == 'windows'
+        shell: pwsh
+        env:
+          ORI_WINDOWS_CERT_SHA1: ${{ vars.WINDOWS_CERTIFICATE_SHA1 }}
+          ORI_WINDOWS_CERT_SUBJECT: ${{ vars.WINDOWS_CERT_SUBJECT }}
+          ORI_WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: ./packaging/windows/build_signed.ps1 -Output build/distribution/windows/frozen
+      - name: Freeze native Pi DEB with the Debian 12 ABI and embedded WebUI
+        if: inputs.platform == 'pi'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = aarch64
+          node_dir=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --platform linux/arm64 \
+            -v "$GITHUB_WORKSPACE:/src" -v "$node_dir:/opt/ori-node:ro" -w /src \
+            -e RUSTUP_TOOLCHAIN=1.99.1 -e CARGO_BUILD_JOBS=3 \
+            rust:1.99.1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c \
+            bash -euc '
+              export PATH="/opt/ori-node/bin:$PATH"
+              git config --global --add safe.directory /src
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake python3
+              npm ci --prefix clients/web --no-audit --no-fund
+              python3 packaging/pi/build_rc.py --distribution --output-dir build/distribution/pi/debian
+              python3 -m tools.release.release_artifacts pi --metadata build/distribution/pi/debian/release.json --artifact build/distribution/pi/debian/*.deb --out build/distribution/pi/frozen
+            '
+      - name: Retain frozen package bytes for offline acceptance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ inputs.platform }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/distribution/${{ inputs.platform }}/frozen/
+          if-no-files-found: error
+          retention-days: 90

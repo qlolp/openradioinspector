@@ -1,4 +1,8 @@
-use crate::{GuardError, GuardService, Result, util::*};
+use crate::{
+    GuardError, GuardService, Result, measurement_qualification,
+    qualification::{REFERENCE_REQUIRED, source_adapter, source_qualification},
+    util::*,
+};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use ori_archive::{MeasurementCursor, SweepQuery};
 use ori_contracts::Sweep;
@@ -81,7 +85,7 @@ fn selected(frequencies: &[u64], levels: &[f64], minimum: u64, maximum: u64) -> 
 }
 impl GuardService {
     pub async fn history(&self, id: &str, query: HistoryQuery) -> Result<Value> {
-        self.project(id).await?;
+        let project = self.project(id).await?;
         if !(1..=64).contains(&query.limit)
             || query.min_hz > query.max_hz
             || query.max_hz > 20_000_000_000
@@ -151,6 +155,25 @@ impl GuardService {
                     .ok_or_else(|| invalid("sweep settings"))?
                     .iter()
                     .filter(|(k, v)| {
+                        if k.as_str() == "scan_rx_evidence" {
+                            return v.as_object().is_some_and(|rx| {
+                                rx.len() == 8
+                                    && v["source"] == "command_acknowledged"
+                                    && v["device_mode"] == "input"
+                                    && v["device_id_sha256"].as_str().is_some_and(|hash| {
+                                        hash.len() == 64
+                                            && hash.bytes().all(|c| {
+                                                c.is_ascii_digit() || (b'a'..=b'f').contains(&c)
+                                            })
+                                    })
+                                    && v["lna"].is_boolean()
+                                    && v["ultra"].is_boolean()
+                                    && (v["attenuation_db"] == "auto"
+                                        || v["attenuation_db"].is_number())
+                                    && v["calculation"] == "off"
+                                    && v["rbw_hz"].is_u64()
+                            });
+                        }
                         [
                             "adapter",
                             "rbw_hz",
@@ -163,6 +186,10 @@ impl GuardService {
                             "scan_band_id",
                             "scan_plan_id",
                             "scan_plan_revision",
+                            "scan_window_index",
+                            "scan_window_count",
+                            "scan_step_hz",
+                            "scan_serial_baud",
                         ]
                         .contains(&k.as_str())
                             && (v.is_null()
@@ -173,6 +200,18 @@ impl GuardService {
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
             );
+            let adapter = source_adapter(&project, &sweep);
+            if (adapter == Some("tinysa-serial")
+                || sweep
+                    .settings
+                    .as_ref()
+                    .is_some_and(|s| s.contains_key("measurement_qualification")))
+                && let (Some(&lo), Some(&hi)) =
+                    (sweep.frequencies_hz.first(), sweep.frequencies_hz.last())
+            {
+                raw["settings"]["measurement_qualification"] =
+                    measurement_qualification(adapter, lo, hi);
+            }
             raw["settings_available_in_original"] = json!(true);
             items.push(raw);
         }
@@ -202,22 +241,81 @@ impl GuardService {
         }
         Ok(sweep)
     }
+    async fn grid_comparison_baseline(
+        &self,
+        project: &Value,
+        raw: &Value,
+        plan: &str,
+        band: &str,
+        window: u32,
+    ) -> Result<Value> {
+        let id = s(project, "id")?;
+        let revision = integer(&raw["settings"], "scan_plan_revision")?;
+        let session = self
+            .archive
+            .get_session(s(raw, "session_id")?)
+            .await?
+            .ok_or(GuardError::NotFound)?;
+        let key = format!("{band}:{window}");
+        let baseline = if let Some(pinned) = session["metadata"].get("scan_baselines") {
+            if pinned["plan_id"] != plan || pinned["revision"] != revision {
+                return Err(invalid("Исходник другого плана/ревизии сеанса"));
+            }
+            self.get_record("baseline", s(&pinned["windows"], &key)?, Some(id))
+                .await?
+        } else if project["scan_plan"]["id"] == plan
+            && project["scan_plan"]["revision"] == revision
+            && project["band_baselines"][&key].is_string()
+        {
+            self.get_record("baseline", s(&project["band_baselines"], &key)?, Some(id))
+                .await?
+        } else {
+            self.archive
+                .latest_window_baseline(id, plan, revision, band, window)
+                .await?
+                .ok_or(GuardError::NotFound)?
+        };
+        if baseline["scan_plan_id"] != plan
+            || baseline["scan_plan_revision"] != revision
+            || baseline["scan_band_id"] != band
+            || baseline["scan_window_index"] != window
+        {
+            return Err(invalid("Эталон другого окна обзора"));
+        }
+        Ok(baseline)
+    }
+
     pub async fn history_comparison(&self, id: &str, sweep_id: &str) -> Result<Value> {
         let project = self.project(id).await?;
         let raw = self.history_original(id, sweep_id).await?;
+        let sweep: Sweep = decode(&raw)?;
+        if !source_qualification(&project, &sweep)?.eligible() {
+            return Ok(
+                json!({"baseline_id":null,"sweep_id":sweep_id,"detector_version":null,
+                "compatible":false,"reason":REFERENCE_REQUIRED,"items":[],"display_only":true}),
+            );
+        }
         let baseline = if let (Some(plan), Some(band)) = (
             raw["settings"]["scan_plan_id"].as_str(),
             raw["settings"]["scan_band_id"].as_str(),
         ) {
-            self.archive
-                .latest_scan_baseline(id, plan, band)
-                .await?
-                .ok_or(GuardError::NotFound)?
+            let baseline = if let Some(window) = raw["settings"].get("scan_window_index") {
+                let index = window
+                    .as_u64()
+                    .and_then(|n| u32::try_from(n).ok())
+                    .ok_or_else(|| invalid("Неверное окно обзора"))?;
+                Some(
+                    self.grid_comparison_baseline(&project, &raw, plan, band, index)
+                        .await?,
+                )
+            } else {
+                self.archive.latest_scan_baseline(id, plan, band).await?
+            };
+            baseline.ok_or(GuardError::NotFound)?
         } else {
             self.get_record("baseline", s(&project, "baseline_id")?, Some(id))
                 .await?
         };
-        let sweep: Sweep = decode(&raw)?;
         let compatible = ori_monitoring::fingerprint(&sweep)? == s(&baseline, "fingerprint")?;
         let mut items = vec![];
         if compatible {

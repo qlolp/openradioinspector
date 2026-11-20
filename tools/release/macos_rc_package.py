@@ -105,7 +105,9 @@ def validate_components(core, supervisor, source):
         raise ValueError('RC core must have serial and exclude native audio')
 
 
-def prepare(app: Path, source: str, core, supervisor, toolchains):
+def prepare(app: Path, source: str, core, supervisor, toolchains, *, manual_sha256=None, version=RELEASE_VERSION):
+    if version not in (RELEASE_VERSION, '0.4.0'):
+        raise ValueError('unsupported native package version')
     validate_components(core, supervisor, source)
     validate_runtime_profile(app)
     info_path = app / 'Contents/Info.plist'
@@ -113,31 +115,35 @@ def prepare(app: Path, source: str, core, supervisor, toolchains):
     info.update(CFBundleIdentifier=BUNDLE_ID, CFBundleExecutable=UI_EXECUTABLE,
                 CFBundleName='OpenRadioInspector RC', CFBundleDisplayName='OpenRadioInspector RC',
                 CFBundleShortVersionString='0.4.0', CFBundleVersion='1',
-                ORIReleaseVersion=RELEASE_VERSION, ORIPersonalRC=True)
+                ORIReleaseVersion=version, ORIPersonalRC=True)
     info.pop('NSMicrophoneUsageDescription', None)
+    info['NSScreenCaptureUsageDescription'] = 'Только при явном запуске инженерного теста измеряется показ маленького маркера на графике. Снимки экрана не сохраняются.'
     info['NSAppTransportSecurity'] = {'NSAllowsLocalNetworking': True}
     info_path.write_bytes(plistlib.dumps(info, sort_keys=False))
     components = {}
     for name, value in [('ori-core', core), ('ori-supervisor', supervisor)]:
         relative = 'Contents/Helpers/' + name
         components[name] = dict(path=relative, sha256=digest(app / relative), **value)
-    build = dict(schema_version=1, release_version=RELEASE_VERSION, bundle_identifier=BUNDLE_ID,
+    build = dict(schema_version=1, release_version=version, bundle_identifier=BUNDLE_ID,
+                 acceptance_protocol=2,
                  source_revision=source, architecture='arm64', minimum_os='14.0', target_os='27.3',
                  built_at=datetime.now(timezone.utc).isoformat(), components=components,
                  toolchains=toolchains, ui=dict(path='Contents/MacOS/' + UI_EXECUTABLE,
                  integrity='outer code signature; final hash in external manifest'),
                  excluded_components=['Python runtime', 'DuckDB worker', 'native audio capture'],
                  hardware_validation='not_run', performance_acceptance='not_run')
+    if manual_sha256 is not None:
+        build['manual_sha256'] = manual_sha256
     write_json(app / BUILD_INFO, build)
     return build
 
 
-def evidence(app: Path, output: Path):
+def evidence(app: Path, output: Path, *, signature='ad-hoc; Developer ID and notarization not claimed'):
     validate_runtime_profile(app)
     build = read_json(app / BUILD_INFO, 65_536)
-    value = dict(schema_version=1, release_version=RELEASE_VERSION,
+    value = dict(schema_version=1, release_version=build['release_version'],
                  source_revision=build['source_revision'], build_info=build,
-                 signature='ad-hoc; Developer ID and notarization not claimed', files=inventory(app))
+                 signature=signature, files=inventory(app))
     # This must stay outside the bundle: signing the outer executable changes
     # its hash. An internal inventory of that executable would be circular.
     if output.resolve().is_relative_to(app.resolve()):

@@ -1,0 +1,89 @@
+name: Review installed platform evidence
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform that completed the private bench protocol
+        type: choice
+        options: [macos, windows, pi]
+        required: true
+      build_run:
+        description: Successful native signing/package workflow run ID
+        type: string
+        required: true
+      receipt_b64:
+        description: Base64 of sanitized UTF-8 acceptance JSON
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  preview:
+    if: github.ref_protected && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/0.4.0')
+    runs-on: ubuntu-24.04
+    outputs:
+      digest: ${{ steps.check.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: origin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ inputs.platform }}
+          BUILD_RUN: ${{ inputs.build_run }}
+        run: python3 -m tools.release.publish_release origin "$PLATFORM" --build-run "$BUILD_RUN"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run }}
+          name: release-${{ inputs.platform }}-${{ github.sha }}-${{ steps.origin.outputs.attempt }}
+          path: ${{ runner.temp }}/candidate
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLATFORM: ${{ inputs.platform }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          ORI_RECEIPT_B64: ${{ inputs.receipt_b64 }}
+        run: |
+          python3 -m tools.release.review_evidence preview "$PLATFORM" --candidate "$RUNNER_TEMP/candidate" \
+            --run-id "$BUILD_RUN" --out "$RUNNER_TEMP/receipt.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: review-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/receipt.json
+          if-no-files-found: error
+  accept:
+    needs: preview
+    environment: release-acceptance
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: review-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/approved
+      - name: Require recorded human approval and match the reviewed digest
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_DIGEST: ${{ needs.preview.outputs.digest }}
+        run: python3 -m tools.release.review_evidence approval "$PLATFORM" --out "$RUNNER_TEMP/approved/receipt.json"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/approved/receipt.json

@@ -65,6 +65,7 @@ fn table(db: &Connection, name: &str) -> Result<bool> {
 }
 pub(crate) fn versions(db: &Connection) -> Result<(i64, i64, i64)> {
     crate::candidate_precision::check(db)?;
+    crate::export_indexes::check(db)?;
     let main: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let monitoring = if table(db, "monitoring_schema")? {
         db.query_row(
@@ -95,7 +96,7 @@ pub(crate) fn versions(db: &Connection) -> Result<(i64, i64, i64)> {
         0
     };
     for (domain, version, supported) in [
-        ("main", main, MAIN_VERSION),
+        ("main", main, crate::panorama_events::VERSION),
         ("monitoring", monitoring, MONITORING_VERSION),
         ("precision", precision, PRECISION_VERSION),
     ] {
@@ -103,6 +104,7 @@ pub(crate) fn versions(db: &Connection) -> Result<(i64, i64, i64)> {
             return Err(ArchiveError::UnsupportedSchema { domain, version });
         }
     }
+    crate::panorama_events::check(db, main)?;
     Ok((main, monitoring, precision))
 }
 
@@ -125,6 +127,23 @@ pub(crate) fn functions(db: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn initialize_compact(db: &Connection, config: &ArchiveConfig, main: i64) -> Result<bool> {
+    let initialize = config.compact_sweep_events && main != crate::panorama_events::VERSION;
+    if initialize
+        && (main != 0
+            || db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%')",
+                [],
+                |r| r.get::<_, bool>(0),
+            )?)
+    {
+        return Err(crate::error::invalid(
+            "compact initialization requires an empty archive",
+        ));
+    }
+    Ok(initialize)
+}
+
 pub(crate) fn writer(
     config: &ArchiveConfig,
     checkpoint: &std::sync::Arc<crate::checkpoint::Control>,
@@ -134,7 +153,8 @@ pub(crate) fn writer(
             &config.path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
-        versions(&probe)?; // No WAL/DDL/version changes to an unsupported future archive.
+        let (version, _, _) = versions(&probe)?;
+        initialize_compact(&probe, config, version)?; // Fail before changing the source's journal or schema.
     }
     let mut db = Connection::open_with_flags(
         &config.path,
@@ -154,8 +174,10 @@ pub(crate) fn writer(
     checkpoint.install(&mut db)?;
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let (main, monitoring, _) = versions(&tx)?;
+    let initialize_compact = initialize_compact(&tx, config, main)?;
     // Only fixed canonical DDL from the actual Python empty archive.
     tx.execute_batch(include_str!("schema_v6.sql"))?;
+    crate::queries::install_scan_window_scope(&tx)?;
     let mut columns = tx.prepare("PRAGMA table_info(investigations)")?;
     let listening = columns
         .query_map([], |r| r.get::<_, String>(1))?
@@ -226,11 +248,20 @@ pub(crate) fn writer(
     }
     tx.execute_batch(PRECISION_DDL)?;
     crate::candidate_precision::install(&tx)?;
+    crate::export_indexes::install(&tx)?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM ori_archive_schema", [], |r| r.get(0))?;
     if count != 1 {
         return Err(ArchiveError::Corrupt("precision schema metadata".into()));
     }
-    tx.pragma_update(None, "user_version", MAIN_VERSION)?;
+    if initialize_compact {
+        tx.execute_batch(crate::panorama_events::INSTALL)?;
+    }
+    let version = if initialize_compact || main == crate::panorama_events::VERSION {
+        crate::panorama_events::VERSION
+    } else {
+        MAIN_VERSION
+    };
+    tx.pragma_update(None, "user_version", version)?;
     tx.commit()?;
     Ok(db)
 }

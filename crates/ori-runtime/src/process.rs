@@ -8,6 +8,9 @@ mod darwin;
 #[cfg(all(test, target_os = "macos"))]
 mod darwin_native_tests;
 
+#[cfg(windows)]
+pub(crate) mod windows_job;
+
 pub(crate) struct OwnedChild {
     child: Child,
     pid: u32,

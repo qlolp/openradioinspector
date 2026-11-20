@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { hz } from './components';
@@ -26,8 +27,9 @@ interface SpectrumProps {
   sweep?: DisplaySweep;
   comparison?: Comparison;
   liveSources?: LiveSources;
+  belowPlot?: ReactNode;
 }
-export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
+export function Spectrum({ sweep, comparison, liveSources, belowPlot }: SpectrumProps) {
   const locale = useLocale();
   const plot = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -231,6 +233,9 @@ export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
     <div
       className="spectrum-chart"
       data-testid="spectrum-chart"
+      data-applied-sources={liveSources?.presentation.total.toString()}
+      data-evicted-sources={sourceCursor.current?.presentationStatus.retainedRowEvictions.toString()}
+      data-coalesced-sources={drawn?.coalescedSources}
       data-view-low={range.low}
       data-view-high={range.high}
     >
@@ -282,6 +287,7 @@ export function Spectrum({ sweep, comparison, liveSources }: SpectrumProps) {
           <span className="spectrum-empty">{t('Waiting for committed spectrum data')}</span>
         )}
       </div>
+      {belowPlot}
       <div className="spectrum-controls" role="group" aria-label={t('Display frequency range')}>
         <button
           type="button"

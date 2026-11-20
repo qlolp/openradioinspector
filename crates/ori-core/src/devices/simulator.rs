@@ -59,7 +59,7 @@ pub(super) enum Simulated {
 }
 impl Simulated {
     pub fn new(stream: &DeviceStream) -> DeviceResult<Self> {
-        let settings = stream.settings.clone().unwrap_or_default();
+        let mut settings = stream.settings.clone().unwrap_or_default();
         match settings.get("adapter").and_then(Value::as_str) {
             Some("tinysa-sim") => {
                 if stream.role != DeviceRole::SpectrumAnalyzer || stream.level_unit != "dBm" {
@@ -67,9 +67,24 @@ impl Simulated {
                         "tinysa-sim требует роль spectrum_analyzer и исходную единицу dBm".into(),
                     ));
                 }
+                if let Some(plan) = super::scan::Plan::read(stream)? {
+                    let window = plan.config.bands[0].window(0).expect("validated scan band");
+                    settings.insert("start_hz".into(), json!(window.start_hz));
+                    settings.insert("stop_hz".into(), json!(window.stop_hz));
+                    settings.insert("points".into(), json!(window.points));
+                    settings.insert("rbw_hz".into(), json!(window.rbw_hz));
+                }
                 Ok(Self::Analyzer(Analyzer::new(&settings)?))
             }
             Some("ardv1-sim") => {
+                if settings
+                    .get("fast_scan")
+                    .is_some_and(|plan| !plan.is_null())
+                {
+                    return Err(DeviceError::Invalid(
+                        "fast_scan требует ardv1-serial с проверкой RX".into(),
+                    ));
+                }
                 if stream.role != DeviceRole::Receiver || stream.level_unit != "s_meter_count" {
                     return Err(DeviceError::Invalid(
                         "ardv1-sim требует роль receiver и исходную единицу s_meter_count".into(),
@@ -113,7 +128,7 @@ impl Simulated {
             }
         }
     }
-    pub fn select_band(&mut self, band: &ori_guard::ScanBand) -> DeviceResult<()> {
+    pub fn select_window(&mut self, band: ori_guard::ScanWindow) -> DeviceResult<()> {
         let Self::Analyzer(value) = self else {
             return Err(DeviceError::Invalid(
                 "Scan band requires an analyzer".into(),

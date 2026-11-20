@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const platformCode = fs.readFileSync(process.argv[3], 'utf8');
 const time = '2026-11-08T12:30:00+00:00';
 function sweep(id = 'sweep/?&', count = 7, stream = 'tiny/1') {
@@ -10,7 +10,7 @@ function sweep(id = 'sweep/?&', count = 7, stream = 'tiny/1') {
   if (count >= 3) levels[1] = -40;
   if (count >= 7) { levels[2] = -45; levels[4] = -50; }
   return { id, stream_id: stream, level_unit: 'dBm', interval: { started_at: time, ended_at: time },
-    frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100), levels, settings: { rbw_hz: 1000, sequence: null } };
+    frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100), levels, settings: { rbw_hz: 1000, sequence: null, measurement_qualification: { status: 'synthetic', reason: null, verified_through_hz: null } } };
 }
 function payload(source = sweep(), window = 21, margin = 6, session = 'session/1') {
   const d = { session_id: session, stream_id: source.stream_id, sweep: structuredClone(source),
@@ -136,7 +136,7 @@ async function corruptResponses() {
     d => d.frequencies_hz[1] = Infinity, d => d.frequencies_hz[6] = Number.MAX_SAFE_INTEGER + 1,
     d => d.frequencies_hz.pop(), d => d.sweep.levels.pop(), d => d.sweep.levels[0] = Infinity,
     d => d.sweep.levels[0] = -61, d => d.sweep.settings = {}, d => d.sweep.settings = { sequence: 1 },
-    d => d.sweep.settings = { rbw_hz: null }, d => d.sweep.settings.sequence = NaN, d => d.sweep.settings.rbw_hz = 2000,
+    d => d.sweep.settings = { rbw_hz: null }, d => d.sweep.settings.sequence = NaN, d => delete d.sweep.settings.measurement_qualification, d => d.sweep.settings.rbw_hz = 2000,
     d => d.sweep.interval = {}, d => d.sweep.interval.ended_at = '2025-01-01T00:00:00Z',
     d => d.sweep.interval.started_at = '2026-11-08T15:30:00+03:00', d => d.sweep.interval.ended_at = '2026-11-08T12:31:00Z',
     d => d.baseline_levels[0] = Infinity, d => d.baseline_levels.pop(), d => d.threshold_levels[0] = NaN,

@@ -50,11 +50,27 @@ extension PlatformClient {
     }
 
     public func archiveOriginalSweep(sessionID: String, streamID: String, sweepID: String) async throws -> PlatformSweep {
-        let context = try await sweepContext(sessionID: sessionID, sweepID: sweepID, before: 0, after: 0)
-        guard PlatformExactID.same(context.sessionId, sessionID), PlatformExactID.same(context.streamId, streamID),
-              PlatformExactID.same(context.anchorId, sweepID) else {
+        guard !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !sweepID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              sweepID.unicodeScalars.count <= 128 else {
+            throw PlatformError.invalidCommand("Нужны ID сеанса и архивного свипа до 128 символов")
+        }
+        let source: PlatformSweep
+        do {
+            source = try await get("/sessions/\(Self.segment(sessionID))/sweeps/\(Self.segment(sweepID))",
+                                   validateResponse: { bytes in
+                var scanner = MaskJSONScanner(bytes: Array(bytes)); try scanner.check()
+            })
+        } catch PlatformError.http(status: 404, code: "not_found", message: _) {
+            // Legacy servers expose original sweeps through the context route.
+            let context = try await sweepContext(sessionID: sessionID, sweepID: sweepID, before: 0, after: 0)
+            source = try PlatformSweep(context: context)
+        }
+        guard PlatformExactID.same(source.sessionId, sessionID), PlatformExactID.same(source.streamId, streamID),
+              PlatformExactID.same(source.id, sweepID), source.levelUnit == "dBm",
+              averageInterval(source.interval) != nil else {
             throw PlatformError.invalidResponse("Архивный исходник не соответствует выбранному потоку")
         }
-        return try PlatformSweep(context: context)
+        return source
     }
 }
