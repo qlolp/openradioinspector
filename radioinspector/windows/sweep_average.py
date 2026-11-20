@@ -6,10 +6,9 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from math import isfinite
 from time import monotonic
 import re
-from .spectral_mask import same_json
+from ..sweep_settings import acquisition_settings, json_value, number, same_json
 from .sweep_threshold import ThresholdPanel
 
 MAX_HZ = 9_007_199_254_740_991
@@ -18,11 +17,6 @@ MAX_CHANGE_THRESHOLD_DB = 120.0
 
 def require(ok):
     if not ok: raise ValueError('Некорректный усреднённый опорный sweep')
-
-
-def number(value):
-    try: return type(value) in (int, float) and isfinite(value)
-    except OverflowError: return False
 
 
 def identity(value):
@@ -54,15 +48,6 @@ def utc_interval(interval):
     return times
 
 
-def json_value(value, nullable=False):
-    if value is None: return nullable
-    if type(value) in (str, bool): return True
-    if type(value) in (int, float): return number(value)
-    if isinstance(value, list): return all(json_value(v, nullable) for v in value)
-    if isinstance(value, dict): return all(isinstance(k, str) and json_value(v, nullable) for k, v in value.items())
-    return False
-
-
 def validate_source(source, stream):
     require(isinstance(source, dict) and identity(source.get('id')) and source.get('stream_id') == stream)
     require(source.get('level_unit') == 'dBm')
@@ -71,10 +56,7 @@ def validate_source(source, stream):
     require(all(type(v) is int and 0 <= v <= MAX_HZ for v in frequencies))
     require(all(a <= b for a, b in zip(frequencies, frequencies[1:])))
     require(isinstance(levels, list) and len(levels) == len(frequencies) and all(number(v) for v in levels))
-    settings = source.get('settings'); require(isinstance(settings, dict))
-    recorded = {k: v for k, v in settings.items() if k != 'sequence'}
-    require(bool(recorded) and json_value(recorded))
-    require('sequence' not in settings or json_value(settings['sequence'], True))
+    recorded = acquisition_settings(source.get('settings'))
     utc_interval(source.get('interval'))
     return recorded
 

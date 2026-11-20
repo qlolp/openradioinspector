@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from math import isfinite
 from time import monotonic
+from ..sweep_settings import acquisition_settings, same_json
 from .tk_timers import TkTimerOwner
 
 
@@ -24,13 +25,6 @@ def validate_threshold(data, expected, source=None):
             return type(v) in (int, float) and isfinite(v)
         except OverflowError:
             return False
-    def json_value(v, null=False):
-        if v is None: return null
-        if type(v) in (str, bool): return True
-        if type(v) in (int, float): return number(v)
-        if isinstance(v, list): return all(json_value(x, null) for x in v)
-        if isinstance(v, dict): return all(isinstance(k, str) and json_value(x, null) for k, x in v.items())
-        return False
     session, stream, sweep_id, window, margin = expected
     validate_parameters(window, margin)
     require(isinstance(data, dict))
@@ -54,10 +48,7 @@ def validate_threshold(data, expected, source=None):
     levels = sweep.get('levels')
     require(isinstance(levels, list) and len(levels) == n and all(number(v) for v in levels))
     settings = sweep.get('settings')
-    require(isinstance(settings, dict))
-    recorded = {k: v for k, v in settings.items() if k != 'sequence'}
-    require(bool(recorded) and json_value(recorded))
-    require('sequence' not in settings or json_value(settings['sequence'], True))
+    acquisition_settings(settings)
     interval = sweep.get('interval')
     require(isinstance(interval, dict))
     times = []
@@ -75,7 +66,10 @@ def validate_threshold(data, expected, source=None):
         require(frequencies == source.get('frequencies_hz'))
         source_settings = source.get('settings')
         require(isinstance(source_settings, dict))
-        require(recorded == {k: v for k, v in source_settings.items() if k != 'sequence'})
+        # This response describes the frozen original. Preserve its quality
+        # annotation; only the previously ignored sequence counter may vary.
+        require(same_json({k: v for k, v in settings.items() if k != 'sequence'},
+                          {k: v for k, v in source_settings.items() if k != 'sequence'}))
     excess = data['excess_levels']
     for i in range(n):
         threshold = data['baseline_levels'][i] + margin

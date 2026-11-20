@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const platformCode = fs.readFileSync(process.argv[3], 'utf8');
 const time = '2026-11-08T12:30:00+00:00';
 function sweep(id = 'sweep/?&', count = 7, stream = 'tiny/1') {
@@ -10,7 +10,7 @@ function sweep(id = 'sweep/?&', count = 7, stream = 'tiny/1') {
   if (count >= 3) levels[1] = -40;
   if (count >= 7) { levels[2] = -45; levels[4] = -50; }
   return { id, stream_id: stream, level_unit: 'dBm', interval: { started_at: time, ended_at: time },
-    frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100), levels, settings: { rbw_hz: 1000, sequence: null } };
+    frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100), levels, settings: { rbw_hz: 1000, sequence: null, measurement_qualification: { status: 'synthetic', reason: null, verified_through_hz: null } } };
 }
 function mask() { return { format: 'openradioinspector-spectral-mask', format_version: 1, name: 'Synthetic mask', frequency_unit: 'Hz', level_unit: 'dBm', interpolation: 'linear_dbm', vertices: [{ frequency_hz: 0, limit_dbm: -54 }, { frequency_hz: 9007199254740991, limit_dbm: -54 }] }; }
 function payload(source = sweep(), artifact = mask(), session = 'session/1') {

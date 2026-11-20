@@ -2,13 +2,13 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const platformCode = fs.readFileSync(process.argv[3], 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const time = '2026-11-08T12:30:00+00:00';
 function sweep(id, stream = 'tiny/1', level = -50) {
   return { id, stream_id: stream, level_unit: 'dBm', interval: { started_at: time, ended_at: time },
-    frequencies_hz: [100, 200, 300], levels: [level, level + 1, level + 2], settings: { rbw: 1000 } };
+    frequencies_hz: [100, 200, 300], levels: [level, level + 1, level + 2], settings: { rbw: 1000, measurement_qualification: { status: 'synthetic', reason: null, verified_through_hz: null } } };
 }
 function data(ref, target, session = 'session/1', stream = 'tiny/1') {
   return { session_id: session, stream_id: stream, reference: sweep(ref, stream), target: sweep(target, stream),

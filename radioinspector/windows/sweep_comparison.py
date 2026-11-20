@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from math import isfinite
 from time import monotonic
+from ..sweep_settings import acquisition_settings
 from .tk_timers import TkTimerOwner
 
 
@@ -30,18 +31,6 @@ def validate_comparison(data, expected):
             raise ValueError('Некорректный ответ сравнения')
     def number(value):
         return type(value) in (int, float) and isfinite(value)
-    def json_value(value, allow_null=False):
-        if value is None:
-            return allow_null
-        if type(value) in (str, bool):
-            return True
-        if type(value) in (int, float):
-            return number(value)
-        if isinstance(value, list):
-            return all(json_value(v, allow_null) for v in value)
-        if isinstance(value, dict):
-            return all(isinstance(k, str) and json_value(v, allow_null) for k, v in value.items())
-        return False
     require(isinstance(data, dict))
     session, stream, reference, target = expected
     require(data.get('session_id') == session and data.get('stream_id') == stream)
@@ -57,12 +46,7 @@ def validate_comparison(data, expected):
         item = data.get(key)
         require(isinstance(item, dict))
         require(item.get('id') == identity and item.get('level_unit') == 'dBm')
-        settings = item.get('settings')
-        require(isinstance(settings, dict))
-        recorded = {k: v for k, v in settings.items() if k != 'sequence'}
-        require(bool(recorded) and json_value(recorded))
-        if 'sequence' in settings:
-            require(json_value(settings['sequence'], allow_null=True))
+        acquisition_settings(item.get('settings'))
         levels = item.get('levels')
         require(isinstance(levels, list) and len(levels) == n and all(number(v) for v in levels))
         interval = item.get('interval')

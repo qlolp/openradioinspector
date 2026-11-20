@@ -22,6 +22,7 @@ class WebSweepComparisonTests(unittest.TestCase):
     def test_asset_and_panel_wired(self):
         root = Path(__file__).resolve().parents[1] / "radioinspector/web/static"
         html = (root / "platform.html").read_text(encoding="utf-8")
+        self.assertLess(html.index('src="/static/sweep-settings.js"'), html.index('src="/static/sweep-comparison.js"'))
         self.assertLess(html.index('src="/static/sweep-comparison.js"'), html.index('src="/static/platform.js"'))
         self.assertIn('id="comparison-canvas"', html)
         self.assertIn('id="comparison-clear"', html)

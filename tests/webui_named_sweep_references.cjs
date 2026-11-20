@@ -1,8 +1,7 @@
 /* Real production catalog and comparison handlers, controlled transport/lifecycle. */
-const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const time = '2026-11-08T12:30:00Z';
 function sweep(id, stream = 'tiny/1') {

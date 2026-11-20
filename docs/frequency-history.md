@@ -13,8 +13,10 @@ unit. A sample identifies both the requested frequency and the nearest actual
 bin (ties choose the lower frequency). Requests outside the measured range
 return null bin and level. There is no interpolation, unit conversion, inferred
 per-bin timestamp or claim of continuous coverage. The segment digest includes
-the complete grid, raw unit and recorded settings except sequence number.
-Unknown settings isolate each sweep. Clients must not join across null samples,
+the complete grid, raw unit and recorded acquisition settings. The top-level
+sequence counter and derived `measurement_qualification` annotation are omitted
+from the digest. Both remain available on the original sweep. A sweep with no
+recorded acquisition settings forms its own segment. Clients must not join across null samples,
 segment changes or acquisition gaps. Matching metadata is not hardware readback.
 
 `GET /api/v1/sessions/{session}/frequency-bookmarks` lists immutable versions,

@@ -38,6 +38,35 @@ class FrequencyHistoryTests(unittest.TestCase):
         return dict(stream_id=session.streams[0].id, frequencies_hz=[150, 450],
             start='2026-11-15T00:00:00Z', end='2026-11-15T00:01:00Z', **changes)
 
+    def test_quality_metadata_preserves_history_segments_without_defining_an_acquisition(self):
+        for persistent in (False, True):
+            with self.subTest(persistent=persistent):
+                service, session, _ = self.service(persistent)
+                stamp = {'status': 'synthetic', 'reason': None, 'verified_through_hz': None}
+                sources = [
+                    {'rbw_hz': 1000, 'extension': {'value': True}},
+                    {'rbw_hz': 1000, 'extension': {'value': True}, 'measurement_qualification': stamp},
+                    {'rbw_hz': 1000, 'extension': {'value': 1}, 'measurement_qualification': stamp},
+                    {'measurement_qualification': stamp}, {'measurement_qualification': stamp},
+                ]
+                for index, settings in enumerate(sources):
+                    self.seed(service, session, index, settings=settings)
+                items = service.frequency_history(session.id, self.query(session))['items']
+                segments = {row['sweep_id']: row['segment_id'] for row in items}
+                self.assertEqual(segments['sweep-0'], segments['sweep-1'])
+                self.assertNotEqual(segments['sweep-1'], segments['sweep-2'])
+                self.assertNotEqual(segments['sweep-3'], segments['sweep-4'])
+                self.assertEqual([s.settings for s in service.list_sweeps(session.id)], sources)
+
+    def test_invalid_json_in_an_excluded_annotation_is_still_rejected(self):
+        from radioinspector.contracts import Sweep
+        from radioinspector.frequency_history import history_item
+        for invalid in ({'count': float('nan')}, {1: 'invalid JSON key'}):
+            raw = measurement('session', 'stream', 0)
+            raw['settings']['measurement_qualification'] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                history_item(Sweep.from_dict(raw), [100])
+
     def test_actual_bins_units_intervals_and_configuration_segments(self):
         for persistent in (False, True):
             with self.subTest(persistent=persistent):

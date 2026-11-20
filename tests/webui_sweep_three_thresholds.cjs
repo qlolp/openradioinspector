@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const platformCode = fs.readFileSync(process.argv[3], 'utf8');
 const copy = structuredClone;
 function sweep(id = 'source-1', count = 7, stream = 'tiny/1') {
@@ -10,7 +10,7 @@ function sweep(id = 'source-1', count = 7, stream = 'tiny/1') {
     interval: { started_at: '2026-11-08T12:30:00.000001+00:00', ended_at: '2026-11-08T12:30:01.000002+00:00' },
     frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100),
     levels: count === 7 ? [-90, -70, -70, -90, -80, -90, -60] : Array(count).fill(-90),
-    settings: { rbw_hz: 1000, active: true, nested: { array: [1, 'known'] }, sequence: 1 } };
+    settings: { rbw_hz: 1000, active: true, nested: { array: [1, 'known'] }, sequence: 1, measurement_qualification: { status: 'synthetic', reason: null, verified_through_hz: null } } };
 }
 function payload(source = sweep(), levels = [-90, -80, -70], session = 'session/1') {
   const d = { session_id: session, stream_id: source.stream_id, sweep: copy(source),

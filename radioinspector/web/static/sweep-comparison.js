@@ -285,13 +285,6 @@
     return catalogRequest("POST", { name, sweep_id: reference.id });
   }
 
-  function validSetting(value, allowNull = false) {
-    if (value === null) return allowNull;
-    if (typeof value === "number") return finite(value);
-    if (["string", "boolean"].includes(typeof value)) return true;
-    if (Array.isArray(value)) return value.every((item) => validSetting(item, allowNull));
-    return value && typeof value === "object" && Object.values(value).every((item) => validSetting(item, allowNull));
-  }
 
   function validate(data, request) {
     if (!data || data.session_id !== request.sessionId || data.stream_id !== request.streamId ||
@@ -310,9 +303,7 @@
       }
       interval(sweep);
       const settings = sweep.settings;
-      if (!settings || typeof settings !== "object" || Array.isArray(settings) ||
-          !Object.keys(settings).some((key) => key !== "sequence") ||
-          !Object.entries(settings).every(([key, value]) => validSetting(value, key === "sequence"))) {
+      if (!window.oriSweepSettings.valid(settings)) {
         throw new Error("Некорректные записанные настройки сравнения");
       }
     }

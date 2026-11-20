@@ -2,7 +2,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const code = fs.readFileSync(process.argv[2], 'utf8');
+const code = require('./webui_sweep_assets.cjs')(process.argv[2]);
 const platformCode = fs.readFileSync(process.argv[3], 'utf8');
 const copy = structuredClone;
 function sweep(number = 4, count = 7, stream = 'tiny/1') {
@@ -10,7 +10,8 @@ function sweep(number = 4, count = 7, stream = 'tiny/1') {
     interval: { started_at: `2026-11-08T12:30:${String(number).padStart(2, '0')}.000001+00:00`,
       ended_at: `2026-11-08T12:31:${String(number).padStart(2, '0')}.000002+00:00` },
     frequencies_hz: Array.from({ length: count }, (_, i) => 100 + i * 100), levels: Array(count).fill(-90 + number),
-    settings: { rbw_hz: 1000, active: true, nested: { array: [1, 'known'] }, sequence: number } };
+    settings: { rbw_hz: 1000, active: true, nested: { array: [1, 'known'] }, sequence: number,
+      ...(number === 4 ? { measurement_qualification: { status: 'synthetic', reason: null, verified_through_hz: null } } : {}) } };
 }
 function sources(count = 7) { return [7, 2, 5, 1, 6, 3, 4].map(i => sweep(i, count)); }
 function payload(all = sources(), anchor = 'source-4', before = 2, after = 2, session = 'session/1') {
@@ -113,7 +114,8 @@ async function inputBoundaries() {
     assert.equal(app.dom.canvas.hidden, false, app.dom.status.textContent);
   }
   const badSources = [s => s.id = '', s => s.id = ' ', s => s.id = '😀'.repeat(129), s => s.id = '\ud800', s => s.id = '\udc00',
-    s => s.settings = {}, s => s.settings = { sequence: 1 }, s => s.settings.rbw_hz = null, s => s.settings.nested.array[0] = null,
+    s => s.settings = {}, s => s.settings = { sequence: 1 }, s => s.settings = { measurement_qualification: null },
+    s => s.settings.measurement_qualification = { reason: Infinity }, s => s.settings.rbw_hz = null, s => s.settings.nested.array[0] = null,
     s => s.settings.sequence = Infinity, s => s.frequencies_hz[0] = true, s => s.frequencies_hz[0] = -1, s => s.frequencies_hz[0] = 1.5,
     s => s.frequencies_hz[0] = Number.MAX_SAFE_INTEGER + 1, s => s.frequencies_hz[1] = 0, s => s.frequencies_hz.pop(),
     s => s.levels[0] = Infinity, s => s.levels[0] = true, s => s.interval = null,
@@ -150,7 +152,7 @@ async function corruptResponses() {
     d => d.items[0].offset = true, d => d.items[0].offset = -3, d => d.items[2].offset = 1,
     d => d.items[2].id = 'wrong', d => d.items[0].id = 'source-3', d => d.items[0].id = '\ud800', d => d.items[0].id = '😀'.repeat(129),
     d => d.items[0].level_unit = 's_meter_count', d => d.items[0].levels.pop(), d => d.items[0].levels[0] = true,
-    d => d.items[0].levels[0] = Infinity, d => d.items[2].levels[0] = -100, d => d.items[2].settings.sequence = 99,
+    d => d.items[0].levels[0] = Infinity, d => d.items[2].levels[0] = -100, d => d.items[2].settings.sequence = 99, d => delete d.items[2].settings.measurement_qualification,
     d => d.items[0].settings.nested.array[0] = true, d => d.items[0].settings.extra = 1, d => d.items[0].settings.rbw_hz = null,
     d => d.items[0].settings = {}, d => d.items[0].settings = { sequence: 1 }, d => d.items[0].settings.sequence = Infinity,
     d => d.items[0].interval = null, d => d.items[0].interval.started_at += '\n', d => d.items[0].interval.started_at = '2026-02-30T00:00:00Z',

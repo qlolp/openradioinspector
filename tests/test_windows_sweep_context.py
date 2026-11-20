@@ -33,6 +33,20 @@ def panel():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_qualification_is_archived_on_anchor_and_independent_of_neighbour_acquisition(self):
+        anchor = source()
+        stamp = {'status': 'synthetic', 'reason': None, 'verified_through_hz': None}
+        anchor['settings']['measurement_qualification'] = stamp
+        result = response()
+        result['items'][2]['settings']['measurement_qualification'] = stamp.copy()
+        validate_context(result, ('session', 's'), anchor, 2, 2)
+        for item, key, value in ((0, 'rbw_hz', 3000), (2, 'measurement_qualification', None),
+                                 (1, 'measurement_qualification', {'invalid': float('nan')})):
+            changed = deepcopy(result)
+            changed['items'][item]['settings'][key] = value
+            with self.subTest(item=item, key=key), self.assertRaises(ValueError):
+                validate_context(changed, ('session', 's'), anchor, 2, 2)
+
     def check(self,r,s=None,before=2,after=2):return validate_context(r,('session','s'),s or source(),before,after)
     def test_valid_metadata_and_edges(self):
         self.check(response());text=result_text(response())

@@ -20,18 +20,7 @@
     return object(a) && object(b) && Object.keys(a).length === Object.keys(b).length &&
       Object.keys(a).every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
   }
-  function setting(value, allowNull = false) {
-    if (value === null) return allowNull;
-    if (typeof value === "number") return finite(value);
-    if (["boolean", "string"].includes(typeof value)) return true;
-    if (Array.isArray(value)) return value.every(item => setting(item, allowNull));
-    return object(value) && Object.values(value).every(item => setting(item, allowNull));
-  }
-  function settingsValid(settings) {
-    return object(settings) && Object.keys(settings).some(key => key !== "sequence") &&
-      Object.entries(settings).every(([key, value]) => setting(value, key === "sequence"));
-  }
-  const acquisition = settings => Object.fromEntries(Object.entries(settings).filter(([key]) => key !== "sequence"));
+
   // Do not use Date for ordering sub-millisecond timestamps or localeCompare for exact IDs.
   function utc(value) {
     const match = typeof value === "string" && /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/.exec(value);
@@ -64,7 +53,7 @@
         !Array.isArray(frequencies) || frequencies.length !== points ||
         !frequencies.every((v, i) => Number.isSafeInteger(v) && v >= 0 && (!i || v >= frequencies[i - 1])) ||
         !Array.isArray(source.levels) || source.levels.length !== points || !source.levels.every(finite) ||
-        !settingsValid(source.settings)) throw new Error("Некорректный dBm свип, сетка или записанные настройки");
+        !window.oriSweepSettings.valid(source.settings)) throw new Error("Некорректный dBm свип, сетка или записанные настройки");
     interval(source.interval);
   }
   function count(name) {
@@ -89,10 +78,11 @@
         data.items.length !== data.available.before + 1 + data.available.after || data.items.length > 33 ||
         !Number.isSafeInteger(data.points) || data.points * data.items.length > 131072) throw new Error("Некорректный размер или полнота окна");
     const ids = new Set();
+    const settings = window.oriSweepSettings.acquisition(request.source.settings);
     data.items.forEach((item, index) => {
       sourceValid(item, data.frequencies_hz, data.points);
       if (!Number.isSafeInteger(item.offset) || item.offset !== index - data.available.before || ids.has(item.id) ||
-          !equal(acquisition(item.settings), acquisition(request.source.settings)) ||
+          !equal(window.oriSweepSettings.acquisition(item.settings), settings) ||
           (index && ordered(data.items[index - 1], item) >= 0)) {
         throw new Error("Некорректные смещения, порядок, ID или несовместимые настройки окна");
       }
@@ -275,7 +265,7 @@
   }
   function render(data) {
     result = data;
-    dom.summary.textContent = `Якорь: ${data.anchor_id} · offset 0\nЗапрошено N1=${data.requested.before}, N2=${data.requested.after}. Доступно до: ${data.available.before}, после: ${data.available.after}. Недостаёт до: ${data.missing.before}, после: ${data.missing.after}.\n${data.complete ? "Полное окно" : "Неполное окно архива"}: ${data.items.length} свипов × ${data.points} точек = ${data.items.length * data.points} исходных точек dBm.\nПорядок: начало UTC, затем точный ID (UTF-8). Общая сетка без интерполяции; совместимость записанных настроек, кроме sequence.`;
+    dom.summary.textContent = `Якорь: ${data.anchor_id} · offset 0\nЗапрошено N1=${data.requested.before}, N2=${data.requested.after}. Доступно до: ${data.available.before}, после: ${data.available.after}. Недостаёт до: ${data.missing.before}, после: ${data.missing.after}.\n${data.complete ? "Полное окно" : "Неполное окно архива"}: ${data.items.length} свипов × ${data.points} точек = ${data.items.length * data.points} исходных точек dBm.\nПорядок: начало UTC, затем точный ID (UTF-8). Общая сетка без интерполяции; совпадают записанные настройки приёма.`;
     dom.items.replaceChildren(...data.items.map((item, index) => {
       const row = document.createElement("li"), button = document.createElement("button"), text = document.createElement("p");
       button.type = "button"; button.className = "button";
