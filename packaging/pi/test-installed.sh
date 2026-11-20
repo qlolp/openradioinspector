@@ -1,8 +1,8 @@
 #!/bin/bash
 # Destructive package lifecycle test. The input and output are isolated to a fresh CI VM.
 set -euo pipefail
-if [ "$#" -ne 3 ]; then
-    echo "Usage: sudo $0 RELEASE_DIR REHEARSAL_DIR NEW_REPORT_DIR" >&2
+if [ "$#" -ne 3 ] && [ "$#" -ne 5 ]; then
+    echo "Usage: sudo $0 OLDER_DEB_DIR NEWER_DEB_DIR NEW_REPORT_DIR [NODE BROWSER_CACHE]" >&2
     exit 2
 fi
 [ "$(id -u)" = 0 ]
@@ -31,6 +31,16 @@ upgrade=("$second"/*.deb)
 [ "${#upgrade[@]}" = 1 ]
 for pkg in "${rc[0]}" "${upgrade[0]}"; do [ "$(dpkg-deb -f "$pkg" Package)" = "$package" ]; done
 dpkg --compare-versions "$(dpkg-deb -f "${rc[0]}" Version)" lt "$(dpkg-deb -f "${upgrade[0]}" Version)"
+
+if [ "$#" -eq 5 ]; then
+    node=$(realpath "$4")
+    browser_cache=$(realpath "$5")
+    [ -x "$node" ] && [ -d "$browser_cache" ]
+    [ -n "${SUDO_USER:-}" ] && [ "$(id -u "$SUDO_USER")" -ne 0 ]
+    capture=$(realpath "$(dirname "$checks")/../../clients/web/tests/capture-pi-installed.mjs")
+    [ "$(dpkg-deb -f "${rc[0]}" Version)" = '0.4.0~rc.1-1' ]
+    [ "$(dpkg-deb -f "${upgrade[0]}" Version)" = '0.4.0-1' ]
+fi
 
 ip netns add "$ns"
 cleanup() {
@@ -117,6 +127,16 @@ install -d -o ori-pi-rc -g ori-pi-rc -m 0700 "$state"
 runuser -u ori-pi-rc -- cp "$state.ci-retained/compat-v6.sqlite" "$state/sessions.sqlite3"
 offline dpkg -i "${rc[0]}"
 verify existing-v6
+if [ "$#" -eq 5 ]; then
+    # The lifecycle and exact original-source checks have completed on the
+    # restored fixture. Reinstall the final DEB before capturing its WebUI.
+    offline dpkg --force-confold -i "${upgrade[0]}"
+    cmp "$second/release.json" "/usr/share/doc/$package/release.json"
+    verify existing-v6
+    install -d -m 0755 -o "$SUDO_USER" "$report/installed-webui"
+    offline runuser -u "$SUDO_USER" -- env PLAYWRIGHT_BROWSERS_PATH="$browser_cache" \
+        "$node" "$capture" "${upgrade[0]}" "$report/installed-webui"
+fi
 offline dpkg --purge "$package"
 python3 - "$state/sessions.sqlite3" <<'PYV6'
 from pathlib import Path

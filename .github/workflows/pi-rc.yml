@@ -22,6 +22,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: '26.13.0'
+      - name: Confirm the requested source checkout
+        env:
+          SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_REVISION"
       - name: Compile serial binaries and Vite SPA for the Debian 12 ABI
         shell: bash
         run: |
@@ -38,10 +42,17 @@ jobs:
               apt-get update
               DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake python3
               npm ci --prefix clients/web --no-audit --no-fund
-              python3 packaging/pi/build_rc.py --output-dir build/pi/release --rehearsal-dir build/pi/rehearsal
+              python3 packaging/pi/build_rc.py --distribution --output-dir build/pi/release --rehearsal-dir build/pi/rehearsal
             '
-      - name: Exercise the installed systemd service with only loopback available
-        run: sudo bash packaging/pi/test-installed.sh build/pi/release build/pi/rehearsal "$RUNNER_TEMP/pi-rc-proof"
+      - name: Install the pinned browser on the ARM64 runner before going offline
+        working-directory: clients/web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pi-browser
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Verify the installed service, upgrade the RC to 0.4.0 and capture its WebUI offline
+        run: |
+          sudo bash packaging/pi/test-installed.sh build/pi/rehearsal build/pi/release \
+            "$RUNNER_TEMP/pi-rc-proof" "$(command -v node)" "$RUNNER_TEMP/pi-browser"
       - name: Preserve native package and checksums
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
