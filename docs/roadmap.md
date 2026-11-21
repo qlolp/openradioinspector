@@ -1,7 +1,7 @@
 # Дорожная карта OpenRadioInspector
 
 [Состояние подготовки](release/status.md) · [Сопоставление с RadioInspectorRT](rt-comparison.md) ·
-[Состав интеграции](release/integration.md)
+[Исторический протокол интеграции](release/integration.md) · [Очередь архитектурных изменений](platform-architecture.md#очередь-небольших-изменений)
 
 ## Личный выпуск macOS
 

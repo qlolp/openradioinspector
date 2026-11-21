@@ -2,6 +2,7 @@
 
 import json
 import signal
+import subprocess
 import tempfile
 import time
 import unittest
@@ -92,6 +93,8 @@ class SessionIdentityTests(unittest.TestCase):
         owner.directory = MagicMock()
         owner.process = None
         owner.meta = {"owner": "a" * 32}
+        owner._retirement = ownership._Retirement()
+        owner.observed_ns = {}
         owner.authority = SessionAuthority(anchor, kernel=kernel)
         owner.status = lambda: {
             "phase": "released",
@@ -115,6 +118,59 @@ class SessionIdentityTests(unittest.TestCase):
         owner.process.stdin.close.assert_called_once()
         owner.process.wait.assert_called_once()
         self.assertEqual(kernel.sent, [])
+
+    def test_failed_release_ack_is_reported_for_its_own_serial(self):
+        owner, _kernel = self.released_owner()
+        owner.authority = Mock()
+        owner.authority.members.return_value = []
+        owner.status = Mock(side_effect=[
+            {"phase": "exited"}, {"phase": "failed", "control_serial": 1},
+            {"phase": "failed", "control_serial": 2},
+        ])
+        owner.request = Mock(return_value=2)
+        with patch.object(ownership, "_condition_wait") as wait, self.assertRaisesRegex(
+            OwnershipError, "release failed"
+        ):
+            owner.release(.1)
+        wait.assert_called_once()  # The older failure belongs to another request.
+        self.assertNotIn("release_acknowledged", owner.observed_ns)
+        owner.directory.__truediv__.return_value.unlink.assert_not_called()
+
+    def test_late_quiescent_ack_cannot_start_a_release_with_a_fresh_budget(self):
+        owner, _kernel = self.released_owner()
+        owner.authority = Mock()
+        owner.authority.members.return_value = []
+        clock = Mock(wraps=time)
+        clock.monotonic.return_value = 100
+        owner.request = Mock(return_value=1)
+
+        def status():
+            if not owner.request.called:
+                return {"phase": "running"}
+            clock.monotonic.return_value = 101
+            if owner.request.call_count > 1:
+                return {"phase": "released", "control_serial": 2}
+            return {"phase": "quiescent", "control_serial": 1}
+
+        owner.status = status
+        with patch.object(ownership, "time", clock), self.assertRaises(TimeoutError):
+            owner.stop(.08)
+        owner.request.assert_called_once_with("cancel", 100.08)
+        owner.directory.__truediv__.return_value.unlink.assert_not_called()
+
+    def test_exited_status_first_observed_after_the_owned_wait_budget_times_out(self):
+        owner, _kernel = self.released_owner()
+        owner.authority = Mock()
+        clock = Mock(wraps=time)
+        clock.monotonic.return_value = 100
+
+        def status():
+            clock.monotonic.return_value = 101
+            return {"phase": "exited", "exit_code": 0, "cleanup_failed": False}
+
+        owner.status = status
+        with patch.object(ownership, "time", clock), self.assertRaises(subprocess.TimeoutExpired):
+            owner.wait(.08)
 
     def test_target_pid_reuse_after_snapshot_fails_closed(self):
         anchor = self.anchor()
@@ -178,6 +234,8 @@ class RegistryRetirementTests(unittest.TestCase):
         self.owner.directory = self.scope
         self.owner.meta = meta
         self.owner.process = None
+        self.owner._retirement = ownership._Retirement()
+        self.owner.observed_ns = {}
         self.owner.authority = SessionAuthority(anchor, kernel=self.kernel)
         retained = patch.dict(ownership._retained_commands, {self.scope: self.owner}, clear=True)
         retained.start()
@@ -208,6 +266,76 @@ class RegistryRetirementTests(unittest.TestCase):
         self.assertFalse(self.registration.exists())
         self.assertFalse(self.scope.exists())
         self.assertEqual(self.kernel.sent, [])
+
+    def test_link_unlink_failure_preserves_a_resolvable_registration_for_retry(self):
+        unlink = Path.unlink
+
+        def deny_link(path, *args, **kwargs):
+            if path == self.link:
+                raise PermissionError("controlled registration failure")
+            return unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", deny_link), self.assertRaises(PermissionError):
+            self.owner.release(1)
+        self.assertFalse(self.owner._released)
+        self.assertIs(ownership._retained_commands[self.scope], self.owner)
+        self.assertTrue((self.scope / "active.session.json").is_file())
+        self.assertEqual(list(ownership.registered_commands(self.registry)), [self.owner])
+        recovery = OwnedCommand(self.scope, kernel=self.kernel)
+        recovery.stop(1)
+        self.assertTrue(self.owner._released)
+        self.owner.stop(0)
+        self.assertFalse(self.scope.exists())
+        self.assertFalse(self.registration.exists())
+        self.assertNotIn(self.scope, ownership._retained_commands)
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_partial_scope_removal_resumes_without_requiring_deleted_records(self):
+        def partial(_path):
+            (self.scope / "active.session.json").unlink(missing_ok=True)
+            (self.scope / "status.json").unlink(missing_ok=True)
+            raise PermissionError("controlled scope cleanup failure")
+
+        with patch.object(ownership.shutil, "rmtree", partial), self.assertRaises(PermissionError):
+            self.owner.stop(1)
+        self.assertFalse(self.owner._released)
+        self.assertIs(ownership._retained_commands[self.scope], self.owner)
+        OwnedCommand(self.scope, kernel=self.kernel).stop(1)
+        self.assertTrue(self.owner._released)
+        self.assertFalse(self.scope.exists())
+        self.assertFalse(self.registration.exists())
+        self.assertNotIn(self.scope, ownership._retained_commands)
+        self.assertEqual(self.kernel.sent, [])
+
+    def test_completed_retirement_stays_idempotent_after_the_observation_budget(self):
+        clock = Mock(wraps=time)
+        clock.monotonic.return_value = 100
+        remove = ownership.shutil.rmtree
+
+        def retire(path):
+            remove(path)
+            clock.monotonic.return_value = 101
+
+        with patch.object(ownership, "time", clock), patch.object(ownership.shutil, "rmtree", retire):
+            self.owner.release(.08)
+            self.owner.stop(0)
+        self.assertTrue(self.owner._released)
+        self.assertFalse(self.scope.exists())
+        self.assertFalse(self.registration.exists())
+
+    def test_retry_never_deletes_a_replacement_private_scope(self):
+        with patch.object(ownership.shutil, "rmtree", side_effect=PermissionError), self.assertRaises(PermissionError):
+            self.owner.stop(1)
+        original = self.scope.with_name("held-original")
+        self.scope.rename(original)
+        self.scope.mkdir(mode=0o700)
+        with self.assertRaisesRegex(OwnershipError, "scope changed"):
+            OwnedCommand(self.scope, kernel=self.kernel).stop(1)
+        self.assertTrue(self.scope.exists())
+        self.scope.rmdir()
+        original.rename(self.scope)
+        self.owner.stop(1)
+        self.assertTrue(self.owner._released)
 
     def test_foreign_generation_is_still_rejected_without_retiring_it(self):
         value = json.loads(self.link.read_text())

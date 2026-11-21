@@ -204,7 +204,9 @@ if os.name == "posix" and sys.platform in ("linux", "darwin"):
             with tempfile.TemporaryDirectory(prefix="ori-owner-records-") as temporary:
                 directory = Path(temporary)
                 path = directory / "record.json"
-                ownership.write_record(path, {"version": 1, "owner": "a" * 32})
+                with patch.object(os, "fsync", wraps=os.fsync) as sync:
+                    ownership.write_record(path, {"version": 1, "owner": "a" * 32})
+                self.assertEqual(sync.call_count, 2, "ownership registration syncs both file and directory")
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
                 with self.assertRaises(ownership.OwnershipError):

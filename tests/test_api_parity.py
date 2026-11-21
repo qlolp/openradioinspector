@@ -545,16 +545,28 @@ class OwnedProducerTests(unittest.TestCase):
                 self.assertEqual(command[0],str(embedding))
                 self.assertEqual(command[1::2],['--data-dir','--ready-file'])
                 probes=node.readonly_cli()
-                self.assertTrue(probes['commands']['help']['successful'],probes)
-                self.assertTrue(probes['commands']['version']['successful'],probes)
-                self.assertFalse(probes['commands']['readiness']['successful'],probes)
+                for name, expected in (('help',True),('version',True),('readiness',False)):
+                    probe=probes['commands'][name]
+                    # CI needs the observed boundaries without command lines,
+                    # private paths or the target's captured stdout/stderr.
+                    evidence={'probe':name,'exit_code':probe.get('exit_code'),
+                              'lifecycle':probe.get('lifecycle')}
+                    self.assertEqual(probe['successful'],expected,evidence)
+                    if name=='readiness':
+                        self.assertIs(type(probe['exit_code']),int,evidence)
+                        self.assertGreater(probe['exit_code'],0,evidence)
+                        self.assertTrue('--data-dir' in probe['stderr'],evidence)
+                        self.assertIsNone(probe['error'],evidence)
+                        self.assertEqual(probe['lifecycle']['failed_phase'],'target_exit',evidence)
+                        self.assertEqual(probe['lifecycle']['cleanup'],'unneeded',evidence)
+                        for event in ('target_exit','streams_closed','adapter_exit','closed'):
+                            self.assertIn(event,probe['lifecycle']['observed_ms'],evidence)
                 self.assertFalse(probes['successful'])
-                self.assertNotEqual(probes['commands']['readiness']['exit_code'],0)
             self.assertTrue(original.joined)
             self.assertEqual(original.process.returncode,0)
             self.assertFalse(original.ready.exists())
         except BaseException:
-            print('Retained failed separate-executable parity fixture:',directory)
+            print('Retained failed separate-executable parity fixture',directory.name)
             raise
         else:
             import shutil
