@@ -86,7 +86,7 @@ def held_help_release(operation):
             yield process, controller
         finally:
             if not process.closed:
-                controller.shutdown(socket.SHUT_WR)
+                controller.close()
                 process.stop(2)
             process.dispose()
 
@@ -110,12 +110,10 @@ if os.name == "posix":
                     def late_request(*args):
                         serial = request(*args)
                         resume_past_deadline()
-                        # Leave the anchor unreaped until the caller observes
-                        # the already-published terminal status after its budget.
-                        deadline = time.monotonic() + 5
-                        while not owner.authority.kernel.identity(owner.process.pid).zombie:
-                            self.assertLess(time.monotonic(), deadline)
-                            time.sleep(.005)
+                        # The child closes its gate after the supervisor returns.
+                        # Check the actual terminal record without reaping it here.
+                        self.assertEqual(gate.recv(1), b"")
+                        self.assertEqual(owner.status()["phase"], "released")
                         return serial
 
                     def late_reap(*_args, **_kwargs):
